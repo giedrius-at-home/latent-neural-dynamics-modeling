@@ -23,23 +23,14 @@ class TrialDataset(Dataset):
 
         self.input_channels = self.data_params.channels.input
         self.output_channels = self.data_params.channels.output
-        self.is_neural_behavioral = self.data_params.channels.is_neural_behavioral
-        self.preprocess = self.data_params.preprocess
-
-        self._input_mean = None
-        self._input_std = None
-        self._output_mean = None
-        self._output_std = None
+        self.is_behavioral_neural = self.data_params.channels.is_behavioral_neural
 
         logger = get_logger()
         logger.info(
             f"Loaded split='{self.split}' dataset from {self.parquet_path} with {len(self.df)} trials; "
             f"input_channels={self.input_channels}, output_channels={self.output_channels}, "
-            f"is_neural_behavioral={self.is_neural_behavioral}, preprocess={self.preprocess}"
+            f"is_behavioral_neural={self.is_behavioral_neural}"
         )
-
-        if self.split == "train" and self.preprocess:
-            self._compute_preprocessing_stats()
 
     def __len__(self) -> int:
         return len(self.df)
@@ -48,16 +39,8 @@ class TrialDataset(Dataset):
         row = self.df[idx]
 
         Y = self._extract_channels(row, self.input_channels)
-
-        if self.is_neural_behavioral:
-            Z = self._extract_channels(row, self.output_channels)
-        else:
-            Z = None
-
-        if self.preprocess:
-            Y = self._preprocess_data(Y, self._input_mean, self._input_std)
-            if Z is not None:
-                Z = self._preprocess_data(Z, self._output_mean, self._output_std)
+        Y = self._add_lagged_channels(Y)
+        Z = self._extract_channels(row, self.output_channels)
 
         time_vec = row["time"][0]
         chunk_margin = row["chunk_margin"][0]
@@ -68,6 +51,14 @@ class TrialDataset(Dataset):
         stim = row["stim"][0]
 
         offset = row["offset"][0]
+
+        input_lag = getattr(self.data_params.channels, "input_lag", None)
+        if input_lag and input_lag > 0:
+            input_channel_names = self.input_channels + [
+                f"{ch}_lag{input_lag}" for ch in self.input_channels
+            ]
+        else:
+            input_channel_names = self.input_channels
 
         metadata = {
             "participant_id": row["participant_id"][0],
@@ -80,16 +71,37 @@ class TrialDataset(Dataset):
             "chunk_margin": chunk_margin,
             "margined_duration": margined_duration,
             "stim": stim,
-            "input_channels": self.input_channels,
+            "input_channels": input_channel_names,
+            "original_input_channels": self.input_channels,
             "output_channels": self.output_channels,
             "sampling_frequency": self.data_params.sampling_frequency,
             "chunk_margin_ts": chunk_margin_ts,
+            "input_lag": input_lag if input_lag else 0,
         }
 
         logger = get_logger()
         logger.info(f"Loaded trial idx={idx} with metadata: {metadata}")
 
         return Y, Z, metadata
+
+    def _add_lagged_channels(self, Y: np.ndarray) -> np.ndarray:
+        input_lag = getattr(self.data_params.channels, "input_lag", None)
+
+        if input_lag is None or input_lag == 0:
+            return Y
+
+        n_samples, n_channels = Y.shape
+        lagged_channels = []
+
+        for ch_idx in range(n_channels):
+            channel_data = Y[:, ch_idx : ch_idx + 1]
+            lagged_data = np.roll(channel_data, shift=input_lag, axis=0)
+            lagged_data[:input_lag] = 0
+            lagged_channels.append(lagged_data)
+
+        Y_with_lags = np.concatenate([Y] + lagged_channels, axis=1)
+
+        return Y_with_lags
 
     def _extract_channels(
         self, row: pl.DataFrame, channel_list: List[str]
@@ -115,60 +127,9 @@ class TrialDataset(Dataset):
 
         return result
 
-    def _compute_preprocessing_stats(self):
-        input_data_list = []
-        output_data_list = []
-
-        for idx in range(len(self)):
-            row = self.df[idx]
-            Y = self._extract_channels(row, self.input_channels)
-            input_data_list.append(Y)
-
-            if self.is_neural_behavioral:
-                Z = self._extract_channels(row, self.output_channels)
-                output_data_list.append(Z)
-
-        all_input_data = np.vstack(input_data_list)
-        self._input_mean = np.mean(all_input_data, axis=0, keepdims=True)
-        self._input_std = np.std(all_input_data, axis=0, keepdims=True)
-
-        if self.is_neural_behavioral:
-            all_output_data = np.vstack(output_data_list)
-            self._output_mean = np.mean(all_output_data, axis=0, keepdims=True)
-            self._output_std = np.std(all_output_data, axis=0, keepdims=True)
-
-    def _preprocess_data(
-        self, data: np.ndarray, mean: Optional[np.ndarray], std: Optional[np.ndarray]
-    ) -> np.ndarray:
-
-        data = data - mean
-        data = data / std
-
-        return data
-
-    def set_preprocessing_stats(
-        self,
-        input_mean: np.ndarray,
-        input_std: np.ndarray,
-        output_mean: Optional[np.ndarray] = None,
-        output_std: Optional[np.ndarray] = None,
-    ):
-        self._input_mean = input_mean
-        self._input_std = input_std
-        self._output_mean = output_mean
-        self._output_std = output_std
-
-    def get_preprocessing_stats(self) -> dict:
-        return {
-            "input_mean": self._input_mean,
-            "input_std": self._input_std,
-            "output_mean": self._output_mean,
-            "output_std": self._output_std,
-        }
-
     def get_all_data(self) -> Tuple[List[np.ndarray], Optional[List[np.ndarray]]]:
         Y_list = []
-        Z_list = [] if self.is_neural_behavioral else None
+        Z_list = []
         meta_list = []
         for idx in range(len(self)):
             Y, Z, meta = self[idx]
@@ -231,49 +192,30 @@ def create_dataloaders(
 
     test_dataset = TrialDataset(split_dir / "test.parquet", data_params, split="test")
 
-    stats = train_dataset.get_preprocessing_stats()
-    val_dataset.set_preprocessing_stats(
-        stats["input_mean"],
-        stats["input_std"],
-        stats["output_mean"],
-        stats["output_std"],
-    )
-    test_dataset.set_preprocessing_stats(
-        stats["input_mean"],
-        stats["input_std"],
-        stats["output_mean"],
-        stats["output_std"],
-    )
-
-    in_shape = stats["input_mean"].shape
-    out_shape = stats["output_mean"].shape if stats["output_mean"] is not None else None
     logger.info(
-        f"Loaded datasets: train={len(train_dataset)} trials, val={len(val_dataset)} trials, test={len(test_dataset)} trials; "
-        f"preprocessing shapes -> input_mean: {in_shape}, output_mean: {out_shape}"
+        f"Loaded datasets: train={len(train_dataset)} trials, val={len(val_dataset)} trials, test={len(test_dataset)} trials"
     )
-
-    batch_size = data_params.batch_size
 
     train_loader = TrialDataLoader(
         train_dataset,
-        batch_size=batch_size,
+        batch_size=data_params.batch_size,
         shuffle=True,
     )
 
     val_loader = TrialDataLoader(
         val_dataset,
-        batch_size=batch_size,
+        batch_size=data_params.batch_size,
         shuffle=False,
     )
 
     test_loader = TrialDataLoader(
         test_dataset,
-        batch_size=batch_size,
+        batch_size=data_params.batch_size,
         shuffle=False,
     )
 
     logger.info(
-        f"Constructed dataloaders with batch_size={batch_size}. "
+        f"Constructed dataloaders with batch_size={data_params.batch_size}. "
         f"Train steps/epoch≈{len(train_loader)}, Val steps≈{len(val_loader)}, Test steps≈{len(test_loader)}"
     )
 

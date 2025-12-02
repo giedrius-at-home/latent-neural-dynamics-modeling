@@ -1,17 +1,249 @@
 import streamlit as st
 import polars as pl
+import numpy as np
 
-from utils.plots import (
-    plot_trial_channel,
-    plot_trial_coordinates,
-    plot_tracing_speed,
+from dashboard.time_series_plots import (
+    plot_channel_time_series,
+    plot_multi_channel_time_series,
+    plot_coordinates_time_series,
+    plot_speed_time_series,
+    plot_2d_trajectory,
+    plot_cross_trial_speed,
+    plot_session_average_speed,
 )
-from utils.data_loader import natural_sort_key
+from dashboard.utils import get_channel_lists, get_trial_metadata
+from dashboard.backbone import (
+    format_title,
+    format_trial_metadata,
+    update_fig_title,
+    PLOT_STYLE,
+)
+
+
+def prepare_motion_data(trial_data):
+    motion_cols = []
+    if "motion_time" in trial_data.columns:
+        motion_cols.append("motion_time")
+    if "x" in trial_data.columns:
+        motion_cols.append("x")
+    if "y" in trial_data.columns:
+        motion_cols.append("y")
+    if "tracing_speed" in trial_data.columns:
+        motion_cols.append("tracing_speed")
+
+    if not motion_cols:
+        return None, []
+
+    try:
+        coords_data = trial_data.select(
+            *motion_cols,
+            "participant_id",
+            "session",
+            "block",
+            "trial",
+        ).explode(*motion_cols)
+        return coords_data, motion_cols
+    except (pl.exceptions.ShapeError, Exception):
+        # TODO: Check why columns cannot be exploded
+        # st.warning(
+        #     "Motion data columns have mismatched lengths. Aligning to shortest column."
+        # )
+
+        lengths = {}
+        for col in motion_cols:
+            col_data = trial_data[col][0]
+            if col_data is not None:
+                lengths[col] = (
+                    len(col_data) if isinstance(col_data, (list, pl.Series)) else 1
+                )
+
+        if not lengths:
+            return None, motion_cols
+
+        min_length = min(lengths.values())
+        truncated_data = trial_data.select(
+            "participant_id", "session", "block", "trial"
+        )
+
+        for col in motion_cols:
+            col_data = trial_data[col][0]
+            if col_data is not None:
+                truncated = col_data[:min_length]
+                truncated_data = truncated_data.with_columns(
+                    pl.Series([truncated]).alias(col)
+                )
+
+        coords_data = truncated_data.explode(*motion_cols)
+        return coords_data, motion_cols
+
+
+def get_trial_duration(trial_data):
+    duration = None
+    if "margined_duration" in trial_data.columns:
+        duration = trial_data["margined_duration"][0]
+        if "chunk_margin" in trial_data.columns:
+            duration -= 2 * trial_data["chunk_margin"][0]
+    return duration
+
+
+def render_neural_channels(trial_data, channels, channel_type, metadata_str):
+    if not channels:
+        st.info(f"No {channel_type} channels available.")
+        return
+
+    selected_channels = st.multiselect(
+        f"Select {channel_type} Channel(s)",
+        channels,
+        key=f"{channel_type.lower()}_ts_{trial_data['trial'][0]}",
+    )
+
+    if selected_channels:
+        cols_to_select = [
+            "time",
+            "chunk_margin",
+            "margined_duration",
+            "stim",
+            "participant_id",
+            "session",
+            "block",
+            "trial",
+        ] + selected_channels
+
+        df_exploded = trial_data.select(cols_to_select).explode(
+            "time", *selected_channels
+        )
+
+        if len(selected_channels) > 1:
+            fig = plot_multi_channel_time_series(df_exploded, selected_channels)
+            title_parts = [
+                f"{channel_type} Channels: {', '.join(selected_channels)}",
+                metadata_str,
+            ]
+        else:
+            fig = plot_channel_time_series(df_exploded, selected_channels[0])
+            title_parts = [f"{selected_channels[0]} Signal", metadata_str]
+
+        fig = update_fig_title(fig, title_parts)
+
+        st.plotly_chart(
+            fig,
+            use_container_width=True,
+        )
+
+
+def render_coordinates_plots(coords_data, metadata_str):
+    if "x" not in coords_data.columns or "y" not in coords_data.columns:
+        return
+
+    fig_coords_time = plot_coordinates_time_series(coords_data, time_col="motion_time")
+
+    fig_coords_time = update_fig_title(
+        fig_coords_time, ["Coordinates vs Time", metadata_str]
+    )
+    st.plotly_chart(
+        fig_coords_time,
+        use_container_width=True,
+    )
+
+    fig_traj = plot_2d_trajectory(coords_data)
+    fig_traj = update_fig_title(fig_traj, ["2D Trajectory", metadata_str])
+    st.plotly_chart(
+        fig_traj,
+        use_container_width=True,
+    )
+
+
+def render_speed_plot(coords_data, metadata_str):
+    if "tracing_speed" not in coords_data.columns:
+        return
+
+    fig_speed = plot_speed_time_series(coords_data, time_col="motion_time")
+
+    fig_speed = update_fig_title(fig_speed, ["Tracing Speed", metadata_str])
+    st.plotly_chart(
+        fig_speed,
+        use_container_width=True,
+    )
+
+
+def render_cross_trial_speed(block_data):
+    st.subheader("Cross-Trial Speed Analysis")
+
+    st.markdown("### Trial-Level Speed (Individual Trials)")
+    st.markdown("Each line represents a single trial from the current block")
+
+    speed_types = {"Combined": "combined", "X": "x", "Y": "y"}
+
+    for display_name, internal_name in speed_types.items():
+        fig_cross_trial = plot_cross_trial_speed(block_data, speed_type=internal_name)
+
+        if len(fig_cross_trial.data) == 0:
+            st.info(
+                f"No motion data found for {display_name} speed in any trials in this block."
+            )
+        else:
+            fig_cross_trial = update_fig_title(
+                fig_cross_trial,
+                [
+                    f"{display_name} Speed Across All Trials ({len(fig_cross_trial.data)} trials)",
+                    f"Participant {st.session_state.get('participant_id')}, Session {st.session_state.get('session')}, Block {st.session_state.get('block')}",
+                ],
+            )
+
+            st.plotly_chart(
+                fig_cross_trial,
+                use_container_width=True,
+            )
+
+    st.markdown("---")
+    st.markdown("### Session-Level Average Speed (DBS ON vs OFF)")
+    st.markdown(
+        "Mean speed across **all trials in the entire session** for each DBS condition with ± 1 standard deviation"
+    )
+
+    for display_name, internal_name in speed_types.items():
+        fig_session_avg = plot_session_average_speed(speed_type=internal_name)
+
+        if len(fig_session_avg.data) == 0:
+            st.info(f"No motion data found for {display_name} speed session averages.")
+        else:
+            fig_session_avg = update_fig_title(
+                fig_session_avg,
+                [
+                    f"Session-Level Average {display_name} Speed (DBS ON vs OFF)",
+                    f"Participant {st.session_state.get('participant_id')}, Session {st.session_state.get('session')}",
+                ],
+            )
+
+            st.plotly_chart(
+                fig_session_avg,
+                use_container_width=True,
+            )
+
+
+def render_neural_tab(trial_data, lfp_channels, ecog_channels, metadata_str):
+    render_neural_channels(trial_data, lfp_channels, "LFP", metadata_str)
+    render_neural_channels(trial_data, ecog_channels, "ECoG", metadata_str)
+
+
+def render_behavioral_tab(trial_data, metadata_str):
+    coords_data, motion_cols = prepare_motion_data(trial_data)
+
+    if coords_data is not None:
+        render_coordinates_plots(coords_data, metadata_str)
+        render_speed_plot(coords_data, metadata_str)
+    elif motion_cols:
+        st.info("Motion data could not be loaded for this trial.")
+    else:
+        st.info("No motion data available for this trial.")
+
+
+def render_cross_trial_tab(block_data):
+    render_cross_trial_speed(block_data)
 
 
 def time_series_tab(block_data):
     st.header("Time-Series Analysis")
-    selected_block = st.session_state.get("block")
 
     trials_in_block = sorted(block_data["trial"].unique().to_list())
     selected_trial = st.selectbox(
@@ -21,162 +253,35 @@ def time_series_tab(block_data):
 
     trial_data = block_data.filter(pl.col("trial") == selected_trial)
 
-    lfp_channels = sorted(
-        [
-            col
-            for col in block_data.columns
-            if col.lower().startswith("lfp")
-            and ("psd" not in col and "epochs" not in col)
-        ],
-        key=natural_sort_key,
-    )
-    ecog_channels = sorted(
-        [
-            col
-            for col in block_data.columns
-            if col.lower().startswith("ecog")
-            and ("psd" not in col and "epochs" not in col)
-        ],
-        key=natural_sort_key,
-    )
-
-    if trial_data is not None:
-        stim_on = trial_data["stim"][0]
-        st.subheader(
-            f"""Participant {st.session_state.get('participant_id')} Session {st.session_state.get('session')}
-            Block{selected_block} Trial{trial_data['trial'][0]} Stim {stim_on}"""
-        )
-
-        use_absolute_time = st.toggle("Use Absolute Time", value=False)
-
-        col1, col2 = st.columns(2)
-        with col1:
-            st.markdown("#### Channel Time Series")
-            selected_lfp = st.selectbox(
-                "Select LFP Channel",
-                lfp_channels,
-                key=f"lfp_ts_{trial_data['trial'][0]}",
-            )
-            if selected_lfp:
-                df_exploded = trial_data.select(
-                    "time",
-                    "chunk_margin",
-                    "margined_duration",
-                    "stim",
-                    "participant_id",
-                    "session",
-                    "block",
-                    "trial",
-                    selected_lfp,
-                ).explode("time", selected_lfp)
-                st.plotly_chart(
-                    plot_trial_channel(df_exploded, selected_lfp, use_absolute_time),
-                    use_container_width=True,
-                )
-
-            selected_ecog = st.selectbox(
-                "Select ECoG Channel",
-                ecog_channels,
-                key=f"ecog_ts_{trial_data['trial'][0]}",
-            )
-            if selected_ecog:
-                df_exploded = trial_data.select(
-                    "time",
-                    "chunk_margin",
-                    "margined_duration",
-                    "stim",
-                    "participant_id",
-                    "session",
-                    "block",
-                    "trial",
-                    selected_ecog,
-                ).explode("time", selected_ecog)
-                st.plotly_chart(
-                    plot_trial_channel(df_exploded, selected_ecog, use_absolute_time),
-                    use_container_width=True,
-                )
-        with col2:
-            st.markdown("#### Coordinates and Speed")
-
-            # Check which motion columns exist and have data
-            motion_cols = []
-            if "motion_time" in trial_data.columns:
-                motion_cols.append("motion_time")
-            if "x" in trial_data.columns:
-                motion_cols.append("x")
-            if "y" in trial_data.columns:
-                motion_cols.append("y")
-            if "tracing_speed" in trial_data.columns:
-                motion_cols.append("tracing_speed")
-
-            if motion_cols:
-                try:
-                    # Try to explode all columns together
-                    coords_data = trial_data.select(
-                        *motion_cols,
-                        "participant_id",
-                        "session",
-                        "block",
-                        "trial",
-                    ).explode(*motion_cols)
-                except (pl.exceptions.ShapeError, Exception):
-                    # If columns have different lengths, explode separately and align
-                    st.warning(
-                        "Motion data columns have mismatched lengths. Aligning to shortest column."
-                    )
-
-                    # Find the minimum length among all motion columns
-                    lengths = {}
-                    for col in motion_cols:
-                        col_data = trial_data[col][0]
-                        if col_data is not None:
-                            lengths[col] = (
-                                len(col_data)
-                                if isinstance(col_data, (list, pl.Series))
-                                else 1
-                            )
-
-                    if lengths:
-                        min_length = min(lengths.values())
-
-                        # Truncate all columns to minimum length
-                        truncated_data = trial_data.select(
-                            "participant_id", "session", "block", "trial"
-                        )
-
-                        for col in motion_cols:
-                            col_data = trial_data[col][0]
-                            if col_data is not None:
-                                truncated = col_data[:min_length]
-                                truncated_data = truncated_data.with_columns(
-                                    pl.Series([truncated]).alias(col)
-                                )
-
-                        coords_data = truncated_data.explode(*motion_cols)
-                    else:
-                        coords_data = None
-
-                if coords_data is not None:
-                    if "x" in coords_data.columns and "y" in coords_data.columns:
-                        st.plotly_chart(
-                            plot_trial_coordinates(
-                                coords_data, time="motion_time", plot_over_time=True
-                            ),
-                            use_container_width=True,
-                        )
-                        st.plotly_chart(
-                            plot_trial_coordinates(coords_data, time="motion_time"),
-                            use_container_width=True,
-                        )
-
-                    if "tracing_speed" in coords_data.columns:
-                        st.plotly_chart(
-                            plot_tracing_speed(coords_data, time="motion_time"),
-                            use_container_width=True,
-                        )
-                else:
-                    st.info("Motion data could not be loaded for this trial.")
-            else:
-                st.info("No motion data available for this trial.")
-    else:
+    if trial_data is None or trial_data.is_empty():
         st.info("Select a block and trial to view time-series data.")
+        return
+
+    meta = get_trial_metadata(trial_data)
+    duration = get_trial_duration(trial_data)
+
+    metadata_str = format_trial_metadata(
+        meta.get("participant_id"),
+        meta.get("session"),
+        meta.get("block"),
+        meta.get("trial"),
+        stim=meta.get("stim"),
+        duration=duration,
+    )
+
+    st.subheader(metadata_str)
+
+    lfp_channels, ecog_channels = get_channel_lists(block_data)
+
+    neural_tab, behavioral_tab, cross_trial_tab = st.tabs(
+        ["Neural", "Behavioral", "Cross-Trial"]
+    )
+
+    with neural_tab:
+        render_neural_tab(trial_data, lfp_channels, ecog_channels, metadata_str)
+
+    with behavioral_tab:
+        render_behavioral_tab(trial_data, metadata_str)
+
+    with cross_trial_tab:
+        render_cross_trial_tab(block_data)

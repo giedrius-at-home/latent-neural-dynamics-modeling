@@ -6,7 +6,6 @@ from textwrap import wrap
 
 
 def _create_base_figure(title: str, x_axis_title: str, y_axis_title: str) -> go.Figure:
-    """Creates a base Plotly figure with a standardized publication-style layout."""
     fig = go.Figure()
     fig.update_layout(
         title=dict(text=title, x=0.5, font=dict(size=20, family="sans-serif")),
@@ -22,14 +21,102 @@ def _create_base_figure(title: str, x_axis_title: str, y_axis_title: str) -> go.
 
 
 def _wrap_title(title: str, width: int = 60) -> str:
-    """Wraps a title string into multiple lines."""
     return "<br>".join(wrap(title, width=width))
 
 
-def plot_trial_channel(
-    trial_df: pl.DataFrame, channel: str, use_absolute_time: bool = False
+def _setup_dual_time_axis(
+    fig: go.Figure, time_abs: np.ndarray, onset_time: float, y_data: np.ndarray = None
 ) -> go.Figure:
-    """Plots a single iEEG channel for a given trial with improved styling."""
+    if time_abs is None or len(time_abs) == 0:
+        return fig
+
+    time_abs = np.asarray(time_abs, dtype=float)
+    rel_offset = float(onset_time) if onset_time is not None else float(time_abs.min())
+
+    n_ticks = 5
+    tickvals = np.linspace(time_abs.min(), time_abs.max(), n_ticks)
+    rel_ticktext = [f"{(tv - rel_offset):.1f}" for tv in tickvals]
+    abs_ticktext = [f"{tv:.1f}" for tv in tickvals]
+
+    fig.update_xaxes(
+        tickmode="array",
+        tickvals=tickvals,
+        ticktext=abs_ticktext,
+        title_text="Time (s)",
+        title_font=dict(size=16, family="sans-serif"),
+        tickfont=dict(size=13),
+    )
+
+    fig.update_layout(
+        xaxis2=dict(
+            overlaying="x",
+            side="top",
+            tickmode="array",
+            tickvals=tickvals,
+            ticktext=rel_ticktext,
+            title_text="",
+            tickfont=dict(size=13),
+            range=[float(time_abs.min()), float(time_abs.max())],
+            matches="x",
+            showgrid=False,
+        )
+    )
+
+    if y_data is not None and len(y_data) > 0:
+        y_min, y_max = float(np.nanmin(y_data)), float(np.nanmax(y_data))
+    else:
+        y_range = (
+            fig.layout.yaxis.range
+            if hasattr(fig.layout, "yaxis") and fig.layout.yaxis.range
+            else None
+        )
+        if y_range:
+            y_min, y_max = y_range[0], y_range[1]
+        else:
+            all_y = []
+            for trace in fig.data:
+                if hasattr(trace, "y") and trace.y is not None:
+                    all_y.extend(
+                        [y for y in trace.y if y is not None and not np.isnan(y)]
+                    )
+            if all_y:
+                y_min, y_max = min(all_y), max(all_y)
+            else:
+                y_min, y_max = 0, 1
+
+    y_span = y_max - y_min
+
+    fig.add_annotation(
+        text="relative",
+        xref="paper",
+        yref="y",
+        x=1.02,
+        y=y_max - 0.15 * y_span,
+        showarrow=False,
+        font=dict(size=11, family="sans-serif", color="gray"),
+        xanchor="left",
+    )
+
+    fig.add_annotation(
+        text="absolute",
+        xref="paper",
+        yref="y",
+        x=1.02,
+        y=y_min + 0.15 * y_span,
+        showarrow=False,
+        font=dict(size=11, family="sans-serif", color="gray"),
+        xanchor="left",
+    )
+
+    return fig
+
+
+def plot_trial_channel(
+    trial_df: pl.DataFrame,
+    channel: str,
+    use_absolute_time: bool = True,
+    add_dual_axis: bool = True,
+) -> go.Figure:
     if trial_df.is_empty():
         return go.Figure().update_layout(title_text=f"No data for {channel}")
 
@@ -43,34 +130,26 @@ def plot_trial_channel(
     title = _wrap_title(
         f"{channel.replace('_', ' ')} Signal (P{participant_id}, S{session}, B{block}, T{trial}, Stim {dbs_state})"
     )
-    x_axis_title = "Absolute Time (s)" if use_absolute_time else "Relative Time (s)"
+    x_axis_title = "Time (s)"
     fig = _create_base_figure(title, x_axis_title, "Amplitude (µV)")
 
-    time_col = "time" if use_absolute_time else "relative_time"
-    if "relative_time" not in trial_df.columns:
-        trial_df = trial_df.with_columns(
-            (pl.col("time") - trial_df["time"].min()).alias("relative_time")
-        )
+    time_data = trial_df["time"].to_numpy()
+    channel_data = trial_df[channel].to_numpy()
 
     fig.add_trace(
         go.Scatter(
-            x=trial_df[time_col],
-            y=trial_df[channel],
+            x=time_data,
+            y=channel_data,
             mode="lines",
             name=channel,
             line=dict(color="black", width=1),
         )
     )
 
-    # Add annotations for event start/end
     chunk_margin = trial_df["chunk_margin"][0]
     original_duration = trial_df["margined_duration"][0] - 2 * chunk_margin
 
-    if use_absolute_time:
-        event_start = trial_df["time"].min() + chunk_margin
-    else:
-        event_start = chunk_margin
-
+    event_start = time_data.min() + chunk_margin
     event_end = event_start + original_duration
 
     fig.add_vrect(
@@ -91,13 +170,20 @@ def plot_trial_channel(
     )
 
     fig.update_layout(showlegend=False)
+
+    if add_dual_axis:
+        onset_time = event_start
+        fig = _setup_dual_time_axis(fig, time_data, onset_time, channel_data)
+
     return fig
 
 
 def plot_trial_coordinates(
-    trial_df: pl.DataFrame, time: str, plot_over_time: bool = False
+    trial_df: pl.DataFrame,
+    time: str,
+    plot_over_time: bool = False,
+    add_dual_axis: bool = True,
 ) -> go.Figure:
-    """Plots trial coordinates with improved styling."""
     if trial_df.is_empty() or trial_df["x"].is_null().all():
         return go.Figure().update_layout(title_text="No coordinate data available")
 
@@ -111,12 +197,18 @@ def plot_trial_coordinates(
             f"Coordinates vs. Time (P{p_id}, S{session}, B{block}, T{trial})"
         )
         fig = _create_base_figure(title, "Time (s)", "Position")
-        fig.add_trace(
-            go.Scatter(x=trial_df[time], y=trial_df["x"], mode="lines", name="X-coord")
-        )
-        fig.add_trace(
-            go.Scatter(x=trial_df[time], y=trial_df["y"], mode="lines", name="Y-coord")
-        )
+
+        time_data = trial_df[time].to_numpy()
+        x_data = trial_df["x"].to_numpy()
+        y_data = trial_df["y"].to_numpy()
+
+        fig.add_trace(go.Scatter(x=time_data, y=x_data, mode="lines", name="X-coord"))
+        fig.add_trace(go.Scatter(x=time_data, y=y_data, mode="lines", name="Y-coord"))
+
+        if add_dual_axis and len(time_data) > 0:
+            onset_time = time_data.min()
+            combined_y = np.concatenate([x_data, y_data])
+            fig = _setup_dual_time_axis(fig, time_data, onset_time, combined_y)
     else:
         title = _wrap_title(f"2D Trajectory (P{p_id}, S{session}, B{block}, T{trial})")
         fig = _create_base_figure(title, "X Coordinate", "Y Coordinate")
@@ -148,8 +240,9 @@ def plot_trial_coordinates(
     return fig
 
 
-def plot_tracing_speed(trial_df: pl.DataFrame, time: str) -> go.Figure:
-    """Plots tracing speed with improved styling."""
+def plot_tracing_speed(
+    trial_df: pl.DataFrame, time: str, add_dual_axis: bool = True
+) -> go.Figure:
     if trial_df.is_empty() or trial_df["tracing_speed"].is_null().all():
         return go.Figure().update_layout(title_text="No speed data available")
 
@@ -159,12 +252,16 @@ def plot_tracing_speed(trial_df: pl.DataFrame, time: str) -> go.Figure:
     block = trial_df["block"][0] if "block" in trial_df.columns else "?"
     title = _wrap_title(f"Tracing Speed (P{p_id}, S{session}, B{block}, T{trial})")
     fig = _create_base_figure(title, "Time (s)", "Speed (pixels/s)")
-    fig.add_trace(
-        go.Scatter(
-            x=trial_df[time], y=trial_df["tracing_speed"], mode="lines", name="Speed"
-        )
-    )
+
+    time_data = trial_df[time].to_numpy()
+    speed_data = trial_df["tracing_speed"].to_numpy()
+
+    fig.add_trace(go.Scatter(x=time_data, y=speed_data, mode="lines", name="Speed"))
     fig.update_layout(showlegend=False)
+
+    if add_dual_axis and len(time_data) > 0:
+        onset_time = time_data.min()
+        fig = _setup_dual_time_axis(fig, time_data, onset_time, speed_data)
 
     return fig
 
@@ -206,19 +303,59 @@ def plot_psd_heatmap(
         rel0 = float(rel_offset) if rel_offset is not None else float(x_vals.min())
         n_ticks = 5
         tickvals = np.linspace(x_vals.min(), x_vals.max(), n_ticks)
-        ticktext = [f"{(tv - rel0):.1f}" for tv in tickvals]
+
+        rel_ticktext = [f"{(tv - rel0):.1f}" for tv in tickvals]
+
+        abs_ticktext = [f"{tv:.1f}" for tv in tickvals]
+
+        fig.update_xaxes(
+            tickmode="array",
+            tickvals=tickvals,
+            ticktext=abs_ticktext,
+            title_text="Time (s)",
+            title_font=dict(size=16, family="sans-serif"),
+            tickfont=dict(size=13),
+        )
+
         fig.update_layout(
             xaxis2=dict(
                 overlaying="x",
                 side="top",
                 tickmode="array",
                 tickvals=tickvals,
-                ticktext=ticktext,
-                title_text="Relative Time (s)",
-                title_font=dict(size=12, family="sans-serif"),
+                ticktext=rel_ticktext,
+                title_text="",
+                tickfont=dict(size=13),
                 range=[float(x_vals.min()), float(x_vals.max())],
                 matches=None,
+                showgrid=False,
             )
+        )
+
+        y_range = [freqs.min(), freqs.max()]
+        y_min, y_max = y_range[0], y_range[1]
+        y_span = y_max - y_min
+
+        fig.add_annotation(
+            text="relative",
+            xref="paper",
+            yref="y",
+            x=1.12,
+            y=y_max - 0.15 * y_span,
+            showarrow=False,
+            font=dict(size=13, family="sans-serif", color="gray"),
+            xanchor="left",
+        )
+
+        fig.add_annotation(
+            text="absolute",
+            xref="paper",
+            yref="y",
+            x=1.12,
+            y=y_min + 0.15 * y_span,
+            showarrow=False,
+            font=dict(size=13, family="sans-serif", color="gray"),
+            xanchor="left",
         )
 
     return fig
@@ -229,20 +366,56 @@ def plot_average_psd(
     psd_data: dict,
     title: str,
 ) -> go.Figure:
-    """
-    Plots the average PSD for multiple channels, comparing DBS ON and OFF states.
-    """
     fig = _create_base_figure(
         _wrap_title(title), "Frequency (Hz)", "Power/Frequency (dB/Hz)"
     )
-    fig.update_layout(legend_title_text="Channel (DBS State)")
+    fig.update_layout(legend_title_text="Channel")
 
     colors = px.colors.qualitative.Plotly
     color_idx = 0
 
     for channel, data in psd_data.items():
-        color_on = colors[color_idx % len(colors)]
-        color_off = colors[(color_idx + 1) % len(colors)]
+        color = colors[color_idx % len(colors)]
+
+        all_psds = []
+        if "on" in data and data["on"].size > 0:
+            all_psds.append(data["on"])
+        if "off" in data and data["off"].size > 0:
+            all_psds.append(data["off"])
+
+        if all_psds:
+            combined = np.vstack(all_psds)
+            mean_psd = 10 * np.log10(np.mean(combined, axis=0)) + 120
+            fig.add_trace(
+                go.Scatter(
+                    x=freqs,
+                    y=mean_psd,
+                    mode="lines",
+                    name=f"{channel}",
+                    line=dict(color=color, width=2),
+                )
+            )
+
+        color_idx += 1
+
+    return fig
+
+
+def plot_average_psd_dbs_comparison(
+    freqs: np.ndarray,
+    psd_data: dict,
+    title: str,
+) -> go.Figure:
+    fig = _create_base_figure(
+        _wrap_title(title), "Frequency (Hz)", "Power/Frequency (dB/Hz)"
+    )
+    fig.update_layout(legend_title_text="Channel • DBS State")
+
+    colors = px.colors.qualitative.Plotly
+    color_idx = 0
+
+    for channel, data in psd_data.items():
+        color = colors[color_idx % len(colors)]
 
         if "on" in data and data["on"].size > 0:
             mean_psd_on = 10 * np.log10(np.mean(data["on"], axis=0)) + 120
@@ -251,8 +424,8 @@ def plot_average_psd(
                     x=freqs,
                     y=mean_psd_on,
                     mode="lines",
-                    name=f"{channel} (ON)",
-                    line=dict(color=color_on),
+                    name=f"{channel} • ON",
+                    line=dict(color=color, width=2),
                 )
             )
 
@@ -263,11 +436,11 @@ def plot_average_psd(
                     x=freqs,
                     y=mean_psd_off,
                     mode="lines",
-                    name=f"{channel} (OFF)",
-                    line=dict(color=color_off, dash="dash"),
+                    name=f"{channel} • OFF",
+                    line=dict(color=color, width=2, dash="dash"),
                 )
             )
 
-        color_idx += 2
+        color_idx += 1
 
     return fig

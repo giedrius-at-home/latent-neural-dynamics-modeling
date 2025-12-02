@@ -21,6 +21,7 @@ model:
   # Forecasting (for m-step ahead prediction evaluation)
   forecast:
     m: ##  # Number of seconds to forecast
+    history: ##  # Number of seconds of history to use for forecasting
 
 data:
   root: "##"  # Root directory for data
@@ -30,9 +31,10 @@ data:
   dbs_condition: "##"  # Options: "on", "off", "both"
   preprocess: true
   channels:
-    is_neural_behavioral: true
+    is_behavioral_neural: true
     input: []  # Y (neural)
     output: []  # Z (behavior)
+    input_lag: ##  # Number of samples to lag the input channels
   split:
     within_session_split: true
     train: ## # Proportion of data to use for training

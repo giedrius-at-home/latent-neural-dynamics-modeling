@@ -131,8 +131,9 @@ def setup_logger(log_dir: str, name: str = "application"):
 
 
 def get_logger():
+    global _LOGGER_INSTANCE
     if _LOGGER_INSTANCE is None:
-        raise RuntimeError("Logger has not been initialized. Call setup_logger first.")
+        _LOGGER_INSTANCE = Logger("logs", name="default")
     return _LOGGER_INSTANCE
 
 

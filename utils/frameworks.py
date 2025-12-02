@@ -8,14 +8,12 @@ import numpy as np
 import sys
 from pathlib import Path
 
-# Add DPAD to path
 dpad_path = Path(__file__).parent.parent / "DPAD-main" / "source"
 if str(dpad_path) not in sys.path:
     sys.path.insert(0, str(dpad_path))
 
-# Simple type aliases - always lists of trials
 Array2D = NDArray[np.float64]
-TrialList = List[Array2D]  # List of (time, channels) arrays
+TrialList = List[Array2D]
 
 
 class BaseFramework:
@@ -65,6 +63,15 @@ class PSIDWrapper:
         self.logger = get_logger()
         self.idSys = None
 
+    def load_from_file(self, model_path: str):
+        import pickle
+
+        self.logger.info(f"Loading PSID model from {model_path}")
+        with open(model_path, "rb") as f:
+            self.idSys = pickle.load(f)
+        self.logger.info("PSID model loaded successfully")
+        return self.idSys
+
     def train(self, Y: TrialList, Z: Optional[TrialList] = None):
         from PSID.PSID import PSID as PSIDClass
 
@@ -72,11 +79,6 @@ class PSIDWrapper:
         n1: int = self.config.model.n1
         i: int = self.config.model.i
         time_first: bool = self.config.model.time_first
-        remove_mean_Y: bool = self.config.model.remove_mean_Y
-        remove_mean_Z: bool = self.config.model.remove_mean_Z
-        zscore_Y: bool = self.config.model.zscore_Y
-        zscore_Z: bool = self.config.model.zscore_Z
-
         self.logger.info(
             f"Calling PSID.PSID with nx={nx}, n1={n1}, i={i}, time_first={time_first}; "
         )
@@ -87,11 +89,11 @@ class PSIDWrapper:
             nx,
             n1,
             i,
+            zscore_Y=True,
+            zscore_Z=True,
+            remove_mean_Y=True,
+            remove_mean_Z=True,
             time_first=time_first,
-            remove_mean_Y=remove_mean_Y,
-            remove_mean_Z=remove_mean_Z,
-            zscore_Y=zscore_Y,
-            zscore_Z=zscore_Z,
         )
         return self.idSys
 
@@ -109,8 +111,8 @@ class PSIDWrapper:
             "Yp_shape": state_shape(Yp),
             "Zp_shape": (None if Zp is None else state_shape(Zp)),
             "Xp_shape": (None if Xp is None else state_shape(Xp)),
-            "pearson_r_per_channel": r_list,  # per trial if multiple trials, else per-channel list
-            "pearson_r_mean": r_mean,  # overall mean across trials/channels
+            "pearson_r_per_channel": r_list,
+            "pearson_r_mean": r_mean,
         }
 
         return result
@@ -129,8 +131,10 @@ class PSIDWrapper:
     ) -> Dict[str, Any]:
 
         m_seconds = self.config.model.forecast.m
+        history_seconds = self.config.model.forecast.history
         sampling_freq = self.config.data.sampling_frequency
         m = int(m_seconds * sampling_freq)
+        history = int(history_seconds * sampling_freq)
         margin_sec = margin if margin is not None else 0.0
 
         results = {
@@ -148,20 +152,21 @@ class PSIDWrapper:
 
         for idx, Y in enumerate(Y_list):
             T = Y.shape[0]
-            if m >= T:
+            if history + m > T:
                 raise ValueError(
-                    f"Forecast horizon m={m} must be smaller than trial length T={T}"
+                    f"history + m ({history} + {m} = {history + m}) must not exceed trial length T={T}"
                 )
 
-            start = T - m
-            end = T
+            start = 0
+            history_end = history
+            forecast_end = history + m
 
-            Y_past = Y[:start]
-            Y_future_true = Y[start:end]
+            Y_past = Y[start:history_end]
+            Y_future_true = Y[history_end:forecast_end]
 
             Z = Z_list[idx] if Z_list is not None and idx < len(Z_list) else None
-            Z_future_true = Z[start:end] if Z is not None else None
-            Z_past = Z[:start] if Z is not None else None
+            Z_future_true = Z[history_end:forecast_end] if Z is not None else None
+            Z_past = Z[start:history_end] if Z is not None else None
 
             Zf, Yf, Xf = self.forecast(m, Y_past)
 
@@ -240,6 +245,20 @@ class DPADWrapper:
         self.logger = get_logger()
         self.idSys = None
 
+    def load_from_file(self, model_path: str):
+        import pickle
+
+        self.logger.info(f"Loading DPAD model from {model_path}")
+        with open(model_path, "rb") as f:
+            self.idSys = pickle.load(f)
+
+        self.idSys.restoreModels()
+        self.idSys.set_steps_ahead([1])
+        self.idSys.set_multi_step_with_data_gen(False)
+
+        self.logger.info("DPAD model loaded and restored successfully")
+        return self.idSys
+
     def train(self, Y: TrialList, Z: Optional[TrialList] = None):
         from DPAD import DPADModel
 
@@ -251,7 +270,6 @@ class DPADWrapper:
         self.logger.info(
             f"Training DPAD with nx={nx}, n1={n1}, method_code={method_code}, epochs={epochs}"
         )
-        # DPAD expects (features x time), transpose each trial
         Y_dpad = [y.T for y in Y]
         Z_dpad = [z.T for z in Z] if Z is not None else None
 
@@ -261,11 +279,39 @@ class DPADWrapper:
         return self.idSys
 
     def predict(self, Y: TrialList):
-        """Predict on list of trials, handling each separately."""
         all_Zp, all_Yp, all_Xp = [], [], []
 
+        block_samples = self.idSys.block_samples
+
         for y_trial in Y:
-            Zp, Yp, Xp = self.idSys.predict(y_trial)
+            original_len = y_trial.shape[0]
+            remainder = original_len % block_samples
+
+            if remainder != 0:
+                pad_len = block_samples - remainder
+                padding = np.zeros((pad_len, y_trial.shape[1]))
+                y_trial_padded = np.concatenate([y_trial, padding], axis=0)
+            else:
+                y_trial_padded = y_trial
+
+            result = self.idSys.predict(y_trial_padded)
+
+            if len(result) == 3:
+                Zp, Yp, Xp = result
+            else:
+                self.logger.warning(
+                    f"Unexpected predict result length: {len(result)}, extracting first step only"
+                )
+                num_steps = len(result) // 3
+                Zp = result[0] 
+                Yp = result[num_steps]  
+                Xp = result[2 * num_steps]
+
+            if remainder != 0:
+                Zp = Zp[:original_len] if Zp is not None else None
+                Yp = Yp[:original_len] if Yp is not None else None
+                Xp = Xp[:original_len] if Xp is not None else None
+
             all_Zp.append(np.asarray(Zp) if Zp is not None else None)
             all_Yp.append(np.asarray(Yp) if Yp is not None else None)
             all_Xp.append(np.asarray(Xp) if Xp is not None else None)
@@ -292,31 +338,17 @@ class DPADWrapper:
         return self.validate(Y)
 
     def forecast(self, m: int, Y_past: Array2D):
-        """Generate m-step ahead forecast using DPAD simulation mode.
 
-        This does not require training with multi-step horizons. It sets the
-        desired horizons [1..m], enables forward data-generation, calls predict,
-        and extracts the last row from each horizon to form the m-step sequence.
-
-        Args:
-            m: number of steps to forecast
-            Y_past: past observations (time x ny)
-
-        Returns:
-            Zf, Yf, Xf: arrays of shape (m, nz|ny|nx)
-        """
-        
-        block_samples = self.idSys.model1.block_samples
+        block_samples = self.idSys.block_samples
         original_len = Y_past.shape[0]
         remainder = original_len % block_samples
-        
+
         if remainder != 0:
             pad_len = block_samples - remainder
             self.logger.info(
                 f"Padding Y_past from {original_len} to {original_len + pad_len} "
                 f"samples (multiple of block_samples={block_samples})"
             )
-            # Pad with zeros at the end
             padding = np.zeros((pad_len, Y_past.shape[1]))
             Y_past_padded = np.concatenate([Y_past, padding], axis=0)
         else:
@@ -356,20 +388,11 @@ class DPADWrapper:
         Z_list: Optional[TrialList] = None,
         margin: int = 0,
     ) -> Dict[str, Any]:
-        """Validate m-step ahead forecast.
-
-        Note: Y_list and Z_list should already have margins removed (as done by _slice_data).
-        The forecast window is the last m steps of each trial.
-
-        Args:
-            Y_list: list of trials (each T x ny ndarray), margins already removed.
-            Z_list: optional list of behavioral trials (each T x nz ndarray), margins already removed.
-            margin: Not used anymore since margins are pre-removed, kept for backward compatibility.
-        """
-        # Convert m from seconds to samples
         m_seconds = self.config.model.forecast.m
+        history_seconds = self.config.model.forecast.history
         sampling_freq = self.config.data.sampling_frequency
         m = int(m_seconds * sampling_freq)
+        history = int(history_seconds * sampling_freq)
         margin_samples = int(sampling_freq * margin)
 
         results = {
@@ -387,40 +410,39 @@ class DPADWrapper:
 
         for idx, Y in enumerate(Y_list):
             T = Y.shape[0]
-            if m >= T:
+            if history + m > T:
                 raise ValueError(
-                    f"Forecast horizon m={m} must be smaller than trial length T={T}"
+                    f"history + m ({history} + {m} = {history + m}) must not exceed trial length T={T}"
                 )
 
-            # Forecast the last m steps (margins already removed from Y_list)
-            start = T - m
-            end = T
+            start = 0
+            history_end = history
+            forecast_end = history + m
 
-            # Use all available past data (margins already removed)
-            Y_past = Y[:start]
-            Y_future_true = Y[start:end]
+            Y_history = Y[start:history_end]
+            Y_future_true = Y[history_end:forecast_end]
 
-            # Get corresponding Z data if available
+            Y_input = np.zeros((history + m, Y.shape[1]))
+            Y_input[:history] = Y_history
+
             Z = Z_list[idx] if Z_list is not None and idx < len(Z_list) else None
-            Z_future_true = Z[start:end] if Z is not None else None
-            Z_past = Z[:start] if Z is not None else None
+            Z_future_true = Z[history_end:forecast_end] if Z is not None else None
 
-            Zf, Yf, Xf = self.forecast(m, Y_past)
+            Zf, Yf, Xf = self.forecast(m, Y_input)
 
             if Yf is not None:
-                Y_concat = np.concatenate([Y_past, Yf], axis=0)
+                Y_concat = np.concatenate([Y_history, Yf], axis=0)
                 r_list, _ = pearson_r_per_channel([Y_future_true], [Yf])
                 r_list = r_list[0] if isinstance(r_list, list) else r_list
             else:
-                Y_concat = Y_past
+                Y_concat = Y_history
                 r_list = []
 
-            # Build Z_concat if possible
+            Z_history = Z[start:history_end] if Z is not None else None
             Z_concat = None
-            if Z_past is not None and Zf is not None:
-                Z_concat = np.concatenate([Z_past, Zf], axis=0)
+            if Z_history is not None and Zf is not None:
+                Z_concat = np.concatenate([Z_history, Zf], axis=0)
 
-            # Compute Z correlations if both true and predicted Z are available
             if Z_future_true is not None and Zf is not None:
                 r_list_Z, _ = pearson_r_per_channel([Z_future_true], [Zf])
                 r_list_Z = r_list_Z[0] if isinstance(r_list_Z, list) else r_list_Z
@@ -441,7 +463,6 @@ class DPADWrapper:
             results["pearson_per_channel"].append(r_list)
             results["pearson_per_channel_Z"].append(r_list_Z)
 
-        # Compute overall mean for Y
         flat_r = [
             v
             for r in results["pearson_per_channel"]
@@ -451,7 +472,6 @@ class DPADWrapper:
         ]
         results["pearson_overall_mean"] = float(np.mean(flat_r)) if flat_r else np.nan
 
-        # Compute overall mean for Z
         flat_r_Z = [
             v
             for r in results["pearson_per_channel_Z"]
