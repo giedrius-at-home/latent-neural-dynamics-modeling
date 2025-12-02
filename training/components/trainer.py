@@ -22,13 +22,14 @@ class Trainer:
         self.train_loader = None
         self.val_loader = None
         self.test_loader = None
+        self.run_timestamp = None
 
     def split_data(self):
         self.logger.info("Starting data split...")
         self.logger.info(
             f"Data params: participant={self.data_params.participant}, session={self.data_params.session}, "
             f"input_channels={self.data_params.channels.input}, output_channels={self.data_params.channels.output}, "
-            f"is_neural_behavioral={self.data_params.channels.is_neural_behavioral}"
+            f"is_behavioral_neural={self.data_params.channels.is_behavioral_neural}"
         )
         session_path = (
             Path(self.data_params.root)
@@ -101,9 +102,12 @@ class Trainer:
             chunk_margin = meta["chunk_margin_ts"]
 
             Y_sliced = Y[chunk_margin:-chunk_margin]
-
+            if self.data_params.channels.is_behavioral_neural:
+                Z_sliced = Z[chunk_margin:-chunk_margin]
+            else:
+                Z_sliced = Z
             _Y.append(Y_sliced)
-            _Z.append(Z)
+            _Z.append(Z_sliced)
 
         _Z = None if all([_z is None for _z in _Z]) else _Z
         self.logger.info(
@@ -111,9 +115,52 @@ class Trainer:
         )
         return _Y, _Z
 
+    def load_model(self, model_timestamp: str):
+        """Load a pre-trained model from a saved checkpoint.
+
+        Args:
+            model_timestamp: Timestamp of the saved model (e.g., "20251125_153301")
+        """
+        out_dir = Path(self.results_config.save_dir)
+        model_path = out_dir / f"model_{model_timestamp}.pkl"
+
+        if not model_path.exists():
+            raise FileNotFoundError(f"Model file not found: {model_path}")
+
+        self.logger.info(f"Loading pre-trained model from {model_path}")
+
+        # Load metadata for DPAD models to validate compatibility
+        if self.framework_type == "dpad":
+            metadata_path = out_dir / f"model_{model_timestamp}_metadata.json"
+            if metadata_path.exists():
+                with open(metadata_path, "r") as f:
+                    metadata = json.load(f)
+
+                # Validate key parameters match
+                if metadata.get("nx") != self.model_params.nx:
+                    self.logger.warning(
+                        f"Model nx={metadata.get('nx')} differs from config nx={self.model_params.nx}"
+                    )
+                if metadata.get("n1") != self.model_params.n1:
+                    self.logger.warning(
+                        f"Model n1={metadata.get('n1')} differs from config n1={self.model_params.n1}"
+                    )
+
+                self.logger.info(f"Loaded metadata: {metadata}")
+            else:
+                self.logger.warning(f"Metadata file not found: {metadata_path}")
+
+        # Initialize the model wrapper first, then load the saved model
+        self.framework.model = self.framework._initialize_model()
+        self.framework.model.load_from_file(str(model_path))
+        self.logger.info("Model loaded successfully")
+
     def train(self):
         if self.train_loader is None:
             raise ValueError("Data loaders not initialized. Call split_data() first.")
+
+        self.run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.logger.info(f"Training run timestamp: {self.run_timestamp}")
 
         self.framework_type = self.model_params.name.split("_")[0]
         self.logger.info(f"Selected framework: {self.framework_type}")
@@ -135,38 +182,186 @@ class Trainer:
         Y_train, Z_train = self._slice_data(Y_train, Z_train, meta_train)
         Y_val, Z_val = self._slice_data(Y_val, Z_val, meta_val)
 
-        self.logger.info("Beginning training...")
-        self.framework._train(Y_train, Z_train)
+        # Check if we should load a pre-trained model or train from scratch
+        model_timestamp = getattr(self.model_params, "model_timestamp", None)
+
+        if model_timestamp:
+            self.logger.info(
+                f"Loading pre-trained model with timestamp: {model_timestamp}"
+            )
+            self.load_model(model_timestamp)
+        else:
+            self.logger.info("Beginning training...")
+            self.framework._train(Y_train, Z_train)
+
+        self.logger.info("Computing training set predictions...")
+        Zp_train, Yp_train, Xp_train = self.framework._predict(Y_train)
+
+        # Compute metrics including Z correlations
+        from utils.stats import pearson_r_per_channel
+
+        r_list_train, r_mean_train = pearson_r_per_channel(Y_train, Yp_train)
+
+        train_results = {
+            "Y": Y_train,
+            "Z": Z_train,
+            "Zp": Zp_train,
+            "Yp": Yp_train,
+            "Xp": Xp_train,
+            "pearson_r_per_channel": r_list_train,
+            "pearson_r_mean": r_mean_train,
+            "input_channels": (
+                meta_train[0].get("input_channels", []) if meta_train else []
+            ),
+            "output_channels": (
+                meta_train[0].get("output_channels", []) if meta_train else []
+            ),
+        }
+
+        # Compute Z correlations if Z data is available
+        if Z_train is not None and Zp_train is not None:
+            Z_train_filtered = [z for z in Z_train if z is not None]
+            Zp_train_filtered = [zp for zp in Zp_train if zp is not None]
+            if len(Z_train_filtered) > 0 and len(Zp_train_filtered) > 0:
+                r_list_Z_train, r_mean_Z_train = pearson_r_per_channel(
+                    Z_train_filtered, Zp_train_filtered
+                )
+                train_results["pearson_r_per_channel_Z"] = r_list_Z_train
+                train_results["pearson_r_mean_Z"] = r_mean_Z_train
+
+        self.logger.info("Computing training set forecasts...")
+        chunk_margin_train = meta_train[0].get("chunk_margin") if meta_train else 0
+        train_forecast = self.framework._validate_forecast(
+            Y_train, Z_list=Z_train, margin=chunk_margin_train
+        )
+        train_results.update(train_forecast)
+
+        self.logger.info(
+            f"Training predictions complete. Results: {train_results.keys()}"
+        )
+        self.save_results(train_results, self.train_loader.dataset.df, type="train")
 
         self.logger.info("Beginning validation...")
-        val_results = self.framework._validate(Y_val)
+        Zp_val, Yp_val, Xp_val = self.framework._predict(Y_val)
 
-        self.logger.info(f"Validation complete. Results: {val_results}")
+        # Compute metrics including Z correlations
+        r_list_val, r_mean_val = pearson_r_per_channel(Y_val, Yp_val)
 
+        val_results = {
+            "Y": Y_val,
+            "Z": Z_val,
+            "Zp": Zp_val,
+            "Yp": Yp_val,
+            "Xp": Xp_val,
+            "pearson_r_per_channel": r_list_val,
+            "pearson_r_mean": r_mean_val,
+            "input_channels": meta_val[0].get("input_channels", []) if meta_val else [],
+            "output_channels": (
+                meta_val[0].get("output_channels", []) if meta_val else []
+            ),
+        }
+
+        # Compute Z correlations if Z data is available
+        if Z_val is not None and Zp_val is not None:
+            Z_val_filtered = [z for z in Z_val if z is not None]
+            Zp_val_filtered = [zp for zp in Zp_val if zp is not None]
+            if len(Z_val_filtered) > 0 and len(Zp_val_filtered) > 0:
+                r_list_Z_val, r_mean_Z_val = pearson_r_per_channel(
+                    Z_val_filtered, Zp_val_filtered
+                )
+                val_results["pearson_r_per_channel_Z"] = r_list_Z_val
+                val_results["pearson_r_mean_Z"] = r_mean_Z_val
+
+        self.logger.info("Computing validation set forecasts...")
+        chunk_margin_val = meta_val[0].get("chunk_margin") if meta_val else 0
+        val_forecast = self.framework._validate_forecast(
+            Y_val, Z_list=Z_val, margin=chunk_margin_val
+        )
+        val_results.update(val_forecast)
+
+        self.logger.info(f"Validation complete. Results: {val_results.keys()}")
         self.save_results(val_results, self.val_loader.dataset.df, type="val")
 
         return val_results
 
     def save_results(self, results: dict, input_df: pl.DataFrame, type: str):
 
-        metrics_df = input_df.with_columns(
-            [
+        def safe_tolist(arr):
+            if arr is None:
+                return None
+            if hasattr(arr, "tolist"):
+                return arr.tolist()
+            return arr
+
+        new_cols = []
+
+        if "pearson_r_per_channel" in results:
+            new_cols.append(
                 pl.Series(
                     name="pearsonr_per_channel", values=results["pearson_r_per_channel"]
-                ),
-                pl.Series(name="Y", values=[arr.tolist() for arr in results["Y"]]),
-                pl.Series(name="Yp", values=[arr.tolist() for arr in results["Yp"]]),
+                )
+            )
+
+        # Add Z correlations if available
+        if "pearson_r_per_channel_Z" in results:
+            new_cols.append(
                 pl.Series(
-                    name="Zp",
-                    values=[
-                        arr.tolist() if arr is not None else None
-                        for arr in results["Zp"]
-                    ],
-                ),
-                pl.Series(name="Xp", values=[arr.tolist() for arr in results["Xp"]]),
-                pl.lit(results["pearson_r_mean"]).alias("pearsonr_mean"),
-            ]
-        )
+                    name="pearsonr_per_channel_Z",
+                    values=results["pearson_r_per_channel_Z"],
+                )
+            )
+
+        for key in ["Y", "Z", "Yp", "Zp", "Xp"]:
+            if key in results and results[key] is not None:
+                new_cols.append(
+                    pl.Series(name=key, values=[safe_tolist(x) for x in results[key]])
+                )
+
+        if "pearson_r_mean" in results:
+            new_cols.append(pl.lit(results["pearson_r_mean"]).alias("pearsonr_mean"))
+
+        # Add Z mean correlation if available
+        if "pearson_r_mean_Z" in results:
+            new_cols.append(
+                pl.lit(results["pearson_r_mean_Z"]).alias("pearsonr_mean_Z")
+            )
+
+        forecast_keys = [
+            "Y_future_true",
+            "Y_future_pred",
+            "Y_concat_for_plot",
+            "Z_future_true",
+            "Z_future_pred",
+            "Z_concat_for_plot",
+            "X_future_pred",
+            "pearson_per_channel",
+            "pearson_per_channel_Z",
+        ]
+
+        for key in forecast_keys:
+            if key in results and results[key] is not None:
+                new_cols.append(
+                    pl.Series(name=key, values=[safe_tolist(x) for x in results[key]])
+                )
+
+        # Add channel metadata as scalar columns (same value for all rows)
+        if "input_channels" in results:
+            n_rows = len(input_df)
+            new_cols.append(
+                pl.Series(
+                    name="input_channels", values=[results["input_channels"]] * n_rows
+                )
+            )
+
+        if "output_channels" in results:
+            n_rows = len(input_df)
+            new_cols.append(
+                pl.Series(
+                    name="output_channels", values=[results["output_channels"]] * n_rows
+                )
+            )
+
+        metrics_df = input_df.with_columns(new_cols)
         if isinstance(results, dict):
             for k, v in results.items():
                 if not isinstance(v, (list, dict)):
@@ -177,7 +372,7 @@ class Trainer:
                     except Exception:
                         pass
 
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        ts = self.run_timestamp
         out_dir = Path(self.results_config.save_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
         out_path = out_dir / f"{type}_results_{ts}"
@@ -190,17 +385,16 @@ class Trainer:
             model_path = out_dir / f"model_{ts}"
 
             if self.framework_type == "dpad":
-                # DPAD models need to discard TF models before pickling
-                # This converts them to weight dictionaries
                 self.framework.model.idSys.discardModels()
-                
+
                 model_path_pkl = f"{model_path}.pkl"
                 with open(model_path_pkl, "wb") as f:
                     pickle.dump(self.framework.model.idSys, f)
-                
+
                 self.logger.info(f"Saved DPAD model to {model_path_pkl}")
-                
-                # Save metadata for reference
+
+                self.framework.model.idSys.restoreModels()
+
                 metadata = {
                     "framework_type": "dpad",
                     "nx": self.model_params.nx,
@@ -210,9 +404,8 @@ class Trainer:
                 }
                 with open(out_dir / f"model_{ts}_metadata.json", "w") as f:
                     json.dump(metadata, f)
-                
+
             else:
-                # PSID models can be pickled directly
                 with open(f"{model_path}.pkl", "wb") as f:
                     pickle.dump(self.framework.model.idSys, f)
                 self.logger.info(f"Saved PSID model to {model_path}.pkl")

@@ -209,3 +209,7 @@ dashboard_logs
 *.parquet
 
 docs/
+
+.agent/
+
+scripts/

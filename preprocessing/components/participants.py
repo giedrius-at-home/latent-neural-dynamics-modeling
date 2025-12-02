@@ -22,7 +22,7 @@ from utils.file_handling import get_child_subchilds_tuples
 
 from utils.config import Config
 from utils.logger import get_logger
-from utils.motion import tracing_speed, interpolate
+from utils.motion import compute_tracing_speeds, interpolate
 
 LFP_SCHEMA = pl.Struct(
     [
@@ -101,8 +101,8 @@ def _add_full_data(participants: pl.DataFrame, config: Config) -> pl.DataFrame:
     ecog_channels = [field.name for field in ECOG_SCHEMA.fields]
     all_channels = lfp_channels + ecog_channels
 
-    ieeg_participants = apply_car(ieeg_participants, lfp_channels)
-    ieeg_participants = apply_car(ieeg_participants, ecog_channels)
+    ieeg_participants = apply_car(ieeg_participants, lfp_channels, config)
+    ieeg_participants = apply_car(ieeg_participants, ecog_channels, config)
 
     motion_participants = construct_motion_table(ieeg_participants, config)
     logger.info("Loaded motion data")
@@ -229,6 +229,8 @@ def construct_participants_table(config: Config):
             "x",
             "y",
             "tracing_speed",
+            "tracing_speed_x",
+            "tracing_speed_y",
         )
         participants.write_parquet(
             save_path / config.output_participants_table_name,
@@ -351,14 +353,34 @@ def _chunk_recordings(
         )
         .then(
             pl.struct(pl.col("x"), pl.col("y"), "motion_time").map_elements(
-                lambda s: tracing_speed(s["x"], s["y"], s["motion_time"]),
-                return_dtype=pl.List(pl.Float64),
+                lambda s: compute_tracing_speeds(s["x"], s["y"], s["motion_time"]),
+                return_dtype=pl.Object,
             )
         )
-        .alias("tracing_speed")
+        .alias("_speed_results")
     )
 
-    # resample speed to the original length ts
+    participants_ = participants_.with_columns(
+        pl.col("_speed_results")
+        .map_elements(
+            lambda r: r["combined"] if r is not None else None,
+            return_dtype=pl.List(pl.Float64),
+        )
+        .alias("tracing_speed"),
+        pl.col("_speed_results")
+        .map_elements(
+            lambda r: r["x"] if r is not None else None,
+            return_dtype=pl.List(pl.Float64),
+        )
+        .alias("tracing_speed_x"),
+        pl.col("_speed_results")
+        .map_elements(
+            lambda r: r["y"] if r is not None else None,
+            return_dtype=pl.List(pl.Float64),
+        )
+        .alias("tracing_speed_y"),
+    ).drop("_speed_results")
+
     participants_ = participants_.with_columns(
         pl.when(
             pl.col("tracing_speed").is_not_null()
@@ -375,22 +397,69 @@ def _chunk_recordings(
         .alias("tracing_speed")
     )
 
+    participants_ = participants_.with_columns(
+        pl.when(
+            pl.col("tracing_speed_x").is_not_null()
+            & (pl.col("tracing_speed_x").list.drop_nulls().list.len() > 0)
+        )
+        .then(
+            pl.struct(
+                pl.col("tracing_speed_x"), pl.col("original_length_ts")
+            ).map_elements(
+                lambda s: interpolate(s["tracing_speed_x"], s["original_length_ts"]),
+                return_dtype=pl.List(pl.Float64),
+            )
+        )
+        .alias("tracing_speed_x")
+    )
+
+    participants_ = participants_.with_columns(
+        pl.when(
+            pl.col("tracing_speed_y").is_not_null()
+            & (pl.col("tracing_speed_y").list.drop_nulls().list.len() > 0)
+        )
+        .then(
+            pl.struct(
+                pl.col("tracing_speed_y"), pl.col("original_length_ts")
+            ).map_elements(
+                lambda s: interpolate(s["tracing_speed_y"], s["original_length_ts"]),
+                return_dtype=pl.List(pl.Float64),
+            )
+        )
+        .alias("tracing_speed_y")
+    )
+
     return participants_
 
 
-def apply_car(participants: pl.DataFrame, channels: list[str]) -> pl.DataFrame:
-
-    car_per_block = participants.group_by(["participant_id", "session", "block"]).agg(
-        pl.mean_horizontal(pl.col(channels).explode()).mean().alias("car_scalar")
+def apply_car(
+    participants: pl.DataFrame, channels: list[str], config: Config
+) -> pl.DataFrame:
+    participants_ = participants.with_columns(
+        pl.struct(channels)
+        .map_elements(
+            lambda s: [sum(x) / len(x) for x in zip(*s.values())],
+            return_dtype=pl.List(pl.Float64),
+        )
+        .over(["participant_id", "session", "block"])
+        .alias("car_reference")
     )
 
-    participants_ = participants.join(
-        car_per_block, on=["participant_id", "session", "block"]
-    )
     participants_ = participants_.with_columns(
-        *[(pl.col(ch) - pl.col("car_scalar")).alias(ch) for ch in channels]
+        *[
+            pl.struct([pl.col(ch), pl.col("car_reference")])
+            .map_elements(
+                lambda s, channel_name=ch: [
+                    float(ch_val - car_val) * float(config.ieeg_process.scale_factor)
+                    for ch_val, car_val in zip(s[channel_name], s["car_reference"])
+                ],
+                return_dtype=pl.List(pl.Float64),
+            )
+            .alias(ch)
+            for ch in channels
+        ]
     )
 
-    participants_ = participants_.drop("car_scalar")
+    participants_ = participants_.drop("car_reference")
 
     return participants_

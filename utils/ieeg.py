@@ -51,9 +51,10 @@ def filter_recording(
     recording_ = mne.filter.filter_data(
         data=recording_, sfreq=sfreq, l_freq=low_freq, h_freq=high_freq, verbose=False
     )
-    recording_ = mne.filter.notch_filter(
-        x=recording_, Fs=sfreq, freqs=notch_freqs, verbose=False
-    )
+    if notch_freqs:
+        recording_ = mne.filter.notch_filter(
+            x=recording_, Fs=sfreq, freqs=notch_freqs, verbose=False
+        )
 
     return list(recording_)
 

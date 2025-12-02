@@ -1,30 +1,30 @@
 model:
   name: "dpad_neural"
-  nx: 4 
-  n1: 0 
+  nx: 4
+  n1: 2
   method_code: "DPAD_uAKCzCy2HL128U" 
   epochs: 2500
   forecast:
     m: 1 # seconds
 
 data:
-  root: "resampled_recordings/participants_at_150Hz"
+  root: "resampled_recordings/participants_at_60Hz"
   participant: "PDI1"
   session: "2"
   blocks: [1, 2, 3, 4, 5]
   preprocess: true
   channels:
-    is_neural_behavioral: false 
-    input: ["LFP_1", "LFP_2"] 
-    output: ["ECOG_1", "ECOG_2", "ECOG_3", "ECOG_4"] 
+    is_behavioral_neural: true  # if we predict output, this should be true
+    input: ["ECOG_1"] 
+    output: ["ECOG_4"] 
   split:
     within_session_split: true
-    train: 0.6
+    train: 0.6  
     val: 0.2
     test: 0.2
     min_train_epochs: 50
   batch_size: 32
-  sampling_frequency: 150
+  sampling_frequency: 60
   dbs_condition: "off"
 
 results:

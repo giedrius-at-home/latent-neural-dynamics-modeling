@@ -10,7 +10,7 @@ from utils.logger import setup_logger
 logger = setup_logger("dashboard_logs", name=__name__)
 
 DATA_PATH = Path("resampled_recordings")
-PARTICIPANTS_PATH = DATA_PATH / "participants_at_150Hz"
+PARTICIPANTS_PATH = DATA_PATH / "participants_at_60Hz_scaled_1e6"
 
 
 def natural_sort_key(s):
@@ -63,4 +63,20 @@ def load_participant_block_data(participant_id: str, session: str, block: str):
 
     print(f"Loading data from: {p_partition_path}")
     df = pl.read_parquet(p_partition_path)
+    return df
+
+
+@st.cache_data
+def load_participant_session_data(participant_id: str, session: str):
+    """Load all blocks for a given participant and session."""
+    st.info(f"Loading session data for P{participant_id}, Session {session}...")
+
+    p_partition = f"participant_id={participant_id}"
+    s_partition = f"session={session}"
+
+    # Load all blocks in the session
+    session_path = PARTICIPANTS_PATH / p_partition / s_partition / "*" / "*"
+
+    print(f"Loading session data from: {session_path}")
+    df = pl.read_parquet(session_path)
     return df

@@ -1,17 +1,24 @@
 from typing import Any
 import yaml
+from .classes import DotDict
 
 
-class Config(dict):
+class Config(DotDict):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         for key, value in self.items():
             if isinstance(value, dict):
                 self[key] = Config(value)
             elif isinstance(value, list):
-                self[key] = [
-                    Config(item) if isinstance(item, dict) else item for item in value
-                ]
+                if not value:
+                    self[key] = None
+                else:
+                    self[key] = [
+                        Config(item) if isinstance(item, dict) else item
+                        for item in value
+                    ]
+            elif isinstance(value, str) and not value:
+                self[key] = None
 
     def _substitute_values(self, full_config=None):
         if full_config is None:
@@ -33,21 +40,6 @@ class Config(dict):
                 for item in value:
                     if isinstance(item, Config):
                         item._substitute_values(full_config)
-
-    def __getattr__(self, key: str) -> Any:
-        try:
-            return self[key]
-        except KeyError:
-            raise AttributeError(f"No such attribute: {key}")
-
-    def __setattr__(self, key: str, value: Any) -> None:
-        self[key] = value
-
-    def __delattr__(self, key: str) -> None:
-        try:
-            del self[key]
-        except KeyError:
-            raise AttributeError(f"No such attribute: {key}")
 
     def __repr__(self):
         return f"Config({super().__repr__()})"

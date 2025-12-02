@@ -1,26 +1,23 @@
 model:
-  name: "psid_neural"
-  nx: 4
-  n1: 2
+  name: "psid_neural_all_blocks_dbs_both"
+  nx: 8  
+  n1: 4  
   i: 5
   time_first: true
-  remove_mean_Y: false
-  remove_mean_Z: false
-  zscore_Y: false
-  zscore_Z: false
   forecast:
-    m: 1 # seconds
+    m: 1  
+    history: 2  
 
 data:
-  root: "resampled_recordings/participants_at_60Hz"
+  root: "resampled_recordings/participants_at_60Hz_scaled_1e6" 
   participant: "PDI1"
   session: "2"
-  blocks: [1, 2, 3, 4, 5]
-  preprocess: true
+  blocks: "all"
   channels:
     is_behavioral_neural: true
-    input: ["ECOG_1"] # Y
-    output: ["ECOG_4"] # Z
+    input: ["ECOG_1"] 
+    output: ["ECOG_4"] 
+    input_lag: 1    
   split:
     within_session_split: true
     train: 0.6
@@ -29,7 +26,7 @@ data:
     min_train_epochs: 50
   batch_size: 32
   sampling_frequency: 60
-  dbs_condition: "off"
+  dbs_condition: "both"
 
 results:
   save_dir: "results/{model.name}"

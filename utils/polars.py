@@ -296,6 +296,19 @@ def stack_columns(participants: pl.DataFrame, cols: list[str]) -> pl.DataFrame:
     return matrix, segments_per_col
 
 
+def get_scalar_value(df: pl.DataFrame, col_name: str):
+    if col_name not in df.columns:
+        return None
+    val = df[col_name][0]
+    if isinstance(val, pl.Series):
+        return val.item()
+    return val
+
+
+def convert_series_to_list(series_list: list):
+    return [s.to_list() if isinstance(s, pl.Series) else s for s in series_list]
+
+
 def set_polars_config():
     print("Loading Polars configuration from utils/polars.py")
     pl.Config.set_tbl_width_chars(-1)

@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import KeysView
+from typing import KeysView, Optional
 from utils.logger import get_logger
 
 
@@ -31,7 +31,9 @@ def lookup_keys(keys: KeysView[str], lookup_keywords: list) -> tuple:
     return tuple(fetched_keys)
 
 
-def contains_nulls(lst: list) -> bool:
+def contains_nulls(lst: Optional[list]) -> bool:
+    if lst is None:
+        return True
     return any(x is None for x in lst)
 
 

@@ -16,6 +16,7 @@ from utils.data_loader import (
 from dashboard.time_series_tab import time_series_tab
 from dashboard.psd_analysis_tab import psd_analysis_tab
 from dashboard.model_predictions_tab import model_predictions_tab
+from dashboard.dbs_classification_tab import dbs_classification_tab
 from utils.logger import setup_logger
 
 logger = setup_logger("dashboard_logs", name=__name__)
@@ -84,8 +85,13 @@ else:
         key=natural_sort_key,
     )
 
-    tab1, tab2, tab3 = st.tabs(
-        ["Time-Series Analysis", "Frequency (PSD) Analysis", "Model Predictions"]
+    tab1, tab2, tab3, tab4 = st.tabs(
+        [
+            "Time-Series Analysis",
+            "Frequency (PSD) Analysis",
+            "Model Predictions",
+            "DBS Classification",
+        ]
     )
 
     with tab1:
@@ -96,3 +102,6 @@ else:
 
     with tab3:
         model_predictions_tab(project_root)
+
+    with tab4:
+        dbs_classification_tab(project_root)

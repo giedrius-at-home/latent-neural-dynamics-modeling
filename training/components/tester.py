@@ -10,8 +10,10 @@ import numpy as np
 import pickle
 from utils.stats import pearson_r_per_channel
 import h5py
+import json
 
 from utils.miscellaneous import length, flatten
+
 
 class Tester:
 
@@ -39,12 +41,12 @@ class Tester:
             self.framework = PSIDFramework(self.config)
         elif framework_type == "dpad":
             from utils.frameworks import DPADFramework
+
             self.framework = DPADFramework(self.config)
         else:
             raise ValueError(
                 f"Unknown or unsupported framework for testing: {framework_type}"
             )
-
 
     def _load_dataloaders(self):
         self.train_loader, self.val_loader, self.test_loader = create_dataloaders(
@@ -52,21 +54,16 @@ class Tester:
         )
 
     def _load_model_for_run(self):
-        import json
-
         results_dir = Path(self.results_config.save_dir)
         model_path = results_dir / f"model_{self.run_timestamp}.pkl"
 
-        # Check if metadata exists to determine if it's a DPAD model
         metadata_path = results_dir / f"model_{self.run_timestamp}_metadata.json"
-        
+
         if metadata_path.exists():
-            # DPAD model with metadata
             with open(metadata_path, "r") as f:
                 metadata = json.load(f)
             self.logger.info(f"Loading DPAD model with metadata: {metadata}")
 
-        # Load the pickled model
         with open(model_path, "rb") as f:
             idSys = pickle.load(f)
 
@@ -74,14 +71,12 @@ class Tester:
         self.framework.model = self.framework._initialize_model()
         self.framework.model.idSys = idSys
 
-        # If it's a DPAD model, restore the TF models from saved weights
-        if metadata_path.exists() and hasattr(idSys, 'restoreModels'):
+        if metadata_path.exists() and hasattr(idSys, "restoreModels"):
             self.logger.info("Restoring DPAD TensorFlow models from saved weights...")
             idSys.restoreModels()
             self.logger.info(f"Loaded DPAD model from {model_path}")
         else:
             self.logger.info(f"Loaded PSID model from {model_path}")
-
 
     @staticmethod
     def _get_metrics(
@@ -100,13 +95,11 @@ class Tester:
             valid = [r for r in r_list if not (r is None or np.isnan(r))]
             pearson_trial_means.append(np.mean(valid) if len(valid) > 0 else np.nan)
 
-        # Compute Z correlations if both true and predicted Z are available
         pearson_per_trial_Z = None
         pearson_overall_mean_Z = np.nan
         pearson_trial_means_Z = None
 
         if Z_true is not None and Zp is not None:
-            # Filter out None values
             Z_true_filtered = [z for z in Z_true if z is not None]
             Zp_filtered = [zp for zp in Zp if zp is not None]
 
@@ -123,26 +116,26 @@ class Tester:
                     )
 
         return {
-            "Y": [flatten(y.tolist()) for y in Y_true],
+            "Y": [y.tolist() for y in Y_true],
             "Z": (
-                [flatten(z.tolist()) if z is not None else None for z in Z_true]
+                [z.tolist() if z is not None else None for z in Z_true]
                 if Z_true is not None
                 else None
             ),
-            "Yp": [flatten(Yp_.tolist()) for Yp_ in Yp] if Yp is not None else None,
+            "Yp": [Yp_.tolist() for Yp_ in Yp] if Yp is not None else None,
             "Zp": (
-                [flatten(Zp_.tolist()) if Zp_ is not None else None for Zp_ in Zp]
+                [Zp_.tolist() if Zp_ is not None else None for Zp_ in Zp]
                 if Zp is not None
                 else None
             ),
-            "Xp": [flatten(Xp_.tolist()) for Xp_ in Xp] if Xp is not None else None,
+            "Xp": [Xp_.tolist() for Xp_ in Xp] if Xp is not None else None,
             "pearson_per_channel": pearson_per_trial,
             "pearson_mean": pearson_trial_means,
             "pearson_overall_mean": pearson_overall_mean,
             "pearson_per_channel_Z": pearson_per_trial_Z,
             "pearson_mean_Z": pearson_trial_means_Z,
             "pearson_overall_mean_Z": pearson_overall_mean_Z,
-            "time": [flatten(t.tolist()) for t in meta.get("time", [])],
+            "time": [t.tolist() for t in meta.get("time", [])],
             "offset": meta.get("offset", []),
             "chunk_margin": meta.get("chunk_margin", []),
             "margined_duration": meta.get("margined_duration", []),
@@ -151,7 +144,20 @@ class Tester:
             "session": meta.get("session", []),
             "block": meta.get("block", []),
             "trial": meta.get("trial", []),
-            "input_channels": meta.get("input_channels", []),
+            "input_channels": (
+                meta.get("original_input_channels", [[]])[0]
+                if meta.get("original_input_channels")
+                else (
+                    meta.get("input_channels", [[]])[0]
+                    if meta.get("input_channels")
+                    else []
+                )
+            ),
+            "output_channels": (
+                meta.get("output_channels", [[]])[0]
+                if meta.get("output_channels")
+                else []
+            ),
         }
 
     def _slice_data(self, Y_list_margined, Z_list_margined, meta_list):
@@ -167,8 +173,12 @@ class Tester:
             Y_sliced = Y[chunk_margin_ts:-chunk_margin_ts]
             meta["time"] = meta["time"][chunk_margin_ts:-chunk_margin_ts]
 
+            if self.data_params.channels.is_behavioral_neural:
+                Z_sliced = Z[chunk_margin_ts:-chunk_margin_ts]
+            else:
+                Z_sliced = Z
             _Y.append(Y_sliced)
-            _Z.append(Z)
+            _Z.append(Z_sliced)
             _meta.append(meta)
 
         _Z = None if all([_z is None for _z in _Z]) else _Z
@@ -177,14 +187,103 @@ class Tester:
         )
         return _Y, _Z, _meta
 
+    def _remove_lagged_channels(self, Y_list, Yp_list, meta_list):
+        input_lag = meta_list[0].get("input_lag", 0) if meta_list else 0
+
+        self.logger.info(f"_remove_lagged_channels called: input_lag={input_lag}")
+
+        if input_lag == 0:
+            self.logger.info("No input lag, returning original data")
+            return Y_list, Yp_list
+
+        original_channels = meta_list[0].get("original_input_channels", [])
+        n_original = len(original_channels)
+
+        self.logger.info(f"Original channels: {original_channels} (n={n_original})")
+
+        if n_original == 0:
+            self.logger.warning(
+                "No original_input_channels found in metadata, cannot remove lagged channels"
+            )
+            return Y_list, Yp_list
+
+        if len(Y_list) > 0:
+            self.logger.info(
+                f"Before slicing - Y[0] shape: {Y_list[0].shape}, Yp[0] shape: {Yp_list[0].shape}"
+            )
+
+        Y_list_sliced = []
+        Yp_list_sliced = []
+
+        for i, (Y, Yp) in enumerate(zip(Y_list, Yp_list)):
+            if Y.shape[1] < n_original:
+                self.logger.error(
+                    f"Trial {i}: Y has {Y.shape[1]} channels but trying to keep {n_original} original channels!"
+                )
+                Y_sliced = Y
+                Yp_sliced = Yp
+            else:
+                Y_sliced = Y[:, :n_original]
+                Yp_sliced = Yp[:, :n_original]
+
+            Y_list_sliced.append(Y_sliced)
+            Yp_list_sliced.append(Yp_sliced)
+
+        if len(Y_list_sliced) > 0:
+            self.logger.info(
+                f"After slicing - Y[0] shape: {Y_list_sliced[0].shape}, Yp[0] shape: {Yp_list_sliced[0].shape}"
+            )
+            self.logger.info(
+                f"Removed lagged channels: {Y_list[0].shape[1]} -> {Y_list_sliced[0].shape[1]} channels"
+            )
+
+        return Y_list_sliced, Yp_list_sliced
+
+    def _remove_lagged_channels_from_forecast(self, f_res, meta_list):
+        input_lag = meta_list[0].get("input_lag", 0) if meta_list else 0
+
+        if input_lag == 0:
+            self.logger.info(
+                "No input lag in forecast, returning original forecast results"
+            )
+            return f_res
+
+        original_channels = meta_list[0].get("original_input_channels", [])
+        n_original = len(original_channels)
+
+        if n_original == 0:
+            self.logger.warning(
+                "No original_input_channels found, cannot slice forecast results"
+            )
+            return f_res
+
+        self.logger.info(
+            f"Slicing forecast results to keep {n_original} original channels"
+        )
+
+        for key in ["Y_future_true", "Y_future_pred", "Y_concat_for_plot"]:
+            if key in f_res and f_res[key]:
+                sliced = []
+                for arr in f_res[key]:
+                    if arr is not None:
+                        arr_np = np.array(arr)
+                        if arr_np.ndim == 2 and arr_np.shape[1] > n_original:
+                            arr_sliced = arr_np[:, :n_original]
+                            sliced.append(arr_sliced.tolist())
+                        else:
+                            sliced.append(arr)
+                    else:
+                        sliced.append(None)
+                f_res[key] = sliced
+
+        return f_res
+
     def run_predictions(self):
 
         self._load_dataloaders()
         self._load_model_for_run()
 
         self.results = {}
-
-        input_stats = self.train_loader.dataset.get_preprocessing_stats()
 
         for split_name, loader in (
             ("train", self.train_loader),
@@ -193,20 +292,63 @@ class Tester:
         ):
             Y_list, _z, meta_list = loader.get_full_dataset()
             Y_list, Z_list, meta_list = self._slice_data(Y_list, _z, meta_list)
+
             Zp, Yp, Xp = self.framework._predict(Y_list)
+
+            chunk_margin = meta_list[0].get("chunk_margin")
+            f_res = self.framework.model.validate_forecast(
+                Y_list, Z_list=Z_list, margin=chunk_margin
+            )
+
+            Y_list, Yp = self._remove_lagged_channels(Y_list, Yp, meta_list)
+
+            f_res = self._remove_lagged_channels_from_forecast(f_res, meta_list)
 
             meta = {k: [d.get(k) for d in meta_list] for k in meta_list[0]}
             split_results = self._get_metrics(Y_list, Z_list, Yp, Zp, Xp, meta)
 
-            chunk_margin = meta_list[0].get("chunk_margin")
+            split_results = split_results | f_res
 
+            self.results[split_name] = split_results
+
+    def run_predictions_selective(self, splits: List[str]):
+        self._load_dataloaders()
+        self._load_model_for_run()
+
+        self.results = {}
+
+
+        loader_map = {
+            "train": self.train_loader,
+            "val": self.val_loader,
+            "test": self.test_loader,
+        }
+
+        for split_name in splits:
+            if split_name not in loader_map:
+                self.logger.warning(f"Unknown split '{split_name}', skipping...")
+                continue
+
+            loader = loader_map[split_name]
+            Y_list, _z, meta_list = loader.get_full_dataset()
+            Y_list, Z_list, meta_list = self._slice_data(Y_list, _z, meta_list)
+
+            Zp, Yp, Xp = self.framework._predict(Y_list)
+
+            chunk_margin = meta_list[0].get("chunk_margin")
             f_res = self.framework.model.validate_forecast(
                 Y_list, Z_list=Z_list, margin=chunk_margin
             )
+
+            Y_list, Yp = self._remove_lagged_channels(Y_list, Yp, meta_list)
+
+            f_res = self._remove_lagged_channels_from_forecast(f_res, meta_list)
+
+            meta = {k: [d.get(k) for d in meta_list] for k in meta_list[0]}
+            split_results = self._get_metrics(Y_list, Z_list, Yp, Zp, Xp, meta)
+
             split_results = split_results | f_res
 
-            split_results["input_mean"] = input_stats.get("input_mean").tolist()
-            split_results["input_std"] = input_stats.get("input_std").tolist()
             self.results[split_name] = split_results
 
     def save_results(self):

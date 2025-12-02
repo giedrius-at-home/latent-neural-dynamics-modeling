@@ -1,16 +1,11 @@
 model:
-  name: "psid_behavioral"
-  nx: 4
-  n1: 2
-  i: 5
-  time_first: true
-  remove_mean_Y: false
-  remove_mean_Z: false
-  zscore_Y: false
-  zscore_Z: false
+  name: "dpad_behavioral_linear"
+  nx: 4 
+  n1: 2 
+  method_code: "DPAD" 
+  epochs: 2500
   forecast:
     m: 1 # seconds
-
 data:
   root: "resampled_recordings/participants_at_60Hz"
   participant: "PDI1"
@@ -19,8 +14,8 @@ data:
   preprocess: true
   channels:
     is_behavioral_neural: false
-    input: ["ECOG_1", "ECOG_2", "ECOG_3", "ECOG_4"] # Y
-    output: ["tracing_speed"] # Z
+    input: ["ECOG_1", "ECOG_2", "ECOG_3", "ECOG_4"] 
+    output: ["tracing_speed"] 
   split:
     within_session_split: true
     train: 0.6
