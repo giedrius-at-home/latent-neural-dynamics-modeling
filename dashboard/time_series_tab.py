@@ -7,6 +7,8 @@ from dashboard.time_series_plots import (
     plot_multi_channel_time_series,
     plot_coordinates_time_series,
     plot_speed_time_series,
+    plot_acceleration_time_series,
+    plot_jerk_time_series,
     plot_2d_trajectory,
     plot_cross_trial_speed,
     plot_session_average_speed,
@@ -30,6 +32,16 @@ def prepare_motion_data(trial_data):
         motion_cols.append("y")
     if "tracing_speed" in trial_data.columns:
         motion_cols.append("tracing_speed")
+    if "tracing_speed_magnitude" in trial_data.columns:
+        motion_cols.append("tracing_speed_magnitude")
+    if "tracing_acceleration" in trial_data.columns:
+        motion_cols.append("tracing_acceleration")
+    if "tracing_acceleration_magnitude" in trial_data.columns:
+        motion_cols.append("tracing_acceleration_magnitude")
+    if "tracing_jerk" in trial_data.columns:
+        motion_cols.append("tracing_jerk")
+    if "tracing_jerk_magnitude" in trial_data.columns:
+        motion_cols.append("tracing_jerk_magnitude")
 
     if not motion_cols:
         return None, []
@@ -232,6 +244,17 @@ def render_behavioral_tab(trial_data, metadata_str):
     if coords_data is not None:
         render_coordinates_plots(coords_data, metadata_str)
         render_speed_plot(coords_data, metadata_str)
+        
+        if "tracing_acceleration" in coords_data.columns:
+            fig_accel = plot_acceleration_time_series(coords_data, time_col="motion_time")
+            fig_accel = update_fig_title(fig_accel, ["Tracing Acceleration", metadata_str])
+            st.plotly_chart(fig_accel, use_container_width=True)
+        
+        if "tracing_jerk" in coords_data.columns:
+            fig_jerk = plot_jerk_time_series(coords_data, time_col="motion_time")
+            fig_jerk = update_fig_title(fig_jerk, ["Tracing Jerk", metadata_str])
+            st.plotly_chart(fig_jerk, use_container_width=True)
+            
     elif motion_cols:
         st.info("Motion data could not be loaded for this trial.")
     else:
