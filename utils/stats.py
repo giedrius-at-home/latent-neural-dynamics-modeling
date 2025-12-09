@@ -156,7 +156,6 @@ def probability_plot_data(data: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
     return theoretical_cdf, empirical_cdf
 
 
-
 def compute_power_spectrum(
     signal: np.ndarray, fs: float = 1.0, nperseg: Optional[int] = None
 ) -> Tuple[np.ndarray, np.ndarray]:
@@ -278,3 +277,91 @@ def whiteness_test(data: np.ndarray, max_lag: Optional[int] = None) -> Dict[str,
         "lags": lags,
         "acf": acf,
     }
+
+
+CLINICAL_FREQUENCY_BANDS = {
+    "theta_alpha": (3, 12),
+    "low_beta": (12, 16),
+    "high_beta": (16, 28),
+}
+
+
+def bandpower(
+    signal: np.ndarray,
+    fs: float,
+    fmin: float,
+    fmax: float,
+    nperseg: Optional[int] = None,
+) -> float:
+    if signal.ndim == 0:
+        return 0.0
+
+    if signal.ndim > 1:
+        signal = signal.flatten()
+
+    if nperseg is None:
+        nperseg = min(len(signal), 256)
+
+    from scipy.signal import welch
+
+    freqs, psd = welch(signal, fs=fs, nperseg=nperseg)
+
+    band_mask = (freqs >= fmin) & (freqs <= fmax)
+
+    if not band_mask.any():
+        return 0.0
+
+    power = np.trapz(psd[band_mask], freqs[band_mask])
+
+    return float(power)
+
+
+def compare_band_power(
+    signal_true: np.ndarray,
+    signal_pred: np.ndarray,
+    fs: float,
+    bands: Optional[Dict[str, Tuple[float, float]]] = None,
+) -> Dict[str, Dict[str, float]]:
+    if bands is None:
+        bands = CLINICAL_FREQUENCY_BANDS
+
+    results = {}
+
+    for band_name, (fmin, fmax) in bands.items():
+        power_true = bandpower(signal_true, fs, fmin, fmax)
+        power_pred = bandpower(signal_pred, fs, fmin, fmax)
+
+        error = np.abs(power_true - power_pred)
+        ratio = power_pred / power_true if power_true > 0 else np.nan
+        log_ratio = np.log10(ratio) if not np.isnan(ratio) and ratio > 0 else np.nan
+
+        results[band_name] = {
+            "true": power_true,
+            "pred": power_pred,
+            "error": error,
+            "ratio": ratio,
+            "log_ratio": log_ratio,
+            "freq_range": (fmin, fmax),
+        }
+
+    return results
+
+
+def compute_spectral_coherence(
+    signal1: np.ndarray, signal2: np.ndarray, fs: float, nperseg: Optional[int] = None
+) -> Tuple[np.ndarray, np.ndarray]:
+    from scipy.signal import coherence
+
+    if signal1.ndim == 0 or signal2.ndim == 0:
+        return np.array([]), np.array([])
+
+    if signal1.ndim > 1:
+        signal1 = signal1.flatten()
+    if signal2.ndim > 1:
+        signal2 = signal2.flatten()
+
+    if nperseg is None:
+        nperseg = min(len(signal1), 256)
+
+    freqs, coh = coherence(signal1, signal2, fs=fs, nperseg=nperseg)
+    return freqs, coh

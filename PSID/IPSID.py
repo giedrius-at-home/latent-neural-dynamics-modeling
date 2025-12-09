@@ -527,7 +527,9 @@ def IPSID(
             WS["Uf"] = blkhankskip(U, iU, N, iMax, time_first=time_first)
             WS["Uii"] = blkhankskip(U, 1, N, iMax, time_first=time_first)
         else:
-            WS["Up"] = np.empty((0, N))
+            # BUGFIX: Use NTot instead of N because N can be a list for trial-based data
+            # NTot is always an integer (total samples across all trials)
+            WS["Up"] = np.empty((0, NTot))  # Ntot added by Giedrius
             WS["Uf"] = WS["Up"]
             WS["Uii"] = WS["Up"]
         if nz > 0:

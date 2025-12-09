@@ -4,7 +4,12 @@ from pathlib import Path
 from utils.file_handling import list_files, load_mat_into_dict
 from utils.config import Config
 
-from utils.ieeg import preprocess_ieeg, filter_recording
+from utils.ieeg import (
+    preprocess_ieeg,
+    filter_recording,
+    extract_envelope,
+    process_and_resample,
+)
 
 from scipy.io import savemat
 
@@ -263,21 +268,45 @@ def band_pass_resample(
         .drop("sfreq")
     )
 
+    use_envelope = getattr(config.ieeg_process, "use_envelope", False)
+    original_sfreq = 1000
+    target_sfreq = config.ieeg_process.resampled_freq
+
     for ieeg_field in iEEG_SCHEMA.fields:
         if ieeg_field.name == "sfreq":
             continue
+
         participants_ = participants_.with_columns(
-            pl.col(ieeg_field.name).map_elements(
-                lambda r: filter_recording(
+            pl.col(ieeg_field.name)
+            .map_elements(
+                lambda r: process_and_resample(
                     r,
                     low_freq=config.ieeg_process.low_freq,
                     high_freq=config.ieeg_process.high_freq,
                     notch_freqs=config.ieeg_process.notch_freqs,
-                    sfreq=config.ieeg_process.resampled_freq,
+                    original_sfreq=original_sfreq,
+                    target_sfreq=target_sfreq,
+                    extract_envelope_flag=use_envelope,
                 ),
-                return_dtype=pl.List(pl.Float32),
+                return_dtype=pl.Object,
             )
+            .alias(f"{ieeg_field.name}_processed")
         )
+
+        participants_ = participants_.with_columns(
+            pl.col(f"{ieeg_field.name}_processed")
+            .map_elements(lambda x: x[0], return_dtype=pl.List(pl.Float32))
+            .alias(ieeg_field.name)
+        )
+
+        if use_envelope:
+            participants_ = participants_.with_columns(
+                pl.col(f"{ieeg_field.name}_processed")
+                .map_elements(lambda x: x[1], return_dtype=pl.List(pl.Float32))
+                .alias(f"{ieeg_field.name}_envelope")
+            )
+
+        participants_ = participants_.drop(f"{ieeg_field.name}_processed")
 
     return participants_
 

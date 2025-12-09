@@ -9,6 +9,7 @@ output_participants_table_name: "participants_at_60Hz_scaled_1e6_full_behavioral
 ieeg_process:
   resampled_dir: "{save_directory}/resampled_mat_recordings"
   chunk_margin: 2
+  use_envelope: true
   low_freq: 3
   high_freq: 28
   notch_freqs: []
