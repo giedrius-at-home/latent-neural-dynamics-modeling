@@ -1,6 +1,7 @@
 from pathlib import Path
 import mne
 import numpy as np
+from scipy.signal import hilbert
 from utils.logger import get_logger
 
 
@@ -45,7 +46,6 @@ def filter_recording(
     notch_freqs: list[int],
     sfreq: int,
 ) -> list[float]:
-
     recording_ = np.array(recording, dtype=np.float64)
 
     recording_ = mne.filter.filter_data(
@@ -57,6 +57,66 @@ def filter_recording(
         )
 
     return list(recording_)
+
+
+def extract_envelope(
+    filtered_recording: list[float],
+    sfreq: int,
+) -> list[float]:
+    recording_ = np.array(filtered_recording, dtype=np.float64)
+
+    analytic_signal = hilbert(recording_, axis=0)
+    envelope = np.abs(analytic_signal)
+
+    return envelope.tolist()
+
+
+def process_and_resample(
+    recording: list[float],
+    low_freq: float,
+    high_freq: float,
+    notch_freqs: list[int],
+    original_sfreq: int,
+    target_sfreq: int,
+    extract_envelope_flag: bool = False,
+) -> tuple[list[float], list[float]]:
+    recording_ = np.array(recording, dtype=np.float64)
+
+    if notch_freqs:
+        recording_ = mne.filter.notch_filter(
+            recording_, Fs=original_sfreq, freqs=notch_freqs, verbose=False
+        )
+
+    filtered = mne.filter.filter_data(
+        recording_,
+        sfreq=original_sfreq,
+        l_freq=low_freq,
+        h_freq=high_freq,
+        verbose=False,
+    )
+
+    envelope = None
+    if extract_envelope_flag:
+        analytic_signal = hilbert(filtered, axis=0)
+        envelope = np.abs(analytic_signal)
+        envelope = mne.filter.filter_data(
+            envelope,
+            sfreq=original_sfreq,
+            l_freq=None,
+            h_freq=target_sfreq / 3,
+            verbose=False,
+        )
+        envelope = mne.filter.resample(
+            envelope, down=original_sfreq / target_sfreq, verbose=False
+        )
+
+    filtered_resampled = mne.filter.resample(
+        filtered, down=original_sfreq / target_sfreq, verbose=False
+    )
+
+    return filtered_resampled.tolist(), (
+        envelope.tolist() if envelope is not None else None
+    )
 
 
 def epoch_trials(

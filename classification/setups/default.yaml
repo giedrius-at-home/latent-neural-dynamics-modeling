@@ -1,0 +1,15 @@
+run:
+  variant: dpad_behavioral_PDI4_S3
+  run_ts: "20251208_232439"
+
+classification:
+  n_splits: 2
+  epoch_length: 1.0     
+  epoch_overlap: 0.5 
+  prediction_feature_source: Xp    # Xp, Yp, Y, or Both
+  forecast_feature_source: Yp      # Xp or Yp
+
+results:
+  project_root: "/home/bobby/repos/latent-neural-dynamics-modeling"
+  results_dir: "{results.project_root}/results/{run.variant}"
+  log_dir: "{results.project_root}/logs/classification"

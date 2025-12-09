@@ -36,10 +36,24 @@ class TrialDataset(Dataset):
         return len(self.df)
 
     def __getitem__(self, idx: int) -> Tuple[np.ndarray, Optional[np.ndarray], dict]:
-        row = self.df[idx]
+        input_lag = self.data_params.channels.input_lag
+        if input_lag is not None:
+            input_channel_names = self.input_channels + [
+                f"{ch}_lag{input_lag}" for ch in self.input_channels
+            ]
+        else:
+            input_channel_names = self.input_channels
 
-        Y = self._extract_channels(row, self.input_channels)
-        Y = self._add_lagged_channels(Y)
+        row = self.df[idx]
+        Y = self._extract_channels(row, input_channel_names)
+        if input_lag is not None:
+            Y = self._add_lagged_channels(Y)
+
+        jitter = float(getattr(self.data_params, "jitter", None))
+        if jitter is not None and self.split == "train":
+            noise = np.random.normal(0, jitter, Y.shape)
+            Y = Y + noise
+
         Z = self._extract_channels(row, self.output_channels)
 
         time_vec = row["time"][0]
@@ -51,14 +65,6 @@ class TrialDataset(Dataset):
         stim = row["stim"][0]
 
         offset = row["offset"][0]
-
-        input_lag = getattr(self.data_params.channels, "input_lag", None)
-        if input_lag and input_lag > 0:
-            input_channel_names = self.input_channels + [
-                f"{ch}_lag{input_lag}" for ch in self.input_channels
-            ]
-        else:
-            input_channel_names = self.input_channels
 
         metadata = {
             "participant_id": row["participant_id"][0],

@@ -2,222 +2,28 @@ import streamlit as st
 import numpy as np
 import plotly.graph_objects as go
 from pathlib import Path
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, Optional, Callable
 import pickle
-from sklearn.model_selection import GridSearchCV, StratifiedKFold
-from sklearn.linear_model import LogisticRegression
-from sklearn.svm import SVC
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
-from sklearn.metrics import (
-    accuracy_score,
-    balanced_accuracy_score,
-    precision_score,
-    recall_score,
-    f1_score,
-    confusion_matrix,
-    roc_curve,
-    auc,
-    classification_report,
-)
-from sklearn.preprocessing import StandardScaler
 import pandas as pd
 
-
-def aggregate_session_features(
-    split_res: Dict[str, Any], feature_type: str
-) -> Tuple[np.ndarray, np.ndarray, List[str]]:
-    if feature_type == "Xp":
-        data_list = split_res.get("Xp", [])
-    elif feature_type == "Yp":
-        data_list = split_res.get("Yp", [])
-    else:
-        xp_list = split_res.get("Xp", [])
-        yp_list = split_res.get("Yp", [])
-        data_list = []
-        for xp, yp in zip(xp_list, yp_list):
-            xp_arr = np.array(xp)
-            yp_arr = np.array(yp)
-            if xp_arr.ndim == yp_arr.ndim:
-                data_list.append(np.concatenate([xp_arr, yp_arr], axis=1))
-            else:
-                data_list.append(None)
-
-    stim_list = split_res.get("stim", [])
-    session_list = split_res.get("session", [])
-    participant_list = split_res.get("participant_id", [])
-    block_list = split_res.get("block", [])
-
-    if not data_list or not stim_list:
-        return None, None, None
-
-    session_features = {}
-    session_labels = {}
-    session_ids = []
-
-    # Handle case where block_list might be missing or shorter
-    if not block_list or len(block_list) != len(data_list):
-        block_list = [0] * len(data_list)
-
-    for idx, (data, stim, sess, part, blk) in enumerate(
-        zip(data_list, stim_list, session_list, participant_list, block_list)
-    ):
-        if data is None or stim not in ["on", "off"]:
-            continue
-
-        # Aggregate by Participant + Session + Block
-        session_key = f"{part}_{sess}_{blk}"
-
-        data = np.array(data)
-
-        if data.ndim == 2:
-            if data.shape[0] < data.shape[1]:
-                data = data.T
-            features = np.concatenate(
-                [
-                    np.mean(data, axis=0),
-                    np.std(data, axis=0),
-                ]
-            )
-        else:
-            features = data.flatten()
-
-        if session_key not in session_features:
-            session_features[session_key] = []
-            session_labels[session_key] = stim
-            session_ids.append(session_key)
-
-        session_features[session_key].append(features)
-
-    X = []
-    y = []
-    final_session_ids = []
-
-    for session_key in session_ids:
-        if session_key in session_features:
-            session_feat = np.mean(session_features[session_key], axis=0)
-            X.append(session_feat)
-            y.append(1 if session_labels[session_key] == "on" else 0)
-            final_session_ids.append(session_key)
-
-    if len(X) == 0:
-        return None, None, None
-
-    return np.array(X), np.array(y), final_session_ids
+from utils.classification import (
+    CLASSIFIERS,
+    prepare_epoched_data,
+    run_grid_search_cv,
+    evaluate_on_test_set,
+    SAMPLING_FREQ,
+)
 
 
-def get_classifier(clf_name: str, params: Dict[str, Any]):
-    if clf_name == "Logistic Regression":
-        return LogisticRegression(**params, max_iter=1000, random_state=42)
-    elif clf_name == "SVM":
-        return SVC(**params, random_state=42, probability=True)
-    elif clf_name == "Random Forest":
-        return RandomForestClassifier(**params, random_state=42)
-    elif clf_name == "Gradient Boosting":
-        return GradientBoostingClassifier(**params, random_state=42)
+def load_all_splits(
+    variant_dir: Path, run_ts: str
+) -> Dict[str, Optional[Dict[str, Any]]]:
+    from dashboard.subtabs import load_precomputed_results
 
-
-def get_param_grid(clf_name: str) -> Dict[str, List]:
-    if clf_name == "Logistic Regression":
-        return {
-            "C": [0.001, 0.01, 0.1, 1, 10, 100],
-            "penalty": ["l1", "l2"],
-            "solver": ["liblinear", "saga"],
-        }
-    elif clf_name == "SVM":
-        return {
-            "C": [0.1, 1, 10, 100],
-            "kernel": ["linear", "rbf"],
-            "gamma": ["scale", "auto", 0.001, 0.01, 0.1],
-        }
-    elif clf_name == "Random Forest":
-        return {
-            "n_estimators": [50, 100, 200],
-            "max_depth": [None, 10, 20, 30],
-            "min_samples_split": [2, 5, 10],
-            "min_samples_leaf": [1, 2, 4],
-        }
-    elif clf_name == "Gradient Boosting":
-        return {
-            "n_estimators": [50, 100, 200],
-            "learning_rate": [0.01, 0.1, 0.2],
-            "max_depth": [3, 5, 7],
-            "subsample": [0.8, 1.0],
-        }
-
-
-def run_grid_search(
-    clf_name: str, X: np.ndarray, y: np.ndarray
-) -> Tuple[Dict[str, Any], float]:
-    param_grid = get_param_grid(clf_name)
-    base_clf = get_classifier(clf_name, {})
-
-    cv = StratifiedKFold(
-        n_splits=min(5, len(np.unique(y))), shuffle=True, random_state=42
-    )
-
-    grid_search = GridSearchCV(
-        base_clf,
-        param_grid,
-        cv=cv,
-        scoring="balanced_accuracy",
-        n_jobs=-1,
-        verbose=0,
-    )
-
-    scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(X)
-
-    grid_search.fit(X_scaled, y)
-
-    return grid_search.best_params_, grid_search.best_score_
-
-
-def train_and_evaluate(
-    clf_name: str, params: Dict[str, Any], X: np.ndarray, y: np.ndarray
-) -> Dict[str, Any]:
-    scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(X)
-
-    clf = get_classifier(clf_name, params)
-
-    cv = StratifiedKFold(
-        n_splits=min(5, len(np.unique(y))), shuffle=True, random_state=42
-    )
-
-    y_pred_all = np.zeros(len(y))
-    y_proba_all = np.zeros(len(y))
-
-    for train_idx, test_idx in cv.split(X_scaled, y):
-        X_train, X_test = X_scaled[train_idx], X_scaled[test_idx]
-        y_train, y_test = y[train_idx], y[test_idx]
-
-        clf.fit(X_train, y_train)
-        y_pred_all[test_idx] = clf.predict(X_test)
-        y_proba_all[test_idx] = clf.predict_proba(X_test)[:, 1]
-
-    clf.fit(X_scaled, y)
-
-    results = {
-        "classifier": clf,
-        "scaler": scaler,
-        "params": params,
-        "y_true": y,
-        "y_pred": y_pred_all,
-        "y_proba": y_proba_all,
-        "accuracy": accuracy_score(y, y_pred_all),
-        "balanced_accuracy": balanced_accuracy_score(y, y_pred_all),
-        "precision": precision_score(y, y_pred_all, zero_division=0),
-        "recall": recall_score(y, y_pred_all, zero_division=0),
-        "f1": f1_score(y, y_pred_all, zero_division=0),
-        "confusion_matrix": confusion_matrix(y, y_pred_all),
-    }
-
-    fpr, tpr, _ = roc_curve(y, y_proba_all)
-    results["roc_auc"] = auc(fpr, tpr)
-    results["fpr"] = fpr
-    results["tpr"] = tpr
-
-    return results
+    splits = {}
+    for split_name in ["train", "val", "test"]:
+        splits[split_name] = load_precomputed_results(variant_dir, run_ts, split_name)
+    return splits
 
 
 def save_classification_results(results: Dict[str, Any], save_path: Path):
@@ -226,34 +32,32 @@ def save_classification_results(results: Dict[str, Any], save_path: Path):
         pickle.dump(results, f)
 
 
-def load_classification_results(save_path: Path) -> Dict[str, Any]:
+def load_classification_results(save_path: Path) -> Optional[Dict[str, Any]]:
     if save_path.exists():
         with open(save_path, "rb") as f:
             return pickle.load(f)
     return None
 
 
-def render_metrics(results: Dict[str, Any]):
-    col1, col2, col3, col4, col5 = st.columns(5)
-
-    with col1:
-        st.metric("Accuracy", f"{results['accuracy']:.4f}")
-    with col2:
-        st.metric("Balanced Accuracy", f"{results['balanced_accuracy']:.4f}")
-    with col3:
-        st.metric("Precision", f"{results['precision']:.4f}")
-    with col4:
-        st.metric("Recall", f"{results['recall']:.4f}")
-    with col5:
-        st.metric("F1 Score", f"{results['f1']:.4f}")
+def render_metrics_row(results: Dict[str, Any], prefix: str = ""):
+    cols = st.columns(5)
+    metrics = [
+        ("Accuracy", results.get("accuracy", 0)),
+        ("Balanced Acc", results.get("balanced_accuracy", 0)),
+        ("Precision", results.get("precision", 0)),
+        ("Recall", results.get("recall", 0)),
+        ("F1", results.get("f1", 0)),
+    ]
+    for col, (name, val) in zip(cols, metrics):
+        col.metric(f"{prefix}{name}", f"{val:.4f}")
 
 
-def render_confusion_matrix(cm: np.ndarray):
+def render_confusion_matrix(cm: np.ndarray, key: str):
     fig = go.Figure(
         data=go.Heatmap(
             z=cm,
-            x=["off", "on"],
-            y=["off", "on"],
+            x=["OFF", "ON"],
+            y=["OFF", "ON"],
             colorscale="Blues",
             text=cm,
             texttemplate="%{text}",
@@ -261,20 +65,17 @@ def render_confusion_matrix(cm: np.ndarray):
             showscale=True,
         )
     )
-
     fig.update_layout(
         title="Confusion Matrix",
         xaxis_title="Predicted",
         yaxis_title="True",
-        height=400,
+        height=350,
     )
+    st.plotly_chart(fig, use_container_width=True, key=f"cm_{key}")
 
-    st.plotly_chart(fig, use_container_width=True)
 
-
-def render_roc_curve(results: Dict[str, Any]):
+def render_roc_curve(results: Dict[str, Any], key: str):
     fig = go.Figure()
-
     fig.add_trace(
         go.Scatter(
             x=results["fpr"],
@@ -284,7 +85,6 @@ def render_roc_curve(results: Dict[str, Any]):
             line=dict(color="blue", width=2),
         )
     )
-
     fig.add_trace(
         go.Scatter(
             x=[0, 1],
@@ -294,214 +94,352 @@ def render_roc_curve(results: Dict[str, Any]):
             line=dict(color="red", dash="dash", width=1),
         )
     )
-
     fig.update_layout(
         title="ROC Curve",
         xaxis_title="False Positive Rate",
         yaxis_title="True Positive Rate",
-        height=500,
+        height=350,
     )
+    st.plotly_chart(fig, use_container_width=True, key=f"roc_{key}")
 
-    st.plotly_chart(fig, use_container_width=True)
+
+def render_fold_results(fold_results: list, key: str):
+    st.markdown("#### Per-Fold Results (Chronological)")
+
+    df = pd.DataFrame(fold_results)
+    df["Train Range"] = df.apply(
+        lambda r: f"[{r['train_indices'][0]}:{r['train_indices'][1]}]", axis=1
+    )
+    df["Val Range"] = df.apply(
+        lambda r: f"[{r['val_indices'][0]}:{r['val_indices'][1]}]", axis=1
+    )
+    df["Train ON/OFF"] = df.apply(
+        lambda r: f"{r['n_on_train']}/{r['n_off_train']}", axis=1
+    )
+    df["Val ON/OFF"] = df.apply(lambda r: f"{r['n_on_val']}/{r['n_off_val']}", axis=1)
+
+    display_df = df[
+        [
+            "fold",
+            "Train Range",
+            "Val Range",
+            "Train ON/OFF",
+            "Val ON/OFF",
+            "accuracy",
+            "balanced_accuracy",
+        ]
+    ].copy()
+    display_df.columns = [
+        "Fold",
+        "Train Range",
+        "Val Range",
+        "Train ON/OFF",
+        "Val ON/OFF",
+        "Acc",
+        "Bal Acc",
+    ]
+
+    st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=df["fold"],
+            y=df["accuracy"],
+            mode="lines+markers",
+            name="Accuracy",
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=df["fold"],
+            y=df["balanced_accuracy"],
+            mode="lines+markers",
+            name="Balanced Accuracy",
+        )
+    )
+    fig.update_layout(
+        title="Per-Fold Performance",
+        xaxis_title="Fold",
+        yaxis_title="Score",
+        height=300,
+    )
+    st.plotly_chart(fig, use_container_width=True, key=f"fold_perf_{key}")
 
 
-def render_classifier_tab(
-    clf_name: str, feature_type: str, split_res: Dict[str, Any], results_dir: Path
+def render_classifier_section(
+    clf_name: str,
+    feature_source: str,
+    epoch_params: str,
+    X_trainval: np.ndarray,
+    y_trainval: np.ndarray,
+    X_test: Optional[np.ndarray],
+    y_test: Optional[np.ndarray],
+    results_dir: Path,
+    n_splits: int,
+    mode: str = "prediction",
+    forecast_horizon_sec: Optional[float] = None,
 ):
+    key_base = f"{clf_name}_{feature_source}_{mode}_{epoch_params}".replace(" ", "_").replace(
+        ".", "p"
+    )
+    if forecast_horizon_sec:
+        key_base += f"_fh{forecast_horizon_sec}s".replace(".", "p")
+    
+    cache_path = results_dir / f"{key_base}.pkl"
+
     st.markdown(f"### {clf_name}")
 
-    X, y, session_ids = aggregate_session_features(split_res, feature_type)
+    cached = load_classification_results(cache_path)
+    results = st.session_state.get(f"results_{key_base}", cached)
+    
+    if results:
+        st.success("Precomputed results loaded")
+    else:
+        st.warning("No precomputed results found. Run the classification script first or click 'Compute Now' below.")
+    
+    with st.expander("Recompute Classification", expanded=False):
+        st.markdown("**Note:** This will recompute the classification. Use the standalone script for batch processing.")
+        if st.button(f"Compute Now", key=f"gs_{key_base}"):
+            with st.spinner("Running grid search with TimeSeriesSplit CV..."):
+                best_params, best_score, cv_results = run_grid_search_cv(
+                    clf_name, X_trainval, y_trainval, n_splits
+                )
 
-    if X is None or y is None:
-        st.warning("No valid session data available for classification")
-        return
+                if X_test is not None and y_test is not None and len(y_test) > 0:
+                    best_pipeline = cv_results.get("best_pipeline")
+                    if best_pipeline is not None:
+                        test_results = evaluate_on_test_set(best_pipeline, X_test, y_test)
+                        cv_results["test_results"] = test_results
 
-    st.write(
-        f"**Sessions:** {len(X)} | **Features:** {X.shape[1]} | **DBS ON:** {np.sum(y)} | **DBS OFF:** {len(y) - np.sum(y)}"
-    )
-
-    cache_path = (
-        results_dir
-        / f"dbs_classification_{feature_type}_{clf_name.replace(' ', '_')}.pkl"
-    )
-
-    col1, col2 = st.columns([1, 1])
-
-    with col1:
-        if st.button(
-            f"Find Best Params ({clf_name})", key=f"grid_{feature_type}_{clf_name}"
-        ):
-            with st.spinner("Running grid search..."):
-                best_params, best_score = run_grid_search(clf_name, X, y)
-                st.session_state[f"best_params_{feature_type}_{clf_name}"] = best_params
-                st.session_state[f"best_score_{feature_type}_{clf_name}"] = best_score
-
-    with col2:
-        if st.button(
-            f"Train & Evaluate ({clf_name})", key=f"train_{feature_type}_{clf_name}"
-        ):
-            params = st.session_state.get(
-                f"manual_params_{feature_type}_{clf_name}",
-                st.session_state.get(f"best_params_{feature_type}_{clf_name}", {}),
-            )
-
-            with st.spinner("Training classifier..."):
-                results = train_and_evaluate(clf_name, params, X, y)
-                save_classification_results(results, cache_path)
-                st.session_state[f"results_{feature_type}_{clf_name}"] = results
-
-    if f"best_params_{feature_type}_{clf_name}" in st.session_state:
-        st.markdown("#### Best Parameters from Grid Search")
-        st.json(st.session_state[f"best_params_{feature_type}_{clf_name}"])
-        st.metric(
-            "Best CV Balanced Accuracy",
-            f"{st.session_state[f'best_score_{feature_type}_{clf_name}']:.4f}",
-        )
-
-    st.markdown("#### Manual Hyperparameters")
-
-    if clf_name == "Logistic Regression":
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            C = st.selectbox(
-                "C",
-                [0.001, 0.01, 0.1, 1, 10, 100],
-                index=3,
-                key=f"C_{feature_type}_{clf_name}",
-            )
-        with col2:
-            penalty = st.selectbox(
-                "Penalty", ["l1", "l2"], key=f"penalty_{feature_type}_{clf_name}"
-            )
-        with col3:
-            solver = st.selectbox(
-                "Solver", ["liblinear", "saga"], key=f"solver_{feature_type}_{clf_name}"
-            )
-
-        manual_params = {"C": C, "penalty": penalty, "solver": solver}
-
-    elif clf_name == "SVM":
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            C = st.selectbox(
-                "C", [0.1, 1, 10, 100], index=1, key=f"C_{feature_type}_{clf_name}"
-            )
-        with col2:
-            kernel = st.selectbox(
-                "Kernel", ["linear", "rbf"], key=f"kernel_{feature_type}_{clf_name}"
-            )
-        with col3:
-            gamma = st.selectbox(
-                "Gamma",
-                ["scale", "auto", 0.001, 0.01, 0.1],
-                key=f"gamma_{feature_type}_{clf_name}",
-            )
-
-        manual_params = {"C": C, "kernel": kernel, "gamma": gamma}
-
-    elif clf_name == "Random Forest":
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            n_estimators = st.selectbox(
-                "N Estimators",
-                [50, 100, 200],
-                index=1,
-                key=f"n_est_{feature_type}_{clf_name}",
-            )
-        with col2:
-            max_depth = st.selectbox(
-                "Max Depth",
-                [None, 10, 20, 30],
-                key=f"max_depth_{feature_type}_{clf_name}",
-            )
-        with col3:
-            min_samples_split = st.selectbox(
-                "Min Samples Split",
-                [2, 5, 10],
-                key=f"min_split_{feature_type}_{clf_name}",
-            )
-        with col4:
-            min_samples_leaf = st.selectbox(
-                "Min Samples Leaf", [1, 2, 4], key=f"min_leaf_{feature_type}_{clf_name}"
-            )
-
-        manual_params = {
-            "n_estimators": n_estimators,
-            "max_depth": max_depth,
-            "min_samples_split": min_samples_split,
-            "min_samples_leaf": min_samples_leaf,
-        }
-
-    elif clf_name == "Gradient Boosting":
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            n_estimators = st.selectbox(
-                "N Estimators",
-                [50, 100, 200],
-                index=1,
-                key=f"n_est_{feature_type}_{clf_name}",
-            )
-        with col2:
-            learning_rate = st.selectbox(
-                "Learning Rate",
-                [0.01, 0.1, 0.2],
-                index=1,
-                key=f"lr_{feature_type}_{clf_name}",
-            )
-        with col3:
-            max_depth = st.selectbox(
-                "Max Depth",
-                [3, 5, 7],
-                index=1,
-                key=f"max_depth_{feature_type}_{clf_name}",
-            )
-        with col4:
-            subsample = st.selectbox(
-                "Subsample",
-                [0.8, 1.0],
-                index=1,
-                key=f"subsample_{feature_type}_{clf_name}",
-            )
-
-        manual_params = {
-            "n_estimators": n_estimators,
-            "learning_rate": learning_rate,
-            "max_depth": max_depth,
-            "subsample": subsample,
-        }
-
-    st.session_state[f"manual_params_{feature_type}_{clf_name}"] = manual_params
-
-    cached_results = load_classification_results(cache_path)
-    results = st.session_state.get(f"results_{feature_type}_{clf_name}", cached_results)
+                save_classification_results(cv_results, cache_path)
+                st.session_state[f"results_{key_base}"] = cv_results
+                results = cv_results
+                st.rerun()
 
     if results:
-        st.markdown("---")
-        st.markdown("#### Results")
+        if "best_params" in results:
+            st.markdown("#### Best Hyperparameters")
+            st.json(results["best_params"])
+            cols = st.columns(2)
+            cols[0].metric("Best CV Score", f"{results.get('best_cv_score', 0):.4f}")
+            cols[1].metric(
+                "Combinations Tested", results.get("n_combinations_tested", 0)
+            )
 
-        render_metrics(results)
+        st.markdown("#### Cross-Validation Results (Train+Val)")
+        render_metrics_row(results, "CV ")
+
+        if "fold_results" in results:
+            with st.expander("Fold Details", expanded=False):
+                render_fold_results(results["fold_results"], key_base)
 
         col1, col2 = st.columns(2)
-
         with col1:
-            render_confusion_matrix(results["confusion_matrix"])
-
+            render_confusion_matrix(results["confusion_matrix"], f"cv_{key_base}")
         with col2:
-            render_roc_curve(results)
+            render_roc_curve(results, f"cv_{key_base}")
+
+        if "test_results" in results:
+            st.markdown("---")
+            st.markdown("#### Test Set Results (Held Out)")
+            test_res = results["test_results"]
+            render_metrics_row(test_res, "Test ")
+
+            col1, col2 = st.columns(2)
+            with col1:
+                render_confusion_matrix(
+                    test_res["confusion_matrix"], f"test_{key_base}"
+                )
+            with col2:
+                render_roc_curve(test_res, f"test_{key_base}")
 
 
-def render_feature_type_tab(
-    feature_type: str, split_res: Dict[str, Any], results_dir: Path
+def render_classification_mode(
+    variant_dir: Path,
+    run_ts: str,
+    mode: str,
+    data_prep_fn: Callable,
+    extra_params: dict = None,
 ):
-    st.markdown(f"## {feature_type} Features")
+    st.subheader("Configuration")
 
-    classifiers = ["Logistic Regression", "SVM", "Random Forest", "Gradient Boosting"]
+    extra_params = extra_params or {}
+    num_cols = 3 + len(extra_params)
+    cols = st.columns(num_cols)
 
-    tabs = st.tabs(classifiers)
+    with cols[0]:
+        feature_source_options = (
+            ["Yp", "Xp"] if mode == "forecast" else ["Xp", "Yp", "Y", "Both"]
+        )
+        feature_source = st.selectbox(
+            "Feature Source",
+            options=feature_source_options,
+            index=0,
+            key=f"{mode}_feat_source",
+        )
 
-    for idx, clf_name in enumerate(classifiers):
+    with cols[1]:
+        epoch_length_sec = st.slider(
+            "Epoch Length (sec)",
+            min_value=0.5,
+            max_value=5.0,
+            value=1.0,
+            step=0.5,
+            key=f"{mode}_epoch_length",
+            help="Length of time windows to extract from each trial",
+        )
+
+    with cols[2]:
+        epoch_overlap = st.slider(
+            "Epoch Overlap",
+            min_value=0.0,
+            max_value=0.75,
+            value=0.5,
+            step=0.25,
+            key=f"{mode}_epoch_overlap",
+            help="Overlap between consecutive epochs (0=no overlap, 0.5=50% overlap)",
+        )
+
+    n_splits = st.slider(
+        "CV Folds", min_value=2, max_value=10, value=5, key=f"{mode}_n_splits"
+    )
+
+    forecast_horizon_sec = None
+    extra_param_values = {}
+    for idx, (param_name, param_config) in enumerate(extra_params.items()):
+        if param_config["type"] == "slider":
+            extra_param_values[param_name] = st.slider(
+                param_config["label"],
+                min_value=param_config["min"],
+                max_value=param_config["max"],
+                value=param_config["default"],
+                step=param_config.get("step", 1),
+                key=f"{mode}_{param_name}",
+            )
+            if param_name == "forecast_horizon_sec":
+                forecast_horizon_sec = extra_param_values[param_name]
+
+    data_key_tuple = (
+        variant_dir,
+        run_ts,
+        feature_source,
+        epoch_length_sec,
+        epoch_overlap,
+        mode,
+        tuple(extra_param_values.items()),
+    )
+
+    if st.button("Load Data", key=f"btn_load_{mode}"):
+        st.session_state[f"{mode}_data_key"] = data_key_tuple
+
+    if not st.session_state.get(f"{mode}_data_key"):
+        st.info(
+            f"Click 'Load Data' to prepare features from {'forecasts' if mode == 'forecast' else 'predictions'}."
+        )
+        return
+
+    with st.spinner("Loading all splits..."):
+        all_splits = load_all_splits(variant_dir, run_ts)
+
+    train_res = all_splits.get("train")
+    val_res = all_splits.get("val")
+    test_res = all_splits.get("test")
+
+    trainval_list = [r for r in [train_res, val_res] if r is not None]
+    test_list = [test_res] if test_res is not None else []
+
+    if not trainval_list:
+        st.error("No train or val results found. Run predictions first.")
+        return
+
+    with st.spinner("Extracting epoched features..."):
+        prep_kwargs = {
+            "feature_source": feature_source,
+            "epoch_length_sec": epoch_length_sec,
+            "overlap": epoch_overlap,
+        }
+        prep_kwargs.update(extra_param_values)
+
+        X_trainval, y_trainval, meta_trainval = data_prep_fn(
+            trainval_list, **prep_kwargs
+        )
+        X_test, y_test, meta_test = (
+            data_prep_fn(test_list, **prep_kwargs) if test_list else (None, None, None)
+        )
+
+    if X_trainval is None or len(X_trainval) == 0:
+        st.error("No valid epochs found for classification.")
+        return
+
+    st.markdown("---")
+    st.subheader("Data Summary")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("**Train + Val (for CV)**")
+        st.write(f"Epochs: {len(X_trainval)} | Features: {X_trainval.shape[1]}")
+        st.write(
+            f"DBS ON: {np.sum(y_trainval == 1)} | DBS OFF: {np.sum(y_trainval == 0)}"
+        )
+
+    with col2:
+        st.markdown("**Test (Held Out)**")
+        if X_test is not None and len(X_test) > 0:
+            st.write(f"Epochs: {len(X_test)} | Features: {X_test.shape[1]}")
+            st.write(f"DBS ON: {np.sum(y_test == 1)} | DBS OFF: {np.sum(y_test == 0)}")
+        else:
+            st.write("No test data available")
+
+    st.markdown("---")
+    results_dir = variant_dir / run_ts / "classification"
+
+    epoch_params_str = f"epoch{epoch_length_sec}s_overlap{epoch_overlap}"
+
+    tabs = st.tabs(CLASSIFIERS)
+    for idx, clf_name in enumerate(CLASSIFIERS):
         with tabs[idx]:
-            render_classifier_tab(clf_name, feature_type, split_res, results_dir)
+            render_classifier_section(
+                clf_name,
+                feature_source,
+                epoch_params_str,
+                X_trainval,
+                y_trainval,
+                X_test,
+                y_test,
+                results_dir,
+                n_splits,
+                mode=mode,
+                forecast_horizon_sec=forecast_horizon_sec,
+            )
+
+
+def render_classification_from_predictions(variant_dir: Path, run_ts: str):
+    render_classification_mode(
+        variant_dir,
+        run_ts,
+        mode="prediction",
+        data_prep_fn=prepare_epoched_data,
+    )
+
+
+def render_classification_from_forecasts(variant_dir: Path, run_ts: str):
+    render_classification_mode(
+        variant_dir,
+        run_ts,
+        mode="forecast",
+        data_prep_fn=prepare_epoched_data,
+        extra_params={
+            "forecast_horizon_sec": {
+                "type": "slider",
+                "label": "Forecast Horizon (sec)",
+                "min": 0.5,
+                "max": 10.0,
+                "default": 2.5,
+                "step": 0.5,
+            },
+        },
+    )
 
 
 def dbs_classification_tab(project_root):
@@ -509,12 +447,7 @@ def dbs_classification_tab(project_root):
 
     RESULTS_ROOT = project_root / "results"
 
-    from dashboard.model_predictions_tab import (
-        list_variants,
-        list_run_timestamps,
-        config_for_variant,
-        load_precomputed_results,
-    )
+    from dashboard.subtabs import list_variants, list_run_timestamps, config_for_variant
 
     variants = list_variants(RESULTS_ROOT)
     if len(variants) == 0:
@@ -533,40 +466,25 @@ def dbs_classification_tab(project_root):
     cfg_path = config_for_variant(project_root, variant)
 
     if cfg_path is None:
-        st.error(
-            f"Config not found for variant '{variant}'. Expected at training/setups/{variant}.yaml"
-        )
+        st.error(f"Config not found for variant '{variant}'.")
         return
+    
+    classification_dir = variant_dir / run_ts / "classification"
+    if classification_dir.exists():
+        num_results = len(list(classification_dir.glob("*.pkl")))
+        if num_results > 0:
+            st.success(f"Found {num_results} precomputed classification result(s)")
+        else:
+            st.warning("No precomputed results found. Run the classification script first.")
+    else:
+        st.warning("No classification directory found. Run the classification script first.")
 
-    split_choice = st.selectbox(
-        "Data split", options=["train", "val", "test"], index=1, key="class_split"
-    )
+    st.markdown("---")
+    mode_tabs = st.tabs(["From Predictions", "From Forecasts"])
 
-    if st.button("Load Data", key="btn_load_class_data"):
-        st.session_state["classification_key"] = (str(cfg_path), run_ts, split_choice)
+    with mode_tabs[0]:
+        render_classification_from_predictions(variant_dir, run_ts)
 
-    class_key = st.session_state.get("classification_key")
-    if class_key and class_key[0] == str(cfg_path) and class_key[1] == run_ts:
-        split = class_key[2]
+    with mode_tabs[1]:
+        render_classification_from_forecasts(variant_dir, run_ts)
 
-        with st.spinner(f"Loading {split} results..."):
-            split_res = load_precomputed_results(variant_dir, run_ts, split)
-
-        if split_res is None:
-            st.error(
-                f"No precomputed {split} results found. Please run predictions first in the Model Predictions tab."
-            )
-            return
-
-        results_dir = variant_dir / run_ts
-
-        feature_tabs = st.tabs(["Xp", "Yp", "Both"])
-
-        with feature_tabs[0]:
-            render_feature_type_tab("Xp", split_res, results_dir)
-
-        with feature_tabs[1]:
-            render_feature_type_tab("Yp", split_res, results_dir)
-
-        with feature_tabs[2]:
-            render_feature_type_tab("Both", split_res, results_dir)
