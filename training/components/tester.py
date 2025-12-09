@@ -317,7 +317,6 @@ class Tester:
 
         self.results = {}
 
-
         loader_map = {
             "train": self.train_loader,
             "val": self.val_loader,

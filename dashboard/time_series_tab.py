@@ -242,6 +242,127 @@ def render_cross_trial_tab(block_data):
     render_cross_trial_speed(block_data)
 
 
+def render_neural_behavioral_correlation(trial_data, lfp_channels, ecog_channels):
+    st.markdown("### Neural-Behavioral Correlation Analysis")
+    behavioral_vars = []
+    if "tracing_speed" in trial_data.columns:
+        behavioral_vars.append("tracing_speed")
+    if "tracing_speed_x" in trial_data.columns:
+        behavioral_vars.append("tracing_speed_x")
+    if "tracing_speed_y" in trial_data.columns:
+        behavioral_vars.append("tracing_speed_y")
+
+    if not behavioral_vars:
+        st.info("No behavioral variables available for correlation analysis.")
+        return
+
+    selected_behavior = st.selectbox(
+        "Select Behavioral Variable", behavioral_vars, key="neural_beh_corr_var"
+    )
+
+    all_neural_channels = []
+    if lfp_channels:
+        all_neural_channels.extend(lfp_channels)
+    if ecog_channels:
+        all_neural_channels.extend(ecog_channels)
+
+    if not all_neural_channels:
+        st.info("No neural channels available.")
+        return
+
+    chunk_margin = (
+        trial_data["chunk_margin"][0] if "chunk_margin" in trial_data.columns else 0
+    )
+
+    beh_data_raw = trial_data[selected_behavior][0]
+    if beh_data_raw is None:
+        st.warning(f"No data for {selected_behavior}")
+        return
+
+    beh_data = np.array(beh_data_raw).astype(float)
+
+    correlations = []
+    for ch in all_neural_channels:
+        if ch not in trial_data.columns:
+            continue
+
+        ch_data_raw = trial_data[ch][0]
+        if ch_data_raw is None:
+            continue
+
+        ch_data = np.array(ch_data_raw).astype(float)
+
+        if chunk_margin > 0:
+            ch_data = ch_data[chunk_margin:-chunk_margin]
+
+        min_len = min(len(ch_data), len(beh_data))
+        ch_data = ch_data[:min_len]
+        beh_data_aligned = beh_data[:min_len]
+
+        valid_mask = np.isfinite(ch_data) & np.isfinite(beh_data_aligned)
+        ch_clean = ch_data[valid_mask]
+        beh_clean = beh_data_aligned[valid_mask]
+
+        if len(ch_clean) > 10:
+            r = np.corrcoef(ch_clean, beh_clean)[0, 1]
+            correlations.append((ch, r))
+
+    if not correlations:
+        st.warning("Could not compute correlations.")
+        return
+
+    correlations.sort(key=lambda x: abs(x[1]), reverse=True)
+
+    import plotly.graph_objects as go
+
+    channels = [c[0] for c in correlations]
+    r_values = [c[1] for c in correlations]
+
+    colors = ["red" if r < 0 else "blue" for r in r_values]
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Bar(
+            x=channels,
+            y=r_values,
+            marker_color=colors,
+            text=[f"{r:+.3f}" for r in r_values],
+            textposition="outside",
+            hovertemplate="%{x}<br>r = %{y:.4f}<extra></extra>",
+        )
+    )
+
+    fig.update_layout(
+        title=f"Linear Correlation: Neural Channels vs {selected_behavior}",
+        xaxis_title="Channel",
+        yaxis_title="Pearson r",
+        yaxis=dict(range=[-1, 1]),
+        height=500,
+        showlegend=False,
+    )
+
+    fig.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5)
+    fig.add_hline(
+        y=0.3, line_dash="dot", line_color="green", opacity=0.3, annotation_text="r=0.3"
+    )
+    fig.add_hline(y=-0.3, line_dash="dot", line_color="green", opacity=0.3)
+
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.markdown("#### Top 10 Channels by Absolute Correlation")
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown("**Channel**")
+        for i, (ch, r) in enumerate(correlations[:10], 1):
+            st.text(f"{i:2d}. {ch}")
+
+    with col2:
+        st.markdown("**Pearson r**")
+        for i, (ch, r) in enumerate(correlations[:10], 1):
+            st.text(f"{r:+.4f}")
+
+
 def time_series_tab(block_data):
     st.header("Time-Series Analysis")
 
@@ -273,8 +394,8 @@ def time_series_tab(block_data):
 
     lfp_channels, ecog_channels = get_channel_lists(block_data)
 
-    neural_tab, behavioral_tab, cross_trial_tab = st.tabs(
-        ["Neural", "Behavioral", "Cross-Trial"]
+    neural_tab, behavioral_tab, neural_beh_tab, cross_trial_tab = st.tabs(
+        ["Neural", "Behavioral", "Neural vs Behavioral", "Cross-Trial"]
     )
 
     with neural_tab:
@@ -282,6 +403,9 @@ def time_series_tab(block_data):
 
     with behavioral_tab:
         render_behavioral_tab(trial_data, metadata_str)
+
+    with neural_beh_tab:
+        render_neural_behavioral_correlation(trial_data, lfp_channels, ecog_channels)
 
     with cross_trial_tab:
         render_cross_trial_tab(block_data)

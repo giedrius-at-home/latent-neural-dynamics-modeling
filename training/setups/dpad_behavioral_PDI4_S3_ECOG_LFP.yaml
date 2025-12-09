@@ -1,0 +1,34 @@
+model:
+  name: "dpad_behavioral_PDI4_S3_ECOG_LFP"
+  nx: 8  
+  n1: 4  
+  method_code: "DPAD_uAKCzCy1HL32URGLDrop" 
+  epochs: 1500
+  forecast:
+    m: 1  
+    history: 2  
+data:
+  root: "resampled_recordings/participants_at_60Hz_scaled_1e6" 
+  participant: "PDI4"
+  session: "3"
+  blocks: "all"
+  channels:
+    is_behavioral_neural: true
+    input: ["ECOG_1", "ECOG_2", "ECOG_3", "ECOG_4",] 
+    output: ["LFP_12", "LFP_13", "LFP_14", "LFP_15"] 
+    input_lag: null    
+  split:
+    within_session_split: true
+    train: 0.6
+    val: 0.2
+    test: 0.2
+    min_train_epochs: 50
+  batch_size: 32
+  sampling_frequency: 60
+  dbs_condition: "both"
+  jitter: 0
+
+results:
+  save_dir: "results/{model.name}"
+  log_dir: "{results.save_dir}/logs"
+  checkpoint_dir: "checkpoints"

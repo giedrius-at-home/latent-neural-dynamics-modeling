@@ -8,6 +8,10 @@ import numpy as np
 import sys
 from pathlib import Path
 
+psid_path = Path(__file__).parent.parent / "PSID"
+if str(psid_path.parent) not in sys.path:
+    sys.path.insert(0, str(psid_path.parent))
+
 dpad_path = Path(__file__).parent.parent / "DPAD-main" / "source"
 if str(dpad_path) not in sys.path:
     sys.path.insert(0, str(dpad_path))
@@ -303,8 +307,8 @@ class DPADWrapper:
                     f"Unexpected predict result length: {len(result)}, extracting first step only"
                 )
                 num_steps = len(result) // 3
-                Zp = result[0] 
-                Yp = result[num_steps]  
+                Zp = result[0]
+                Yp = result[num_steps]
                 Xp = result[2 * num_steps]
 
             if remainder != 0:
