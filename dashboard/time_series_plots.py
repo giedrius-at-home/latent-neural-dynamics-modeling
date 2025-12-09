@@ -282,6 +282,95 @@ def plot_speed_time_series(
     return fig
 
 
+def plot_acceleration_time_series(
+    trial_df: pl.DataFrame, time_col: str = "motion_time"
+) -> go.Figure:
+    if trial_df.is_empty() or trial_df["tracing_acceleration"].is_null().all():
+        return go.Figure().update_layout(title_text="No acceleration data available")
+
+    time_data = trial_df[time_col].to_numpy()
+    accel_data = trial_df["tracing_acceleration"].to_numpy()
+    
+    if "tracing_acceleration_magnitude" in trial_df.columns:
+        mag_data = trial_df["tracing_acceleration_magnitude"].to_numpy()
+    else:
+        mag_data = np.abs(accel_data)
+
+    onset_time = time_data.min()
+
+    fig = create_base_time_series_figure(
+        time_abs=time_data,
+        onset_time=onset_time,
+        y_label="Acceleration (pixels/$s^2$)",
+        title="",
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=time_data,
+            y=accel_data,
+            mode="markers+lines",
+            name="Acceleration",
+            marker=dict(
+                color=mag_data,
+                colorscale="Viridis",
+                size=4,
+                showscale=True,
+                colorbar=dict(title="Magnitude"),
+            ),
+            line=dict(width=1.5, color="rgba(100,100,100,0.3)"),
+            showlegend=False,
+        )
+    )
+
+    return fig
+
+
+def plot_jerk_time_series(
+    trial_df: pl.DataFrame, time_col: str = "motion_time"
+) -> go.Figure:
+    if trial_df.is_empty() or trial_df["tracing_jerk"].is_null().all():
+        return go.Figure().update_layout(title_text="No jerk data available")
+
+    time_data = trial_df[time_col].to_numpy()
+    jerk_data = trial_df["tracing_jerk"].to_numpy()
+    
+    if "tracing_jerk_magnitude" in trial_df.columns:
+        mag_data = trial_df["tracing_jerk_magnitude"].to_numpy()
+    else:
+        mag_data = np.abs(jerk_data)
+
+    onset_time = time_data.min()
+
+    fig = create_base_time_series_figure(
+        time_abs=time_data,
+        onset_time=onset_time,
+        y_label="Jerk (pixels/$s^3$)",
+        title="",
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=time_data,
+            y=jerk_data,
+            mode="markers+lines",
+            name="Jerk",
+            marker=dict(
+                color=mag_data,
+                colorscale="Plasma",
+                size=4,
+                showscale=True,
+                colorbar=dict(title="Magnitude"),
+            ),
+            line=dict(width=1.5, color="rgba(100,100,100,0.3)"),
+            showlegend=False,
+        )
+    )
+
+    return fig
+
+
+
 def plot_2d_trajectory(trial_df: pl.DataFrame) -> go.Figure:
     if trial_df.is_empty() or trial_df["x"].is_null().all():
         return go.Figure().update_layout(title_text="No coordinate data available")

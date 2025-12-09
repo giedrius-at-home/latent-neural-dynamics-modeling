@@ -5,7 +5,7 @@ save_directory: "{root_directory}/resampled_recordings"
 logger_directory: "{root_directory}/logs"
 participants_table_name: "participants.tsv"
 participants_intermediate_table_name: "participants_2"
-output_participants_table_name: "participants_at_60Hz_scaled_1e6_envelope"
+output_participants_table_name: "participants_at_60Hz_scaled_1e6_full_behavioral"
 ieeg_process:
   resampled_dir: "{save_directory}/resampled_mat_recordings"
   chunk_margin: 2
