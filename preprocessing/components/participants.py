@@ -1,4 +1,5 @@
 import polars as pl
+import numpy as np
 from pathlib import Path
 
 from utils.ieeg import (
@@ -22,7 +23,13 @@ from utils.file_handling import get_child_subchilds_tuples
 
 from utils.config import Config
 from utils.logger import get_logger
-from utils.motion import compute_tracing_speeds, compute_tracing_acceleration, compute_tracing_jerk, interpolate
+from utils.motion import (
+    compute_tracing_speeds,
+    compute_tracing_acceleration,
+    compute_tracing_jerk,
+    interpolate,
+    _smooth_signal,
+)
 
 LFP_SCHEMA = pl.Struct(
     [
@@ -406,8 +413,12 @@ def _chunk_recordings(
             & (pl.col("motion_time").list.drop_nulls().list.len() > 0)
         )
         .then(
-            pl.struct(pl.col("tracing_speed_x"), pl.col("tracing_speed_y"), "motion_time").map_elements(
-                lambda s: compute_tracing_acceleration(s["tracing_speed_x"], s["tracing_speed_y"], s["motion_time"]),
+            pl.struct(
+                pl.col("tracing_speed_x"), pl.col("tracing_speed_y"), "motion_time"
+            ).map_elements(
+                lambda s: compute_tracing_acceleration(
+                    s["tracing_speed_x"], s["tracing_speed_y"], s["motion_time"]
+                ),
                 return_dtype=pl.Object,
             )
         )
@@ -451,8 +462,16 @@ def _chunk_recordings(
             & (pl.col("motion_time").list.drop_nulls().list.len() > 0)
         )
         .then(
-            pl.struct(pl.col("tracing_acceleration_x"), pl.col("tracing_acceleration_y"), "motion_time").map_elements(
-                lambda s: compute_tracing_jerk(s["tracing_acceleration_x"], s["tracing_acceleration_y"], s["motion_time"]),
+            pl.struct(
+                pl.col("tracing_acceleration_x"),
+                pl.col("tracing_acceleration_y"),
+                "motion_time",
+            ).map_elements(
+                lambda s: compute_tracing_jerk(
+                    s["tracing_acceleration_x"],
+                    s["tracing_acceleration_y"],
+                    s["motion_time"],
+                ),
                 return_dtype=pl.Object,
             )
         )
@@ -543,7 +562,9 @@ def _chunk_recordings(
             pl.struct(
                 pl.col("tracing_speed_magnitude"), pl.col("original_length_ts")
             ).map_elements(
-                lambda s: interpolate(s["tracing_speed_magnitude"], s["original_length_ts"]),
+                lambda s: interpolate(
+                    s["tracing_speed_magnitude"], s["original_length_ts"]
+                ),
                 return_dtype=pl.List(pl.Float64),
             )
         )
@@ -559,7 +580,9 @@ def _chunk_recordings(
             pl.struct(
                 pl.col("tracing_acceleration"), pl.col("original_length_ts")
             ).map_elements(
-                lambda s: interpolate(s["tracing_acceleration"], s["original_length_ts"]),
+                lambda s: interpolate(
+                    s["tracing_acceleration"], s["original_length_ts"]
+                ),
                 return_dtype=pl.List(pl.Float64),
             )
         )
@@ -575,7 +598,9 @@ def _chunk_recordings(
             pl.struct(
                 pl.col("tracing_acceleration_x"), pl.col("original_length_ts")
             ).map_elements(
-                lambda s: interpolate(s["tracing_acceleration_x"], s["original_length_ts"]),
+                lambda s: interpolate(
+                    s["tracing_acceleration_x"], s["original_length_ts"]
+                ),
                 return_dtype=pl.List(pl.Float64),
             )
         )
@@ -591,7 +616,9 @@ def _chunk_recordings(
             pl.struct(
                 pl.col("tracing_acceleration_y"), pl.col("original_length_ts")
             ).map_elements(
-                lambda s: interpolate(s["tracing_acceleration_y"], s["original_length_ts"]),
+                lambda s: interpolate(
+                    s["tracing_acceleration_y"], s["original_length_ts"]
+                ),
                 return_dtype=pl.List(pl.Float64),
             )
         )
@@ -601,13 +628,18 @@ def _chunk_recordings(
     participants_ = participants_.with_columns(
         pl.when(
             pl.col("tracing_acceleration_magnitude").is_not_null()
-            & (pl.col("tracing_acceleration_magnitude").list.drop_nulls().list.len() > 0)
+            & (
+                pl.col("tracing_acceleration_magnitude").list.drop_nulls().list.len()
+                > 0
+            )
         )
         .then(
             pl.struct(
                 pl.col("tracing_acceleration_magnitude"), pl.col("original_length_ts")
             ).map_elements(
-                lambda s: interpolate(s["tracing_acceleration_magnitude"], s["original_length_ts"]),
+                lambda s: interpolate(
+                    s["tracing_acceleration_magnitude"], s["original_length_ts"]
+                ),
                 return_dtype=pl.List(pl.Float64),
             )
         )
@@ -671,12 +703,46 @@ def _chunk_recordings(
             pl.struct(
                 pl.col("tracing_jerk_magnitude"), pl.col("original_length_ts")
             ).map_elements(
-                lambda s: interpolate(s["tracing_jerk_magnitude"], s["original_length_ts"]),
+                lambda s: interpolate(
+                    s["tracing_jerk_magnitude"], s["original_length_ts"]
+                ),
                 return_dtype=pl.List(pl.Float64),
             )
         )
         .alias("tracing_jerk_magnitude")
     )
+
+    kinematic_vars = [
+        "tracing_speed",
+        "tracing_speed_x",
+        "tracing_speed_y",
+        "tracing_speed_magnitude",
+        "tracing_acceleration",
+        "tracing_acceleration_x",
+        "tracing_acceleration_y",
+        "tracing_acceleration_magnitude",
+        "tracing_jerk",
+        "tracing_jerk_x",
+        "tracing_jerk_y",
+        "tracing_jerk_magnitude",
+    ]
+
+    for var in kinematic_vars:
+        participants_ = participants_.with_columns(
+            pl.when(
+                pl.col(var).is_not_null()
+                & (pl.col(var).list.drop_nulls().list.len() > 0)
+            )
+            .then(
+                pl.col(var).map_elements(
+                    lambda signal: _smooth_signal(
+                        np.array(signal), sfreq=sfreq, moving_avg_window_ms=50
+                    ),
+                    return_dtype=pl.List(pl.Float64),
+                )
+            )
+            .alias(var)
+        )
 
     return participants_
 

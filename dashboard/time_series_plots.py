@@ -290,7 +290,7 @@ def plot_acceleration_time_series(
 
     time_data = trial_df[time_col].to_numpy()
     accel_data = trial_df["tracing_acceleration"].to_numpy()
-    
+
     if "tracing_acceleration_magnitude" in trial_df.columns:
         mag_data = trial_df["tracing_acceleration_magnitude"].to_numpy()
     else:
@@ -334,7 +334,7 @@ def plot_jerk_time_series(
 
     time_data = trial_df[time_col].to_numpy()
     jerk_data = trial_df["tracing_jerk"].to_numpy()
-    
+
     if "tracing_jerk_magnitude" in trial_df.columns:
         mag_data = trial_df["tracing_jerk_magnitude"].to_numpy()
     else:
@@ -368,7 +368,6 @@ def plot_jerk_time_series(
     )
 
     return fig
-
 
 
 def plot_2d_trajectory(trial_df: pl.DataFrame) -> go.Figure:

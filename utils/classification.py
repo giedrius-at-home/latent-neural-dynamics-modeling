@@ -208,11 +208,11 @@ def run_grid_search_cv(
     fs: float = SAMPLING_FREQ,
 ) -> Tuple[Dict[str, Any], float, Dict[str, Any]]:
     from sklearn.model_selection import ParameterGrid
-    
+
     pipeline = create_pipeline(clf_name, fs=fs)
     param_grid = get_param_grid(clf_name)
     all_params = list(ParameterGrid(param_grid))
-    
+
     if clf_name == "LDA":
         filtered_params = []
         for params in all_params:
@@ -223,7 +223,7 @@ def run_grid_search_cv(
             filtered_params.append({k: [v] for k, v in params.items()})
     else:
         filtered_params = [{k: [v] for k, v in params.items()} for params in all_params]
-        
+
     tscv = TimeSeriesSplit(n_splits=n_splits)
 
     grid_search = GridSearchCV(
