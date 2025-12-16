@@ -19,7 +19,7 @@ from sklearn.metrics import (
 )
 
 import mne
-from mne.decoding import SPoC
+from mne.decoding import CSP
 
 # TODO: Make these configurable parameters instead of hardcoded constants
 
@@ -225,10 +225,10 @@ def get_classifier(clf_name: str, params: Optional[Dict[str, Any]] = None):
 
 
 def get_param_grid(clf_name: str) -> Dict[str, List]:
-    spoc_params = {
-        "spoc__n_components": [2, 4, 6, 8],
-        "spoc__reg": ["empirical", "ledoit_wolf", "oas"],
-        "spoc__log": [True, False],
+    csp_params = {
+        "csp__n_components": [2, 4, 6, 8],
+        "csp__reg": [None, "empirical", "ledoit_wolf", "oas"],
+        "csp__log": [True, False],
     }
 
     if clf_name == "Logistic Regression":
@@ -245,12 +245,12 @@ def get_param_grid(clf_name: str) -> Dict[str, List]:
     else:
         clf_params = {}
 
-    return {**spoc_params, **clf_params}
+    return {**csp_params, **clf_params}
 
 
 def create_pipeline(clf_name: str, fs: float = SAMPLING_FREQ) -> Pipeline:
     steps = [
-        ("spoc", SPoC()),
+        ("csp", CSP()),
         ("scaler", StandardScaler()),
         ("classifier", get_classifier(clf_name)),
     ]
