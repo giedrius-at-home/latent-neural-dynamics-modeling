@@ -36,10 +36,16 @@ class Trainer:
             / f"participant_id={self.data_params.participant}"
             / f"session={self.data_params.session}"
         )
-        combined_cols = list(
+        base_cols = list(
             set(self.data_params.channels.input) | set(self.data_params.channels.output)
         )
-        combined_cols = [pl.col(f"^{col}.*$") for col in combined_cols]
+        combined_cols = []
+        for col in base_cols:
+            combined_cols.append(pl.col(col))
+            is_neural = col.startswith("LFP") or col.startswith("ECOG")
+            is_input = col in self.data_params.channels.input
+            if is_neural and (is_input or self.data_params.channels.is_behavioral_neural):
+                combined_cols.append(pl.col(f"{col}_epochs"))
 
         epoch_samp = f"{self.data_params.channels.input[0]}_epochs"
         trial = (
@@ -60,15 +66,16 @@ class Trainer:
                 pl.col("onset").alias("offset"),
             )
             .with_columns(pl.col(epoch_samp).list.len().alias("n_epochs"))
-            .sort(
-                [
-                    pl.col("participant_id"),
-                    pl.col("session"),
-                    pl.col("block"),
-                    pl.col("trial"),
-                ],
-                maintain_order=True,
-            )
+        )
+        
+        trial = trial.sort(
+            [
+                pl.col("participant_id"),
+                pl.col("session"),
+                pl.col("block"),
+                pl.col("trial"),
+            ],
+            maintain_order=True,
         )
 
         if self.data_params.blocks != "all":

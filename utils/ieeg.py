@@ -1,8 +1,8 @@
 from pathlib import Path
 import mne
 import numpy as np
-from scipy.signal import hilbert
 from utils.logger import get_logger
+from scipy.signal import hilbert
 
 
 def preprocess_ieeg(
@@ -59,18 +59,6 @@ def filter_recording(
     return list(recording_)
 
 
-def extract_envelope(
-    filtered_recording: list[float],
-    sfreq: int,
-) -> list[float]:
-    recording_ = np.array(filtered_recording, dtype=np.float64)
-
-    analytic_signal = hilbert(recording_, axis=0)
-    envelope = np.abs(analytic_signal)
-
-    return envelope.tolist()
-
-
 def process_and_resample(
     recording: list[float],
     low_freq: float,
@@ -78,45 +66,46 @@ def process_and_resample(
     notch_freqs: list[int],
     original_sfreq: int,
     target_sfreq: int,
-    extract_envelope_flag: bool = False,
-) -> tuple[list[float], list[float]]:
-    recording_ = np.array(recording, dtype=np.float64)
+) -> list[float]:
 
+    data = np.array(recording, dtype=np.float64)
     if notch_freqs:
-        recording_ = mne.filter.notch_filter(
-            recording_, Fs=original_sfreq, freqs=notch_freqs, verbose=False
-        )
+        data = mne.filter.notch_filter(data, Fs=original_sfreq, freqs=notch_freqs, verbose=False)
+    data = mne.filter.filter_data(data, sfreq=original_sfreq, l_freq=low_freq, h_freq=high_freq, verbose=False)
+    data = mne.filter.resample(data, down=original_sfreq / target_sfreq, verbose=False)
+    return data.tolist()
 
-    filtered = mne.filter.filter_data(
-        recording_,
-        sfreq=original_sfreq,
-        l_freq=low_freq,
-        h_freq=high_freq,
-        verbose=False,
-    )
 
-    envelope = None
-    if extract_envelope_flag:
-        analytic_signal = hilbert(filtered, axis=0)
-        envelope = np.abs(analytic_signal)
-        envelope = mne.filter.filter_data(
-            envelope,
-            sfreq=original_sfreq,
-            l_freq=None,
-            h_freq=target_sfreq / 3,
-            verbose=False,
-        )
-        envelope = mne.filter.resample(
-            envelope, down=original_sfreq / target_sfreq, verbose=False
-        )
+def process_dual_band(
+    recording: list[float],
+    low_freq: float,
+    envelope_cutoff: float,
+    high_freq: float,
+    notch_freqs: list[int],
+    original_sfreq: int,
+    target_sfreq: int,
+    scale_factor: float = 1.0,
+) -> tuple[list[float], list[float]]:
+    data = np.array(recording, dtype=np.float64)
+    if notch_freqs:
+        data = mne.filter.notch_filter(data, Fs=original_sfreq, freqs=notch_freqs, verbose=False)
 
-    filtered_resampled = mne.filter.resample(
-        filtered, down=original_sfreq / target_sfreq, verbose=False
-    )
+    low_band = mne.filter.filter_data(data, sfreq=original_sfreq, l_freq=low_freq, h_freq=envelope_cutoff, verbose=False)
+    low_band = mne.filter.resample(low_band, down=original_sfreq / target_sfreq, verbose=False)
 
-    return filtered_resampled.tolist(), (
-        envelope.tolist() if envelope is not None else None
-    )
+    high_band = mne.filter.filter_data(data, sfreq=original_sfreq, l_freq=envelope_cutoff, h_freq=high_freq, verbose=False)
+    high_band_envelope = np.abs(hilbert(high_band))
+    
+    window_size = int(0.2 * original_sfreq)
+    kernel = np.ones(window_size) / window_size
+    high_band_envelope = np.convolve(high_band_envelope, kernel, mode='same')
+    
+    high_band_envelope = mne.filter.resample(high_band_envelope, down=original_sfreq / target_sfreq, verbose=False)
+    
+    low_band = low_band * scale_factor
+    high_band_envelope = high_band_envelope * scale_factor
+
+    return low_band.tolist(), high_band_envelope.tolist()
 
 
 def epoch_trials(

@@ -31,6 +31,54 @@ EPOCH_OVERLAP = 0.5
 CLASSIFIERS = ["Logistic Regression", "LDA"]
 
 
+class ChronoGroupsSplit:
+
+    def __init__(self, warn_if_blocks_ignored: bool = False):
+        self.warn_if_blocks_ignored = warn_if_blocks_ignored
+
+    def split(self, X, y, groups):
+        y = np.asarray(y)
+        groups = np.asarray(groups)
+        
+        gm = {k: list(set(groups[y == k])) for k in set(y)}
+
+        for v in gm.values():
+            v.sort()
+
+        assert all(
+            [set(s).intersection(groups[y != k]) == set() for k, s in gm.items()]
+        ), "Groups are not unique in label"
+
+        set_lens = [len(v) for v in gm.values()]
+        if not all([e == set_lens[0] for e in set_lens]):
+            min_set = min(set_lens)
+            set_counts = {k: len(v) for k, v in gm.items()}
+            not_assigned_groups = {k: v[min_set:] for k, v in gm.items()}
+
+
+        Xidcs = np.arange(X.shape[0])
+
+        test_idxs = np.asarray(list(zip(*[v for v in gm.values()])))
+
+        splits = [
+            (
+                Xidcs[~np.isin(groups, test_idx_row)],
+                Xidcs[np.isin(groups, test_idx_row)],
+            )
+            for test_idx_row in test_idxs
+        ]
+
+        return splits
+
+    def get_n_splits(self, X=None, y=None, groups=None):
+        if y is None or groups is None:
+            raise ValueError("y and groups must be provided to get n_splits")
+        y = np.asarray(y)
+        groups = np.asarray(groups)
+        gm = {k: list(set(groups[y == k])) for k in set(y)}
+        return min(len(v) for v in gm.values())
+
+
 def epoch_trial(
     trial_data: np.ndarray, epoch_length: int, overlap: float = 0.5
 ) -> List[np.ndarray]:
@@ -56,13 +104,17 @@ def prepare_epoched_data(
     overlap: float = EPOCH_OVERLAP,
     fs: float = SAMPLING_FREQ,
     forecast_horizon_sec: Optional[float] = None,
-) -> Tuple[np.ndarray, np.ndarray, List[Dict[str, Any]]]:
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, List[Dict[str, Any]]]:
     epoch_length = int(epoch_length_sec * fs)
     forecast_horizon = int(forecast_horizon_sec * fs) if forecast_horizon_sec else None
 
     X_all = []
     y_all = []
+    groups_all = []
     meta_all = []
+    
+    block_id_map = {}
+    current_block_id = 0
 
     for split_res in split_results:
         if forecast_horizon is not None:
@@ -104,6 +156,14 @@ def prepare_epoched_data(
         for trial_idx, trial_data in enumerate(data_list):
 
             stim = stim_list[trial_idx] if trial_idx < len(stim_list) else None
+            session = session_list[trial_idx] if trial_idx < len(session_list) else 0
+            block = block_list[trial_idx] if trial_idx < len(block_list) else 0
+            
+            block_key = (session, block, stim)
+            if block_key not in block_id_map:
+                block_id_map[block_key] = current_block_id
+                current_block_id += 1
+            group_id = block_id_map[block_key]
 
             trial_data = np.array(trial_data)
             if trial_data.ndim == 1:
@@ -123,6 +183,7 @@ def prepare_epoched_data(
             for epoch_idx, epoch in enumerate(epochs):
                 X_all.append(epoch)
                 y_all.append(label)
+                groups_all.append(group_id)
 
                 meta = {
                     "participant_id": (
@@ -130,19 +191,14 @@ def prepare_epoched_data(
                         if trial_idx < len(participant_list)
                         else None
                     ),
-                    "session": (
-                        session_list[trial_idx]
-                        if trial_idx < len(session_list)
-                        else None
-                    ),
-                    "block": (
-                        block_list[trial_idx] if trial_idx < len(block_list) else None
-                    ),
+                    "session": session,
+                    "block": block,
                     "trial": (
                         trial_list[trial_idx] if trial_idx < len(trial_list) else None
                     ),
                     "epoch_idx": epoch_idx,
                     "split_idx": len(meta_all),
+                    "group_id": group_id,
                 }
 
                 if forecast_horizon is not None:
@@ -151,12 +207,13 @@ def prepare_epoched_data(
                 meta_all.append(meta)
 
     if len(X_all) == 0:
-        return None, None, None
+        return None, None, None, None
 
     X_array = np.array(X_all)
     y_array = np.array(y_all)
+    groups_array = np.array(groups_all)
 
-    return X_array, y_array, meta_all
+    return X_array, y_array, groups_array, meta_all
 
 
 def get_classifier(clf_name: str, params: Optional[Dict[str, Any]] = None):
@@ -204,52 +261,71 @@ def run_grid_search_cv(
     clf_name: str,
     X: np.ndarray,
     y: np.ndarray,
+    groups: np.ndarray,
     n_splits: int = 5,
     fs: float = SAMPLING_FREQ,
 ) -> Tuple[Dict[str, Any], float, Dict[str, Any]]:
-    from sklearn.model_selection import ParameterGrid
+    from sklearn.base import clone
 
     pipeline = create_pipeline(clf_name, fs=fs)
     param_grid = get_param_grid(clf_name)
-    all_params = list(ParameterGrid(param_grid))
 
     if clf_name == "LDA":
-        filtered_params = []
-        for params in all_params:
-            solver = params.get("classifier__solver")
-            shrinkage = params.get("classifier__shrinkage")
-            if solver == "svd" and shrinkage is not None:
-                continue
-            filtered_params.append({k: [v] for k, v in params.items()})
-    else:
-        filtered_params = [{k: [v] for k, v in params.items()} for params in all_params]
+        filtered_grid = {}
+        for key, values in param_grid.items():
+            if key == "classifier__shrinkage":
+                filtered_grid[key] = values
+            elif key == "classifier__solver":
+                filtered_grid[key] = values
+            else:
+                filtered_grid[key] = values
+        param_grid = filtered_grid
 
-    tscv = TimeSeriesSplit(n_splits=n_splits)
+    chrono_cv = ChronoGroupsSplit(warn_if_blocks_ignored=True)
+    splits = chrono_cv.split(X, y, groups)
+    
+    effective_n_splits = len(splits)
 
     grid_search = GridSearchCV(
         pipeline,
-        filtered_params,
-        cv=tscv,
+        param_grid,
+        cv=splits,
         scoring="balanced_accuracy",
         n_jobs=-1,
         verbose=1,
         return_train_score=True,
+        error_score=0.0,
     )
 
     grid_search.fit(X, y)
 
     best_params = grid_search.best_params_
     best_score = grid_search.best_score_
-
-    cv_results_df = {
-        "params": grid_search.cv_results_["params"],
-        "mean_test_score": grid_search.cv_results_["mean_test_score"],
-        "std_test_score": grid_search.cv_results_["std_test_score"],
-        "mean_train_score": grid_search.cv_results_["mean_train_score"],
-        "std_train_score": grid_search.cv_results_["std_train_score"],
-    }
-
     best_pipeline = grid_search.best_estimator_
+
+    fold_results = []
+    splits_for_details = chrono_cv.split(X, y, groups)
+    for fold_idx, (train_idx, val_idx) in enumerate(splits_for_details):
+        y_train, y_val = y[train_idx], y[val_idx]
+        
+        X_val = X[val_idx]
+        y_pred_fold = best_pipeline.predict(X_val)
+        fold_score = balanced_accuracy_score(y_val, y_pred_fold)
+        
+        fold_results.append({
+            "fold": fold_idx,
+            "train_indices": (int(train_idx.min()), int(train_idx.max())),
+            "val_indices": (int(val_idx.min()), int(val_idx.max())),
+            "n_train": len(train_idx),
+            "n_val": len(val_idx),
+            "n_on_train": int(np.sum(y_train == 1)),
+            "n_off_train": int(np.sum(y_train == 0)),
+            "n_on_val": int(np.sum(y_val == 1)),
+            "n_off_val": int(np.sum(y_val == 0)),
+            "accuracy": float(accuracy_score(y_val, y_pred_fold)),
+            "balanced_accuracy": float(fold_score),
+        })
+
     y_pred = best_pipeline.predict(X)
     y_proba = (
         best_pipeline.predict_proba(X)[:, 1]
@@ -260,11 +336,22 @@ def run_grid_search_cv(
     fpr, tpr, _ = roc_curve(y, y_proba)
     roc_auc_val = auc(fpr, tpr)
 
+    cv_results_df = {
+        "params": grid_search.cv_results_["params"],
+        "mean_test_score": grid_search.cv_results_["mean_test_score"],
+        "std_test_score": grid_search.cv_results_["std_test_score"],
+        "mean_train_score": grid_search.cv_results_["mean_train_score"],
+        "std_train_score": grid_search.cv_results_["std_train_score"],
+    }
+
     results = {
         "best_params": best_params,
         "best_cv_score": best_score,
-        "n_combinations_tested": len(filtered_params),
+        "n_combinations_tested": len(grid_search.cv_results_["params"]),
+        "n_splits": effective_n_splits,
+        "cv_method": "ChronoGroupsSplit",
         "grid_search_results": cv_results_df,
+        "fold_results": fold_results,
         "y_true": y,
         "y_pred": y_pred,
         "y_proba": y_proba,

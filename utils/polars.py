@@ -7,8 +7,8 @@ from utils.config import Config
 from utils.ieeg import (
     preprocess_ieeg,
     filter_recording,
-    extract_envelope,
     process_and_resample,
+    process_dual_band,
 )
 
 from scipy.io import savemat
@@ -268,45 +268,44 @@ def band_pass_resample(
         .drop("sfreq")
     )
 
-    use_envelope = getattr(config.ieeg_process, "use_envelope", False)
     original_sfreq = 1000
     target_sfreq = config.ieeg_process.resampled_freq
+    envelope_cutoff = config.ieeg_process.envelope_cutoff
 
     for ieeg_field in iEEG_SCHEMA.fields:
         if ieeg_field.name == "sfreq":
             continue
 
+        def _process_dual(r, field_name=ieeg_field.name):
+            if r is None or len(r) == 0:
+                return {"raw": [], "envelope": []}
+            scale_factor = float(getattr(config.ieeg_process, 'scale_factor', 1.0))
+            raw, envelope = process_dual_band(
+                r,
+                low_freq=config.ieeg_process.low_freq,
+                envelope_cutoff=envelope_cutoff,
+                high_freq=config.ieeg_process.high_freq,
+                notch_freqs=config.ieeg_process.notch_freqs,
+                original_sfreq=original_sfreq,
+                target_sfreq=target_sfreq,
+                scale_factor=scale_factor,
+            )
+            return {"raw": raw, "envelope": envelope}
+
         participants_ = participants_.with_columns(
             pl.col(ieeg_field.name)
-            .map_elements(
-                lambda r: process_and_resample(
-                    r,
-                    low_freq=config.ieeg_process.low_freq,
-                    high_freq=config.ieeg_process.high_freq,
-                    notch_freqs=config.ieeg_process.notch_freqs,
-                    original_sfreq=original_sfreq,
-                    target_sfreq=target_sfreq,
-                    extract_envelope_flag=use_envelope,
-                ),
-                return_dtype=pl.Object,
-            )
-            .alias(f"{ieeg_field.name}_processed")
+            .map_elements(_process_dual, return_dtype=pl.Object)
+            .alias(f"_dual_{ieeg_field.name}")
         )
 
         participants_ = participants_.with_columns(
-            pl.col(f"{ieeg_field.name}_processed")
-            .map_elements(lambda x: x[0], return_dtype=pl.List(pl.Float32))
-            .alias(ieeg_field.name)
-        )
-
-        if use_envelope:
-            participants_ = participants_.with_columns(
-                pl.col(f"{ieeg_field.name}_processed")
-                .map_elements(lambda x: x[1], return_dtype=pl.List(pl.Float32))
-                .alias(f"{ieeg_field.name}_envelope")
-            )
-
-        participants_ = participants_.drop(f"{ieeg_field.name}_processed")
+            pl.col(f"_dual_{ieeg_field.name}")
+            .map_elements(lambda x: x["raw"], return_dtype=pl.List(pl.Float32))
+            .alias(ieeg_field.name),
+            pl.col(f"_dual_{ieeg_field.name}")
+            .map_elements(lambda x: x["envelope"], return_dtype=pl.List(pl.Float32))
+            .alias(f"{ieeg_field.name}_envelope"),
+        ).drop(f"_dual_{ieeg_field.name}")
 
     return participants_
 

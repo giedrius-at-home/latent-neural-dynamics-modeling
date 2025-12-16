@@ -30,6 +30,10 @@ from utils.motion import (
     interpolate,
     _smooth_signal,
 )
+from utils.sync import (
+    generate_master_grid,
+    interpolate_to_grid,
+)
 
 LFP_SCHEMA = pl.Struct(
     [
@@ -106,7 +110,9 @@ def _add_full_data(participants: pl.DataFrame, config: Config) -> pl.DataFrame:
     logger.info("Loaded iEEG data")
     lfp_channels = [field.name for field in LFP_SCHEMA.fields]
     ecog_channels = [field.name for field in ECOG_SCHEMA.fields]
-    all_channels = lfp_channels + ecog_channels
+    lfp_envelope_channels = [f"{ch}_envelope" for ch in lfp_channels]
+    ecog_envelope_channels = [f"{ch}_envelope" for ch in ecog_channels]
+    all_channels = lfp_channels + ecog_channels + lfp_envelope_channels + ecog_envelope_channels
 
     ieeg_participants = apply_car(ieeg_participants, lfp_channels, config)
     ieeg_participants = apply_car(ieeg_participants, ecog_channels, config)
@@ -300,6 +306,24 @@ def _add_ieeg_data(participants: pl.DataFrame, config: Config) -> pl.DataFrame:
     return participants
 
 
+def _interpolate_kinematic_to_grid(kinematic_signal, motion_time, time_original):
+    if kinematic_signal is None or motion_time is None or time_original is None:
+        return None
+    if len(kinematic_signal) == 0 or len(motion_time) == 0 or len(time_original) == 0:
+        return None
+    signal_arr = np.array(kinematic_signal, dtype=np.float64)
+    motion_arr = np.array(motion_time, dtype=np.float64)
+    grid_arr = np.array(time_original, dtype=np.float64)
+    interpolated = interpolate_to_grid(signal_arr, motion_arr, grid_arr)
+    return interpolated.tolist()
+
+
+def _extract_result_field(results, field_name):
+    if results is None:
+        return None
+    return results.get(field_name)
+
+
 def _chunk_recordings(
     participants: pl.DataFrame, chunk_margin: int, sfreq: int
 ) -> pl.DataFrame:
@@ -332,6 +356,13 @@ def _chunk_recordings(
                 pl.col("start_ts"), pl.col("chunk_length_ts")
             )
         )
+        envelope_col = f"{ieeg_field.name}_envelope"
+        if envelope_col in participants_.columns:
+            participants_ = participants_.with_columns(
+                pl.col(envelope_col).list.slice(
+                    pl.col("start_ts"), pl.col("chunk_length_ts")
+                )
+            )
 
     participants_ = participants_.with_columns(
         pl.lit(chunk_margin).alias("chunk_margin")
@@ -349,385 +380,75 @@ def _chunk_recordings(
         .alias("motion_time")
     )
 
-    from utils.logger import get_logger
-
     logger = get_logger()
-    logger.info(
-        f"""There are null values in motion_time column: 
-        {participants_.select("participant_id", "session", "block", "trial", "motion_time").filter(pl.col('motion_time').is_null())}"""
-    )
+    logger.info(f"Null motion_time rows: {participants_.filter(pl.col('motion_time').is_null()).height}")
 
-    logger.info(
-        f"""There are null values within motion_time column: 
-        {participants_.select("participant_id", "session", "block", "trial", "motion_time").filter(pl.col('motion_time').list.contains(None))}"""
-    )
-
-    participants_ = participants_.with_columns(
-        pl.when(
-            pl.col("motion_time").is_not_null()
-            & (pl.col("motion_time").list.drop_nulls().list.len() > 0)
-        )
-        .then(
-            pl.struct(pl.col("x"), pl.col("y"), "motion_time").map_elements(
-                lambda s: compute_tracing_speeds(s["x"], s["y"], s["motion_time"]),
-                return_dtype=pl.Object,
-            )
-        )
-        .alias("_speed_results")
-    )
-
-    participants_ = participants_.with_columns(
-        pl.col("_speed_results")
-        .map_elements(
-            lambda r: r["tracing_speed"] if r is not None else None,
-            return_dtype=pl.List(pl.Float64),
-        )
-        .alias("tracing_speed"),
-        pl.col("_speed_results")
-        .map_elements(
-            lambda r: r["tracing_speed_x"] if r is not None else None,
-            return_dtype=pl.List(pl.Float64),
-        )
-        .alias("tracing_speed_x"),
-        pl.col("_speed_results")
-        .map_elements(
-            lambda r: r["tracing_speed_y"] if r is not None else None,
-            return_dtype=pl.List(pl.Float64),
-        )
-        .alias("tracing_speed_y"),
-        pl.col("_speed_results")
-        .map_elements(
-            lambda r: r["tracing_speed_magnitude"] if r is not None else None,
-            return_dtype=pl.List(pl.Float64),
-        )
-        .alias("tracing_speed_magnitude"),
-    ).drop("_speed_results")
-
-    participants_ = participants_.with_columns(
-        pl.when(
-            pl.col("tracing_speed_x").is_not_null()
-            & (pl.col("tracing_speed_x").list.drop_nulls().list.len() > 0)
-            & pl.col("tracing_speed_y").is_not_null()
-            & (pl.col("tracing_speed_y").list.drop_nulls().list.len() > 0)
-            & pl.col("motion_time").is_not_null()
-            & (pl.col("motion_time").list.drop_nulls().list.len() > 0)
-        )
-        .then(
-            pl.struct(
-                pl.col("tracing_speed_x"), pl.col("tracing_speed_y"), "motion_time"
-            ).map_elements(
-                lambda s: compute_tracing_acceleration(
-                    s["tracing_speed_x"], s["tracing_speed_y"], s["motion_time"]
-                ),
-                return_dtype=pl.Object,
-            )
-        )
-        .alias("_accel_results")
-    )
-
-    participants_ = participants_.with_columns(
-        pl.col("_accel_results")
-        .map_elements(
-            lambda r: r["tracing_acceleration"] if r is not None else None,
-            return_dtype=pl.List(pl.Float64),
-        )
-        .alias("tracing_acceleration"),
-        pl.col("_accel_results")
-        .map_elements(
-            lambda r: r["tracing_acceleration_x"] if r is not None else None,
-            return_dtype=pl.List(pl.Float64),
-        )
-        .alias("tracing_acceleration_x"),
-        pl.col("_accel_results")
-        .map_elements(
-            lambda r: r["tracing_acceleration_y"] if r is not None else None,
-            return_dtype=pl.List(pl.Float64),
-        )
-        .alias("tracing_acceleration_y"),
-        pl.col("_accel_results")
-        .map_elements(
-            lambda r: r["tracing_acceleration_magnitude"] if r is not None else None,
-            return_dtype=pl.List(pl.Float64),
-        )
-        .alias("tracing_acceleration_magnitude"),
-    ).drop("_accel_results")
-
-    participants_ = participants_.with_columns(
-        pl.when(
-            pl.col("tracing_acceleration_x").is_not_null()
-            & (pl.col("tracing_acceleration_x").list.drop_nulls().list.len() > 0)
-            & pl.col("tracing_acceleration_y").is_not_null()
-            & (pl.col("tracing_acceleration_y").list.drop_nulls().list.len() > 0)
-            & pl.col("motion_time").is_not_null()
-            & (pl.col("motion_time").list.drop_nulls().list.len() > 0)
-        )
-        .then(
-            pl.struct(
-                pl.col("tracing_acceleration_x"),
-                pl.col("tracing_acceleration_y"),
-                "motion_time",
-            ).map_elements(
-                lambda s: compute_tracing_jerk(
-                    s["tracing_acceleration_x"],
-                    s["tracing_acceleration_y"],
-                    s["motion_time"],
-                ),
-                return_dtype=pl.Object,
-            )
-        )
-        .alias("_jerk_results")
-    )
-
-    participants_ = participants_.with_columns(
-        pl.col("_jerk_results")
-        .map_elements(
-            lambda r: r["tracing_jerk"] if r is not None else None,
-            return_dtype=pl.List(pl.Float64),
-        )
-        .alias("tracing_jerk"),
-        pl.col("_jerk_results")
-        .map_elements(
-            lambda r: r["tracing_jerk_x"] if r is not None else None,
-            return_dtype=pl.List(pl.Float64),
-        )
-        .alias("tracing_jerk_x"),
-        pl.col("_jerk_results")
-        .map_elements(
-            lambda r: r["tracing_jerk_y"] if r is not None else None,
-            return_dtype=pl.List(pl.Float64),
-        )
-        .alias("tracing_jerk_y"),
-        pl.col("_jerk_results")
-        .map_elements(
-            lambda r: r["tracing_jerk_magnitude"] if r is not None else None,
-            return_dtype=pl.List(pl.Float64),
-        )
-        .alias("tracing_jerk_magnitude"),
-    ).drop("_jerk_results")
-
-    participants_ = participants_.with_columns(
-        pl.when(
-            pl.col("tracing_speed").is_not_null()
-            & (pl.col("tracing_speed").list.drop_nulls().list.len() > 0)
-        )
-        .then(
-            pl.struct(
-                pl.col("tracing_speed"), pl.col("original_length_ts")
-            ).map_elements(
-                lambda s: interpolate(s["tracing_speed"], s["original_length_ts"]),
-                return_dtype=pl.List(pl.Float64),
-            )
-        )
-        .alias("tracing_speed")
-    )
-
-    participants_ = participants_.with_columns(
-        pl.when(
-            pl.col("tracing_speed_x").is_not_null()
-            & (pl.col("tracing_speed_x").list.drop_nulls().list.len() > 0)
-        )
-        .then(
-            pl.struct(
-                pl.col("tracing_speed_x"), pl.col("original_length_ts")
-            ).map_elements(
-                lambda s: interpolate(s["tracing_speed_x"], s["original_length_ts"]),
-                return_dtype=pl.List(pl.Float64),
-            )
-        )
-        .alias("tracing_speed_x")
-    )
-
-    participants_ = participants_.with_columns(
-        pl.when(
-            pl.col("tracing_speed_y").is_not_null()
-            & (pl.col("tracing_speed_y").list.drop_nulls().list.len() > 0)
-        )
-        .then(
-            pl.struct(
-                pl.col("tracing_speed_y"), pl.col("original_length_ts")
-            ).map_elements(
-                lambda s: interpolate(s["tracing_speed_y"], s["original_length_ts"]),
-                return_dtype=pl.List(pl.Float64),
-            )
-        )
-        .alias("tracing_speed_y")
-    )
-
-    participants_ = participants_.with_columns(
-        pl.when(
-            pl.col("tracing_speed_magnitude").is_not_null()
-            & (pl.col("tracing_speed_magnitude").list.drop_nulls().list.len() > 0)
-        )
-        .then(
-            pl.struct(
-                pl.col("tracing_speed_magnitude"), pl.col("original_length_ts")
-            ).map_elements(
-                lambda s: interpolate(
-                    s["tracing_speed_magnitude"], s["original_length_ts"]
-                ),
-                return_dtype=pl.List(pl.Float64),
-            )
-        )
-        .alias("tracing_speed_magnitude")
-    )
-
-    participants_ = participants_.with_columns(
-        pl.when(
-            pl.col("tracing_acceleration").is_not_null()
-            & (pl.col("tracing_acceleration").list.drop_nulls().list.len() > 0)
-        )
-        .then(
-            pl.struct(
-                pl.col("tracing_acceleration"), pl.col("original_length_ts")
-            ).map_elements(
-                lambda s: interpolate(
-                    s["tracing_acceleration"], s["original_length_ts"]
-                ),
-                return_dtype=pl.List(pl.Float64),
-            )
-        )
-        .alias("tracing_acceleration")
-    )
-
-    participants_ = participants_.with_columns(
-        pl.when(
-            pl.col("tracing_acceleration_x").is_not_null()
-            & (pl.col("tracing_acceleration_x").list.drop_nulls().list.len() > 0)
-        )
-        .then(
-            pl.struct(
-                pl.col("tracing_acceleration_x"), pl.col("original_length_ts")
-            ).map_elements(
-                lambda s: interpolate(
-                    s["tracing_acceleration_x"], s["original_length_ts"]
-                ),
-                return_dtype=pl.List(pl.Float64),
-            )
-        )
-        .alias("tracing_acceleration_x")
-    )
-
-    participants_ = participants_.with_columns(
-        pl.when(
-            pl.col("tracing_acceleration_y").is_not_null()
-            & (pl.col("tracing_acceleration_y").list.drop_nulls().list.len() > 0)
-        )
-        .then(
-            pl.struct(
-                pl.col("tracing_acceleration_y"), pl.col("original_length_ts")
-            ).map_elements(
-                lambda s: interpolate(
-                    s["tracing_acceleration_y"], s["original_length_ts"]
-                ),
-                return_dtype=pl.List(pl.Float64),
-            )
-        )
-        .alias("tracing_acceleration_y")
-    )
-
-    participants_ = participants_.with_columns(
-        pl.when(
-            pl.col("tracing_acceleration_magnitude").is_not_null()
-            & (
-                pl.col("tracing_acceleration_magnitude").list.drop_nulls().list.len()
-                > 0
-            )
-        )
-        .then(
-            pl.struct(
-                pl.col("tracing_acceleration_magnitude"), pl.col("original_length_ts")
-            ).map_elements(
-                lambda s: interpolate(
-                    s["tracing_acceleration_magnitude"], s["original_length_ts"]
-                ),
-                return_dtype=pl.List(pl.Float64),
-            )
-        )
-        .alias("tracing_acceleration_magnitude")
-    )
-
-    participants_ = participants_.with_columns(
-        pl.when(
-            pl.col("tracing_jerk").is_not_null()
-            & (pl.col("tracing_jerk").list.drop_nulls().list.len() > 0)
-        )
-        .then(
-            pl.struct(
-                pl.col("tracing_jerk"), pl.col("original_length_ts")
-            ).map_elements(
-                lambda s: interpolate(s["tracing_jerk"], s["original_length_ts"]),
-                return_dtype=pl.List(pl.Float64),
-            )
-        )
-        .alias("tracing_jerk")
-    )
-
-    participants_ = participants_.with_columns(
-        pl.when(
-            pl.col("tracing_jerk_x").is_not_null()
-            & (pl.col("tracing_jerk_x").list.drop_nulls().list.len() > 0)
-        )
-        .then(
-            pl.struct(
-                pl.col("tracing_jerk_x"), pl.col("original_length_ts")
-            ).map_elements(
-                lambda s: interpolate(s["tracing_jerk_x"], s["original_length_ts"]),
-                return_dtype=pl.List(pl.Float64),
-            )
-        )
-        .alias("tracing_jerk_x")
-    )
-
-    participants_ = participants_.with_columns(
-        pl.when(
-            pl.col("tracing_jerk_y").is_not_null()
-            & (pl.col("tracing_jerk_y").list.drop_nulls().list.len() > 0)
-        )
-        .then(
-            pl.struct(
-                pl.col("tracing_jerk_y"), pl.col("original_length_ts")
-            ).map_elements(
-                lambda s: interpolate(s["tracing_jerk_y"], s["original_length_ts"]),
-                return_dtype=pl.List(pl.Float64),
-            )
-        )
-        .alias("tracing_jerk_y")
-    )
-
-    participants_ = participants_.with_columns(
-        pl.when(
-            pl.col("tracing_jerk_magnitude").is_not_null()
-            & (pl.col("tracing_jerk_magnitude").list.drop_nulls().list.len() > 0)
-        )
-        .then(
-            pl.struct(
-                pl.col("tracing_jerk_magnitude"), pl.col("original_length_ts")
-            ).map_elements(
-                lambda s: interpolate(
-                    s["tracing_jerk_magnitude"], s["original_length_ts"]
-                ),
-                return_dtype=pl.List(pl.Float64),
-            )
-        )
-        .alias("tracing_jerk_magnitude")
-    )
-
-    kinematic_vars = [
-        "tracing_speed",
-        "tracing_speed_x",
-        "tracing_speed_y",
-        "tracing_speed_magnitude",
-        "tracing_acceleration",
-        "tracing_acceleration_x",
-        "tracing_acceleration_y",
-        "tracing_acceleration_magnitude",
-        "tracing_jerk",
-        "tracing_jerk_x",
-        "tracing_jerk_y",
-        "tracing_jerk_magnitude",
+    kinematic_stages = [
+        {
+            "input_cols": ["x", "y", "motion_time"],
+            "compute_fn": lambda s: compute_tracing_speeds(s["x"], s["y"], s["motion_time"]),
+            "result_col": "_speed_results",
+            "fields": ["tracing_speed", "tracing_speed_x", "tracing_speed_y", "tracing_speed_magnitude"],
+        },
+        {
+            "input_cols": ["tracing_speed_x", "tracing_speed_y", "motion_time"],
+            "compute_fn": lambda s: compute_tracing_acceleration(s["tracing_speed_x"], s["tracing_speed_y"], s["motion_time"]),
+            "result_col": "_accel_results",
+            "fields": ["tracing_acceleration", "tracing_acceleration_x", "tracing_acceleration_y", "tracing_acceleration_magnitude"],
+        },
+        {
+            "input_cols": ["tracing_acceleration_x", "tracing_acceleration_y", "motion_time"],
+            "compute_fn": lambda s: compute_tracing_jerk(s["tracing_acceleration_x"], s["tracing_acceleration_y"], s["motion_time"]),
+            "result_col": "_jerk_results",
+            "fields": ["tracing_jerk", "tracing_jerk_x", "tracing_jerk_y", "tracing_jerk_magnitude"],
+        },
     ]
 
-    for var in kinematic_vars:
+    all_kinematic_fields = []
+    for stage in kinematic_stages:
+        input_x, input_y = stage["input_cols"][0], stage["input_cols"][1]
+        
+        participants_ = participants_.with_columns(
+            pl.when(
+                pl.col(input_x).is_not_null()
+                & (pl.col(input_x).list.drop_nulls().list.len() > 0)
+                & pl.col(input_y).is_not_null()
+                & (pl.col(input_y).list.drop_nulls().list.len() > 0)
+                & pl.col("motion_time").is_not_null()
+            )
+            .then(
+                pl.struct(*stage["input_cols"]).map_elements(
+                    stage["compute_fn"], return_dtype=pl.Object
+                )
+            )
+            .alias(stage["result_col"])
+        )
+
+        for field in stage["fields"]:
+            participants_ = participants_.with_columns(
+                pl.col(stage["result_col"])
+                .map_elements(lambda r, f=field: _extract_result_field(r, f), return_dtype=pl.List(pl.Float64))
+                .alias(field)
+            )
+        participants_ = participants_.drop(stage["result_col"])
+        all_kinematic_fields.extend(stage["fields"])
+
+    for var in all_kinematic_fields:
+        participants_ = participants_.with_columns(
+            pl.when(
+                pl.col(var).is_not_null()
+                & (pl.col(var).list.drop_nulls().list.len() > 0)
+            )
+            .then(
+                pl.struct(var, "motion_time", "time_original").map_elements(
+                    lambda s, v=var: _interpolate_kinematic_to_grid(s[v], s["motion_time"], s["time_original"]),
+                    return_dtype=pl.List(pl.Float64),
+                )
+            )
+            .alias(var)
+        )
+
+    for var in all_kinematic_fields:
         participants_ = participants_.with_columns(
             pl.when(
                 pl.col(var).is_not_null()
@@ -735,9 +456,7 @@ def _chunk_recordings(
             )
             .then(
                 pl.col(var).map_elements(
-                    lambda signal: _smooth_signal(
-                        np.array(signal), sfreq=sfreq, moving_avg_window_ms=50
-                    ),
+                    lambda signal: _smooth_signal(np.array(signal), sfreq=sfreq, moving_avg_window_ms=200),
                     return_dtype=pl.List(pl.Float64),
                 )
             )
@@ -765,7 +484,7 @@ def apply_car(
             pl.struct([pl.col(ch), pl.col("car_reference")])
             .map_elements(
                 lambda s, channel_name=ch: [
-                    float(ch_val - car_val) * float(config.ieeg_process.scale_factor)
+                    float(ch_val - car_val)
                     for ch_val, car_val in zip(s[channel_name], s["car_reference"])
                 ],
                 return_dtype=pl.List(pl.Float64),

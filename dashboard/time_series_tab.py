@@ -271,13 +271,23 @@ def render_cross_trial_tab(block_data):
 
 def render_neural_behavioral_correlation(trial_data, lfp_channels, ecog_channels):
     st.markdown("### Neural-Behavioral Correlation Analysis")
-    behavioral_vars = []
-    if "tracing_speed" in trial_data.columns:
-        behavioral_vars.append("tracing_speed")
-    if "tracing_speed_x" in trial_data.columns:
-        behavioral_vars.append("tracing_speed_x")
-    if "tracing_speed_y" in trial_data.columns:
-        behavioral_vars.append("tracing_speed_y")
+    
+    all_behavioral_cols = [
+        "tracing_speed",
+        "tracing_speed_x",
+        "tracing_speed_y",
+        "tracing_speed_magnitude",
+        "tracing_acceleration",
+        "tracing_acceleration_x",
+        "tracing_acceleration_y",
+        "tracing_acceleration_magnitude",
+        "tracing_jerk",
+        "tracing_jerk_x",
+        "tracing_jerk_y",
+        "tracing_jerk_magnitude",
+    ]
+    
+    behavioral_vars = [col for col in all_behavioral_cols if col in trial_data.columns]
 
     if not behavioral_vars:
         st.info("No behavioral variables available for correlation analysis.")

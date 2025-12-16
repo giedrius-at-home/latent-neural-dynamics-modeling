@@ -80,13 +80,13 @@ def compute_classification_for_config(
         prep_kwargs["forecast_horizon_sec"] = forecast_horizon_sec
 
     logger.info("Extracting epoched features...")
-    X_trainval, y_trainval, meta_trainval = prepare_epoched_data(
+    X_trainval, y_trainval, groups_trainval, meta_trainval = prepare_epoched_data(
         trainval_list, **prep_kwargs
     )
-    X_test, y_test, meta_test = (
+    X_test, y_test, groups_test, meta_test = (
         prepare_epoched_data(test_list, **prep_kwargs)
         if test_list
-        else (None, None, None)
+        else (None, None, None, None)
     )
 
     if X_trainval is None or len(X_trainval) == 0:
@@ -124,9 +124,9 @@ def compute_classification_for_config(
             logger.info(f"Results already exist at {cache_path}, skipping...")
             continue
 
-        logger.info("Running grid search with TimeSeriesSplit CV...")
+        logger.info("Running grid search with ChronoGroupsSplit CV...")
         best_params, best_score, cv_results = run_grid_search_cv(
-            clf_name, X_trainval, y_trainval, n_splits
+            clf_name, X_trainval, y_trainval, groups_trainval, n_splits
         )
 
         logger.info(f"Best CV Score: {best_score:.4f}")

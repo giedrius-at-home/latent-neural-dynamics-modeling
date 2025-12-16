@@ -14,7 +14,7 @@ data:
   blocks: "all"
   channels:
     is_behavioral_neural: true
-    input: ["ECOG_1", "ECOG_2", "ECOG_3", "ECOG_4",] 
+    input: ["ECOG_1", "ECOG_2", "ECOG_3", "ECOG_4"] 
     output: ["LFP_12", "LFP_13", "LFP_14", "LFP_15"] 
     input_lag: null    
   split:

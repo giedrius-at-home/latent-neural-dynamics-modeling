@@ -173,6 +173,7 @@ def render_classifier_section(
     epoch_params: str,
     X_trainval: np.ndarray,
     y_trainval: np.ndarray,
+    groups_trainval: np.ndarray,
     X_test: Optional[np.ndarray],
     y_test: Optional[np.ndarray],
     results_dir: Path,
@@ -205,9 +206,9 @@ def render_classifier_section(
             "**Note:** This will recompute the classification. Use the standalone script for batch processing."
         )
         if st.button(f"Compute Now", key=f"gs_{key_base}"):
-            with st.spinner("Running grid search with TimeSeriesSplit CV..."):
+            with st.spinner("Running grid search with ChronoGroupsSplit CV..."):
                 best_params, best_score, cv_results = run_grid_search_cv(
-                    clf_name, X_trainval, y_trainval, n_splits
+                    clf_name, X_trainval, y_trainval, groups_trainval, n_splits
                 )
 
                 if X_test is not None and y_test is not None and len(y_test) > 0:
@@ -367,11 +368,11 @@ def render_classification_mode(
         }
         prep_kwargs.update(extra_param_values)
 
-        X_trainval, y_trainval, meta_trainval = data_prep_fn(
+        X_trainval, y_trainval, groups_trainval, meta_trainval = data_prep_fn(
             trainval_list, **prep_kwargs
         )
-        X_test, y_test, meta_test = (
-            data_prep_fn(test_list, **prep_kwargs) if test_list else (None, None, None)
+        X_test, y_test, groups_test, meta_test = (
+            data_prep_fn(test_list, **prep_kwargs) if test_list else (None, None, None, None)
         )
 
     if X_trainval is None or len(X_trainval) == 0:
@@ -411,6 +412,7 @@ def render_classification_mode(
                 epoch_params_str,
                 X_trainval,
                 y_trainval,
+                groups_trainval,
                 X_test,
                 y_test,
                 results_dir,
