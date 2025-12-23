@@ -20,7 +20,7 @@ data:
   channels:
     is_behavioral_neural: false
     input: ["ECOG_1", "ECOG_2", "ECOG_3", "ECOG_4"] # Y
-    output: ["tracing_speed"] # Z
+    output: ["tracing_velocity_magnitude"] # Z
   split:
     within_session_split: true
     train: 0.6

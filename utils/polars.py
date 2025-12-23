@@ -1,17 +1,8 @@
 import polars as pl
 from pathlib import Path
 
-from utils.file_handling import list_files, load_mat_into_dict
+from utils.file_handling import list_files
 from utils.config import Config
-
-from utils.ieeg import (
-    preprocess_ieeg,
-    filter_recording,
-    process_and_resample,
-    process_dual_band,
-)
-
-from scipy.io import savemat
 
 import numpy as np
 from utils.logger import get_logger
@@ -198,64 +189,8 @@ def read_and_implode_parquet(path: str) -> pl.Series:
 
 def band_pass_resample(
     participants: pl.DataFrame, config: Config, iEEG_SCHEMA: pl.Struct
-):
-    """CODE IF PARTIAL PREPROCESSING IS NOT DONE
-    resampled_freq = config.ieeg_process.resampled_freq
-    low_freq = config.ieeg_process.low_freq
-    high_freq = config.ieeg_process.high_freq
-    notch_freqs = config.ieeg_process.notch_freqs
-
-    ieeg_headers_files = participants["ieeg_headers_file"].to_list()
-
-    participants.write_parquet(
-        save_dir / "participants_intermediate.parquet",
-        partition_by=["participant_id", "session", "run"],
-    )
-    del participants
-
-    for iegg_hf in ieeg_headers_files:
-        base_file = iegg_hf.split("/")[-1].split(".")[0]
-        ieeg_dict = preprocess_ieeg(
-            iegg_hf, resampled_freq, low_freq, high_freq, notch_freqs
-        )
-
-        print(save_dir / f"{base_file}.mat")
-
-        savemat(save_dir / f"{base_file}.mat", ieeg_dict)
-
-    participants_ = pl.read_parquet(save_dir / "participants_intermediate.parquet")
-
-    participants_ = participants_.with_columns(
-        pl.col("ieeg_headers_file")
-        .str.split("/")
-        .list.get(-1)
-        .str.split(".")
-        .list.get(0)
-        .alias("iegg_hf_base_file")
-    )
-    participants_ = participants_.with_columns(
-        pl.concat_str(
-            pl.lit(str(save_dir)),
-            pl.concat_str(pl.col("iegg_hf_base_file"), pl.lit("mat"), separator="."),
-            separator="/",
-        ).alias("iegg_mat_file")
-    ).drop("iegg_hf_base_file")
-
-    participants_ = participants_.with_columns(
-        pl.col("iegg_mat_file")
-        .map_elements(load_mat_into_dict, return_dtype=pl.Object)
-        .alias("ieeg_raw")
-    )
-
-    for ieeg_field in iEEG_SCHEMA.fields:
-        participants_ = participants_.with_columns(
-            pl.col("ieeg_raw")
-            .map_elements(lambda ieeg_raw: ieeg_raw[ieeg_field.name][0], ieeg_field.dtype)
-            .alias(ieeg_field.name)
-        )
-
-    return participants_.drop("ieeg_raw")
-    """
+) -> tuple[pl.DataFrame, list[str]]:
+    from utils.ieeg import process_all_bands
 
     participants_ = (
         participants.with_columns(
@@ -270,44 +205,51 @@ def band_pass_resample(
 
     original_sfreq = 1000
     target_sfreq = config.ieeg_process.resampled_freq
-    envelope_cutoff = config.ieeg_process.envelope_cutoff
+    raw_bands = getattr(config.ieeg_process, "raw_bands", {})
+    envelope_bands = getattr(config.ieeg_process, "envelope_bands", {})
+    notch_freqs = config.ieeg_process.notch_freqs
+    scale_factor = float(getattr(config.ieeg_process, "scale_factor", 1.0))
+
+    all_band_names = list(raw_bands.keys()) + list(envelope_bands.keys())
+    all_band_channels = []
 
     for ieeg_field in iEEG_SCHEMA.fields:
         if ieeg_field.name == "sfreq":
             continue
 
-        def _process_dual(r, field_name=ieeg_field.name):
+        def _process_bands(r, ch_name=ieeg_field.name):
             if r is None or len(r) == 0:
-                return {"raw": [], "envelope": []}
-            scale_factor = float(getattr(config.ieeg_process, 'scale_factor', 1.0))
-            raw, envelope = process_dual_band(
+                return {band: [] for band in all_band_names}
+            return process_all_bands(
                 r,
-                low_freq=config.ieeg_process.low_freq,
-                envelope_cutoff=envelope_cutoff,
-                high_freq=config.ieeg_process.high_freq,
-                notch_freqs=config.ieeg_process.notch_freqs,
+                raw_bands=raw_bands,
+                envelope_bands=envelope_bands,
+                notch_freqs=notch_freqs,
                 original_sfreq=original_sfreq,
                 target_sfreq=target_sfreq,
                 scale_factor=scale_factor,
             )
-            return {"raw": raw, "envelope": envelope}
 
         participants_ = participants_.with_columns(
             pl.col(ieeg_field.name)
-            .map_elements(_process_dual, return_dtype=pl.Object)
-            .alias(f"_dual_{ieeg_field.name}")
+            .map_elements(_process_bands, return_dtype=pl.Object)
+            .alias(f"_bands_{ieeg_field.name}")
         )
 
-        participants_ = participants_.with_columns(
-            pl.col(f"_dual_{ieeg_field.name}")
-            .map_elements(lambda x: x["raw"], return_dtype=pl.List(pl.Float32))
-            .alias(ieeg_field.name),
-            pl.col(f"_dual_{ieeg_field.name}")
-            .map_elements(lambda x: x["envelope"], return_dtype=pl.List(pl.Float32))
-            .alias(f"{ieeg_field.name}_envelope"),
-        ).drop(f"_dual_{ieeg_field.name}")
+        for band_name in all_band_names:
+            band_channel = f"{ieeg_field.name}_{band_name}"
+            all_band_channels.append(band_channel)
+            participants_ = participants_.with_columns(
+                pl.col(f"_bands_{ieeg_field.name}")
+                .map_elements(
+                    lambda x, bn=band_name: x[bn], return_dtype=pl.List(pl.Float32)
+                )
+                .alias(band_channel)
+            )
 
-    return participants_
+        participants_ = participants_.drop(f"_bands_{ieeg_field.name}", ieeg_field.name)
+
+    return participants_, all_band_channels
 
 
 def stack_columns(participants: pl.DataFrame, cols: list[str]) -> pl.DataFrame:

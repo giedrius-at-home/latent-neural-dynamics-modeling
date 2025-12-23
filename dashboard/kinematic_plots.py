@@ -20,7 +20,7 @@ def plot_acceleration_time_series(
         time_abs=time_data,
         onset_time=onset_time,
         y_label="Acceleration (pixels/s²)",
-        title="",P
+        title="",
     )
 
     fig.add_trace(
@@ -29,7 +29,7 @@ def plot_acceleration_time_series(
             y=accel_data,
             mode="lines",
             name="Acceleration",
-            line=dict(cPolor=mag_data, colorscale="Viridis", width=2),
+            line=dict(color=mag_data, colorscale="Viridis", width=2),
             showlegend=False,
         )
     )

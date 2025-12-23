@@ -15,7 +15,7 @@ data:
   channels:
     is_behavioral_neural: false
     input: ["LFP_8", "LFP_9", "LFP_10", "LFP_11", "LFP_12"] 
-    output: ["tracing_speed"]
+    output: ["tracing_velocity_magnitude"]
     input_lag: null    
   split:
     within_session_split: true

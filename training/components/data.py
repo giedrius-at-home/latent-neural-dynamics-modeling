@@ -1,5 +1,6 @@
 import polars as pl
 import numpy as np
+import pandas as pd
 from pathlib import Path
 from typing import List, Optional, Tuple, Union
 from utils.config import Config
@@ -85,9 +86,6 @@ class TrialDataset(Dataset):
             "input_lag": input_lag if input_lag else 0,
         }
 
-        logger = get_logger()
-        logger.info(f"Loaded trial idx={idx} with metadata: {metadata}")
-
         return Y, Z, metadata
 
     def _add_lagged_channels(self, Y: np.ndarray) -> np.ndarray:
@@ -130,6 +128,12 @@ class TrialDataset(Dataset):
             result = channel_data[0].reshape(-1, 1)
         else:
             result = np.column_stack(channel_data)
+
+        if np.any(np.isnan(result)):
+            df = pd.DataFrame(result)
+            df = df.interpolate(method='linear', limit_direction='both', axis=0)
+            df = df.ffill().bfill()
+            result = df.values
 
         return result
 

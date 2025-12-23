@@ -24,69 +24,82 @@ class Trainer:
         self.test_loader = None
         self.run_timestamp = None
 
-    def split_data(self):
+    def split_data(self, reuse_splits: bool = False):
         self.logger.info("Starting data split...")
         self.logger.info(
             f"Data params: participant={self.data_params.participant}, session={self.data_params.session}, "
             f"input_channels={self.data_params.channels.input}, output_channels={self.data_params.channels.output}, "
             f"is_behavioral_neural={self.data_params.channels.is_behavioral_neural}"
         )
-        session_path = (
-            Path(self.data_params.root)
-            / f"participant_id={self.data_params.participant}"
-            / f"session={self.data_params.session}"
-        )
-        base_cols = list(
-            set(self.data_params.channels.input) | set(self.data_params.channels.output)
-        )
-        combined_cols = []
-        for col in base_cols:
-            combined_cols.append(pl.col(col))
-            is_neural = col.startswith("LFP") or col.startswith("ECOG")
-            is_input = col in self.data_params.channels.input
-            if is_neural and (is_input or self.data_params.channels.is_behavioral_neural):
-                combined_cols.append(pl.col(f"{col}_epochs"))
-
-        epoch_samp = f"{self.data_params.channels.input[0]}_epochs"
-        trial = (
-            pl.read_parquet(session_path)
-            .select(
-                pl.col("participant_id"),
-                pl.col("session"),
-                pl.col("block"),
-                pl.col("trial"),
-                pl.when(pl.col("time").is_not_null())
-                .then(pl.col("time"))
-                .otherwise(None)
-                .alias("time"),
-                pl.col("chunk_margin"),
-                pl.col("margined_duration"),
-                pl.col("stim"),
-                *combined_cols,
-                pl.col("onset").alias("offset"),
-            )
-            .with_columns(pl.col(epoch_samp).list.len().alias("n_epochs"))
+        
+        split_dir = Path(self.results_config.save_dir) / "split"
+        existing_splits = (
+            (split_dir / "train.parquet").exists() and
+            (split_dir / "val.parquet").exists() and
+            (split_dir / "test.parquet").exists()
         )
         
-        trial = trial.sort(
-            [
-                pl.col("participant_id"),
-                pl.col("session"),
-                pl.col("block"),
-                pl.col("trial"),
-            ],
-            maintain_order=True,
-        )
+        if reuse_splits and existing_splits:
+            self.logger.info(f"Reusing existing splits from {split_dir}")
+        else:
+            session_path = (
+                Path(self.data_params.root)
+                / f"participant_id={self.data_params.participant}"
+                / f"session={self.data_params.session}"
+            )
+            base_cols = list(
+                set(self.data_params.channels.input) | set(self.data_params.channels.output)
+            )
+            combined_cols = []
+            for col in base_cols:
+                combined_cols.append(pl.col(col))
+                is_neural = col.startswith("LFP") or col.startswith("ECOG")
+                is_input = col in self.data_params.channels.input
+                if is_neural and (
+                    is_input or self.data_params.channels.is_behavioral_neural
+                ):
+                    combined_cols.append(pl.col(f"{col}_epochs"))
 
-        if self.data_params.blocks != "all":
-            trial = trial.filter(pl.col("block").is_in(self.data_params.blocks))
+            epoch_samp = f"{self.data_params.channels.input[0]}_epochs"
+            trial = (
+                pl.read_parquet(session_path)
+                .select(
+                    pl.col("participant_id"),
+                    pl.col("session"),
+                    pl.col("block"),
+                    pl.col("trial"),
+                    pl.when(pl.col("time").is_not_null())
+                    .then(pl.col("time"))
+                    .otherwise(None)
+                    .alias("time"),
+                    pl.col("chunk_margin"),
+                    pl.col("margined_duration"),
+                    pl.col("stim"),
+                    *combined_cols,
+                    pl.col("onset").alias("offset"),
+                )
+                .with_columns(pl.col(epoch_samp).list.len().alias("n_epochs"))
+            )
 
-        dbs_condition = self.data_params.dbs_condition
-        if dbs_condition != "both":
-            trial = trial.filter(pl.col("stim") == dbs_condition)
-            self.logger.info(f"Filtered to {dbs_condition} DBS condition")
+            trial = trial.sort(
+                [
+                    pl.col("participant_id"),
+                    pl.col("session"),
+                    pl.col("block"),
+                    pl.col("trial"),
+                ],
+                maintain_order=True,
+            )
 
-        create_splits(trial, self.data_params.split, self.results_config)
+            if self.data_params.blocks != "all":
+                trial = trial.filter(pl.col("block").is_in(self.data_params.blocks))
+
+            dbs_condition = self.data_params.dbs_condition
+            if dbs_condition != "both":
+                trial = trial.filter(pl.col("stim") == dbs_condition)
+                self.logger.info(f"Filtered to {dbs_condition} DBS condition")
+
+            create_splits(trial, self.data_params.split, self.results_config)
 
         self.train_loader, self.val_loader, self.test_loader = create_dataloaders(
             self.data_params, self.results_config
@@ -123,11 +136,7 @@ class Trainer:
         return _Y, _Z
 
     def load_model(self, model_timestamp: str):
-        """Load a pre-trained model from a saved checkpoint.
 
-        Args:
-            model_timestamp: Timestamp of the saved model (e.g., "20251125_153301")
-        """
         out_dir = Path(self.results_config.save_dir)
         model_path = out_dir / f"model_{model_timestamp}.pkl"
 
@@ -136,14 +145,12 @@ class Trainer:
 
         self.logger.info(f"Loading pre-trained model from {model_path}")
 
-        # Load metadata for DPAD models to validate compatibility
         if self.framework_type == "dpad":
             metadata_path = out_dir / f"model_{model_timestamp}_metadata.json"
             if metadata_path.exists():
                 with open(metadata_path, "r") as f:
                     metadata = json.load(f)
 
-                # Validate key parameters match
                 if metadata.get("nx") != self.model_params.nx:
                     self.logger.warning(
                         f"Model nx={metadata.get('nx')} differs from config nx={self.model_params.nx}"
@@ -157,136 +164,130 @@ class Trainer:
             else:
                 self.logger.warning(f"Metadata file not found: {metadata_path}")
 
-        # Initialize the model wrapper first, then load the saved model
         self.framework.model = self.framework._initialize_model()
         self.framework.model.load_from_file(str(model_path))
         self.logger.info("Model loaded successfully")
 
-    def train(self):
-        if self.train_loader is None:
-            raise ValueError("Data loaders not initialized. Call split_data() first.")
-
-        self.run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.logger.info(f"Training run timestamp: {self.run_timestamp}")
-
+    def _init_framework(self):
         self.framework_type = self.model_params.name.split("_")[0]
         self.logger.info(f"Selected framework: {self.framework_type}")
 
         if self.framework_type == "psid":
             from utils.frameworks import PSIDFramework
-
             self.framework = PSIDFramework(self.config)
         elif self.framework_type == "dpad":
             from utils.frameworks import DPADFramework
-
             self.framework = DPADFramework(self.config)
         else:
             raise ValueError(f"Unknown framework type: {self.framework_type}")
 
+    def _prepare_data(self):
         Y_train, Z_train, meta_train = self.train_loader.get_full_dataset()
         Y_val, Z_val, meta_val = self.val_loader.get_full_dataset()
 
         Y_train, Z_train = self._slice_data(Y_train, Z_train, meta_train)
         Y_val, Z_val = self._slice_data(Y_val, Z_val, meta_val)
 
-        # Check if we should load a pre-trained model or train from scratch
-        model_timestamp = getattr(self.model_params, "model_timestamp", None)
+        return Y_train, Z_train, meta_train, Y_val, Z_val, meta_val
 
+    def _compute_z_correlation(self, Z, Zp):
+        from utils.stats import pearson_r_per_channel
+        
+        if Z is not None and Zp is not None:
+            Z_filtered = [z for z in Z if z is not None]
+            Zp_filtered = [zp for zp in Zp if zp is not None]
+            if len(Z_filtered) > 0 and len(Zp_filtered) > 0:
+                r_list, r_mean = pearson_r_per_channel(Z_filtered, Zp_filtered)
+                return r_list, r_mean
+        return None, None
+
+    def _save_metadata(self, r_mean_val, r_mean_Z_val):
+        ts = self.run_timestamp
+        out_dir = Path(self.results_config.save_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        metadata = {
+            "framework_type": self.framework_type,
+            "nx": self.model_params.nx,
+            "n1": self.model_params.n1,
+            "i": getattr(self.model_params, "i", None),
+            "r_mean_Y": float(r_mean_val) if r_mean_val is not None else None,
+            "r_mean_Z": float(r_mean_Z_val) if r_mean_Z_val is not None else None,
+        }
+        
+        metadata_path = out_dir / f"model_{ts}_metadata.json"
+        with open(metadata_path, "w") as f:
+            json.dump(metadata, f, indent=2)
+
+        r_z_str = f"{r_mean_Z_val:.4f}" if r_mean_Z_val else "N/A"
+        self.logger.info(f"Saved metadata to {metadata_path}")
+        self.logger.info(f"R2 Y={r_mean_val:.4f}, R2 Z={r_z_str}")
+
+    def train(self, fast: bool = False):
+        if self.train_loader is None:
+            raise ValueError("Data loaders not initialized. Call split_data() first.")
+
+        self.run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        mode_str = "[FAST MODE] " if fast else ""
+        self.logger.info(f"{mode_str}Training run timestamp: {self.run_timestamp}")
+
+        self._init_framework()
+        Y_train, Z_train, meta_train, Y_val, Z_val, meta_val = self._prepare_data()
+
+        model_timestamp = getattr(self.model_params, "model_timestamp", None)
         if model_timestamp:
-            self.logger.info(
-                f"Loading pre-trained model with timestamp: {model_timestamp}"
-            )
+            self.logger.info(f"Loading pre-trained model with timestamp: {model_timestamp}")
             self.load_model(model_timestamp)
         else:
             self.logger.info("Beginning training...")
             self.framework._train(Y_train, Z_train)
 
-        self.logger.info("Computing training set predictions...")
-        Zp_train, Yp_train, Xp_train = self.framework._predict(Y_train)
+        Zp_val, Yp_val, Xp_val = self.framework._predict(Y_val)
 
-        # Compute metrics including Z correlations
         from utils.stats import pearson_r_per_channel
+        r_list_val, r_mean_val = pearson_r_per_channel(Y_val, Yp_val)
+        _, r_mean_Z_val = self._compute_z_correlation(Z_val, Zp_val)
 
+        if fast:
+            self._save_metadata(r_mean_val, r_mean_Z_val)
+            return {"pearson_r_mean": r_mean_val, "pearson_r_mean_Z": r_mean_Z_val}
+
+        Zp_train, Yp_train, Xp_train = self.framework._predict(Y_train)
         r_list_train, r_mean_train = pearson_r_per_channel(Y_train, Yp_train)
 
         train_results = {
-            "Y": Y_train,
-            "Z": Z_train,
-            "Zp": Zp_train,
-            "Yp": Yp_train,
-            "Xp": Xp_train,
-            "pearson_r_per_channel": r_list_train,
-            "pearson_r_mean": r_mean_train,
-            "input_channels": (
-                meta_train[0].get("input_channels", []) if meta_train else []
-            ),
-            "output_channels": (
-                meta_train[0].get("output_channels", []) if meta_train else []
-            ),
+            "Y": Y_train, "Z": Z_train, "Zp": Zp_train, "Yp": Yp_train, "Xp": Xp_train,
+            "pearson_r_per_channel": r_list_train, "pearson_r_mean": r_mean_train,
+            "input_channels": meta_train[0].get("input_channels", []) if meta_train else [],
+            "output_channels": meta_train[0].get("output_channels", []) if meta_train else [],
         }
 
-        # Compute Z correlations if Z data is available
-        if Z_train is not None and Zp_train is not None:
-            Z_train_filtered = [z for z in Z_train if z is not None]
-            Zp_train_filtered = [zp for zp in Zp_train if zp is not None]
-            if len(Z_train_filtered) > 0 and len(Zp_train_filtered) > 0:
-                r_list_Z_train, r_mean_Z_train = pearson_r_per_channel(
-                    Z_train_filtered, Zp_train_filtered
-                )
-                train_results["pearson_r_per_channel_Z"] = r_list_Z_train
-                train_results["pearson_r_mean_Z"] = r_mean_Z_train
+        r_list_Z_train, r_mean_Z_train = self._compute_z_correlation(Z_train, Zp_train)
+        if r_list_Z_train is not None:
+            train_results["pearson_r_per_channel_Z"] = r_list_Z_train
+            train_results["pearson_r_mean_Z"] = r_mean_Z_train
 
-        self.logger.info("Computing training set forecasts...")
         chunk_margin_train = meta_train[0].get("chunk_margin") if meta_train else 0
-        train_forecast = self.framework._validate_forecast(
-            Y_train, Z_list=Z_train, margin=chunk_margin_train
-        )
+        train_forecast = self.framework._validate_forecast(Y_train, Z_list=Z_train, margin=chunk_margin_train)
         train_results.update(train_forecast)
 
-        self.logger.info(
-            f"Training predictions complete. Results: {train_results.keys()}"
-        )
         self.save_results(train_results, self.train_loader.dataset.df, type="train")
 
-        self.logger.info("Beginning validation...")
-        Zp_val, Yp_val, Xp_val = self.framework._predict(Y_val)
-
-        # Compute metrics including Z correlations
-        r_list_val, r_mean_val = pearson_r_per_channel(Y_val, Yp_val)
-
+        r_list_Z_val, _ = self._compute_z_correlation(Z_val, Zp_val)
         val_results = {
-            "Y": Y_val,
-            "Z": Z_val,
-            "Zp": Zp_val,
-            "Yp": Yp_val,
-            "Xp": Xp_val,
-            "pearson_r_per_channel": r_list_val,
-            "pearson_r_mean": r_mean_val,
+            "Y": Y_val, "Z": Z_val, "Zp": Zp_val, "Yp": Yp_val, "Xp": Xp_val,
+            "pearson_r_per_channel": r_list_val, "pearson_r_mean": r_mean_val,
             "input_channels": meta_val[0].get("input_channels", []) if meta_val else [],
-            "output_channels": (
-                meta_val[0].get("output_channels", []) if meta_val else []
-            ),
+            "output_channels": meta_val[0].get("output_channels", []) if meta_val else [],
         }
+        if r_list_Z_val is not None:
+            val_results["pearson_r_per_channel_Z"] = r_list_Z_val
+            val_results["pearson_r_mean_Z"] = r_mean_Z_val
 
-        # Compute Z correlations if Z data is available
-        if Z_val is not None and Zp_val is not None:
-            Z_val_filtered = [z for z in Z_val if z is not None]
-            Zp_val_filtered = [zp for zp in Zp_val if zp is not None]
-            if len(Z_val_filtered) > 0 and len(Zp_val_filtered) > 0:
-                r_list_Z_val, r_mean_Z_val = pearson_r_per_channel(
-                    Z_val_filtered, Zp_val_filtered
-                )
-                val_results["pearson_r_per_channel_Z"] = r_list_Z_val
-                val_results["pearson_r_mean_Z"] = r_mean_Z_val
-
-        self.logger.info("Computing validation set forecasts...")
         chunk_margin_val = meta_val[0].get("chunk_margin") if meta_val else 0
-        val_forecast = self.framework._validate_forecast(
-            Y_val, Z_list=Z_val, margin=chunk_margin_val
-        )
+        val_forecast = self.framework._validate_forecast(Y_val, Z_list=Z_val, margin=chunk_margin_val)
         val_results.update(val_forecast)
 
-        self.logger.info(f"Validation complete. Results: {val_results.keys()}")
         self.save_results(val_results, self.val_loader.dataset.df, type="val")
 
         return val_results
@@ -309,7 +310,6 @@ class Trainer:
                 )
             )
 
-        # Add Z correlations if available
         if "pearson_r_per_channel_Z" in results:
             new_cols.append(
                 pl.Series(
@@ -327,7 +327,6 @@ class Trainer:
         if "pearson_r_mean" in results:
             new_cols.append(pl.lit(results["pearson_r_mean"]).alias("pearsonr_mean"))
 
-        # Add Z mean correlation if available
         if "pearson_r_mean_Z" in results:
             new_cols.append(
                 pl.lit(results["pearson_r_mean_Z"]).alias("pearsonr_mean_Z")
@@ -351,7 +350,6 @@ class Trainer:
                     pl.Series(name=key, values=[safe_tolist(x) for x in results[key]])
                 )
 
-        # Add channel metadata as scalar columns (same value for all rows)
         if "input_channels" in results:
             n_rows = len(input_df)
             new_cols.append(
@@ -416,6 +414,15 @@ class Trainer:
                 with open(f"{model_path}.pkl", "wb") as f:
                     pickle.dump(self.framework.model.idSys, f)
                 self.logger.info(f"Saved PSID model to {model_path}.pkl")
+
+                metadata = {
+                    "framework_type": "psid",
+                    "nx": self.model_params.nx,
+                    "n1": self.model_params.n1,
+                    "i": getattr(self.model_params, "i", None),
+                }
+                with open(out_dir / f"model_{ts}_metadata.json", "w") as f:
+                    json.dump(metadata, f)
 
         except Exception as e:
             self.logger.warning(f"Could not save model/trainer artifacts: {e}")

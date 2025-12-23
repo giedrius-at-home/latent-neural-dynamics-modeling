@@ -39,7 +39,7 @@ class ChronoGroupsSplit:
     def split(self, X, y, groups):
         y = np.asarray(y)
         groups = np.asarray(groups)
-        
+
         gm = {k: list(set(groups[y == k])) for k in set(y)}
 
         for v in gm.values():
@@ -54,7 +54,6 @@ class ChronoGroupsSplit:
             min_set = min(set_lens)
             set_counts = {k: len(v) for k, v in gm.items()}
             not_assigned_groups = {k: v[min_set:] for k, v in gm.items()}
-
 
         Xidcs = np.arange(X.shape[0])
 
@@ -112,7 +111,7 @@ def prepare_epoched_data(
     y_all = []
     groups_all = []
     meta_all = []
-    
+
     block_id_map = {}
     current_block_id = 0
 
@@ -158,7 +157,7 @@ def prepare_epoched_data(
             stim = stim_list[trial_idx] if trial_idx < len(stim_list) else None
             session = session_list[trial_idx] if trial_idx < len(session_list) else 0
             block = block_list[trial_idx] if trial_idx < len(block_list) else 0
-            
+
             block_key = (session, block, stim)
             if block_key not in block_id_map:
                 block_id_map[block_key] = current_block_id
@@ -283,7 +282,7 @@ def run_grid_search_cv(
 
     chrono_cv = ChronoGroupsSplit(warn_if_blocks_ignored=True)
     splits = chrono_cv.split(X, y, groups)
-    
+
     effective_n_splits = len(splits)
 
     grid_search = GridSearchCV(
@@ -307,24 +306,26 @@ def run_grid_search_cv(
     splits_for_details = chrono_cv.split(X, y, groups)
     for fold_idx, (train_idx, val_idx) in enumerate(splits_for_details):
         y_train, y_val = y[train_idx], y[val_idx]
-        
+
         X_val = X[val_idx]
         y_pred_fold = best_pipeline.predict(X_val)
         fold_score = balanced_accuracy_score(y_val, y_pred_fold)
-        
-        fold_results.append({
-            "fold": fold_idx,
-            "train_indices": (int(train_idx.min()), int(train_idx.max())),
-            "val_indices": (int(val_idx.min()), int(val_idx.max())),
-            "n_train": len(train_idx),
-            "n_val": len(val_idx),
-            "n_on_train": int(np.sum(y_train == 1)),
-            "n_off_train": int(np.sum(y_train == 0)),
-            "n_on_val": int(np.sum(y_val == 1)),
-            "n_off_val": int(np.sum(y_val == 0)),
-            "accuracy": float(accuracy_score(y_val, y_pred_fold)),
-            "balanced_accuracy": float(fold_score),
-        })
+
+        fold_results.append(
+            {
+                "fold": fold_idx,
+                "train_indices": (int(train_idx.min()), int(train_idx.max())),
+                "val_indices": (int(val_idx.min()), int(val_idx.max())),
+                "n_train": len(train_idx),
+                "n_val": len(val_idx),
+                "n_on_train": int(np.sum(y_train == 1)),
+                "n_off_train": int(np.sum(y_train == 0)),
+                "n_on_val": int(np.sum(y_val == 1)),
+                "n_off_val": int(np.sum(y_val == 0)),
+                "accuracy": float(accuracy_score(y_val, y_pred_fold)),
+                "balanced_accuracy": float(fold_score),
+            }
+        )
 
     y_pred = best_pipeline.predict(X)
     y_proba = (

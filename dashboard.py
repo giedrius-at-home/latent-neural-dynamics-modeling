@@ -17,7 +17,7 @@ from dashboard.time_series_tab import time_series_tab
 from dashboard.psd_analysis_tab import psd_analysis_tab
 from dashboard.model_predictions_tab import model_predictions_tab
 from dashboard.dbs_classification_tab import dbs_classification_tab
-from dashboard.state_space_matrices_tab import state_space_matrices_tab
+from dashboard.feature_importance_tab import feature_importance_tab
 from utils.logger import setup_logger
 
 logger = setup_logger("dashboard_logs", name=__name__)
@@ -86,12 +86,13 @@ else:
         key=natural_sort_key,
     )
 
-    tab1, tab2, tab3, tab4 = st.tabs(
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(
         [
             "Time-Series Analysis",
             "Frequency (PSD) Analysis",
             "Model Predictions",
             "DBS Classification",
+            "Feature Importance",
         ]
     )
 
@@ -107,5 +108,5 @@ else:
     with tab4:
         dbs_classification_tab(project_root)
 
-    # with tab5:
-    #     state_space_matrices_tab(project_root)
+    with tab5:
+        feature_importance_tab(project_root)

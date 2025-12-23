@@ -372,7 +372,9 @@ def render_classification_mode(
             trainval_list, **prep_kwargs
         )
         X_test, y_test, groups_test, meta_test = (
-            data_prep_fn(test_list, **prep_kwargs) if test_list else (None, None, None, None)
+            data_prep_fn(test_list, **prep_kwargs)
+            if test_list
+            else (None, None, None, None)
         )
 
     if X_trainval is None or len(X_trainval) == 0:

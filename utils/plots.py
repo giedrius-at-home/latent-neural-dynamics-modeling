@@ -240,10 +240,10 @@ def plot_trial_coordinates(
     return fig
 
 
-def plot_tracing_speed(
+def plot_tracing_velocity_magnitude(
     trial_df: pl.DataFrame, time: str, add_dual_axis: bool = True
 ) -> go.Figure:
-    if trial_df.is_empty() or trial_df["tracing_speed"].is_null().all():
+    if trial_df.is_empty() or trial_df["tracing_velocity_magnitude"].is_null().all():
         return go.Figure().update_layout(title_text="No speed data available")
 
     p_id = trial_df["participant_id"][0]
@@ -254,7 +254,7 @@ def plot_tracing_speed(
     fig = _create_base_figure(title, "Time (s)", "Speed (pixels/s)")
 
     time_data = trial_df[time].to_numpy()
-    speed_data = trial_df["tracing_speed"].to_numpy()
+    speed_data = trial_df["tracing_velocity_magnitude"].to_numpy()
 
     fig.add_trace(go.Scatter(x=time_data, y=speed_data, mode="lines", name="Speed"))
     fig.update_layout(showlegend=False)

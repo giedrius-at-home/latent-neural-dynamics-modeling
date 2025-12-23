@@ -70,8 +70,12 @@ def process_and_resample(
 
     data = np.array(recording, dtype=np.float64)
     if notch_freqs:
-        data = mne.filter.notch_filter(data, Fs=original_sfreq, freqs=notch_freqs, verbose=False)
-    data = mne.filter.filter_data(data, sfreq=original_sfreq, l_freq=low_freq, h_freq=high_freq, verbose=False)
+        data = mne.filter.notch_filter(
+            data, Fs=original_sfreq, freqs=notch_freqs, verbose=False
+        )
+    data = mne.filter.filter_data(
+        data, sfreq=original_sfreq, l_freq=low_freq, h_freq=high_freq, verbose=False
+    )
     data = mne.filter.resample(data, down=original_sfreq / target_sfreq, verbose=False)
     return data.tolist()
 
@@ -88,24 +92,84 @@ def process_dual_band(
 ) -> tuple[list[float], list[float]]:
     data = np.array(recording, dtype=np.float64)
     if notch_freqs:
-        data = mne.filter.notch_filter(data, Fs=original_sfreq, freqs=notch_freqs, verbose=False)
+        data = mne.filter.notch_filter(
+            data, Fs=original_sfreq, freqs=notch_freqs, verbose=False
+        )
 
-    low_band = mne.filter.filter_data(data, sfreq=original_sfreq, l_freq=low_freq, h_freq=envelope_cutoff, verbose=False)
-    low_band = mne.filter.resample(low_band, down=original_sfreq / target_sfreq, verbose=False)
+    low_band = mne.filter.filter_data(
+        data,
+        sfreq=original_sfreq,
+        l_freq=low_freq,
+        h_freq=envelope_cutoff,
+        verbose=False,
+    )
+    low_band = mne.filter.resample(
+        low_band, down=original_sfreq / target_sfreq, verbose=False
+    )
 
-    high_band = mne.filter.filter_data(data, sfreq=original_sfreq, l_freq=envelope_cutoff, h_freq=high_freq, verbose=False)
+    high_band = mne.filter.filter_data(
+        data,
+        sfreq=original_sfreq,
+        l_freq=envelope_cutoff,
+        h_freq=high_freq,
+        verbose=False,
+    )
     high_band_envelope = np.abs(hilbert(high_band))
-    
+
     window_size = int(0.2 * original_sfreq)
     kernel = np.ones(window_size) / window_size
-    high_band_envelope = np.convolve(high_band_envelope, kernel, mode='same')
-    
-    high_band_envelope = mne.filter.resample(high_band_envelope, down=original_sfreq / target_sfreq, verbose=False)
-    
+    high_band_envelope = np.convolve(high_band_envelope, kernel, mode="same")
+
+    high_band_envelope = mne.filter.resample(
+        high_band_envelope, down=original_sfreq / target_sfreq, verbose=False
+    )
+
     low_band = low_band * scale_factor
     high_band_envelope = high_band_envelope * scale_factor
 
     return low_band.tolist(), high_band_envelope.tolist()
+
+
+def process_all_bands(
+    recording: list[float],
+    raw_bands: dict[str, list[float]],
+    envelope_bands: dict[str, list[float]],
+    notch_freqs: list[int],
+    original_sfreq: int,
+    target_sfreq: int,
+    scale_factor: float = 1.0,
+) -> dict[str, list[float]]:
+    result = {}
+    data = np.array(recording, dtype=np.float64)
+
+    if notch_freqs:
+        data = mne.filter.notch_filter(
+            data, Fs=original_sfreq, freqs=notch_freqs, verbose=False
+        )
+
+    for band_name, (low_freq, high_freq) in raw_bands.items():
+        filtered = mne.filter.filter_data(
+            data, sfreq=original_sfreq, l_freq=low_freq, h_freq=high_freq, verbose=False
+        )
+        resampled = mne.filter.resample(
+            filtered, down=original_sfreq / target_sfreq, verbose=False
+        )
+        result[band_name] = (resampled * scale_factor).tolist()
+
+    for band_name, (low_freq, high_freq) in envelope_bands.items():
+        filtered = mne.filter.filter_data(
+            data, sfreq=original_sfreq, l_freq=low_freq, h_freq=high_freq, verbose=False
+        )
+        envelope = np.abs(hilbert(filtered))
+        window_size = int(0.2 * original_sfreq)
+        kernel = np.ones(window_size) / window_size
+        envelope = np.convolve(envelope, kernel, mode="same")
+        resampled = mne.filter.resample(
+            envelope, down=original_sfreq / target_sfreq, verbose=False
+        )
+        result[band_name] = (resampled * scale_factor).tolist()
+
+    return result
 
 
 def epoch_trials(

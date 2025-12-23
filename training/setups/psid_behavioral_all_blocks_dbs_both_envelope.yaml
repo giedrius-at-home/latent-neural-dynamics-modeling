@@ -16,7 +16,7 @@ data:
   channels:
     is_behavioral_neural: false
     input: ["ECOG_1", "ECOG_2", "ECOG_3", "ECOG_4"] 
-    output: ["tracing_speed"]  
+    output: ["tracing_velocity_magnitude"]  
     input_lag: null
     envelope: true
   split:

@@ -212,7 +212,7 @@ def load_precomputed_results(
 
         output_channels = []
         for col in cols:
-            if col in ["tracing_speed", "tracing_speed_x", "tracing_speed_y", "x", "y"]:
+            if col in ["tracing_velocity_magnitude", "tracing_velocity_x", "tracing_velocity_y", "x", "y"]:
                 output_channels.append(col)
         if not output_channels and "output_channels" in cols:
             oc_list = df["output_channels"].to_list()
