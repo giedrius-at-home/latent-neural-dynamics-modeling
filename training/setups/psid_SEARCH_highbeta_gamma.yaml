@@ -1,7 +1,7 @@
 model:
   name: "psid_SEARCH_highbeta_gamma"
-  nx: 12  
-  n1: 8 
+  nx: 5
+  n1: 2
   i: 20
   time_first: true
   fast: true
@@ -34,6 +34,8 @@ data:
       "tracing_jerk_cos", "tracing_jerk_sin"
     ]
     input_lag: null
+  neural_shift: null       # ms, -150 = use Y_{t+150ms} -> Z_t
+  behavioral_shift: -150   # ms, -150 = predict Z_{t+150ms} from Y_t
   split:
     within_session_split: true
     train: 0.6

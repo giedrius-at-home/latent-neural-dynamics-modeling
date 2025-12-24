@@ -1,5 +1,6 @@
 import pickle
 import json
+import numpy as np
 from datetime import datetime
 from utils.config import Config
 import polars as pl
@@ -106,29 +107,61 @@ class Trainer:
         )
 
     def _slice_data(self, Y_list_margined, Z_list_margined, meta_list):
-        (
-            _Y,
-            _Z,
-        ) = (
-            [],
-            [],
-        )
+        sfreq = self.data_params.sampling_frequency
+        neural_shift_ms = getattr(self.data_params, "neural_shift", None) or 0
+        behavioral_shift_ms = getattr(self.data_params, "behavioral_shift", None) or 0
+        
+        neural_shift_samp = int(round(neural_shift_ms * sfreq / 1000))
+        behavioral_shift_samp = int(round(behavioral_shift_ms * sfreq / 1000))
+        
+        if neural_shift_samp != 0 or behavioral_shift_samp != 0:
+            self.logger.info(
+                f"Applying shifts: neural={neural_shift_ms}ms ({neural_shift_samp} samples), "
+                f"behavioral={behavioral_shift_ms}ms ({behavioral_shift_samp} samples)"
+            )
+        
+        _Y, _Z = [], []
         Z_list_margined = (
             [None] * len(Y_list_margined)
             if Z_list_margined is None
             else Z_list_margined
         )
+        
         for Y, Z, meta in zip(Y_list_margined, Z_list_margined, meta_list):
             chunk_margin = meta["chunk_margin_ts"]
-
-            Y_sliced = Y[chunk_margin:-chunk_margin]
+            n_samples = len(Y)
+            
+            base_start = chunk_margin
+            base_end = n_samples - chunk_margin
+            
+            y_start = base_start + max(0, neural_shift_samp)
+            y_end = base_end + min(0, neural_shift_samp)
+            
+            z_start = base_start + max(0, behavioral_shift_samp)
+            z_end = base_end + min(0, behavioral_shift_samp)
+            
+            valid_start = max(y_start, z_start)
+            valid_end = min(y_end, z_end)
+            
+            if valid_end <= valid_start:
+                self.logger.warning(
+                    f"Shift too large for trial: margin={chunk_margin}, "
+                    f"neural_shift={neural_shift_samp}, behavioral_shift={behavioral_shift_samp}"
+                )
+                continue
+            
+            Y_sliced = Y[valid_start - neural_shift_samp : valid_end - neural_shift_samp]
+            
             if self.data_params.channels.is_behavioral_neural:
-                Z_sliced = Z[chunk_margin:-chunk_margin]
+                Z_sliced = Z[valid_start - behavioral_shift_samp : valid_end - behavioral_shift_samp]
             else:
-                Z_sliced = Z
+                z_len = valid_end - valid_start
+                z_offset = valid_start - chunk_margin - behavioral_shift_samp
+                Z_sliced = Z[z_offset : z_offset + z_len]
+            
             _Y.append(Y_sliced)
             _Z.append(Z_sliced)
-
+        
         _Z = None if all([_z is None for _z in _Z]) else _Z
         self.logger.info(
             f"Sliced data: Y={length(_Y)}, Z={length(_Z)}, meta={length(meta_list)}"
