@@ -184,10 +184,15 @@ def render_classifier_section(
     key_base = f"{clf_name}_{feature_source}_{mode}_{epoch_params}".replace(
         " ", "_"
     ).replace(".", "p")
-    if forecast_horizon_sec:
-        key_base += f"_fh{forecast_horizon_sec}s".replace(".", "p")
 
     cache_path = results_dir / f"{key_base}.pkl"
+
+    if not cache_path.exists() and forecast_horizon_sec:
+        key_base_with_fh = key_base + f"_fh{forecast_horizon_sec}s".replace(".", "p")
+        cache_path_with_fh = results_dir / f"{key_base_with_fh}.pkl"
+        if cache_path_with_fh.exists():
+            key_base = key_base_with_fh
+            cache_path = cache_path_with_fh
 
     st.markdown(f"### {clf_name}")
 

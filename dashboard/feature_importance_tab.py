@@ -32,7 +32,7 @@ def _load_run_metadata(variant_dir: Path, run_ts: str) -> dict | None:
     return None
 
 
-def _load_run_r2(variant_dir: Path, run_ts: str) -> float | None:
+def _load_run_pearsonr(variant_dir: Path, run_ts: str) -> float | None:
     metadata_path = variant_dir / f"model_{run_ts}_metadata.json"
     if metadata_path.exists():
         try:
@@ -42,12 +42,16 @@ def _load_run_r2(variant_dir: Path, run_ts: str) -> float | None:
                 return float(meta["r_mean_Z"])
         except Exception:
             pass
-    
+
     results_path = variant_dir / f"val_results_{run_ts}"
     if results_path.exists():
         try:
             df = pl.read_parquet(results_path)
-            for col in ["metric_pearson_r_mean_Z", "pearsonr_mean_Z", "pearson_overall_mean_Z"]:
+            for col in [
+                "metric_pearson_r_mean_Z",
+                "pearsonr_mean_Z",
+                "pearson_overall_mean_Z",
+            ]:
                 if col in df.columns:
                     vals = df[col].to_list()
                     if vals and vals[0] is not None:
@@ -57,11 +61,17 @@ def _load_run_r2(variant_dir: Path, run_ts: str) -> float | None:
     return None
 
 
-def _render_importance_bar_chart(importance_dict: dict, title: str = "Feature Importance"):
-    df = pd.DataFrame([
-        {"Feature": k, "Importance": v}
-        for k, v in sorted(importance_dict.items(), key=lambda x: x[1], reverse=True)
-    ])
+def _render_importance_bar_chart(
+    importance_dict: dict, title: str = "Feature Importance"
+):
+    df = pd.DataFrame(
+        [
+            {"Feature": k, "Importance": v}
+            for k, v in sorted(
+                importance_dict.items(), key=lambda x: x[1], reverse=True
+            )
+        ]
+    )
 
     fig = px.bar(
         df,
@@ -81,17 +91,19 @@ def _render_importance_bar_chart(importance_dict: dict, title: str = "Feature Im
 
 def _render_rankings_table(importance_dict: dict):
     normalized = normalize_importance(importance_dict)
-    df = pd.DataFrame([
-        {
-            "Rank": i + 1,
-            "Feature": k,
-            "Importance": v,
-            "Normalized": normalized[k],
-        }
-        for i, (k, v) in enumerate(
-            sorted(importance_dict.items(), key=lambda x: x[1], reverse=True)
-        )
-    ])
+    df = pd.DataFrame(
+        [
+            {
+                "Rank": i + 1,
+                "Feature": k,
+                "Importance": v,
+                "Normalized": normalized[k],
+            }
+            for i, (k, v) in enumerate(
+                sorted(importance_dict.items(), key=lambda x: x[1], reverse=True)
+            )
+        ]
+    )
     st.dataframe(df, use_container_width=True, hide_index=True)
 
 
@@ -108,9 +120,7 @@ def _render_performance_summary(results_path: Path, run_ts: str):
                 corrs = res["pearson_overall_mean_Z"]
                 if corrs is not None and len(corrs) > 0:
                     st.subheader("Behavioral Prediction Performance")
-                    fig = go.Figure(data=[
-                        go.Bar(x=list(range(len(corrs))), y=corrs)
-                    ])
+                    fig = go.Figure(data=[go.Bar(x=list(range(len(corrs))), y=corrs)])
                     fig.update_layout(
                         xaxis_title="Output Channel",
                         yaxis_title="Pearson Correlation",
@@ -123,58 +133,306 @@ def _render_performance_summary(results_path: Path, run_ts: str):
 
 def _render_grid_search_results(variant_dir: Path, runs: list):
     st.subheader("Grid Search Results")
-    st.markdown("Comparing R2 (Zp) across different nx and n1 parameter combinations.")
-    
-    grid_data = []
+    st.markdown(
+        "Comparing Pearson R across different nx and n1 parameter combinations."
+    )
+
+    all_metadata = []
     for run_ts in runs:
         metadata = _load_run_metadata(variant_dir, run_ts)
-        r2 = _load_run_r2(variant_dir, run_ts)
-        
-        if metadata and r2 is not None:
-            grid_data.append({
-                "run_ts": run_ts,
-                "nx": metadata.get("nx"),
-                "n1": metadata.get("n1"),
-                "i": metadata.get("i"),
-                "R2": r2,
-            })
-    
-    if not grid_data:
-        st.info("No grid search results found. Run training with different nx/n1 values first.")
+        if metadata:
+            metadata["run_ts"] = run_ts
+            all_metadata.append(metadata)
+
+    if not all_metadata:
+        st.info(
+            "No grid search results found. Run training with different nx/n1 values first."
+        )
         return
-    
+
+    st.markdown(f"Found **{len(all_metadata)}** runs with metadata.")
+
+    tab_overview, tab_neural, tab_behavioral = st.tabs(
+        [
+            "Overview (Mean)",
+            "Per Neural Channel (Y)",
+            "Per Behavioral Channel (Z)",
+        ]
+    )
+
+    with tab_overview:
+        _render_overview_plots(all_metadata)
+
+    with tab_neural:
+        _render_per_channel_plots(all_metadata, channel_type="Y")
+
+    with tab_behavioral:
+        _render_per_channel_plots(all_metadata, channel_type="Z")
+
+
+def _render_overview_plots(all_metadata: list):
+    """Render overview plots for mean Pearson R values."""
+    grid_data = []
+    for meta in all_metadata:
+        r_mean_Y = meta.get("r_mean_Y")
+        r_mean_Z = meta.get("r_mean_Z")
+
+        if r_mean_Y is not None or r_mean_Z is not None:
+            grid_data.append(
+                {
+                    "run_ts": meta["run_ts"],
+                    "nx": meta.get("nx"),
+                    "n1": meta.get("n1"),
+                    "i": meta.get("i"),
+                    "Pearson R (Y)": r_mean_Y,
+                    "Pearson R (Z)": r_mean_Z,
+                }
+            )
+
+    if not grid_data:
+        st.info("No mean Pearson R data available.")
+        return
+
     df = pd.DataFrame(grid_data)
-    st.markdown(f"Found **{len(df)}** runs with metadata.")
-    
-    fig = px.scatter(
-        df,
-        x="nx",
-        y="R2",
-        color="n1",
-        hover_data=["run_ts", "nx", "n1", "i", "R2"],
-        title="R2 vs nx (colored by n1)",
-        color_continuous_scale="Viridis",
-    )
-    fig.update_layout(
-        xaxis_title="nx (State Dimension)",
-        yaxis_title="R2 (Behavioral Prediction)",
-        height=500,
-    )
-    fig.update_traces(marker=dict(size=12))
-    st.plotly_chart(fig, use_container_width=True)
-    
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown("#### Neural Prediction (Y)")
+        if df["Pearson R (Y)"].notna().any():
+            fig = px.scatter(
+                df.dropna(subset=["Pearson R (Y)"]),
+                x="nx",
+                y="n1",
+                color="Pearson R (Y)",
+                hover_data=["run_ts", "nx", "n1", "i", "Pearson R (Y)"],
+                title="n1 vs nx colored by Pearson R (Y)",
+                color_continuous_scale="RdYlGn",
+            )
+            fig.update_layout(
+                xaxis_title="nx (State Dimension)",
+                yaxis_title="n1 (Behavior Subspace)",
+                height=450,
+            )
+            fig.update_traces(marker=dict(size=14))
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No neural (Y) Pearson R data.")
+
+    with col2:
+        st.markdown("#### Behavioral Prediction (Z)")
+        if df["Pearson R (Z)"].notna().any():
+            fig = px.scatter(
+                df.dropna(subset=["Pearson R (Z)"]),
+                x="nx",
+                y="n1",
+                color="Pearson R (Z)",
+                hover_data=["run_ts", "nx", "n1", "i", "Pearson R (Z)"],
+                title="n1 vs nx colored by Pearson R (Z)",
+                color_continuous_scale="RdYlGn",
+            )
+            fig.update_layout(
+                xaxis_title="nx (State Dimension)",
+                yaxis_title="n1 (Behavior Subspace)",
+                height=450,
+            )
+            fig.update_traces(marker=dict(size=14))
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No behavioral (Z) Pearson R data.")
+
     with st.expander("View all results"):
         st.dataframe(
-            df.sort_values("R2", ascending=False),
+            df.sort_values("Pearson R (Z)", ascending=False, na_position="last"),
             use_container_width=True,
             hide_index=True,
         )
 
 
+def _render_per_channel_plots(all_metadata: list, channel_type: str = "Z"):
+    """Render per-channel Pearson R plots with stats."""
+    key_prefix = "r_per_channel_" + channel_type
+    channel_key = "output_channels" if channel_type == "Z" else "input_channels"
+    type_label = "Behavioral" if channel_type == "Z" else "Neural"
+
+    all_channels = set()
+    for meta in all_metadata:
+        if key_prefix in meta and meta[key_prefix]:
+            all_channels.update(meta[key_prefix].keys())
+
+    if not all_channels:
+        st.info(
+            f"No per-channel Pearson R data available for {type_label.lower()} channels. "
+            "Run fast training to generate this data."
+        )
+        return
+
+    st.markdown(f"**{len(all_channels)} {type_label} Channels Found**")
+
+    selected_channel = st.selectbox(
+        f"Select {type_label} Channel",
+        options=sorted(all_channels),
+        key=f"channel_select_{channel_type}",
+    )
+
+    channel_data = []
+    for meta in all_metadata:
+        r_per_channel = meta.get(key_prefix, {})
+        if selected_channel in r_per_channel:
+            ch_stats = r_per_channel[selected_channel]
+            if isinstance(ch_stats, dict):
+                r_mean = ch_stats.get("mean")
+                r_std = ch_stats.get("std")
+                r_min = ch_stats.get("min")
+                r_max = ch_stats.get("max")
+                n_trials = ch_stats.get("n_trials")
+            else:
+                r_mean = ch_stats
+                r_std = r_min = r_max = n_trials = None
+
+            if r_mean is not None:
+                channel_data.append(
+                    {
+                        "run_ts": meta["run_ts"],
+                        "nx": meta.get("nx"),
+                        "n1": meta.get("n1"),
+                        "i": meta.get("i"),
+                        "Pearson R": r_mean,
+                        "std": r_std,
+                        "min": r_min,
+                        "max": r_max,
+                        "n_trials": n_trials,
+                    }
+                )
+
+    if not channel_data:
+        st.info(f"No data for channel '{selected_channel}'.")
+        return
+
+    df = pd.DataFrame(channel_data)
+
+    fig = px.scatter(
+        df,
+        x="nx",
+        y="n1",
+        color="Pearson R",
+        hover_data=[
+            "run_ts",
+            "nx",
+            "n1",
+            "i",
+            "Pearson R",
+            "std",
+            "min",
+            "max",
+            "n_trials",
+        ],
+        title=f"n1 vs nx colored by Pearson R for '{selected_channel}'",
+        color_continuous_scale="RdYlGn",
+    )
+    fig.update_layout(
+        xaxis_title="nx (State Dimension)",
+        yaxis_title="n1 (Behavior Subspace)",
+        height=500,
+    )
+    fig.update_traces(marker=dict(size=14))
+    st.plotly_chart(fig, use_container_width=True)
+
+    if df["std"].notna().any():
+        st.markdown(f"**Stats for '{selected_channel}'**")
+        st.dataframe(
+            df[
+                ["run_ts", "nx", "n1", "Pearson R", "std", "min", "max", "n_trials"]
+            ].sort_values("Pearson R", ascending=False),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    with st.expander("Compare all channels"):
+        comparison_data = []
+        for meta in all_metadata:
+            r_per_channel = meta.get(key_prefix, {})
+            for ch, ch_stats in r_per_channel.items():
+                if isinstance(ch_stats, dict):
+                    r_mean = ch_stats.get("mean")
+                    r_std = ch_stats.get("std")
+                    r_min = ch_stats.get("min")
+                    r_max = ch_stats.get("max")
+                else:
+                    r_mean = ch_stats
+                    r_std = r_min = r_max = None
+
+                if r_mean is not None:
+                    comparison_data.append(
+                        {
+                            "run_ts": meta["run_ts"],
+                            "nx": meta.get("nx"),
+                            "n1": meta.get("n1"),
+                            "channel": ch,
+                            "mean": r_mean,
+                            "std": r_std if r_std else 0,
+                            "min": r_min if r_min else r_mean,
+                            "max": r_max if r_max else r_mean,
+                            "error_minus": r_mean - r_min if r_min else 0,
+                            "error_plus": r_max - r_mean if r_max else 0,
+                        }
+                    )
+
+        if comparison_data:
+            comp_df = pd.DataFrame(comparison_data)
+            fig = go.Figure()
+
+            channels = sorted(comp_df["channel"].unique())
+            for i, ch in enumerate(channels):
+                ch_data = comp_df[comp_df["channel"] == ch]
+                fig.add_trace(
+                    go.Scatter(
+                        x=[ch] * len(ch_data),
+                        y=ch_data["mean"],
+                        error_y=dict(
+                            type="data",
+                            symmetric=False,
+                            array=ch_data["error_plus"],
+                            arrayminus=ch_data["error_minus"],
+                        ),
+                        mode="markers",
+                        name=ch,
+                        marker=dict(size=10),
+                        hovertemplate=(
+                            f"<b>{ch}</b><br>"
+                            "Mean: %{y:.3f}<br>"
+                            "Min: %{customdata[0]:.3f}<br>"
+                            "Max: %{customdata[1]:.3f}<br>"
+                            "nx=%{customdata[2]}, n1=%{customdata[3]}<br>"
+                            "<extra></extra>"
+                        ),
+                        customdata=ch_data[["min", "max", "nx", "n1"]].values,
+                    )
+                )
+
+            fig.update_layout(
+                title=f"Pearson R by {type_label} Channel (error bars show min/max across trials)",
+                xaxis_title=f"{type_label} Channel",
+                yaxis_title="Pearson R",
+                height=450,
+                showlegend=False,
+            )
+            fig.update_xaxes(tickangle=45)
+            st.plotly_chart(fig, use_container_width=True)
+
+            st.dataframe(
+                comp_df[
+                    ["channel", "mean", "std", "min", "max", "nx", "n1", "run_ts"]
+                ].sort_values(["channel", "mean"], ascending=[True, False]),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+
 def feature_importance_tab(project_root: Path):
     st.header("Feature Importance Analysis")
     st.markdown(
-        "Analyze which neural features (channels × bands) are most predictive of behavior "
+        "Analyze which neural features (channels x bands) are most predictive of behavior "
         "based on the PSID Kalman gain matrix K."
     )
 
@@ -193,14 +451,16 @@ def feature_importance_tab(project_root: Path):
         st.info("No runs found for this variant.")
         return
 
-    main_tab_single, main_tab_grid = st.tabs([
-        "Single Run Analysis",
-        "Grid Search Results",
-    ])
-    
+    main_tab_single, main_tab_grid = st.tabs(
+        [
+            "Single Run Analysis",
+            "Grid Search Results",
+        ]
+    )
+
     with main_tab_grid:
         _render_grid_search_results(variant_dir, runs)
-    
+
     with main_tab_single:
         run_ts = st.selectbox("Run timestamp", options=runs, key="fi_run")
         cfg_path = config_for_variant(project_root, variant)
@@ -210,7 +470,7 @@ def feature_importance_tab(project_root: Path):
             return
 
         cfg = get_config(str(cfg_path))
-        input_channels = cfg.data.channels.input
+        input_channels = cfg.data.channels.neural_input
 
         if not input_channels:
             st.error("No input channels defined in config.")
@@ -236,11 +496,13 @@ def feature_importance_tab(project_root: Path):
 
                         st.success(f"Analyzed {len(importance)} neural features.")
 
-                        tab_chart, tab_table, tab_perf = st.tabs([
-                            "Importance Chart",
-                            "Rankings Table",
-                            "Performance Summary",
-                        ])
+                        tab_chart, tab_table, tab_perf = st.tabs(
+                            [
+                                "Importance Chart",
+                                "Rankings Table",
+                                "Performance Summary",
+                            ]
+                        )
 
                         with tab_chart:
                             _render_importance_bar_chart(importance)
@@ -253,4 +515,3 @@ def feature_importance_tab(project_root: Path):
 
                     except Exception as e:
                         st.error(f"Error computing importance: {e}")
-

@@ -86,7 +86,19 @@ def model_predictions_tab(project_root):
                             st.error(f"Failed to load {split} results")
 
             cfg = get_config(str(cfg_path))
-            input_chans = cfg.data.channels.input
+            neural_input = (
+                getattr(cfg.data.channels, "neural_input", None)
+                or getattr(cfg.data.channels, "input", None)
+                or []
+            )
+            behavioral_input = (
+                getattr(cfg.data.channels, "behavioral_input", None) or []
+            )
+            input_chans = (
+                list(neural_input) + list(behavioral_input)
+                if behavioral_input
+                else list(neural_input)
+            )
             output_chans = cfg.data.channels.output
 
             for split, res in pred_results.items():

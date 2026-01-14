@@ -121,6 +121,17 @@ def render_z_forecast_plot(
     z_ft_c = z_future_true.squeeze() if nz_chan == 1 else z_future_true[:, channel_idx]
     z_fp_c = z_future_pred.squeeze() if nz_chan == 1 else z_future_pred[:, channel_idx]
 
+    mean_true = np.mean(z_ft_c)
+    mean_pred = np.mean(z_fp_c)
+    std_true = np.std(z_ft_c)
+    std_pred = np.std(z_fp_c)
+    if std_pred > 0:
+        scale_factor = std_true / std_pred
+        z_fp_c = (z_fp_c - mean_pred) * scale_factor + mean_true
+    else:
+        scale_factor = 1.0
+        z_fp_c = z_fp_c - mean_pred + mean_true
+
     T = (
         len(z_concat)
         if z_concat is not None
@@ -176,7 +187,7 @@ def render_z_forecast_plot(
         go.Scatter(
             x=t_future_plot,
             y=z_fp_plot,
-            name="Forecast",
+            name=f"Forecast (scaled ×{scale_factor:.2f})",
             mode="lines",
             line=dict(color=PALETTE.strawberry_red, width=2),
         )

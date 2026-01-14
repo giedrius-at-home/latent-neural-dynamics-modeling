@@ -12,6 +12,8 @@ from utils.data_loader import (
     get_participant_sessions,
     load_participant_block_data,
     natural_sort_key,
+    get_available_datasets,
+    DEFAULT_DATASET,
 )
 from dashboard.time_series_tab import time_series_tab
 from dashboard.psd_analysis_tab import psd_analysis_tab
@@ -27,8 +29,36 @@ st.set_page_config(layout="wide")
 
 st.title("iEEG & Motion Analysis Dashboard")
 
-st.sidebar.header("Selection")
-participant_sessions = get_participant_sessions()
+st.sidebar.header("Dataset Selection")
+
+available_datasets = get_available_datasets()
+if not available_datasets:
+    st.sidebar.error("No datasets found in resampled_recordings/")
+    st.stop()
+
+default_idx = 0
+if DEFAULT_DATASET in available_datasets:
+    default_idx = available_datasets.index(DEFAULT_DATASET)
+
+selected_dataset = st.sidebar.selectbox(
+    "Dataset",
+    options=available_datasets,
+    index=default_idx,
+    help="Select which resampled recordings dataset to use",
+)
+
+if (
+    "selected_dataset" not in st.session_state
+    or st.session_state.get("selected_dataset") != selected_dataset
+):
+    st.session_state["selected_dataset"] = selected_dataset
+    if "block_data" in st.session_state:
+        del st.session_state["block_data"]
+
+st.sidebar.divider()
+st.sidebar.header("Data Selection")
+
+participant_sessions = get_participant_sessions(selected_dataset)
 
 if not participant_sessions:
     st.warning("No participant data found. Please check the data directory.")
@@ -47,7 +77,7 @@ else:
 
     if st.sidebar.button("Load Data") and selected_session:
         data = load_participant_block_data(
-            selected_participant_id, selected_session, selected_block
+            selected_participant_id, selected_session, selected_block, selected_dataset
         )
         st.session_state["block_data"] = data
         st.session_state["participant_id"] = selected_participant_id
@@ -57,7 +87,7 @@ else:
             f"Loaded: P{selected_participant_id} | S{selected_session} | B{selected_block}"
         )
         logger.info(
-            f"Data loaded for P{selected_participant_id}, S{selected_session}, B{selected_block}"
+            f"Data loaded for P{selected_participant_id}, S{selected_session}, B{selected_block} from {selected_dataset}"
         )
 
 if "block_data" not in st.session_state:

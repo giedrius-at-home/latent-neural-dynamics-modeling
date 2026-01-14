@@ -6,6 +6,9 @@ model:
   time_first: true
   fast: true
   reuse_splits: true
+  Q_scale: 20.0
+  R_scale: 20.0
+  S_scale: 20.0
   forecast:
     m: 1 
     history: 2 
@@ -17,11 +20,12 @@ data:
   blocks: "all"
   channels:
     is_behavioral_neural: false
-    input: [
+    neural_input: [
       "LFP_1_lmp", "LFP_2_lmp", "LFP_3_lmp", "LFP_4_lmp", "LFP_5_lmp", "LFP_6_lmp", "LFP_7_lmp", "LFP_8_lmp",
       "LFP_9_lmp", "LFP_10_lmp", "LFP_11_lmp", "LFP_12_lmp", "LFP_13_lmp", "LFP_14_lmp", "LFP_15_lmp", "LFP_16_lmp",
       "ECOG_1_lmp", "ECOG_2_lmp", "ECOG_3_lmp", "ECOG_4_lmp"
     ]
+    output_type: "behavioral"
     output: [
       "tracing_velocity_x", "tracing_velocity_y",
       "tracing_velocity_cos", "tracing_velocity_sin",

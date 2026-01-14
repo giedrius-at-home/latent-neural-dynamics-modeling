@@ -18,8 +18,8 @@ if [ ${#CONFIGS[@]} -eq 0 ]; then
 fi
 
 # Grid parameters - intervals [5, 25] for nx and [3, 15] for n1 with step=1
-NX_VALUES=(5 10 15 20)
-N1_VALUES=(2 4 6 8)
+NX_VALUES=(2 5 10 15 20)
+N1_VALUES=(2 5 10 15 20)
 
 echo "=== PSID Grid Search ==="
 echo "Config pattern: ${CONFIG_PATTERN}"

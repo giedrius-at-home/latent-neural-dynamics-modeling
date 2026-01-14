@@ -796,25 +796,25 @@ def compute_cross_correlation_lag(
 ) -> tuple:
     s1 = (signal1 - np.nanmean(signal1)) / (np.nanstd(signal1) + 1e-10)
     s2 = (signal2 - np.nanmean(signal2)) / (np.nanstd(signal2) + 1e-10)
-    
+
     s1 = np.nan_to_num(s1, nan=0.0)
     s2 = np.nan_to_num(s2, nan=0.0)
-    
-    correlation = np.correlate(s1, s2, mode='full')
+
+    correlation = np.correlate(s1, s2, mode="full")
     correlation = correlation / len(s1)
-    
+
     lags = np.arange(-len(s2) + 1, len(s1))
-    
+
     max_lag_samples = int(max_lag_ms / 1000.0 * SAMPLING_FREQ)
     lag_mask = np.abs(lags) <= max_lag_samples
-    
+
     lags_restricted = lags[lag_mask]
     correlation_restricted = correlation[lag_mask]
-    
+
     max_idx = np.argmax(np.abs(correlation_restricted))
     lag_samples = lags_restricted[max_idx]
     max_corr = correlation_restricted[max_idx]
-    
+
     return lag_samples, max_corr, lags_restricted, correlation_restricted
 
 
@@ -831,55 +831,62 @@ def plot_signal_alignment(
     lag_seconds: float,
 ) -> go.Figure:
     from plotly.subplots import make_subplots
-    
+
     fig = make_subplots(
-        rows=2, cols=1,
+        rows=2,
+        cols=1,
         subplot_titles=(
             f"Signal Overlay: {neural_channel} vs {behavioral_var}",
-            "Cross-Correlation (Lag Detection)"
+            "Cross-Correlation (Lag Detection)",
         ),
         vertical_spacing=0.15,
         row_heights=[0.6, 0.4],
     )
-    
-    neural_norm = (neural_data - np.nanmean(neural_data)) / (np.nanstd(neural_data) + 1e-10)
+
+    neural_norm = (neural_data - np.nanmean(neural_data)) / (
+        np.nanstd(neural_data) + 1e-10
+    )
     beh_norm = (beh_data - np.nanmean(beh_data)) / (np.nanstd(beh_data) + 1e-10)
-    
+
     fig.add_trace(
         go.Scatter(
             x=time_neural,
             y=neural_norm,
-            mode='lines',
-            name=f'{neural_channel} (normalized)',
-            line=dict(color='#1f77b4', width=1.5),
+            mode="lines",
+            name=f"{neural_channel} (normalized)",
+            line=dict(color="#1f77b4", width=1.5),
             opacity=0.8,
         ),
-        row=1, col=1
+        row=1,
+        col=1,
     )
-    
+
     fig.add_trace(
         go.Scatter(
             x=time_beh,
             y=beh_norm,
-            mode='lines',
-            name=f'{behavioral_var} (normalized)',
-            line=dict(color='#ff7f0e', width=1.5),
+            mode="lines",
+            name=f"{behavioral_var} (normalized)",
+            line=dict(color="#ff7f0e", width=1.5),
             opacity=0.8,
         ),
-        row=1, col=1
+        row=1,
+        col=1,
     )
-    
+
     if chunk_margin > 0:
         margin_start = time_neural[0]
         margin_end_left = margin_start + chunk_margin
         margin_start_right = time_neural[-1] - chunk_margin
-        
+
         fig.add_vrect(
-            x0=margin_start, x1=margin_end_left,
+            x0=margin_start,
+            x1=margin_end_left,
             fillcolor="rgba(255, 0, 0, 0.1)",
             layer="below",
             line_width=0,
-            row=1, col=1,
+            row=1,
+            col=1,
         )
         fig.add_vline(
             x=margin_end_left,
@@ -888,15 +895,18 @@ def plot_signal_alignment(
             line_width=2,
             annotation_text="Margin End",
             annotation_position="top right",
-            row=1, col=1,
+            row=1,
+            col=1,
         )
-        
+
         fig.add_vrect(
-            x0=margin_start_right, x1=time_neural[-1],
+            x0=margin_start_right,
+            x1=time_neural[-1],
             fillcolor="rgba(255, 0, 0, 0.1)",
             layer="below",
             line_width=0,
-            row=1, col=1,
+            row=1,
+            col=1,
         )
         fig.add_vline(
             x=margin_start_right,
@@ -905,49 +915,53 @@ def plot_signal_alignment(
             line_width=2,
             annotation_text="Margin Start",
             annotation_position="top left",
-            row=1, col=1,
+            row=1,
+            col=1,
         )
-    
+
     lag_seconds_arr = lags / SAMPLING_FREQ
-    
+
     fig.add_trace(
         go.Scatter(
             x=lag_seconds_arr,
             y=correlation,
-            mode='lines',
-            name='Cross-correlation',
-            line=dict(color='#2ca02c', width=2),
+            mode="lines",
+            name="Cross-correlation",
+            line=dict(color="#2ca02c", width=2),
             showlegend=False,
         ),
-        row=2, col=1
+        row=2,
+        col=1,
     )
-    
+
     fig.add_vline(
         x=lag_seconds,
         line_dash="solid",
         line_color="purple",
         line_width=3,
-        row=2, col=1,
+        row=2,
+        col=1,
     )
-    
+
     fig.add_vline(
         x=0,
         line_dash="dash",
         line_color="gray",
         line_width=1,
-        row=2, col=1,
+        row=2,
+        col=1,
     )
-    
+
     fig.update_layout(
         height=700,
         showlegend=True,
         legend=dict(yanchor="top", y=0.99, xanchor="right", x=0.99),
         template="plotly_white",
     )
-    
+
     fig.update_xaxes(title_text="Time (s)", row=1, col=1)
     fig.update_yaxes(title_text="Normalized Amplitude", row=1, col=1)
     fig.update_xaxes(title_text="Lag (seconds)", row=2, col=1)
     fig.update_yaxes(title_text="Correlation", row=2, col=1)
-    
+
     return fig

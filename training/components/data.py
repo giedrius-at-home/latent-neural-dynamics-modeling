@@ -22,15 +22,20 @@ class TrialDataset(Dataset):
 
         self.df = pl.read_parquet(self.parquet_path)
 
-        self.input_channels = self.data_params.channels.input
+        self.neural_input = self.data_params.channels.neural_input
+        self.behavioral_input = getattr(
+            self.data_params.channels, "behavioral_input", None
+        )
         self.output_channels = self.data_params.channels.output
-        self.is_behavioral_neural = self.data_params.channels.is_behavioral_neural
+        self.output_type = getattr(
+            self.data_params.channels, "output_type", "behavioral"
+        )
 
         logger = get_logger()
         logger.info(
             f"Loaded split='{self.split}' dataset from {self.parquet_path} with {len(self.df)} trials; "
-            f"input_channels={self.input_channels}, output_channels={self.output_channels}, "
-            f"is_behavioral_neural={self.is_behavioral_neural}"
+            f"neural_input={self.neural_input}, behavioral_input={self.behavioral_input}, "
+            f"output={self.output_channels}, output_type={self.output_type}"
         )
 
     def __len__(self) -> int:
@@ -39,11 +44,11 @@ class TrialDataset(Dataset):
     def __getitem__(self, idx: int) -> Tuple[np.ndarray, Optional[np.ndarray], dict]:
         input_lag = self.data_params.channels.input_lag
         if input_lag is not None:
-            input_channel_names = self.input_channels + [
-                f"{ch}_lag{input_lag}" for ch in self.input_channels
+            input_channel_names = self.neural_input + [
+                f"{ch}_lag{input_lag}" for ch in self.neural_input
             ]
         else:
-            input_channel_names = self.input_channels
+            input_channel_names = self.neural_input
 
         row = self.df[idx]
         Y = self._extract_channels(row, input_channel_names)
@@ -79,7 +84,8 @@ class TrialDataset(Dataset):
             "margined_duration": margined_duration,
             "stim": stim,
             "input_channels": input_channel_names,
-            "original_input_channels": self.input_channels,
+            "original_input_channels": self.neural_input,
+            "behavioral_input_channels": self.behavioral_input,
             "output_channels": self.output_channels,
             "sampling_frequency": self.data_params.sampling_frequency,
             "chunk_margin_ts": chunk_margin_ts,
@@ -131,7 +137,7 @@ class TrialDataset(Dataset):
 
         if np.any(np.isnan(result)):
             df = pd.DataFrame(result)
-            df = df.interpolate(method='linear', limit_direction='both', axis=0)
+            df = df.interpolate(method="linear", limit_direction="both", axis=0)
             df = df.ffill().bfill()
             result = df.values
 

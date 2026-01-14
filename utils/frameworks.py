@@ -83,8 +83,12 @@ class PSIDWrapper:
         n1: int = self.config.model.n1
         i: int = self.config.model.i
         time_first: bool = self.config.model.time_first
+        Q_scale: float = getattr(self.config.model, "Q_scale", 1.0)
+        R_scale: float = getattr(self.config.model, "R_scale", 1.0)
+        S_scale: float = getattr(self.config.model, "S_scale", 1.0)
         self.logger.info(
-            f"Calling PSID.PSID with nx={nx}, n1={n1}, i={i}, time_first={time_first}; "
+            f"Calling PSID.PSID with nx={nx}, n1={n1}, i={i}, time_first={time_first}, "
+            f"Q_scale={Q_scale}, R_scale={R_scale}, S_scale={S_scale}"
         )
 
         self.idSys = PSIDClass(
@@ -98,6 +102,9 @@ class PSIDWrapper:
             remove_mean_Y=True,
             remove_mean_Z=True,
             time_first=time_first,
+            Q_scale=Q_scale,
+            R_scale=R_scale,
+            S_scale=S_scale,
         )
         return self.idSys
 
@@ -304,16 +311,28 @@ class DPADWrapper:
         n1: int = self.config.model.n1
         method_code: str = self.config.model.method_code
         epochs: int = self.config.model.epochs
+        consistency_loss_weight: float = getattr(
+            self.config.model, "consistency_loss_weight", 0.0
+        )
 
         self.logger.info(
-            f"Training DPAD with nx={nx}, n1={n1}, method_code={method_code}, epochs={epochs}"
+            f"Training DPAD with nx={nx}, n1={n1}, method_code={method_code}, epochs={epochs}, "
+            f"consistency_loss_weight={consistency_loss_weight}"
         )
         Y_dpad = [y.T for y in Y]
         Z_dpad = [z.T for z in Z] if Z is not None else None
 
         self.idSys = DPADModel()
         args = DPADModel.prepare_args(method_code)
-        self.idSys.fit(Y_dpad, Z=Z_dpad, nx=nx, n1=n1, epochs=epochs, **args)
+        self.idSys.fit(
+            Y_dpad,
+            Z=Z_dpad,
+            nx=nx,
+            n1=n1,
+            epochs=epochs,
+            consistency_loss_weight=consistency_loss_weight,
+            **args,
+        )
         return self.idSys
 
     def predict(self, Y: TrialList):

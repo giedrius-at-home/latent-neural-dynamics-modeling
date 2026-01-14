@@ -1,6 +1,6 @@
 run:
-  variant: "dpad_behavioral_PDI4_acc_mag"
-  run_ts: "20251215_221411"
+  variant: "psid_SEARCH_lowbeta_ecog"
+  run_ts: "20260110_202454"
 
 classification:
   n_splits: 2

@@ -5,18 +5,12 @@ save_directory: "{root_directory}/resampled_recordings"
 logger_directory: "{root_directory}/logs"
 participants_table_name: "participants.tsv"
 participants_intermediate_table_name: "participants_2"
-output_participants_table_name: "participants_at_60Hz_scaled_1e6_full_features"
+output_participants_table_name: "participants_at_120Hz_scaled_1e6_raw_05_30_notch_50"
 ieeg_process:
   resampled_dir: "{save_directory}/resampled_mat_recordings"
   chunk_margin: 2
-  resampled_freq: 60
-  notch_freqs: []
+  resampled_freq: 120
+  notch_freqs: [50]
   scale_factor: 1e6
   raw_bands:
-    lmp: [0.5, 5]
-  envelope_bands:
-    theta: [5, 8]
-    alpha: [8, 12]
-    lowbeta: [12, 24]
-    highbeta: [24, 34]
-    gamma: [34, 56]
+    raw: [0.5, 30]

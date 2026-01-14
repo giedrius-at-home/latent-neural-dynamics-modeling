@@ -161,6 +161,9 @@ def PSID(
     remove_mean_Z=True,
     zscore_Y=False,
     zscore_Z=False,
+    Q_scale=1.0,  # modified by Giedrius
+    R_scale=1.0,  # modified by Giedrius
+    S_scale=1.0,  # modified by Giedrius
 ) -> LSSM:
     """
     PSID PSID: Preferential Subspace Identification Algorithm
@@ -446,6 +449,11 @@ def PSID(
 
     Q = (Q + Q.T) / 2  # Make precisely symmetric
     R = (R + R.T) / 2  # Make precisely symmetric
+
+    # modified by Giedrius
+    Q = Q * Q_scale
+    R = R * R_scale
+    S = S * S_scale
 
     s = LSSM.LSSM(params={"A": A, "C": Cy, "Q": Q, "R": R, "S": S})
     if fit_Cz_via_KF and nz > 0:

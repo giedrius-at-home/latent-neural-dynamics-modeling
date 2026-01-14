@@ -34,7 +34,7 @@ def prepare_motion_data(trial_data):
         motion_cols.append("x")
     if "y" in trial_data.columns:
         motion_cols.append("y")
-    
+
     # Dynamically find all tracing_* columns
     tracing_cols = [c for c in trial_data.columns if c.startswith("tracing_")]
     motion_cols.extend(tracing_cols)
@@ -264,29 +264,30 @@ def render_behavioral_tab(trial_data, metadata_str):
 def render_cross_trial_tab(block_data):
     render_cross_trial_speed(block_data)
 
+
 def render_signal_alignment_analysis(
     trial_data, neural_channel: str, behavioral_var: str, chunk_margin: float
 ):
     margin_samples = int(chunk_margin * SAMPLING_FREQ)
-    
+
     neural_raw = trial_data[neural_channel][0]
     if neural_raw is None:
         st.warning(f"No data for {neural_channel}")
         return
     neural_data = np.array(neural_raw).astype(float)
-    
+
     beh_raw = trial_data[behavioral_var][0]
     if beh_raw is None:
         st.warning(f"No data for {behavioral_var}")
         return
     beh_data = np.array(beh_raw).astype(float)
-    
+
     time_raw = trial_data["time"][0]
     if time_raw is None:
         st.warning("No time data available")
         return
     time_neural = np.array(time_raw).astype(float)
-    
+
     if "time_original" in trial_data.columns:
         time_orig_raw = trial_data["time_original"][0]
         if time_orig_raw is not None:
@@ -295,48 +296,56 @@ def render_signal_alignment_analysis(
             time_beh = None
     else:
         time_beh = None
-    
+
     if time_beh is None:
         if margin_samples > 0 and len(time_neural) > 2 * margin_samples:
-            time_beh = time_neural[margin_samples:-margin_samples][:len(beh_data)]
+            time_beh = time_neural[margin_samples:-margin_samples][: len(beh_data)]
         else:
-            time_beh = time_neural[:len(beh_data)]
-    
-    time_beh = time_beh[:len(beh_data)]
+            time_beh = time_neural[: len(beh_data)]
 
-    
+    time_beh = time_beh[: len(beh_data)]
+
     if margin_samples > 0 and len(neural_data) > 2 * margin_samples:
         neural_trimmed = neural_data[margin_samples:-margin_samples]
     else:
         neural_trimmed = neural_data
-    
+
     min_len = min(len(neural_trimmed), len(beh_data))
     neural_for_corr = neural_trimmed[:min_len]
     beh_for_corr = beh_data[:min_len]
-    
+
     lag_samples, max_corr, lags, correlation = compute_cross_correlation_lag(
         neural_for_corr, beh_for_corr
     )
     lag_seconds = lag_samples / SAMPLING_FREQ
-    
+
     fig = plot_signal_alignment(
-        time_neural, neural_data, time_beh, beh_data,
-        neural_channel, behavioral_var, chunk_margin,
-        lags, correlation, lag_seconds
+        time_neural,
+        neural_data,
+        time_beh,
+        beh_data,
+        neural_channel,
+        behavioral_var,
+        chunk_margin,
+        lags,
+        correlation,
+        lag_seconds,
     )
     st.plotly_chart(fig, use_container_width=True)
-    
+
     col1, col2, col3 = st.columns(3)
     with col1:
         st.metric("Optimal Lag", f"{lag_seconds:.3f} s", f"{lag_samples} samples")
     with col2:
         st.metric("Max Correlation", f"{max_corr:.4f}")
     with col3:
-        alignment_status = "✅ Well Aligned" if abs(lag_seconds) < 0.05 else (
-            "⚠️ Minor Shift" if abs(lag_seconds) < 0.2 else "❌ Significant Shift"
+        alignment_status = (
+            "✅ Well Aligned"
+            if abs(lag_seconds) < 0.05
+            else ("⚠️ Minor Shift" if abs(lag_seconds) < 0.2 else "❌ Significant Shift")
         )
         st.metric("Alignment Status", alignment_status)
-    
+
     if abs(lag_seconds) >= 0.05:
         st.warning(
             f"⚠️ Detected a **{abs(lag_seconds):.3f}s** ({abs(lag_samples)} samples) shift. "
@@ -348,7 +357,9 @@ def render_neural_behavioral_correlation(trial_data, lfp_channels, ecog_channels
     st.markdown("### Neural-Behavioral Signal Analysis")
 
     # Dynamically find all behavioral columns
-    behavioral_vars = sorted([c for c in trial_data.columns if c.startswith("tracing_")])
+    behavioral_vars = sorted(
+        [c for c in trial_data.columns if c.startswith("tracing_")]
+    )
     if "x" in trial_data.columns:
         behavioral_vars = ["x", "y"] + behavioral_vars
 
@@ -371,35 +382,34 @@ def render_neural_behavioral_correlation(trial_data, lfp_channels, ecog_channels
     )
     margin_samples = int(chunk_margin * SAMPLING_FREQ)
 
-    alignment_tab, correlation_tab = st.tabs([
-        "🔗 Signal Alignment (Cross-Correlation)", 
-        "📊 Linear Correlation"
-    ])
+    alignment_tab, correlation_tab = st.tabs(
+        ["🔗 Signal Alignment (Cross-Correlation)", "📊 Linear Correlation"]
+    )
 
     with alignment_tab:
-        
+
         col1, col2 = st.columns(2)
         with col1:
             selected_neural = st.selectbox(
                 "Select Neural Channel",
                 all_neural_channels,
-                key="alignment_neural_channel"
+                key="alignment_neural_channel",
             )
         with col2:
             selected_beh_align = st.selectbox(
-                "Select Behavioral Variable",
-                behavioral_vars,
-                key="alignment_beh_var"
+                "Select Behavioral Variable", behavioral_vars, key="alignment_beh_var"
             )
-        
+
         if selected_neural and selected_beh_align:
             render_signal_alignment_analysis(
                 trial_data, selected_neural, selected_beh_align, chunk_margin
             )
-    
+
     with correlation_tab:
-        st.markdown("Linear correlation (Pearson r) between neural channels and behavioral variables.")
-        
+        st.markdown(
+            "Linear correlation (Pearson r) between neural channels and behavioral variables."
+        )
+
         selected_behavior = st.selectbox(
             "Select Behavioral Variable", behavioral_vars, key="neural_beh_corr_var"
         )
@@ -473,7 +483,11 @@ def render_neural_behavioral_correlation(trial_data, lfp_channels, ecog_channels
 
         fig.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5)
         fig.add_hline(
-            y=0.3, line_dash="dot", line_color="green", opacity=0.3, annotation_text="r=0.3"
+            y=0.3,
+            line_dash="dot",
+            line_color="green",
+            opacity=0.3,
+            annotation_text="r=0.3",
         )
         fig.add_hline(y=-0.3, line_dash="dot", line_color="green", opacity=0.3)
 
