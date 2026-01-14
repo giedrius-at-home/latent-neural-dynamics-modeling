@@ -2,6 +2,8 @@ import streamlit as st
 import polars as pl
 import numpy as np
 
+SAMPLING_FREQ = 60
+
 from dashboard.time_series_plots import (
     plot_channel_time_series,
     plot_multi_channel_time_series,
@@ -12,6 +14,8 @@ from dashboard.time_series_plots import (
     plot_2d_trajectory,
     plot_cross_trial_speed,
     plot_session_average_speed,
+    plot_signal_alignment,
+    compute_cross_correlation_lag,
 )
 from dashboard.utils import get_channel_lists, get_trial_metadata
 from dashboard.backbone import (
@@ -30,18 +34,10 @@ def prepare_motion_data(trial_data):
         motion_cols.append("x")
     if "y" in trial_data.columns:
         motion_cols.append("y")
-    if "tracing_speed" in trial_data.columns:
-        motion_cols.append("tracing_speed")
-    if "tracing_speed_magnitude" in trial_data.columns:
-        motion_cols.append("tracing_speed_magnitude")
-    if "tracing_acceleration" in trial_data.columns:
-        motion_cols.append("tracing_acceleration")
-    if "tracing_acceleration_magnitude" in trial_data.columns:
-        motion_cols.append("tracing_acceleration_magnitude")
-    if "tracing_jerk" in trial_data.columns:
-        motion_cols.append("tracing_jerk")
-    if "tracing_jerk_magnitude" in trial_data.columns:
-        motion_cols.append("tracing_jerk_magnitude")
+
+    # Dynamically find all tracing_* columns
+    tracing_cols = [c for c in trial_data.columns if c.startswith("tracing_")]
+    motion_cols.extend(tracing_cols)
 
     if not motion_cols:
         return None, []
@@ -166,7 +162,7 @@ def render_coordinates_plots(coords_data, metadata_str):
 
 
 def render_speed_plot(coords_data, metadata_str):
-    if "tracing_speed" not in coords_data.columns:
+    if "tracing_velocity" not in coords_data.columns:
         return
 
     fig_speed = plot_speed_time_series(coords_data, time_col="motion_time")
@@ -244,17 +240,21 @@ def render_behavioral_tab(trial_data, metadata_str):
     if coords_data is not None:
         render_coordinates_plots(coords_data, metadata_str)
         render_speed_plot(coords_data, metadata_str)
-        
+
         if "tracing_acceleration" in coords_data.columns:
-            fig_accel = plot_acceleration_time_series(coords_data, time_col="motion_time")
-            fig_accel = update_fig_title(fig_accel, ["Tracing Acceleration", metadata_str])
+            fig_accel = plot_acceleration_time_series(
+                coords_data, time_col="motion_time"
+            )
+            fig_accel = update_fig_title(
+                fig_accel, ["Tracing Acceleration", metadata_str]
+            )
             st.plotly_chart(fig_accel, use_container_width=True)
-        
+
         if "tracing_jerk" in coords_data.columns:
             fig_jerk = plot_jerk_time_series(coords_data, time_col="motion_time")
             fig_jerk = update_fig_title(fig_jerk, ["Tracing Jerk", metadata_str])
             st.plotly_chart(fig_jerk, use_container_width=True)
-            
+
     elif motion_cols:
         st.info("Motion data could not be loaded for this trial.")
     else:
@@ -265,23 +265,107 @@ def render_cross_trial_tab(block_data):
     render_cross_trial_speed(block_data)
 
 
+def render_signal_alignment_analysis(
+    trial_data, neural_channel: str, behavioral_var: str, chunk_margin: float
+):
+    margin_samples = int(chunk_margin * SAMPLING_FREQ)
+
+    neural_raw = trial_data[neural_channel][0]
+    if neural_raw is None:
+        st.warning(f"No data for {neural_channel}")
+        return
+    neural_data = np.array(neural_raw).astype(float)
+
+    beh_raw = trial_data[behavioral_var][0]
+    if beh_raw is None:
+        st.warning(f"No data for {behavioral_var}")
+        return
+    beh_data = np.array(beh_raw).astype(float)
+
+    time_raw = trial_data["time"][0]
+    if time_raw is None:
+        st.warning("No time data available")
+        return
+    time_neural = np.array(time_raw).astype(float)
+
+    if "time_original" in trial_data.columns:
+        time_orig_raw = trial_data["time_original"][0]
+        if time_orig_raw is not None:
+            time_beh = np.array(time_orig_raw).astype(float)
+        else:
+            time_beh = None
+    else:
+        time_beh = None
+
+    if time_beh is None:
+        if margin_samples > 0 and len(time_neural) > 2 * margin_samples:
+            time_beh = time_neural[margin_samples:-margin_samples][: len(beh_data)]
+        else:
+            time_beh = time_neural[: len(beh_data)]
+
+    time_beh = time_beh[: len(beh_data)]
+
+    if margin_samples > 0 and len(neural_data) > 2 * margin_samples:
+        neural_trimmed = neural_data[margin_samples:-margin_samples]
+    else:
+        neural_trimmed = neural_data
+
+    min_len = min(len(neural_trimmed), len(beh_data))
+    neural_for_corr = neural_trimmed[:min_len]
+    beh_for_corr = beh_data[:min_len]
+
+    lag_samples, max_corr, lags, correlation = compute_cross_correlation_lag(
+        neural_for_corr, beh_for_corr
+    )
+    lag_seconds = lag_samples / SAMPLING_FREQ
+
+    fig = plot_signal_alignment(
+        time_neural,
+        neural_data,
+        time_beh,
+        beh_data,
+        neural_channel,
+        behavioral_var,
+        chunk_margin,
+        lags,
+        correlation,
+        lag_seconds,
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Optimal Lag", f"{lag_seconds:.3f} s", f"{lag_samples} samples")
+    with col2:
+        st.metric("Max Correlation", f"{max_corr:.4f}")
+    with col3:
+        alignment_status = (
+            "✅ Well Aligned"
+            if abs(lag_seconds) < 0.05
+            else ("⚠️ Minor Shift" if abs(lag_seconds) < 0.2 else "❌ Significant Shift")
+        )
+        st.metric("Alignment Status", alignment_status)
+
+    if abs(lag_seconds) >= 0.05:
+        st.warning(
+            f"⚠️ Detected a **{abs(lag_seconds):.3f}s** ({abs(lag_samples)} samples) shift. "
+            f"{'Behavioral data appears to **lead** neural data.' if lag_seconds > 0 else 'Neural data appears to **lead** behavioral data.'}"
+        )
+
+
 def render_neural_behavioral_correlation(trial_data, lfp_channels, ecog_channels):
-    st.markdown("### Neural-Behavioral Correlation Analysis")
-    behavioral_vars = []
-    if "tracing_speed" in trial_data.columns:
-        behavioral_vars.append("tracing_speed")
-    if "tracing_speed_x" in trial_data.columns:
-        behavioral_vars.append("tracing_speed_x")
-    if "tracing_speed_y" in trial_data.columns:
-        behavioral_vars.append("tracing_speed_y")
+    st.markdown("### Neural-Behavioral Signal Analysis")
+
+    # Dynamically find all behavioral columns
+    behavioral_vars = sorted(
+        [c for c in trial_data.columns if c.startswith("tracing_")]
+    )
+    if "x" in trial_data.columns:
+        behavioral_vars = ["x", "y"] + behavioral_vars
 
     if not behavioral_vars:
-        st.info("No behavioral variables available for correlation analysis.")
+        st.info("No behavioral variables available for analysis.")
         return
-
-    selected_behavior = st.selectbox(
-        "Select Behavioral Variable", behavioral_vars, key="neural_beh_corr_var"
-    )
 
     all_neural_channels = []
     if lfp_channels:
@@ -296,94 +380,131 @@ def render_neural_behavioral_correlation(trial_data, lfp_channels, ecog_channels
     chunk_margin = (
         trial_data["chunk_margin"][0] if "chunk_margin" in trial_data.columns else 0
     )
+    margin_samples = int(chunk_margin * SAMPLING_FREQ)
 
-    beh_data_raw = trial_data[selected_behavior][0]
-    if beh_data_raw is None:
-        st.warning(f"No data for {selected_behavior}")
-        return
+    alignment_tab, correlation_tab = st.tabs(
+        ["🔗 Signal Alignment (Cross-Correlation)", "📊 Linear Correlation"]
+    )
 
-    beh_data = np.array(beh_data_raw).astype(float)
+    with alignment_tab:
 
-    correlations = []
-    for ch in all_neural_channels:
-        if ch not in trial_data.columns:
-            continue
+        col1, col2 = st.columns(2)
+        with col1:
+            selected_neural = st.selectbox(
+                "Select Neural Channel",
+                all_neural_channels,
+                key="alignment_neural_channel",
+            )
+        with col2:
+            selected_beh_align = st.selectbox(
+                "Select Behavioral Variable", behavioral_vars, key="alignment_beh_var"
+            )
 
-        ch_data_raw = trial_data[ch][0]
-        if ch_data_raw is None:
-            continue
+        if selected_neural and selected_beh_align:
+            render_signal_alignment_analysis(
+                trial_data, selected_neural, selected_beh_align, chunk_margin
+            )
 
-        ch_data = np.array(ch_data_raw).astype(float)
-
-        if chunk_margin > 0:
-            ch_data = ch_data[chunk_margin:-chunk_margin]
-
-        min_len = min(len(ch_data), len(beh_data))
-        ch_data = ch_data[:min_len]
-        beh_data_aligned = beh_data[:min_len]
-
-        valid_mask = np.isfinite(ch_data) & np.isfinite(beh_data_aligned)
-        ch_clean = ch_data[valid_mask]
-        beh_clean = beh_data_aligned[valid_mask]
-
-        if len(ch_clean) > 10:
-            r = np.corrcoef(ch_clean, beh_clean)[0, 1]
-            correlations.append((ch, r))
-
-    if not correlations:
-        st.warning("Could not compute correlations.")
-        return
-
-    correlations.sort(key=lambda x: abs(x[1]), reverse=True)
-
-    import plotly.graph_objects as go
-
-    channels = [c[0] for c in correlations]
-    r_values = [c[1] for c in correlations]
-
-    colors = ["red" if r < 0 else "blue" for r in r_values]
-
-    fig = go.Figure()
-    fig.add_trace(
-        go.Bar(
-            x=channels,
-            y=r_values,
-            marker_color=colors,
-            text=[f"{r:+.3f}" for r in r_values],
-            textposition="outside",
-            hovertemplate="%{x}<br>r = %{y:.4f}<extra></extra>",
+    with correlation_tab:
+        st.markdown(
+            "Linear correlation (Pearson r) between neural channels and behavioral variables."
         )
-    )
 
-    fig.update_layout(
-        title=f"Linear Correlation: Neural Channels vs {selected_behavior}",
-        xaxis_title="Channel",
-        yaxis_title="Pearson r",
-        yaxis=dict(range=[-1, 1]),
-        height=500,
-        showlegend=False,
-    )
+        selected_behavior = st.selectbox(
+            "Select Behavioral Variable", behavioral_vars, key="neural_beh_corr_var"
+        )
 
-    fig.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5)
-    fig.add_hline(
-        y=0.3, line_dash="dot", line_color="green", opacity=0.3, annotation_text="r=0.3"
-    )
-    fig.add_hline(y=-0.3, line_dash="dot", line_color="green", opacity=0.3)
+        beh_data_raw = trial_data[selected_behavior][0]
+        if beh_data_raw is None:
+            st.warning(f"No data for {selected_behavior}")
+            return
 
-    st.plotly_chart(fig, use_container_width=True)
+        beh_data = np.array(beh_data_raw).astype(float)
 
-    st.markdown("#### Top 10 Channels by Absolute Correlation")
-    col1, col2 = st.columns(2)
+        correlations = []
+        for ch in all_neural_channels:
+            if ch not in trial_data.columns:
+                continue
 
-    with col1:
-        st.markdown("**Channel**")
-        for i, (ch, r) in enumerate(correlations[:10], 1):
-            st.text(f"{i:2d}. {ch}")
+            ch_data_raw = trial_data[ch][0]
+            if ch_data_raw is None:
+                continue
 
-    with col2:
-        st.markdown("**Pearson r**")
-        for i, (ch, r) in enumerate(correlations[:10], 1):
-            st.text(f"{r:+.4f}")
+            ch_data = np.array(ch_data_raw).astype(float)
+
+            if margin_samples > 0 and len(ch_data) > 2 * margin_samples:
+                ch_data = ch_data[margin_samples:-margin_samples]
+
+            min_len = min(len(ch_data), len(beh_data))
+            ch_data = ch_data[:min_len]
+            beh_data_aligned = beh_data[:min_len]
+
+            valid_mask = np.isfinite(ch_data) & np.isfinite(beh_data_aligned)
+            ch_clean = ch_data[valid_mask]
+            beh_clean = beh_data_aligned[valid_mask]
+
+            if len(ch_clean) > 10:
+                r = np.corrcoef(ch_clean, beh_clean)[0, 1]
+                correlations.append((ch, r))
+
+        if not correlations:
+            st.warning("Could not compute correlations.")
+            return
+
+        correlations.sort(key=lambda x: abs(x[1]), reverse=True)
+
+        import plotly.graph_objects as go
+
+        channels = [c[0] for c in correlations]
+        r_values = [c[1] for c in correlations]
+
+        colors = ["red" if r < 0 else "blue" for r in r_values]
+
+        fig = go.Figure()
+        fig.add_trace(
+            go.Bar(
+                x=channels,
+                y=r_values,
+                marker_color=colors,
+                text=[f"{r:+.3f}" for r in r_values],
+                textposition="outside",
+                hovertemplate="%{x}<br>r = %{y:.4f}<extra></extra>",
+            )
+        )
+
+        fig.update_layout(
+            title=f"Linear Correlation: Neural Channels vs {selected_behavior}",
+            xaxis_title="Channel",
+            yaxis_title="Pearson r",
+            yaxis=dict(range=[-1, 1]),
+            height=500,
+            showlegend=False,
+        )
+
+        fig.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5)
+        fig.add_hline(
+            y=0.3,
+            line_dash="dot",
+            line_color="green",
+            opacity=0.3,
+            annotation_text="r=0.3",
+        )
+        fig.add_hline(y=-0.3, line_dash="dot", line_color="green", opacity=0.3)
+
+        st.plotly_chart(fig, use_container_width=True)
+
+        st.markdown("#### Top 10 Channels by Absolute Correlation")
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.markdown("**Channel**")
+            for i, (ch, r) in enumerate(correlations[:10], 1):
+                st.text(f"{i:2d}. {ch}")
+
+        with col2:
+            st.markdown("**Pearson r**")
+            for i, (ch, r) in enumerate(correlations[:10], 1):
+                st.text(f"{r:+.4f}")
 
 
 def time_series_tab(block_data):

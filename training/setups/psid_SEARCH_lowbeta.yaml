@@ -1,0 +1,52 @@
+model:
+  name: "psid_SEARCH_lowbeta"
+  nx: 12  
+  n1: 8 
+  i: 20
+  time_first: true
+  fast: true
+  reuse_splits: true
+  Q_scale: 20.0
+  R_scale: 20.0
+  S_scale: 20.0
+  forecast:
+    m: 1 
+    history: 2 
+
+data:
+  root: "resampled_recordings/participants_at_60Hz_scaled_1e6_full_features" 
+  participant: "PDI1"
+  session: "2"
+  blocks: "all"
+  channels:
+    is_behavioral_neural: false
+    neural_input: [
+      "LFP_1_lowbeta", "LFP_2_lowbeta", "LFP_3_lowbeta", "LFP_4_lowbeta", "LFP_5_lowbeta", "LFP_6_lowbeta", "LFP_7_lowbeta", "LFP_8_lowbeta",
+      "LFP_9_lowbeta", "LFP_10_lowbeta", "LFP_11_lowbeta", "LFP_12_lowbeta", "LFP_13_lowbeta", "LFP_14_lowbeta", "LFP_15_lowbeta", "LFP_16_lowbeta",
+      "ECOG_1_lowbeta", "ECOG_2_lowbeta", "ECOG_3_lowbeta", "ECOG_4_lowbeta"
+    ]
+    output_type: "behavioral"
+    output: [
+      "tracing_velocity_x", "tracing_velocity_y",
+      "tracing_velocity_cos", "tracing_velocity_sin",
+      "tracing_acceleration_x", "tracing_acceleration_y",
+      "tracing_acceleration_cos", "tracing_acceleration_sin",
+      "tracing_jerk_x", "tracing_jerk_y",
+      "tracing_jerk_cos", "tracing_jerk_sin"
+    ]
+    input_lag: null
+  split:
+    within_session_split: true
+    train: 0.6
+    val: 0.2
+    test: 0.2
+    min_train_epochs: 50
+  batch_size: 32
+  sampling_frequency: 60
+  dbs_condition: "both"
+  jitter: 0
+
+results:
+  save_dir: "results/{model.name}"
+  log_dir: "{results.save_dir}/logs"
+  checkpoint_dir: "checkpoints"

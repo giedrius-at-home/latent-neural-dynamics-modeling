@@ -8,9 +8,12 @@ def train(config):
     logger = get_logger()
     logger.info("Initializing training...")
 
+    fast = getattr(config.model, "fast", False)
+    reuse_splits = getattr(config.model, "reuse_splits", False)
+
     trainer = Trainer(config)
-    trainer.split_data()
-    val_results = trainer.train()
+    trainer.split_data(reuse_splits=reuse_splits)
+    val_results = trainer.train(fast=fast)
 
     logger.info(f"Validation results: {val_results}")
     logger.info("Training completed successfully!")

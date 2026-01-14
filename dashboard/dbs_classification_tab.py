@@ -173,6 +173,7 @@ def render_classifier_section(
     epoch_params: str,
     X_trainval: np.ndarray,
     y_trainval: np.ndarray,
+    groups_trainval: np.ndarray,
     X_test: Optional[np.ndarray],
     y_test: Optional[np.ndarray],
     results_dir: Path,
@@ -180,36 +181,47 @@ def render_classifier_section(
     mode: str = "prediction",
     forecast_horizon_sec: Optional[float] = None,
 ):
-    key_base = f"{clf_name}_{feature_source}_{mode}_{epoch_params}".replace(" ", "_").replace(
-        ".", "p"
-    )
-    if forecast_horizon_sec:
-        key_base += f"_fh{forecast_horizon_sec}s".replace(".", "p")
-    
+    key_base = f"{clf_name}_{feature_source}_{mode}_{epoch_params}".replace(
+        " ", "_"
+    ).replace(".", "p")
+
     cache_path = results_dir / f"{key_base}.pkl"
+
+    if not cache_path.exists() and forecast_horizon_sec:
+        key_base_with_fh = key_base + f"_fh{forecast_horizon_sec}s".replace(".", "p")
+        cache_path_with_fh = results_dir / f"{key_base_with_fh}.pkl"
+        if cache_path_with_fh.exists():
+            key_base = key_base_with_fh
+            cache_path = cache_path_with_fh
 
     st.markdown(f"### {clf_name}")
 
     cached = load_classification_results(cache_path)
     results = st.session_state.get(f"results_{key_base}", cached)
-    
+
     if results:
         st.success("Precomputed results loaded")
     else:
-        st.warning("No precomputed results found. Run the classification script first or click 'Compute Now' below.")
-    
+        st.warning(
+            "No precomputed results found. Run the classification script first or click 'Compute Now' below."
+        )
+
     with st.expander("Recompute Classification", expanded=False):
-        st.markdown("**Note:** This will recompute the classification. Use the standalone script for batch processing.")
+        st.markdown(
+            "**Note:** This will recompute the classification. Use the standalone script for batch processing."
+        )
         if st.button(f"Compute Now", key=f"gs_{key_base}"):
-            with st.spinner("Running grid search with TimeSeriesSplit CV..."):
+            with st.spinner("Running grid search with ChronoGroupsSplit CV..."):
                 best_params, best_score, cv_results = run_grid_search_cv(
-                    clf_name, X_trainval, y_trainval, n_splits
+                    clf_name, X_trainval, y_trainval, groups_trainval, n_splits
                 )
 
                 if X_test is not None and y_test is not None and len(y_test) > 0:
                     best_pipeline = cv_results.get("best_pipeline")
                     if best_pipeline is not None:
-                        test_results = evaluate_on_test_set(best_pipeline, X_test, y_test)
+                        test_results = evaluate_on_test_set(
+                            best_pipeline, X_test, y_test
+                        )
                         cv_results["test_results"] = test_results
 
                 save_classification_results(cv_results, cache_path)
@@ -361,11 +373,13 @@ def render_classification_mode(
         }
         prep_kwargs.update(extra_param_values)
 
-        X_trainval, y_trainval, meta_trainval = data_prep_fn(
+        X_trainval, y_trainval, groups_trainval, meta_trainval = data_prep_fn(
             trainval_list, **prep_kwargs
         )
-        X_test, y_test, meta_test = (
-            data_prep_fn(test_list, **prep_kwargs) if test_list else (None, None, None)
+        X_test, y_test, groups_test, meta_test = (
+            data_prep_fn(test_list, **prep_kwargs)
+            if test_list
+            else (None, None, None, None)
         )
 
     if X_trainval is None or len(X_trainval) == 0:
@@ -405,6 +419,7 @@ def render_classification_mode(
                 epoch_params_str,
                 X_trainval,
                 y_trainval,
+                groups_trainval,
                 X_test,
                 y_test,
                 results_dir,
@@ -468,16 +483,20 @@ def dbs_classification_tab(project_root):
     if cfg_path is None:
         st.error(f"Config not found for variant '{variant}'.")
         return
-    
+
     classification_dir = variant_dir / run_ts / "classification"
     if classification_dir.exists():
         num_results = len(list(classification_dir.glob("*.pkl")))
         if num_results > 0:
             st.success(f"Found {num_results} precomputed classification result(s)")
         else:
-            st.warning("No precomputed results found. Run the classification script first.")
+            st.warning(
+                "No precomputed results found. Run the classification script first."
+            )
     else:
-        st.warning("No classification directory found. Run the classification script first.")
+        st.warning(
+            "No classification directory found. Run the classification script first."
+        )
 
     st.markdown("---")
     mode_tabs = st.tabs(["From Predictions", "From Forecasts"])
@@ -487,4 +506,3 @@ def dbs_classification_tab(project_root):
 
     with mode_tabs[1]:
         render_classification_from_forecasts(variant_dir, run_ts)
-

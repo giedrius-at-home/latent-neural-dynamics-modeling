@@ -83,8 +83,12 @@ class PSIDWrapper:
         n1: int = self.config.model.n1
         i: int = self.config.model.i
         time_first: bool = self.config.model.time_first
+        Q_scale: float = getattr(self.config.model, "Q_scale", 1.0)
+        R_scale: float = getattr(self.config.model, "R_scale", 1.0)
+        S_scale: float = getattr(self.config.model, "S_scale", 1.0)
         self.logger.info(
-            f"Calling PSID.PSID with nx={nx}, n1={n1}, i={i}, time_first={time_first}; "
+            f"Calling PSID.PSID with nx={nx}, n1={n1}, i={i}, time_first={time_first}, "
+            f"Q_scale={Q_scale}, R_scale={R_scale}, S_scale={S_scale}"
         )
 
         self.idSys = PSIDClass(
@@ -98,6 +102,9 @@ class PSIDWrapper:
             remove_mean_Y=True,
             remove_mean_Z=True,
             time_first=time_first,
+            Q_scale=Q_scale,
+            R_scale=R_scale,
+            S_scale=S_scale,
         )
         return self.idSys
 
@@ -141,6 +148,24 @@ class PSIDWrapper:
         history = int(history_seconds * sampling_freq)
         margin_sec = margin if margin is not None else 0.0
 
+        Zp_val, Yp_val, Xp_val = self.predict(Y_list)
+
+        all_residuals = []
+        for y_true, y_pred in zip(Y_list, Yp_val):
+            if y_pred is not None:
+                residuals = y_true - y_pred
+                all_residuals.append(residuals)
+
+        if all_residuals:
+            all_residuals_concat = np.concatenate(all_residuals, axis=0)
+            residual_mean = np.mean(all_residuals_concat, axis=0)
+            residual_std = np.std(all_residuals_concat, axis=0)
+        else:
+            residual_mean = 0.0
+            residual_std = 0.0
+
+        # TODO: Check Gaussian assumption for behavioral (Z) residuals and apply probabilistic forecasting if valid
+
         results = {
             "m": m,
             "Y_future_true": [],
@@ -152,6 +177,16 @@ class PSIDWrapper:
             "X_future_pred": [],
             "pearson_per_channel": [],
             "pearson_per_channel_Z": [],
+            "residual_mean": (
+                residual_mean.tolist()
+                if isinstance(residual_mean, np.ndarray)
+                else residual_mean
+            ),
+            "residual_std": (
+                residual_std.tolist()
+                if isinstance(residual_std, np.ndarray)
+                else residual_std
+            ),
         }
 
         for idx, Y in enumerate(Y_list):
@@ -176,6 +211,12 @@ class PSIDWrapper:
 
             if Yf is None:
                 raise RuntimeError("Model returned no Y forecast")
+
+            if isinstance(residual_mean, np.ndarray) and isinstance(
+                residual_std, np.ndarray
+            ):
+                noise = np.random.normal(residual_mean, residual_std, size=Yf.shape)
+                Yf = Yf + noise
 
             Y_concat = np.concatenate([Y_past, Yf], axis=0)
             Z_concat = (
@@ -270,16 +311,28 @@ class DPADWrapper:
         n1: int = self.config.model.n1
         method_code: str = self.config.model.method_code
         epochs: int = self.config.model.epochs
+        consistency_loss_weight: float = getattr(
+            self.config.model, "consistency_loss_weight", 0.0
+        )
 
         self.logger.info(
-            f"Training DPAD with nx={nx}, n1={n1}, method_code={method_code}, epochs={epochs}"
+            f"Training DPAD with nx={nx}, n1={n1}, method_code={method_code}, epochs={epochs}, "
+            f"consistency_loss_weight={consistency_loss_weight}"
         )
         Y_dpad = [y.T for y in Y]
         Z_dpad = [z.T for z in Z] if Z is not None else None
 
         self.idSys = DPADModel()
         args = DPADModel.prepare_args(method_code)
-        self.idSys.fit(Y_dpad, Z=Z_dpad, nx=nx, n1=n1, epochs=epochs, **args)
+        self.idSys.fit(
+            Y_dpad,
+            Z=Z_dpad,
+            nx=nx,
+            n1=n1,
+            epochs=epochs,
+            consistency_loss_weight=consistency_loss_weight,
+            **args,
+        )
         return self.idSys
 
     def predict(self, Y: TrialList):
@@ -341,48 +394,69 @@ class DPADWrapper:
     def test(self, Y: TrialList) -> Dict[str, Any]:
         return self.validate(Y)
 
-    def forecast(self, m: int, Y_past: Array2D):
-
+    def forecast(
+        self,
+        m: int,
+        Y_past: Array2D,
+        residual_mean: Optional[Array2D] = None,
+        residual_std: Optional[Array2D] = None,
+    ) -> Tuple[Optional[Array2D], Optional[Array2D], Optional[Array2D]]:
         block_samples = self.idSys.block_samples
-        original_len = Y_past.shape[0]
-        remainder = original_len % block_samples
+        ny = Y_past.shape[1]
 
-        if remainder != 0:
-            pad_len = block_samples - remainder
-            self.logger.info(
-                f"Padding Y_past from {original_len} to {original_len + pad_len} "
-                f"samples (multiple of block_samples={block_samples})"
-            )
-            padding = np.zeros((pad_len, Y_past.shape[1]))
-            Y_past_padded = np.concatenate([Y_past, padding], axis=0)
-        else:
-            Y_past_padded = Y_past
-
-        self.idSys.set_steps_ahead(list(range(1, m + 1)))
-        self.idSys.set_multi_step_with_data_gen(True, noise_samples=0)
-        preds = self.idSys.predict(Y_past_padded)
-
-        Z_steps = preds[:m]
-        Y_steps = preds[m : 2 * m]
-        X_steps = preds[2 * m : 3 * m]
+        def _pad_to_block(arr):
+            remainder = arr.shape[0] % block_samples
+            if remainder != 0:
+                pad_len = block_samples - remainder
+                return np.concatenate([arr, np.zeros((pad_len, ny))], axis=0)
+            return arr
 
         def _stack_last(steps_list):
-            out = []
-            for arr in steps_list:
-                if arr is None:
-                    out.append(None)
-                    continue
-                last_row = (
-                    arr[-1:, :] if len(arr.shape) == 2 else np.atleast_2d(arr[-1])
-                )
-                out.append(last_row)
-            if all(v is None for v in out):
-                return None
-            return np.vstack([v for v in out if v is not None])
+            out = [
+                arr[-1:, :] if arr is not None and len(arr.shape) == 2 else None
+                for arr in steps_list
+            ]
+            valid = [v for v in out if v is not None]
+            return np.vstack(valid) if valid else None
 
-        Yf = _stack_last(Y_steps)
-        Xf = _stack_last(X_steps)
-        Zf = _stack_last(Z_steps)
+        if residual_mean is not None and residual_std is not None:
+            Yf_list, Zf_list, Xf_list = [], [], []
+            Y_current = Y_past.copy()
+
+            for _ in range(m):
+                self.idSys.set_steps_ahead([1])
+                self.idSys.set_multi_step_with_data_gen(True, noise_samples=0)
+                preds = self.idSys.predict(_pad_to_block(Y_current))
+
+                Zp, Yp, Xp = preds[0], preds[1], preds[2]
+
+                if Yp is not None:
+                    y_next = Yp[-1:, :]
+                    noise = np.random.normal(
+                        residual_mean, residual_std, size=y_next.shape
+                    )
+                    y_next_noisy = y_next + noise
+                else:
+                    y_next_noisy = np.zeros((1, ny))
+
+                Yf_list.append(y_next_noisy)
+                Zf_list.append(Zp[-1:, :] if Zp is not None else None)
+                Xf_list.append(Xp[-1:, :] if Xp is not None else None)
+                Y_current = np.concatenate([Y_current, y_next_noisy], axis=0)
+
+            Yf = np.vstack(Yf_list) if Yf_list else None
+            Zf_valid = [z for z in Zf_list if z is not None]
+            Zf = np.vstack(Zf_valid) if Zf_valid else None
+            Xf_valid = [x for x in Xf_list if x is not None]
+            Xf = np.vstack(Xf_valid) if Xf_valid else None
+        else:
+            self.idSys.set_steps_ahead(list(range(1, m + 1)))
+            self.idSys.set_multi_step_with_data_gen(True, noise_samples=0)
+            preds = self.idSys.predict(_pad_to_block(Y_past))
+
+            Zf = _stack_last(preds[:m])
+            Yf = _stack_last(preds[m : 2 * m])
+            Xf = _stack_last(preds[2 * m : 3 * m])
 
         return Zf, Yf, Xf
 
@@ -397,7 +471,24 @@ class DPADWrapper:
         sampling_freq = self.config.data.sampling_frequency
         m = int(m_seconds * sampling_freq)
         history = int(history_seconds * sampling_freq)
-        margin_samples = int(sampling_freq * margin)
+
+        self.idSys.set_steps_ahead([1])
+        self.idSys.set_multi_step_with_data_gen(False)
+
+        Zp_val, Yp_val, Xp_val = self.predict(Y_list)
+
+        all_residuals = []
+        for y_true, y_pred in zip(Y_list, Yp_val):
+            if y_pred is not None:
+                all_residuals.append(y_true - y_pred)
+
+        if all_residuals:
+            all_residuals_concat = np.concatenate(all_residuals, axis=0)
+            residual_mean = np.mean(all_residuals_concat, axis=0)
+            residual_std = np.std(all_residuals_concat, axis=0)
+        else:
+            residual_mean = None
+            residual_std = None
 
         results = {
             "m": m,
@@ -410,6 +501,10 @@ class DPADWrapper:
             "X_future_pred": [],
             "pearson_per_channel": [],
             "pearson_per_channel_Z": [],
+            "residual_mean": (
+                residual_mean.tolist() if residual_mean is not None else 0.0
+            ),
+            "residual_std": residual_std.tolist() if residual_std is not None else 0.0,
         }
 
         for idx, Y in enumerate(Y_list):
@@ -419,20 +514,14 @@ class DPADWrapper:
                     f"history + m ({history} + {m} = {history + m}) must not exceed trial length T={T}"
                 )
 
-            start = 0
-            history_end = history
-            forecast_end = history + m
-
-            Y_history = Y[start:history_end]
-            Y_future_true = Y[history_end:forecast_end]
-
-            Y_input = np.zeros((history + m, Y.shape[1]))
-            Y_input[:history] = Y_history
+            Y_history = Y[:history]
+            Y_future_true = Y[history : history + m]
 
             Z = Z_list[idx] if Z_list is not None and idx < len(Z_list) else None
-            Z_future_true = Z[history_end:forecast_end] if Z is not None else None
+            Z_future_true = Z[history : history + m] if Z is not None else None
+            Z_history = Z[:history] if Z is not None else None
 
-            Zf, Yf, Xf = self.forecast(m, Y_input)
+            Zf, Yf, Xf = self.forecast(m, Y_history, residual_mean, residual_std)
 
             if Yf is not None:
                 Y_concat = np.concatenate([Y_history, Yf], axis=0)
@@ -442,10 +531,11 @@ class DPADWrapper:
                 Y_concat = Y_history
                 r_list = []
 
-            Z_history = Z[start:history_end] if Z is not None else None
-            Z_concat = None
-            if Z_history is not None and Zf is not None:
-                Z_concat = np.concatenate([Z_history, Zf], axis=0)
+            Z_concat = (
+                np.concatenate([Z_history, Zf], axis=0)
+                if Z_history is not None and Zf is not None
+                else None
+            )
 
             if Z_future_true is not None and Zf is not None:
                 r_list_Z, _ = pearson_r_per_channel([Z_future_true], [Zf])

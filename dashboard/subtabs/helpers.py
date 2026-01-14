@@ -25,6 +25,10 @@ def list_run_timestamps(variant_dir: Path) -> List[str]:
         name = p.name
         if name.startswith("model_") and name.endswith(".pkl"):
             ts.add(name.replace("model_", "").replace(".pkl", ""))
+    for p in variant_dir.glob("model_*_metadata.json"):
+        name = p.name
+        if name.startswith("model_") and name.endswith("_metadata.json"):
+            ts.add(name.replace("model_", "").replace("_metadata.json", ""))
     return sorted(list(ts))
 
 
@@ -205,9 +209,9 @@ def load_precomputed_results(
             output_channels = []
             for col in cols:
                 if col in [
-                    "tracing_speed",
-                    "tracing_speed_x",
-                    "tracing_speed_y",
+                    "tracing_velocity",
+                    "tracing_velocity_x",
+                    "tracing_velocity_y",
                     "x",
                     "y",
                 ]:

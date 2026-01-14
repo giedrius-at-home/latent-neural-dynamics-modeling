@@ -1,13 +1,13 @@
 run:
-  variant: dpad_behavioral_PDI4_S3
-  run_ts: "20251208_232439"
+  variant: "psid_SEARCH_lowbeta_ecog"
+  run_ts: "20260110_202454"
 
 classification:
   n_splits: 2
   epoch_length: 1.0     
   epoch_overlap: 0.5 
   prediction_feature_source: Xp    # Xp, Yp, Y, or Both
-  forecast_feature_source: Yp      # Xp or Yp
+  forecast_feature_source: Xp      # Xp or Yp
 
 results:
   project_root: "/home/bobby/repos/latent-neural-dynamics-modeling"

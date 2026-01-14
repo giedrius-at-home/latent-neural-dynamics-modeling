@@ -165,8 +165,9 @@ class LSSM:
                 self.YCov[:] = np.nan
 
             try:
+                # Modified by Giedrius, set the explicit params
                 self.Pp = linalg.solve_discrete_are(
-                    self.A.T, self.C.T, self.Q, self.R, s=self.S
+                    a=self.A.T, b=self.C.T, q=self.Q, r=self.R, e=None, s=self.S
                 )  # Solves Katayama eq. 5.42a
                 self.innovCov = self.C @ self.Pp @ self.C.T + self.R
                 innovCovInv = np.linalg.pinv(self.innovCov)

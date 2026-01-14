@@ -668,6 +668,17 @@ def render_z_prediction_plot(
     z_true_c = z_true.squeeze() if nz_chan == 1 else z_true[:, channel_idx]
     z_pred_c = z_pred.squeeze() if nz_chan == 1 else z_pred[:, channel_idx]
 
+    mean_true = np.mean(z_true_c)
+    mean_pred = np.mean(z_pred_c)
+    std_true = np.std(z_true_c)
+    std_pred = np.std(z_pred_c)
+    if std_pred > 0:
+        scale_factor = std_true / std_pred
+        z_pred_c_scaled = (z_pred_c - mean_pred) * scale_factor + mean_true
+    else:
+        scale_factor = 1.0
+        z_pred_c_scaled = z_pred_c - mean_pred + mean_true
+
     fig = go.Figure()
     fig.add_trace(
         go.Scatter(
@@ -680,8 +691,8 @@ def render_z_prediction_plot(
     fig.add_trace(
         go.Scatter(
             x=t_abs,
-            y=z_pred_c,
-            name="Z_pred",
+            y=z_pred_c_scaled,
+            name=f"Z_pred (scaled ×{scale_factor:.2f})",
             mode="lines",
         )
     )
@@ -723,6 +734,9 @@ def render_predictions_tab(split_res: Dict[str, Any], trial_idx: int, cfg_path: 
     t_abs = get_trial_time_axis(split_res, trial_idx, n_samples, t_offset)
 
     chan_names = split_res.get("input_channels", [])
+    behavioral_input_names = split_res.get("behavioral_input_channels", []) or []
+    if behavioral_input_names:
+        chan_names = list(chan_names) + list(behavioral_input_names)
     n_chan = y_t.shape[1] if y_t.ndim == 2 else 1
     if chan_names and isinstance(chan_names, list) and len(chan_names) == n_chan:
         channel_options = chan_names

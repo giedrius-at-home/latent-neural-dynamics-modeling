@@ -1,8 +1,12 @@
 import numpy as np
 from scipy.interpolate import interp1d
+from scipy.signal import savgol_filter
 from utils.miscellaneous import contains_nulls
 from typing import Optional
-from scipy.signal import savgol_filter
+
+
+SAVGOL_WINDOW_LENGTH = 9
+SAVGOL_POLYORDER = 3
 
 
 def interpolate(behavior: list, original_length_ts: int) -> list:
@@ -24,180 +28,60 @@ def interpolate(behavior: list, original_length_ts: int) -> list:
     return interpolated_behavior.tolist()
 
 
-def _smooth_signal(instantaneous_signal: np.ndarray, moving_avg_window_ms: int = 50) -> list:
-    window_size_samples = int((moving_avg_window_ms / 1000) * 1000)
-    if window_size_samples % 2 == 0:
-        window_size_samples += 1
+def savgol_derivative(
+    signal: list,
+    sfreq: float,
+    deriv: int = 0,
+    window_length: int = SAVGOL_WINDOW_LENGTH,
+    polyorder: int = SAVGOL_POLYORDER,
+) -> Optional[list]:
+    if signal is None or contains_nulls(signal):
+        return None
+    if len(signal) < window_length:
+        return None
 
-    window_size_samples = max(3, min(window_size_samples, len(instantaneous_signal)))
+    arr = np.array(signal, dtype=np.float64)
+    delta = 1.0 / sfreq if deriv > 0 else 1.0
 
-    polyorder = min(3, window_size_samples - 1)
-
-    try:
-        smoothed = savgol_filter(
-            instantaneous_signal,
-            window_length=window_size_samples,
-            polyorder=polyorder,
-        )
-    except Exception:
-        smoothed = np.convolve(
-            instantaneous_signal,
-            np.ones(window_size_samples) / window_size_samples,
-            mode="same",
-        )
-
-    return smoothed.tolist()
-
-
-def compute_tracing_speeds(
-    x: Optional[list],
-    y: Optional[list],
-    time: list,
-    moving_avg_window_ms: int = 50,
-) -> dict:
-
-    result = {
-        "tracing_speed": None, "tracing_speed_x": None, "tracing_speed_y": None,
-        "tracing_speed_magnitude": None,
-    }
-
-    if contains_nulls(time):
-        return result
-
-    has_x = x is not None and not contains_nulls(x)
-    has_y = y is not None and not contains_nulls(y)
-
-    if not has_x and not has_y:
-        return result
-
-    dt = np.diff(time)
-    dt[dt == 0] = np.finfo(float).eps
-
-    if has_x:
-        dx = np.diff(x)
-        instantaneous_speed_x = dx / dt
-        instantaneous_speed_x = np.insert(instantaneous_speed_x, 0, 0)
-        result["tracing_speed_x"] = _smooth_signal(instantaneous_speed_x, moving_avg_window_ms)
-
-    if has_y:
-        dy = np.diff(y)
-        instantaneous_speed_y = dy / dt
-        instantaneous_speed_y = np.insert(instantaneous_speed_y, 0, 0)
-        result["tracing_speed_y"] = _smooth_signal(instantaneous_speed_y, moving_avg_window_ms)
-
-    if has_x and has_y:
-        dx = np.diff(x)
-        dy = np.diff(y)
-        instantaneous_speed_combined = np.sqrt(dx**2 + dy**2) / dt
-        instantaneous_speed_combined = np.insert(instantaneous_speed_combined, 0, 0)
-        result["tracing_speed"] = _smooth_signal(instantaneous_speed_combined, moving_avg_window_ms)
-        
-        smoothed_speed_x = np.array(result["tracing_speed_x"])
-        smoothed_speed_y = np.array(result["tracing_speed_y"])
-        speed_magnitude = np.sqrt(smoothed_speed_x**2 + smoothed_speed_y**2)
-        result["tracing_speed_magnitude"] = speed_magnitude.tolist()
-
-    return result
+    result = savgol_filter(
+        arr,
+        window_length=window_length,
+        polyorder=polyorder,
+        deriv=deriv,
+        delta=delta,
+    )
+    return result.tolist()
 
 
-def compute_tracing_acceleration(
-    speed_x: Optional[list],
-    speed_y: Optional[list],
-    time: list,
-    moving_avg_window_ms: int = 50,
-) -> dict:
+def compute_magnitude(comp_x: list, comp_y: list) -> Optional[list]:
+    if comp_x is None or comp_y is None:
+        return None
+    if contains_nulls(comp_x) or contains_nulls(comp_y):
+        return None
 
-    result = {
-        "tracing_acceleration": None, "tracing_acceleration_x": None, "tracing_acceleration_y": None,
-        "tracing_acceleration_magnitude": None,
-    }
-
-    if contains_nulls(time):
-        return result
-
-    has_speed_x = speed_x is not None and not contains_nulls(speed_x)
-    has_speed_y = speed_y is not None and not contains_nulls(speed_y)
-
-    if not has_speed_x and not has_speed_y:
-        return result
-
-    dt = np.diff(time)
-    dt[dt == 0] = np.finfo(float).eps
-
-    if has_speed_x:
-        d_speed_x = np.diff(speed_x)
-        instantaneous_acceleration_x = d_speed_x / dt
-        instantaneous_acceleration_x = np.insert(instantaneous_acceleration_x, 0, 0)
-        result["tracing_acceleration_x"] = _smooth_signal(instantaneous_acceleration_x, moving_avg_window_ms)
-
-    if has_speed_y:
-        d_speed_y = np.diff(speed_y)
-        instantaneous_acceleration_y = d_speed_y / dt
-        instantaneous_acceleration_y = np.insert(instantaneous_acceleration_y, 0, 0)
-        result["tracing_acceleration_y"] = _smooth_signal(instantaneous_acceleration_y, moving_avg_window_ms)
-
-    if has_speed_x and has_speed_y:
-        d_speed_x = np.diff(speed_x)
-        d_speed_y = np.diff(speed_y)
-        instantaneous_acceleration_combined = np.sqrt(d_speed_x**2 + d_speed_y**2) / dt
-        instantaneous_acceleration_combined = np.insert(instantaneous_acceleration_combined, 0, 0)
-        result["tracing_acceleration"] = _smooth_signal(instantaneous_acceleration_combined, moving_avg_window_ms)
-        
-        smoothed_accel_x = np.array(result["tracing_acceleration_x"])
-        smoothed_accel_y = np.array(result["tracing_acceleration_y"])
-        acceleration_magnitude = np.sqrt(smoothed_accel_x**2 + smoothed_accel_y**2)
-        result["tracing_acceleration_magnitude"] = acceleration_magnitude.tolist()
-
-    return result
+    x = np.array(comp_x, dtype=np.float64)
+    y = np.array(comp_y, dtype=np.float64)
+    return np.sqrt(x**2 + y**2).tolist()
 
 
-def compute_tracing_jerk(
-    acceleration_x: Optional[list],
-    acceleration_y: Optional[list],
-    time: list,
-    moving_avg_window_ms: int = 50,
-) -> dict:
+def compute_angle(comp_x: list, comp_y: list) -> Optional[list]:
+    if comp_x is None or comp_y is None:
+        return None
+    if contains_nulls(comp_x) or contains_nulls(comp_y):
+        return None
 
-    result = {
-        "tracing_jerk": None, "tracing_jerk_x": None, "tracing_jerk_y": None,
-        "tracing_jerk_magnitude": None,
-    }
+    x = np.array(comp_x, dtype=np.float64)
+    y = np.array(comp_y, dtype=np.float64)
+    return np.arctan2(y, x).tolist()
 
-    if contains_nulls(time):
-        return result
 
-    has_accel_x = acceleration_x is not None and not contains_nulls(acceleration_x)
-    has_accel_y = acceleration_y is not None and not contains_nulls(acceleration_y)
+def compute_cos(angle: list) -> Optional[list]:
+    if angle is None or contains_nulls(angle):
+        return None
+    return np.cos(np.array(angle, dtype=np.float64)).tolist()
 
-    if not has_accel_x and not has_accel_y:
-        return result
 
-    dt = np.diff(time)
-    dt[dt == 0] = np.finfo(float).eps
-
-    if has_accel_x:
-        d_acceleration_x = np.diff(acceleration_x)
-        instantaneous_jerk_x = d_acceleration_x / dt
-        instantaneous_jerk_x = np.insert(instantaneous_jerk_x, 0, 0)
-        result["tracing_jerk_x"] = _smooth_signal(instantaneous_jerk_x, moving_avg_window_ms)
-
-    if has_accel_y:
-        d_acceleration_y = np.diff(acceleration_y)
-        instantaneous_jerk_y = d_acceleration_y / dt
-        instantaneous_jerk_y = np.insert(instantaneous_jerk_y, 0, 0)
-        result["tracing_jerk_y"] = _smooth_signal(instantaneous_jerk_y, moving_avg_window_ms)
-
-    if has_accel_x and has_accel_y:
-        d_acceleration_x = np.diff(acceleration_x)
-        d_acceleration_y = np.diff(acceleration_y)
-        instantaneous_jerk_combined = np.sqrt(d_acceleration_x**2 + d_acceleration_y**2) / dt
-        instantaneous_jerk_combined = np.insert(instantaneous_jerk_combined, 0, 0)
-        result["tracing_jerk"] = _smooth_signal(instantaneous_jerk_combined, moving_avg_window_ms)
-        
-        smoothed_jerk_x = np.array(result["tracing_jerk_x"])
-        smoothed_jerk_y = np.array(result["tracing_jerk_y"])
-        jerk_magnitude = np.sqrt(smoothed_jerk_x**2 + smoothed_jerk_y**2)
-        result["tracing_jerk_magnitude"] = jerk_magnitude.tolist()
-
-    return result
-
+def compute_sin(angle: list) -> Optional[list]:
+    if angle is None or contains_nulls(angle):
+        return None
+    return np.sin(np.array(angle, dtype=np.float64)).tolist()
