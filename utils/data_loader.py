@@ -10,8 +10,7 @@ from utils.logger import setup_logger
 logger = setup_logger("dashboard_logs", name=__name__)
 
 DATA_PATH = Path("resampled_recordings")
-DEFAULT_DATASET = "participants_at_60Hz_scaled_1e6_full_features"
-PARTICIPANTS_PATH = DATA_PATH / DEFAULT_DATASET
+PARTICIPANTS_PATH = None
 
 
 def get_available_datasets() -> list[str]:
@@ -45,8 +44,11 @@ def natural_sort_key(s):
 @st.cache_data
 def get_participant_sessions(dataset: str = None):
     participants_path = DATA_PATH / dataset if dataset else PARTICIPANTS_PATH
+    if participants_path is None:
+        logger.warning("PARTICIPANTS_PATH is None and no dataset provided.")
+        return {}
+    
     logger.info(f"PARTICIPANTS_PATH: {participants_path}")
-    logger.info(f"PARTICIPANTS_PATH exists: {participants_path.exists()}")
     if not participants_path.exists():
         st.error(f"Data directory not found at: {participants_path}")
         return {}
@@ -74,11 +76,31 @@ def get_participant_sessions(dataset: str = None):
     return dict(sorted(participant_sessions.items()))
 
 
+def get_all_participants(dataset: str = None) -> list[str]:
+    """Returns a sorted list of all participant IDs in the dataset."""
+    participants_path = DATA_PATH / dataset if dataset else PARTICIPANTS_PATH
+    if participants_path is None or not participants_path.exists():
+        return []
+
+    # Assuming directory structure is participant_id=PDI_X/session=X/block=X
+    # We can just list the top level directories
+    p_dirs = [
+        d
+        for d in participants_path.iterdir()
+        if d.is_dir() and d.name.startswith("participant_id=")
+    ]
+    p_ids = [d.name.split("=")[1] for d in p_dirs]
+    return sorted(p_ids, key=natural_sort_key)
+
+
 @st.cache_data
 def load_participant_block_data(
     participant_id: str, session: str, block: str, dataset: str = None
 ):
     participants_path = DATA_PATH / dataset if dataset else PARTICIPANTS_PATH
+    if participants_path is None:
+        raise ValueError("PARTICIPANTS_PATH is None and no dataset provided.")
+    
     block_msg = f", Block {block}"
     st.info(f"Loading data for P{participant_id}, Session {session}{block_msg}...")
 
@@ -98,14 +120,77 @@ def load_participant_session_data(
     participant_id: str, session: str, dataset: str = None
 ):
     participants_path = DATA_PATH / dataset if dataset else PARTICIPANTS_PATH
-    st.info(f"Loading session data for P{participant_id}, Session {session}...")
+    if participants_path is None:
+        raise ValueError("PARTICIPANTS_PATH is None and no dataset provided.")
 
     p_partition = f"participant_id={participant_id}"
     s_partition = f"session={session}"
 
-    # Load all blocks in the session
     session_path = participants_path / p_partition / s_partition / "*" / "*"
 
-    print(f"Loading session data from: {session_path}")
-    df = pl.read_parquet(session_path)
+    try:
+        df = pl.read_parquet(session_path, rechunk=False)
+    except Exception as e:
+        logger.warning(f"Failed to load session data with rechunk=False: {e}")
+        logger.info("Attempting to load files individually...")
+
+        from glob import glob
+
+        parquet_files = glob(str(session_path))
+
+        if not parquet_files:
+            raise FileNotFoundError(f"No parquet files found at {session_path}")
+
+        dfs = []
+        for file in parquet_files:
+            try:
+                dfs.append(pl.read_parquet(file))
+            except Exception as file_error:
+                logger.warning(f"Skipping file {file}: {file_error}")
+                continue
+
+        if not dfs:
+            raise ValueError("No valid parquet files could be loaded")
+
+        df = pl.concat(dfs, how="diagonal")
+
+    return df
+
+
+@st.cache_data
+def load_participant_data(participant_id: str, dataset: str = None):
+    participants_path = DATA_PATH / dataset if dataset else PARTICIPANTS_PATH
+    if participants_path is None:
+        raise ValueError("PARTICIPANTS_PATH is None and no dataset provided.")
+
+    p_partition = f"participant_id={participant_id}"
+
+    participant_path = participants_path / p_partition / "*" / "*" / "*"
+
+    try:
+        df = pl.read_parquet(participant_path, rechunk=False)
+    except Exception as e:
+        logger.warning(f"Failed to load participant data with rechunk=False: {e}")
+        logger.info("Attempting to load files individually...")
+
+        from glob import glob
+
+        parquet_files = glob(str(participant_path))
+
+        if not parquet_files:
+            raise FileNotFoundError(f"No parquet files found at {participant_path}")
+
+        dfs = []
+        for file in parquet_files:
+            try:
+                dfs.append(pl.read_parquet(file))
+            except Exception as file_error:
+                logger.warning(f"Skipping file {file}: {file_error}")
+                continue
+
+        if not dfs:
+            raise ValueError("No valid parquet files could be loaded")
+
+        df = pl.concat(dfs, how="diagonal")
+
     return df

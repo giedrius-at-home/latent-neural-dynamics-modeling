@@ -373,57 +373,85 @@ def _render_per_channel_plots(all_metadata: list, channel_type: str = "Z"):
                             "std": r_std if r_std else 0,
                             "min": r_min if r_min else r_mean,
                             "max": r_max if r_max else r_mean,
-                            "error_minus": r_mean - r_min if r_min else 0,
-                            "error_plus": r_max - r_mean if r_max else 0,
                         }
                     )
 
         if comparison_data:
             comp_df = pd.DataFrame(comparison_data)
+            channels = sorted(comp_df["channel"].unique())
+            colors = px.colors.qualitative.Plotly
             fig = go.Figure()
 
-            channels = sorted(comp_df["channel"].unique())
             for i, ch in enumerate(channels):
                 ch_data = comp_df[comp_df["channel"] == ch]
+                color = colors[i % len(colors)]
+
                 fig.add_trace(
-                    go.Scatter(
-                        x=[ch] * len(ch_data),
+                    go.Box(
                         y=ch_data["mean"],
-                        error_y=dict(
-                            type="data",
-                            symmetric=False,
-                            array=ch_data["error_plus"],
-                            arrayminus=ch_data["error_minus"],
-                        ),
-                        mode="markers",
                         name=ch,
-                        marker=dict(size=10),
-                        hovertemplate=(
-                            f"<b>{ch}</b><br>"
-                            "Mean: %{y:.3f}<br>"
-                            "Min: %{customdata[0]:.3f}<br>"
-                            "Max: %{customdata[1]:.3f}<br>"
-                            "nx=%{customdata[2]}, n1=%{customdata[3]}<br>"
-                            "<extra></extra>"
+                        boxpoints="all",
+                        jitter=0.3,
+                        pointpos=0,
+                        marker=dict(
+                            color=color,
+                            size=6,
+                            opacity=0.7,
                         ),
-                        customdata=ch_data[["min", "max", "nx", "n1"]].values,
+                        line=dict(color=color, width=1.5),
+                        fillcolor=(
+                            color.replace("rgb", "rgba").replace(")", ", 0.3)")
+                            if "rgb" in color
+                            else color
+                        ),
+                        hoverinfo="y+name",
                     )
                 )
 
             fig.update_layout(
-                title=f"Pearson R by {type_label} Channel (error bars show min/max across trials)",
+                title=dict(
+                    text=f"Pearson R Distribution by {type_label} Channel",
+                    font=dict(size=14),
+                ),
                 xaxis_title=f"{type_label} Channel",
                 yaxis_title="Pearson R",
                 height=450,
                 showlegend=False,
+                template="plotly_white",
+                font=dict(family="Inter, sans-serif"),
+                margin=dict(l=60, r=40, t=60, b=100),
             )
-            fig.update_xaxes(tickangle=45)
+            fig.update_xaxes(tickangle=45, tickfont=dict(size=10))
+            fig.update_yaxes(
+                zeroline=True, zerolinecolor="rgba(0,0,0,0.2)", zerolinewidth=1
+            )
+
             st.plotly_chart(fig, use_container_width=True)
 
+            summary_df = (
+                comp_df.groupby("channel")
+                .agg(
+                    mean_r=("mean", "mean"),
+                    std_r=("mean", "std"),
+                    min_r=("mean", "min"),
+                    max_r=("mean", "max"),
+                    n_runs=("mean", "count"),
+                )
+                .reset_index()
+            )
+            summary_df = summary_df.sort_values("mean_r", ascending=False)
+            summary_df.columns = ["Channel", "Mean R", "Std", "Min", "Max", "N Runs"]
+
+            st.markdown("**Summary Statistics Across Runs**")
             st.dataframe(
-                comp_df[
-                    ["channel", "mean", "std", "min", "max", "nx", "n1", "run_ts"]
-                ].sort_values(["channel", "mean"], ascending=[True, False]),
+                summary_df.style.format(
+                    {
+                        "Mean R": "{:.4f}",
+                        "Std": "{:.4f}",
+                        "Min": "{:.4f}",
+                        "Max": "{:.4f}",
+                    }
+                ),
                 use_container_width=True,
                 hide_index=True,
             )
@@ -431,10 +459,6 @@ def _render_per_channel_plots(all_metadata: list, channel_type: str = "Z"):
 
 def feature_importance_tab(project_root: Path):
     st.header("Feature Importance Analysis")
-    st.markdown(
-        "Analyze which neural features (channels x bands) are most predictive of behavior "
-        "based on the PSID Kalman gain matrix K."
-    )
 
     RESULTS_ROOT = project_root / "results"
 

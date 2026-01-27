@@ -4,18 +4,20 @@ import plotly.graph_objects as go
 import plotly.express as px
 from textwrap import wrap
 
+FONT_FAMILY = "Montserrat"
+
 
 def _create_base_figure(title: str, x_axis_title: str, y_axis_title: str) -> go.Figure:
     fig = go.Figure()
     fig.update_layout(
-        title=dict(text=title, x=0.5, font=dict(size=20, family="sans-serif")),
-        xaxis_title=dict(text=x_axis_title, font=dict(size=16, family="sans-serif")),
-        yaxis_title=dict(text=y_axis_title, font=dict(size=16, family="sans-serif")),
+        title=dict(text=title, x=0.5, font=dict(size=16, family=FONT_FAMILY)),
+        xaxis_title=dict(text=x_axis_title, font=dict(size=14, family=FONT_FAMILY)),
+        yaxis_title=dict(text=y_axis_title, font=dict(size=14, family=FONT_FAMILY)),
         template="plotly_white",
-        font=dict(family="sans-serif", size=13, color="black"),
-        legend=dict(font=dict(size=13, family="sans-serif")),
+        font=dict(family=FONT_FAMILY, size=12, color="#0e131f"),
+        legend=dict(font=dict(size=12, family=FONT_FAMILY)),
         showlegend=True,
-        margin=dict(l=60, r=30, t=80, b=60),  # Increased top margin for title
+        margin=dict(l=60, r=80, t=40, b=60),
     )
     return fig
 
@@ -43,8 +45,8 @@ def _setup_dual_time_axis(
         tickvals=tickvals,
         ticktext=abs_ticktext,
         title_text="Time (s)",
-        title_font=dict(size=16, family="sans-serif"),
-        tickfont=dict(size=13),
+        title_font=dict(size=14, family=FONT_FAMILY),
+        tickfont=dict(size=12),
     )
 
     fig.update_layout(
@@ -55,7 +57,7 @@ def _setup_dual_time_axis(
             tickvals=tickvals,
             ticktext=rel_ticktext,
             title_text="",
-            tickfont=dict(size=13),
+            tickfont=dict(size=12),
             range=[float(time_abs.min()), float(time_abs.max())],
             matches="x",
             showgrid=False,
@@ -93,7 +95,7 @@ def _setup_dual_time_axis(
         x=1.02,
         y=y_max - 0.15 * y_span,
         showarrow=False,
-        font=dict(size=11, family="sans-serif", color="gray"),
+        font=dict(size=11, family=FONT_FAMILY, color="#59546c"),
         xanchor="left",
     )
 
@@ -104,7 +106,7 @@ def _setup_dual_time_axis(
         x=1.02,
         y=y_min + 0.15 * y_span,
         showarrow=False,
-        font=dict(size=11, family="sans-serif", color="gray"),
+        font=dict(size=11, family=FONT_FAMILY, color="#59546c"),
         xanchor="left",
     )
 
@@ -162,11 +164,11 @@ def plot_trial_channel(
     fig.add_vline(
         x=event_start,
         line_dash="dash",
-        line_color="green",
+        line_color="#38405f",
         annotation_text="Event Start",
     )
     fig.add_vline(
-        x=event_end, line_dash="dash", line_color="red", annotation_text="Event End"
+        x=event_end, line_dash="dash", line_color="#59546c", annotation_text="Event End"
     )
 
     fig.update_layout(showlegend=False)
@@ -392,7 +394,7 @@ def plot_average_psd(
                     y=mean_psd,
                     mode="lines",
                     name=f"{channel}",
-                    line=dict(color=color, width=2),
+                    line=dict(color=color, width=1.2),
                 )
             )
 
@@ -425,7 +427,7 @@ def plot_average_psd_dbs_comparison(
                     y=mean_psd_on,
                     mode="lines",
                     name=f"{channel} • ON",
-                    line=dict(color=color, width=2),
+                    line=dict(color="#ff0035", width=1.2),  # strawberry_red (stim_on)
                 )
             )
 
@@ -437,7 +439,9 @@ def plot_average_psd_dbs_comparison(
                     y=mean_psd_off,
                     mode="lines",
                     name=f"{channel} • OFF",
-                    line=dict(color=color, width=2, dash="dash"),
+                    line=dict(
+                        color="#59546c", width=1.2, dash="dot"
+                    ),  # vintage_grape (stim_off)
                 )
             )
 

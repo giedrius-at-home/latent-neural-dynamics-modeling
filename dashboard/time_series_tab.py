@@ -12,10 +12,19 @@ from dashboard.time_series_plots import (
     plot_acceleration_time_series,
     plot_jerk_time_series,
     plot_2d_trajectory,
+    plot_component_time_series,
     plot_cross_trial_speed,
     plot_session_average_speed,
     plot_signal_alignment,
     compute_cross_correlation_lag,
+    plot_population_time_series,
+    plot_session_comparison_time_series,
+)
+from utils.data_loader import (
+    get_available_datasets,
+    get_all_participants,
+    load_participant_data,
+    get_participant_sessions,
 )
 from dashboard.utils import get_channel_lists, get_trial_metadata
 from dashboard.backbone import (
@@ -27,62 +36,29 @@ from dashboard.backbone import (
 
 
 def prepare_motion_data(trial_data):
-    motion_cols = []
-    if "motion_time" in trial_data.columns:
-        motion_cols.append("motion_time")
-    if "x" in trial_data.columns:
-        motion_cols.append("x")
-    if "y" in trial_data.columns:
-        motion_cols.append("y")
+    time_col = "motion_time" if "motion_time" in trial_data.columns else "time"
+    motion_cols = [
+        c for c in trial_data.columns if c.startswith("tracing_") or c in ["x", "y"]
+    ]
+    if time_col not in motion_cols:
+        motion_cols.append(time_col)
 
-    # Dynamically find all tracing_* columns
-    tracing_cols = [c for c in trial_data.columns if c.startswith("tracing_")]
-    motion_cols.extend(tracing_cols)
+    # Ensure all columns have the same length before exploding
+    lens = [
+        trial_data.select(pl.col(c).list.len().first()).to_series()[0]
+        for c in motion_cols
+    ]
+    min_len = min(lens)
 
-    if not motion_cols:
-        return None, []
+    coords_data = trial_data.select(
+        *[pl.col(c).list.slice(0, min_len).alias(c) for c in motion_cols],
+        "participant_id",
+        "session",
+        "block",
+        "trial",
+    ).explode(*motion_cols)
 
-    try:
-        coords_data = trial_data.select(
-            *motion_cols,
-            "participant_id",
-            "session",
-            "block",
-            "trial",
-        ).explode(*motion_cols)
-        return coords_data, motion_cols
-    except (pl.exceptions.ShapeError, Exception):
-        # TODO: Check why columns cannot be exploded
-        # st.warning(
-        #     "Motion data columns have mismatched lengths. Aligning to shortest column."
-        # )
-
-        lengths = {}
-        for col in motion_cols:
-            col_data = trial_data[col][0]
-            if col_data is not None:
-                lengths[col] = (
-                    len(col_data) if isinstance(col_data, (list, pl.Series)) else 1
-                )
-
-        if not lengths:
-            return None, motion_cols
-
-        min_length = min(lengths.values())
-        truncated_data = trial_data.select(
-            "participant_id", "session", "block", "trial"
-        )
-
-        for col in motion_cols:
-            col_data = trial_data[col][0]
-            if col_data is not None:
-                truncated = col_data[:min_length]
-                truncated_data = truncated_data.with_columns(
-                    pl.Series([truncated]).alias(col)
-                )
-
-        coords_data = truncated_data.explode(*motion_cols)
-        return coords_data, motion_cols
+    return coords_data, motion_cols, time_col
 
 
 def get_trial_duration(trial_data):
@@ -123,55 +99,100 @@ def render_neural_channels(trial_data, channels, channel_type, metadata_str):
 
         if len(selected_channels) > 1:
             fig = plot_multi_channel_time_series(df_exploded, selected_channels)
-            title_parts = [
-                f"{channel_type} Channels: {', '.join(selected_channels)}",
-                metadata_str,
-            ]
+            channels_str = ", ".join(selected_channels[:3])
+            if len(selected_channels) > 3:
+                channels_str += f" + {len(selected_channels) - 3} more"
+            caption = f"Multi-Channel Neural Time Series — {channels_str}"
         else:
             fig = plot_channel_time_series(df_exploded, selected_channels[0])
-            title_parts = [f"{selected_channels[0]} Signal", metadata_str]
-
-        fig = update_fig_title(fig, title_parts)
+            caption = f"Neural Time Series — {selected_channels[0]}"
 
         st.plotly_chart(
             fig,
             use_container_width=True,
         )
+        st.caption(caption)
 
 
-def render_coordinates_plots(coords_data, metadata_str):
-    if "x" not in coords_data.columns or "y" not in coords_data.columns:
-        return
+def render_behavioral_tab(trial_data, metadata_str):
+    coords_data, motion_cols, time_col = prepare_motion_data(trial_data)
 
-    fig_coords_time = plot_coordinates_time_series(coords_data, time_col="motion_time")
+    groups = {}
+    for col in motion_cols:
+        if col == time_col:
+            continue
 
-    fig_coords_time = update_fig_title(
-        fig_coords_time, ["Coordinates vs Time", metadata_str]
+        if col in ["x", "y"]:
+            base = "position"
+            comp = col
+        elif col.endswith("_x"):
+            base = col[:-2]
+            comp = "x"
+        elif col.endswith("_y"):
+            base = col[:-2]
+            comp = "y"
+        elif col.endswith("_magnitude"):
+            base = col[:-10]
+            comp = "magnitude"
+        else:
+            base = col
+            comp = "value"
+
+        if base not in groups:
+            groups[base] = {}
+        groups[base][comp] = col
+
+    sorted_groups = sorted(
+        groups.items(), key=lambda x: (x[0] != "position", x[0])
     )
-    st.plotly_chart(
-        fig_coords_time,
-        use_container_width=True,
-    )
 
-    fig_traj = plot_2d_trajectory(coords_data)
-    fig_traj = update_fig_title(fig_traj, ["2D Trajectory", metadata_str])
-    st.plotly_chart(
-        fig_traj,
-        use_container_width=True,
-    )
+    for base, comps in sorted_groups:
+        display_base = base.replace("tracing_", "").replace("_", " ").title()
+        st.markdown(f"### {display_base}")
+        if "x" in comps and "y" in comps:
+            fig_ts = plot_component_time_series(
+                coords_data,
+                [comps["x"], comps["y"]],
+                time_col=time_col,
+                title=f"{display_base} Over Time",
+            )
+            st.plotly_chart(fig_ts, use_container_width=True)
 
+            if "position" in base.lower():
+                fig_2d = plot_2d_trajectory(
+                    coords_data,
+                    x_col=comps["x"],
+                    y_col=comps["y"],
+                )
+                st.plotly_chart(fig_2d, use_container_width=True)
 
-def render_speed_plot(coords_data, metadata_str):
-    if "tracing_velocity" not in coords_data.columns:
-        return
+        elif "value" in comps:
+            fig_ts = plot_component_time_series(
+                coords_data,
+                [comps["value"]],
+                time_col=time_col,
+                title=f"{display_base} Over Time",
+            )
+            st.plotly_chart(fig_ts, use_container_width=True)
 
-    fig_speed = plot_speed_time_series(coords_data, time_col="motion_time")
+        if "magnitude" in comps:
+            col_name = comps["magnitude"]
+            if "velocity" in col_name.lower() or "speed" in col_name.lower():
+                fig_mag = plot_speed_time_series(coords_data, col_name=col_name, time_col=time_col)
+            elif "acceleration" in col_name.lower():
+                fig_mag = plot_acceleration_time_series(coords_data, col_name=col_name, time_col=time_col)
+            elif "jerk" in col_name.lower():
+                fig_mag = plot_jerk_time_series(coords_data, col_name=col_name, time_col=time_col)
+            else:
+                fig_mag = plot_component_time_series(
+                    coords_data,
+                    [col_name],
+                    time_col=time_col,
+                    title=f"{display_base} Magnitude",
+                )
+            st.plotly_chart(fig_mag, use_container_width=True)
 
-    fig_speed = update_fig_title(fig_speed, ["Tracing Speed", metadata_str])
-    st.plotly_chart(
-        fig_speed,
-        use_container_width=True,
-    )
+        st.markdown("---")      
 
 
 def render_cross_trial_speed(block_data):
@@ -190,17 +211,12 @@ def render_cross_trial_speed(block_data):
                 f"No motion data found for {display_name} speed in any trials in this block."
             )
         else:
-            fig_cross_trial = update_fig_title(
-                fig_cross_trial,
-                [
-                    f"{display_name} Speed Across All Trials ({len(fig_cross_trial.data)} trials)",
-                    f"Participant {st.session_state.get('participant_id')}, Session {st.session_state.get('session')}, Block {st.session_state.get('block')}",
-                ],
-            )
-
             st.plotly_chart(
                 fig_cross_trial,
                 use_container_width=True,
+            )
+            st.caption(
+                f"{display_name} speed — Individual trial traces from current block"
             )
 
     st.markdown("---")
@@ -215,17 +231,12 @@ def render_cross_trial_speed(block_data):
         if len(fig_session_avg.data) == 0:
             st.info(f"No motion data found for {display_name} speed session averages.")
         else:
-            fig_session_avg = update_fig_title(
-                fig_session_avg,
-                [
-                    f"Session-Level Average {display_name} Speed (DBS ON vs OFF)",
-                    f"Participant {st.session_state.get('participant_id')}, Session {st.session_state.get('session')}",
-                ],
-            )
-
             st.plotly_chart(
                 fig_session_avg,
                 use_container_width=True,
+            )
+            st.caption(
+                f"{display_name} speed — Session average with ±1 SD (DBS ON vs OFF)"
             )
 
 
@@ -234,31 +245,6 @@ def render_neural_tab(trial_data, lfp_channels, ecog_channels, metadata_str):
     render_neural_channels(trial_data, ecog_channels, "ECoG", metadata_str)
 
 
-def render_behavioral_tab(trial_data, metadata_str):
-    coords_data, motion_cols = prepare_motion_data(trial_data)
-
-    if coords_data is not None:
-        render_coordinates_plots(coords_data, metadata_str)
-        render_speed_plot(coords_data, metadata_str)
-
-        if "tracing_acceleration" in coords_data.columns:
-            fig_accel = plot_acceleration_time_series(
-                coords_data, time_col="motion_time"
-            )
-            fig_accel = update_fig_title(
-                fig_accel, ["Tracing Acceleration", metadata_str]
-            )
-            st.plotly_chart(fig_accel, use_container_width=True)
-
-        if "tracing_jerk" in coords_data.columns:
-            fig_jerk = plot_jerk_time_series(coords_data, time_col="motion_time")
-            fig_jerk = update_fig_title(fig_jerk, ["Tracing Jerk", metadata_str])
-            st.plotly_chart(fig_jerk, use_container_width=True)
-
-    elif motion_cols:
-        st.info("Motion data could not be loaded for this trial.")
-    else:
-        st.info("No motion data available for this trial.")
 
 
 def render_cross_trial_tab(block_data):
@@ -272,19 +258,16 @@ def render_signal_alignment_analysis(
 
     neural_raw = trial_data[neural_channel][0]
     if neural_raw is None:
-        st.warning(f"No data for {neural_channel}")
         return
     neural_data = np.array(neural_raw).astype(float)
 
     beh_raw = trial_data[behavioral_var][0]
     if beh_raw is None:
-        st.warning(f"No data for {behavioral_var}")
         return
     beh_data = np.array(beh_raw).astype(float)
 
     time_raw = trial_data["time"][0]
     if time_raw is None:
-        st.warning("No time data available")
         return
     time_neural = np.array(time_raw).astype(float)
 
@@ -333,24 +316,11 @@ def render_signal_alignment_analysis(
     )
     st.plotly_chart(fig, use_container_width=True)
 
-    col1, col2, col3 = st.columns(3)
+    col1, col2 = st.columns(2)
     with col1:
         st.metric("Optimal Lag", f"{lag_seconds:.3f} s", f"{lag_samples} samples")
     with col2:
         st.metric("Max Correlation", f"{max_corr:.4f}")
-    with col3:
-        alignment_status = (
-            "✅ Well Aligned"
-            if abs(lag_seconds) < 0.05
-            else ("⚠️ Minor Shift" if abs(lag_seconds) < 0.2 else "❌ Significant Shift")
-        )
-        st.metric("Alignment Status", alignment_status)
-
-    if abs(lag_seconds) >= 0.05:
-        st.warning(
-            f"⚠️ Detected a **{abs(lag_seconds):.3f}s** ({abs(lag_samples)} samples) shift. "
-            f"{'Behavioral data appears to **lead** neural data.' if lag_seconds > 0 else 'Neural data appears to **lead** behavioral data.'}"
-        )
 
 
 def render_neural_behavioral_correlation(trial_data, lfp_channels, ecog_channels):
@@ -416,7 +386,6 @@ def render_neural_behavioral_correlation(trial_data, lfp_channels, ecog_channels
 
         beh_data_raw = trial_data[selected_behavior][0]
         if beh_data_raw is None:
-            st.warning(f"No data for {selected_behavior}")
             return
 
         beh_data = np.array(beh_data_raw).astype(float)
@@ -448,7 +417,6 @@ def render_neural_behavioral_correlation(trial_data, lfp_channels, ecog_channels
                 correlations.append((ch, r))
 
         if not correlations:
-            st.warning("Could not compute correlations.")
             return
 
         correlations.sort(key=lambda x: abs(x[1]), reverse=True)
@@ -481,15 +449,15 @@ def render_neural_behavioral_correlation(trial_data, lfp_channels, ecog_channels
             showlegend=False,
         )
 
-        fig.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5)
+        fig.add_hline(y=0, line_dash="dot", line_color="gray", opacity=0.5)
         fig.add_hline(
             y=0.3,
             line_dash="dot",
-            line_color="green",
+            line_color="#38405f",
             opacity=0.3,
             annotation_text="r=0.3",
         )
-        fig.add_hline(y=-0.3, line_dash="dot", line_color="green", opacity=0.3)
+        fig.add_hline(y=-0.3, line_dash="dot", line_color="#38405f", opacity=0.3)
 
         st.plotly_chart(fig, use_container_width=True)
 
@@ -507,49 +475,265 @@ def render_neural_behavioral_correlation(trial_data, lfp_channels, ecog_channels
                 st.text(f"{r:+.4f}")
 
 
+def render_population_level_tab(neural_channels):
+    if not neural_channels:
+        st.info("No neural channels available.")
+        return
+
+    st.markdown("#### Population Level Analysis (All Participants)")
+    target_channel = st.selectbox(
+        "Select Channel", neural_channels, key="pop_chan_select"
+    )
+
+    selected_dataset = st.session_state.get("selected_dataset")
+    participants = get_all_participants(selected_dataset)
+
+    if not participants:
+        st.warning("No participants found.")
+        return
+
+    population_data = {}
+
+    # We use a standard time axis based on the first participant to align data roughly
+    # In a real scenario, we'd align to event onset (0) and use a fixed window.
+    # Assuming standard window [-0.5, 2.5] or similar.
+    # We will try to load one to get the time axis length.
+
+    common_time_axis = None
+
+    with st.spinner("Loading population data..."):
+        for p_id in participants:
+            try:
+                # Load all data for participant
+                # Use load_participant_data which is cached
+                df = load_participant_data(p_id, selected_dataset)
+                if df.is_empty() or target_channel not in df.columns:
+                    continue
+
+                on_df = df.filter(pl.col("stim") == "on")
+                off_df = df.filter(pl.col("stim") == "off")
+
+                def compute_mean_trace_and_time(sub_df, chan):
+                    if sub_df.is_empty():
+                        return None, None
+                    cols = sub_df[chan].to_list()
+                    max_len = max([len(x) for x in cols]) if cols else 0
+                    if max_len == 0:
+                        return None, None
+
+                    mat = np.full((len(cols), max_len), np.nan)
+                    for i, c in enumerate(cols):
+                        arr = np.array(c)
+                        length = min(len(arr), max_len)
+                        mat[i, :length] = arr[:length]
+
+                    mean_trace = np.nanmean(mat, axis=0)
+
+                    # Try to get time axis from first trial
+                    time_vec = None
+                    if "time_vector" in sub_df.columns:  # unlikely
+                        pass
+                    else:
+                        # Construct
+                        dur = max_len / SAMPLING_FREQ
+                        # Assume onset at 0? Or aligned relative?
+                        # Usually standard preprocessing aligns onset.
+                        # Let's assume 0 start for simplicity of "averaged raw data".
+                        # Or better, look for 'onset' column.
+                        onset = 0
+                        if "onset" in sub_df.columns:
+                            onset = sub_df["onset"][0]  # Just use first trial's onset
+
+                        # If we don't have time vector, we make one.
+                        # Ideally we should use 'time_original' if aligned.
+                        time_vec = np.linspace(0, dur, max_len)
+                        # Shift by onset?
+                        # Usually 'onset' is the time where event happens.
+                        # If data is [-1, 2], onset is 1.0.
+                        # We want to align 0 to Event.
+                        # But let's just plot 'Relative Time' or 'Absolute Time'.
+                        # If trials are not aligned, averaging is meaningless.
+                        # WE ASSUME ALIGNED DATA.
+
+                    return mean_trace, time_vec
+
+                on_mean, t_on = compute_mean_trace_and_time(on_df, target_channel)
+                off_mean, t_off = compute_mean_trace_and_time(off_df, target_channel)
+
+                population_data[p_id] = {"on": on_mean, "off": off_mean}
+
+                if common_time_axis is None:
+                    if t_on is not None:
+                        common_time_axis = t_on
+                    elif t_off is not None:
+                        common_time_axis = t_off
+
+            except Exception:
+                continue
+
+    if population_data and common_time_axis is not None:
+        # Fix lengths if needed (simple trunction/pad logic or just slice)
+        # We just use common_time_axis length
+        pass
+
+        fig = plot_population_time_series(population_data, common_time_axis)
+        st.plotly_chart(fig, use_container_width=True)
+        participant_list = ", ".join(population_data.keys())
+        st.caption(f"Population Level Comparison — Participants: {participant_list}")
+    else:
+        st.info("Could not compute population averages.")
+
+
+def render_session_level_tab(neural_channels):
+    if not neural_channels:
+        return
+
+    st.markdown("#### Session Level Analysis (One Participant)")
+    participant_id = st.session_state.get("participant_id")
+    if not participant_id:
+        st.warning("Please select a participant in sidebar.")
+        return
+
+    target_channel = st.selectbox(
+        "Select Channel", neural_channels, key="sess_chan_select"
+    )
+    selected_dataset = st.session_state.get("selected_dataset")
+
+    sessions = get_participant_sessions(selected_dataset).get(participant_id, {})
+
+    if not sessions:
+        st.warning("No sessions found.")
+        return
+
+    st.info(
+        f"Found {len(sessions)} session(s) for {participant_id}: {list(sessions.keys())}"
+    )
+
+    session_data_map = {}
+    common_time_axis = None
+
+    with st.spinner(f"Loading session data for {participant_id}..."):
+        for s_id in sessions:
+            try:
+                from utils.data_loader import load_participant_session_data
+
+                df = load_participant_session_data(
+                    participant_id, s_id, selected_dataset
+                )
+
+                if df.is_empty() or target_channel not in df.columns:
+                    continue
+
+                on_df = df.filter(pl.col("stim") == "on")
+                off_df = df.filter(pl.col("stim") == "off")
+
+                def compute_mean_trace(sub_df, chan):
+                    if sub_df.is_empty():
+                        return None
+                    cols = sub_df[chan].to_list()
+                    max_len = max([len(x) for x in cols]) if cols else 0
+                    if max_len == 0:
+                        return None
+                    mat = np.full((len(cols), max_len), np.nan)
+                    for i, c in enumerate(cols):
+                        arr = np.array(c)
+                        length = min(len(arr), max_len)
+                        mat[i, :length] = arr[:length]
+                    return np.nanmean(mat, axis=0)
+
+                on_mean = compute_mean_trace(on_df, target_channel)
+                off_mean = compute_mean_trace(off_df, target_channel)
+
+                session_data_map[s_id] = {"on": on_mean, "off": off_mean}
+
+                if common_time_axis is None:
+                    L = (
+                        len(on_mean)
+                        if on_mean is not None
+                        else (len(off_mean) if off_mean is not None else 0)
+                    )
+                    if L > 0:
+                        common_time_axis = np.linspace(0, L / SAMPLING_FREQ, L)
+
+            except Exception:
+                continue
+
+    if session_data_map and common_time_axis is not None:
+        fig = plot_session_comparison_time_series(
+            session_data_map, common_time_axis, participant_id
+        )
+        st.plotly_chart(fig, use_container_width=True)
+        session_list = ", ".join(
+            [
+                f"S{s}"
+                for s in sorted(
+                    session_data_map.keys(),
+                    key=lambda x: int(x) if str(x).isdigit() else x,
+                )
+            ]
+        )
+        st.caption(f"Session Comparison — {participant_id} — Sessions: {session_list}")
+    else:
+        st.info("No session data available.")
+
+
 def time_series_tab(block_data):
     st.header("Time-Series Analysis")
 
-    trials_in_block = sorted(block_data["trial"].unique().to_list())
-    selected_trial = st.selectbox(
-        "Select a Trial to Render",
-        options=trials_in_block,
+    lfp_channels, ecog_channels, motion_channels = get_channel_lists(block_data)
+
+    # Outer tabs for Level of Analysis
+    trial_level_tab, session_level_tab, pop_level_tab = st.tabs(
+        ["Trial Level", "Session Level", "Participant Level"]
     )
 
-    trial_data = block_data.filter(pl.col("trial") == selected_trial)
+    with trial_level_tab:
+        trials_in_block = sorted(block_data["trial"].unique().to_list())
+        # If no trials, warn
+        if not trials_in_block:
+            st.warning("No trials in block.")
+        else:
+            selected_trial = st.selectbox(
+                "Select a Trial to Render",
+                options=trials_in_block,
+            )
 
-    if trial_data is None or trial_data.is_empty():
-        st.info("Select a block and trial to view time-series data.")
-        return
+            trial_data = block_data.filter(pl.col("trial") == selected_trial)
 
-    meta = get_trial_metadata(trial_data)
-    duration = get_trial_duration(trial_data)
+            if trial_data is None or trial_data.is_empty():
+                st.info("Select a block and trial to view time-series data.")
+            else:
+                meta = get_trial_metadata(trial_data)
+                duration = get_trial_duration(trial_data)
 
-    metadata_str = format_trial_metadata(
-        meta.get("participant_id"),
-        meta.get("session"),
-        meta.get("block"),
-        meta.get("trial"),
-        stim=meta.get("stim"),
-        duration=duration,
-    )
+                metadata_str = format_trial_metadata(
+                    meta.get("participant_id"),
+                    meta.get("session"),
+                    meta.get("block"),
+                    meta.get("trial"),
+                    stim=meta.get("stim"),
+                    duration=duration,
+                )
 
-    st.subheader(metadata_str)
+                st.subheader(metadata_str)
 
-    lfp_channels, ecog_channels = get_channel_lists(block_data)
+                neural_tab, behavioral_tab, cross_trial_tab = st.tabs(
+                    ["Neural", "Behavioral", "Cross-Trial"]
+                )
 
-    neural_tab, behavioral_tab, neural_beh_tab, cross_trial_tab = st.tabs(
-        ["Neural", "Behavioral", "Neural vs Behavioral", "Cross-Trial"]
-    )
+                with neural_tab:
+                    render_neural_tab(
+                        trial_data, lfp_channels, ecog_channels, metadata_str
+                    )
 
-    with neural_tab:
-        render_neural_tab(trial_data, lfp_channels, ecog_channels, metadata_str)
+                with behavioral_tab:
+                    render_behavioral_tab(trial_data, metadata_str)
 
-    with behavioral_tab:
-        render_behavioral_tab(trial_data, metadata_str)
+                with cross_trial_tab:
+                    render_cross_trial_speed(block_data)
 
-    with neural_beh_tab:
-        render_neural_behavioral_correlation(trial_data, lfp_channels, ecog_channels)
+    with session_level_tab:
+        render_session_level_tab(lfp_channels + ecog_channels)
 
-    with cross_trial_tab:
-        render_cross_trial_tab(block_data)
+    with pop_level_tab:
+        render_population_level_tab(lfp_channels + ecog_channels)

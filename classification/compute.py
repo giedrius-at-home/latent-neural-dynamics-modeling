@@ -11,10 +11,13 @@ from utils.classification import (
     CLASSIFIERS,
     prepare_epoched_data,
     run_grid_search_cv,
+    run_permutation_test,
     evaluate_on_test_set,
+    ChronoGroupsSplit
 )
 from utils.logger import setup_logger, get_logger
 from utils.config import get_config
+
 
 
 def load_all_splits(
@@ -43,8 +46,12 @@ def compute_classification_for_config(
     epoch_length_sec: float,
     epoch_overlap: float,
     n_splits: int,
+    sampling_freq: float,
     logger,
     forecast_horizon_sec: Optional[float] = None,
+    param_grid: Optional[Dict[str, Any]] = None,
+    permutation_test: bool = False,
+    n_permutations: int = 100,
 ):
     logger.info("=" * 80)
     logger.info(f"Computing classification for:")
@@ -55,6 +62,7 @@ def compute_classification_for_config(
     logger.info(f"  CV Folds: {n_splits}")
     if forecast_horizon_sec:
         logger.info(f"  Forecast Horizon: {forecast_horizon_sec}s")
+    logger.info(f"  Permutation Test: {permutation_test} ({n_permutations} if True)")
     logger.info("=" * 80)
 
     all_splits = load_all_splits(variant_dir, run_ts)
@@ -74,6 +82,8 @@ def compute_classification_for_config(
         "feature_source": feature_source,
         "epoch_length_sec": epoch_length_sec,
         "overlap": epoch_overlap,
+        "fs": sampling_freq,
+        "mode": mode,
     }
 
     if forecast_horizon_sec is not None:
@@ -124,13 +134,39 @@ def compute_classification_for_config(
             logger.info(f"Results already exist at {cache_path}, skipping...")
             continue
 
+        clf_param_grid = None
+        if param_grid and clf_name in param_grid:
+            clf_param_grid = param_grid[clf_name]
+            logger.info(f"Using custom param grid for {clf_name}: {clf_param_grid}")
+
         logger.info("Running grid search with ChronoGroupsSplit CV...")
         best_params, best_score, cv_results = run_grid_search_cv(
-            clf_name, X_trainval, y_trainval, groups_trainval, n_splits
+            clf_name, X_trainval, y_trainval, groups_trainval, n_splits, sampling_freq,
+            param_grid=clf_param_grid
         )
 
         logger.info(f"Best CV Score: {best_score:.4f}")
         logger.info(f"Best Params: {best_params}")
+
+        if permutation_test:
+            chrono_cv = ChronoGroupsSplit()
+            splits = chrono_cv.split(X_trainval, y_trainval, groups_trainval)
+            
+            p_score, p_scores, p_value = run_permutation_test(
+                cv_results["best_pipeline"],
+                X_trainval,
+                y_trainval,
+                groups_trainval,
+                chrono_cv,
+                n_permutations=n_permutations,
+                logger=logger
+            )
+            cv_results["permutation_test"] = {
+                "score": p_score,
+                "permutation_scores": p_scores,
+                "pvalue": p_value,
+                "n_permutations": n_permutations
+            }
 
         if X_test is not None and y_test is not None and len(y_test) > 0:
             best_pipeline = cv_results.get("best_pipeline")
@@ -221,7 +257,11 @@ def compute(config):
         epoch_length_sec=config.classification.epoch_length,
         epoch_overlap=config.classification.epoch_overlap,
         n_splits=config.classification.n_splits,
+        sampling_freq=config.classification.sampling_freq,
         logger=logger,
+        param_grid=config.classification.get("param_grid"),
+        permutation_test=config.classification.get("permutation_test", False),
+        n_permutations=config.classification.get("n_permutations", 100),
     )
 
     logger.info("\n" + "=" * 80)
@@ -240,7 +280,11 @@ def compute(config):
         epoch_length_sec=config.classification.epoch_length,
         epoch_overlap=config.classification.epoch_overlap,
         n_splits=config.classification.n_splits,
+        sampling_freq=config.classification.sampling_freq,
         logger=logger,
+        param_grid=config.classification.get("param_grid"),
+        permutation_test=config.classification.get("permutation_test", False),
+        n_permutations=config.classification.get("n_permutations", 100),
     )
 
     logger.info("\n" + "=" * 80)

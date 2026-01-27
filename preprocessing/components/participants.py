@@ -171,6 +171,8 @@ def construct_participants_table(config: Config):
             "start_ts",
             "chunk_margin",
             "stim",
+            "x",
+            "y",
         ]
 
         band_cols = [

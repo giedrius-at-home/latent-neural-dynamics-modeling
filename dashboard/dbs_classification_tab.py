@@ -11,7 +11,11 @@ from utils.classification import (
     prepare_epoched_data,
     run_grid_search_cv,
     evaluate_on_test_set,
-    SAMPLING_FREQ,
+)
+from dashboard.backbone import (
+    PALETTE,
+    PLOT_STYLE,
+    PLOT_COLOR,
 )
 
 
@@ -58,7 +62,7 @@ def render_confusion_matrix(cm: np.ndarray, key: str):
             z=cm,
             x=["OFF", "ON"],
             y=["OFF", "ON"],
-            colorscale="Blues",
+            colorscale="Burg",
             text=cm,
             texttemplate="%{text}",
             textfont={"size": 20},
@@ -66,10 +70,12 @@ def render_confusion_matrix(cm: np.ndarray, key: str):
         )
     )
     fig.update_layout(
-        title="Confusion Matrix",
         xaxis_title="Predicted",
         yaxis_title="True",
         height=350,
+        template="plotly_white",
+        font=dict(family=PLOT_STYLE.font_family),
+        margin=dict(l=40, r=40, t=10, b=40),
     )
     st.plotly_chart(fig, use_container_width=True, key=f"cm_{key}")
 
@@ -82,7 +88,9 @@ def render_roc_curve(results: Dict[str, Any], key: str):
             y=results["tpr"],
             mode="lines",
             name=f"ROC (AUC = {results['roc_auc']:.4f})",
-            line=dict(color="blue", width=2),
+            line=dict(
+                color=PALETTE.twilight_indigo, width=PLOT_STYLE.line_width_normal
+            ),
         )
     )
     fig.add_trace(
@@ -91,14 +99,20 @@ def render_roc_curve(results: Dict[str, Any], key: str):
             y=[0, 1],
             mode="lines",
             name="Random",
-            line=dict(color="red", dash="dash", width=1),
+            line=dict(
+                color=PALETTE.strawberry_red,
+                dash="dash",
+                width=PLOT_STYLE.line_width_normal,
+            ),
         )
     )
     fig.update_layout(
-        title="ROC Curve",
-        xaxis_title="False Positive Rate",
-        yaxis_title="True Positive Rate",
+        xaxis_title="FP Rate",
+        yaxis_title="TP Rate",
         height=350,
+        template="plotly_white",
+        font=dict(family=PLOT_STYLE.font_family),
+        margin=dict(l=50, r=20, t=10, b=50),
     )
     st.plotly_chart(fig, use_container_width=True, key=f"roc_{key}")
 
@@ -163,6 +177,9 @@ def render_fold_results(fold_results: list, key: str):
         xaxis_title="Fold",
         yaxis_title="Score",
         height=300,
+        template="plotly_white",
+        font=dict(family=PLOT_STYLE.font_family),
+        margin=dict(l=50, r=20, t=30, b=50),
     )
     st.plotly_chart(fig, use_container_width=True, key=f"fold_perf_{key}")
 
@@ -234,23 +251,26 @@ def render_classifier_section(
             st.markdown("#### Best Hyperparameters")
             st.json(results["best_params"])
             cols = st.columns(2)
-            cols[0].metric("Best CV Score", f"{results.get('best_cv_score', 0):.4f}")
-            cols[1].metric(
-                "Combinations Tested", results.get("n_combinations_tested", 0)
-            )
-
-        st.markdown("#### Cross-Validation Results (Train+Val)")
+        st.markdown("#### Cross-Validation Results")
         render_metrics_row(results, "CV ")
 
-        if "fold_results" in results:
-            with st.expander("Fold Details", expanded=False):
-                render_fold_results(results["fold_results"], key_base)
+        # if "fold_results" in results:
+        #     with st.expander("Fold Details", expanded=False):
+        #         render_fold_results(results["fold_results"], key_base)
 
         col1, col2 = st.columns(2)
         with col1:
             render_confusion_matrix(results["confusion_matrix"], f"cv_{key_base}")
         with col2:
             render_roc_curve(results, f"cv_{key_base}")
+
+        if "permutation_test" in results:
+            st.markdown("#### Permutation Test")
+            p_res = results["permutation_test"]
+            p_cols = st.columns(3)
+            p_cols[0].metric("Observed Score", f"{p_res['score']:.4f}")
+            p_cols[1].metric("p-value", f"{p_res['pvalue']:.4f}")
+            p_cols[2].metric("Permutations", f"{p_res['n_permutations']}")
 
         if "test_results" in results:
             st.markdown("---")
@@ -271,190 +291,98 @@ def render_classification_mode(
     variant_dir: Path,
     run_ts: str,
     mode: str,
-    data_prep_fn: Callable,
-    extra_params: dict = None,
 ):
-    st.subheader("Configuration")
 
-    extra_params = extra_params or {}
-    num_cols = 3 + len(extra_params)
-    cols = st.columns(num_cols)
-
-    with cols[0]:
-        feature_source_options = (
-            ["Yp", "Xp"] if mode == "forecast" else ["Xp", "Yp", "Y", "Both"]
-        )
-        feature_source = st.selectbox(
-            "Feature Source",
-            options=feature_source_options,
-            index=0,
-            key=f"{mode}_feat_source",
-        )
-
-    with cols[1]:
-        epoch_length_sec = st.slider(
-            "Epoch Length (sec)",
-            min_value=0.5,
-            max_value=5.0,
-            value=1.0,
-            step=0.5,
-            key=f"{mode}_epoch_length",
-            help="Length of time windows to extract from each trial",
-        )
-
-    with cols[2]:
-        epoch_overlap = st.slider(
-            "Epoch Overlap",
-            min_value=0.0,
-            max_value=0.75,
-            value=0.5,
-            step=0.25,
-            key=f"{mode}_epoch_overlap",
-            help="Overlap between consecutive epochs (0=no overlap, 0.5=50% overlap)",
-        )
-
-    n_splits = st.slider(
-        "CV Folds", min_value=2, max_value=10, value=5, key=f"{mode}_n_splits"
-    )
-
-    forecast_horizon_sec = None
-    extra_param_values = {}
-    for idx, (param_name, param_config) in enumerate(extra_params.items()):
-        if param_config["type"] == "slider":
-            extra_param_values[param_name] = st.slider(
-                param_config["label"],
-                min_value=param_config["min"],
-                max_value=param_config["max"],
-                value=param_config["default"],
-                step=param_config.get("step", 1),
-                key=f"{mode}_{param_name}",
-            )
-            if param_name == "forecast_horizon_sec":
-                forecast_horizon_sec = extra_param_values[param_name]
-
-    data_key_tuple = (
-        variant_dir,
-        run_ts,
-        feature_source,
-        epoch_length_sec,
-        epoch_overlap,
-        mode,
-        tuple(extra_param_values.items()),
-    )
-
-    if st.button("Load Data", key=f"btn_load_{mode}"):
-        st.session_state[f"{mode}_data_key"] = data_key_tuple
-
-    if not st.session_state.get(f"{mode}_data_key"):
-        st.info(
-            f"Click 'Load Data' to prepare features from {'forecasts' if mode == 'forecast' else 'predictions'}."
-        )
-        return
-
-    with st.spinner("Loading all splits..."):
-        all_splits = load_all_splits(variant_dir, run_ts)
-
-    train_res = all_splits.get("train")
-    val_res = all_splits.get("val")
-    test_res = all_splits.get("test")
-
-    trainval_list = [r for r in [train_res, val_res] if r is not None]
-    test_list = [test_res] if test_res is not None else []
-
-    if not trainval_list:
-        st.error("No train or val results found. Run predictions first.")
-        return
-
-    with st.spinner("Extracting epoched features..."):
-        prep_kwargs = {
-            "feature_source": feature_source,
-            "epoch_length_sec": epoch_length_sec,
-            "overlap": epoch_overlap,
-        }
-        prep_kwargs.update(extra_param_values)
-
-        X_trainval, y_trainval, groups_trainval, meta_trainval = data_prep_fn(
-            trainval_list, **prep_kwargs
-        )
-        X_test, y_test, groups_test, meta_test = (
-            data_prep_fn(test_list, **prep_kwargs)
-            if test_list
-            else (None, None, None, None)
-        )
-
-    if X_trainval is None or len(X_trainval) == 0:
-        st.error("No valid epochs found for classification.")
-        return
-
-    st.markdown("---")
-    st.subheader("Data Summary")
-
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown("**Train + Val (for CV)**")
-        st.write(f"Epochs: {len(X_trainval)} | Features: {X_trainval.shape[1]}")
-        st.write(
-            f"DBS ON: {np.sum(y_trainval == 1)} | DBS OFF: {np.sum(y_trainval == 0)}"
-        )
-
-    with col2:
-        st.markdown("**Test (Held Out)**")
-        if X_test is not None and len(X_test) > 0:
-            st.write(f"Epochs: {len(X_test)} | Features: {X_test.shape[1]}")
-            st.write(f"DBS ON: {np.sum(y_test == 1)} | DBS OFF: {np.sum(y_test == 0)}")
-        else:
-            st.write("No test data available")
-
-    st.markdown("---")
     results_dir = variant_dir / run_ts / "classification"
 
-    epoch_params_str = f"epoch{epoch_length_sec}s_overlap{epoch_overlap}"
+    if not results_dir.exists():
+        st.warning(
+            f"No classification results found. Run the classification script first."
+        )
+        st.code(
+            f"python classification/compute.py --config classification/setups/default.yaml"
+        )
+        return
 
-    tabs = st.tabs(CLASSIFIERS)
-    for idx, clf_name in enumerate(CLASSIFIERS):
-        with tabs[idx]:
-            render_classifier_section(
-                clf_name,
-                feature_source,
-                epoch_params_str,
-                X_trainval,
-                y_trainval,
-                groups_trainval,
-                X_test,
-                y_test,
-                results_dir,
-                n_splits,
-                mode=mode,
-                forecast_horizon_sec=forecast_horizon_sec,
-            )
+    pattern = f"*_{mode}_*.pkl"
+    result_files = list(results_dir.glob(pattern))
+
+    if not result_files:
+        st.info(
+            f"No {mode} classification results found. Run the classification script to generate results."
+        )
+        return
+
+    for result_file in sorted(result_files):
+        filename = result_file.stem
+        parts = filename.split("_")
+
+        clf_name = parts[0]  # LDA
+        feature_source = parts[1]  # Xp, Yp, etc
+
+        epoch_info = [p for p in parts if p.startswith("epoch")]
+        overlap_info = [p for p in parts if p.startswith("overlap")]
+
+        epoch_str = epoch_info[0] if epoch_info else "unknown"
+        overlap_str = overlap_info[0] if overlap_info else "unknown"
+
+        display_name = f"{clf_name} - {feature_source} features"
+        params_str = f"{epoch_str}, {overlap_str}"
+
+        st.markdown(f"### {display_name}")
+        st.caption(f"Parameters: {params_str}")
+
+        results = load_classification_results(result_file)
+
+        if results:
+            if "best_params" in results:
+                st.markdown("#### Best Hyperparameters")
+                st.json(results["best_params"])
+
+            st.markdown("#### Cross-Validation Results")
+            render_metrics_row(results, "CV ")
+
+            # if "fold_results" in results:
+            #     with st.expander("Fold Details", expanded=False):
+            #         render_fold_results(results["fold_results"], filename)
+
+            col1, col2 = st.columns(2)
+            with col1:
+                render_confusion_matrix(results["confusion_matrix"], f"cv_{filename}")
+            with col2:
+                render_roc_curve(results, f"cv_{filename}")
+
+            if "permutation_test" in results:
+                st.markdown("#### Permutation Test")
+                p_res = results["permutation_test"]
+                p_cols = st.columns(3)
+                p_cols[0].metric("Observed Score", f"{p_res['score']:.4f}")
+                p_cols[1].metric("p-value", f"{p_res['pvalue']:.4f}")
+                p_cols[2].metric("Permutations", f"{p_res['n_permutations']}")
+
+            if "test_results" in results:
+                st.markdown("---")
+                st.markdown("#### Test Set Results (Held Out)")
+                test_res = results["test_results"]
+                render_metrics_row(test_res, "Test ")
+
+                col1, col2 = st.columns(2)
+                with col1:
+                    render_confusion_matrix(
+                        test_res["confusion_matrix"], f"test_{filename}"
+                    )
+                with col2:
+                    render_roc_curve(test_res, f"test_{filename}")
+
+        st.markdown("---")
 
 
 def render_classification_from_predictions(variant_dir: Path, run_ts: str):
-    render_classification_mode(
-        variant_dir,
-        run_ts,
-        mode="prediction",
-        data_prep_fn=prepare_epoched_data,
-    )
+    render_classification_mode(variant_dir, run_ts, mode="prediction")
 
 
 def render_classification_from_forecasts(variant_dir: Path, run_ts: str):
-    render_classification_mode(
-        variant_dir,
-        run_ts,
-        mode="forecast",
-        data_prep_fn=prepare_epoched_data,
-        extra_params={
-            "forecast_horizon_sec": {
-                "type": "slider",
-                "label": "Forecast Horizon (sec)",
-                "min": 0.5,
-                "max": 10.0,
-                "default": 2.5,
-                "step": 0.5,
-            },
-        },
-    )
+    render_classification_mode(variant_dir, run_ts, mode="forecast")
 
 
 def dbs_classification_tab(project_root):

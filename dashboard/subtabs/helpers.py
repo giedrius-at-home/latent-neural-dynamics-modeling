@@ -117,11 +117,11 @@ def load_precomputed_results(
             ),
             "pearson_overall_mean": pearson_overall,
             "pearson_per_channel_Z": (
-                convert_series_to_list(df["pearson_per_channel_Z"].to_list())
-                if "pearson_per_channel_Z" in cols
+                convert_series_to_list(df["pearsonr_per_channel_Z"].to_list())
+                if "pearsonr_per_channel_Z" in cols
                 else (
-                    convert_series_to_list(df["pearsonr_per_channel_Z"].to_list())
-                    if "pearsonr_per_channel_Z" in cols
+                    convert_series_to_list(df["pearson_per_channel_Z"].to_list())
+                    if "pearson_per_channel_Z" in cols
                     else None
                 )
             ),
@@ -292,6 +292,7 @@ def get_trial_time_axis(
     if t_abs is None or (hasattr(t_abs, "__len__") and len(t_abs) != n_samples):
         md_list = split_res.get("margined_duration", [])
         dur = md_list[trial_idx] if md_list else None
+
         if dur is not None:
             t_abs = np.linspace(0.0, float(dur), n_samples)
         else:
@@ -310,3 +311,22 @@ def transpose_if_needed(data: np.ndarray, expected_len: int) -> np.ndarray:
     ):
         return data.T
     return data
+
+
+def rescale_to_reference(
+    pred: np.ndarray,
+    ref: np.ndarray,
+) -> np.ndarray:
+    pred = np.asarray(pred).flatten()
+    ref = np.asarray(ref).flatten()
+
+    pred_mean = np.mean(pred)
+    pred_std = np.std(pred)
+    ref_mean = np.mean(ref)
+    ref_std = np.std(ref)
+
+    if pred_std < 1e-10:
+        return np.full_like(pred, ref_mean)
+
+    pred_rescaled = (pred - pred_mean) / pred_std * ref_std + ref_mean
+    return pred_rescaled

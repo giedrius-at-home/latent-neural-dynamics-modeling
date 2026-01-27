@@ -108,31 +108,12 @@ def normality_tests(data: np.ndarray) -> Dict[str, Tuple[float, float]]:
 
     results = {}
 
-    if len(data_clean) == 0:
-        results["shapiro"] = (np.nan, np.nan)
-        results["ks"] = (np.nan, np.nan)
-        return results
 
-    if len(data_clean) <= 5000:
-        try:
-            shapiro_stat, shapiro_p = stats.shapiro(data_clean)
-            results["shapiro"] = (shapiro_stat, shapiro_p)
-        except Exception:
-            results["shapiro"] = (np.nan, np.nan)
-    else:
-        subsample = np.random.choice(data_clean, size=5000, replace=False)
-        try:
-            shapiro_stat, shapiro_p = stats.shapiro(subsample)
-            results["shapiro"] = (shapiro_stat, shapiro_p)
-        except Exception:
-            results["shapiro"] = (np.nan, np.nan)
-
-    data_standardized = (data_clean - np.mean(data_clean)) / np.std(data_clean)
     try:
-        ks_stat, ks_p = stats.kstest(data_standardized, "norm")
-        results["ks"] = (ks_stat, ks_p)
+        shapiro_stat, shapiro_p = stats.shapiro(data_clean)
+        results["shapiro"] = (shapiro_stat, shapiro_p)
     except Exception:
-        results["ks"] = (np.nan, np.nan)
+        results["shapiro"] = (np.nan, np.nan)
 
     return results
 
@@ -223,21 +204,24 @@ def autocorrelation_function(
         return np.array([]), np.array([])
 
     data_centered = data_clean - np.mean(data_clean)
+    n = len(data_centered)
 
     if max_lag is None:
-        max_lag = min(len(data_centered) // 4, 40)
+        max_lag = min(n // 4, 40)
 
     acf = np.zeros(max_lag + 1)
-    variance = np.var(data_centered)
+    sum_sq = np.sum(data_centered**2)
 
-    if variance == 0:
+    if sum_sq < 1e-15:
         return np.arange(max_lag + 1), acf
 
     for lag in range(max_lag + 1):
         if lag == 0:
             acf[lag] = 1.0
         else:
-            acf[lag] = np.mean(data_centered[:-lag] * data_centered[lag:]) / variance
+            # Standard ACF estimate: divide by N, not N-lag
+            # Formula: sum(x_t * x_{t-lag}) / sum(x_t^2)
+            acf[lag] = np.sum(data_centered[:-lag] * data_centered[lag:]) / sum_sq
 
     lags = np.arange(max_lag + 1)
     return lags, acf
@@ -365,3 +349,128 @@ def compute_spectral_coherence(
 
     freqs, coh = coherence(signal1, signal2, fs=fs, nperseg=nperseg)
     return freqs, coh
+
+
+def compute_cross_correlation(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    max_lag_samples: int,
+    min_lag_samples: int = 0,
+) -> Tuple[np.ndarray, np.ndarray]:
+    y_true = np.asarray(y_true).flatten()
+    y_pred = np.asarray(y_pred).flatten()
+    
+    min_len = min(len(y_true), len(y_pred))
+    y_true = y_true[:min_len]
+    y_pred = y_pred[:min_len]
+    
+    y_true = (y_true - np.mean(y_true)) / (np.std(y_true) + 1e-12)
+    y_pred = (y_pred - np.mean(y_pred)) / (np.std(y_pred) + 1e-12)
+    
+    lags = np.arange(min_lag_samples, max_lag_samples + 1)
+    correlations = np.zeros(len(lags))
+    
+    for i, lag in enumerate(lags):
+        if lag == 0:
+            correlations[i] = np.corrcoef(y_true, y_pred)[0, 1]
+        elif lag > 0 and lag < min_len:
+            correlations[i] = np.corrcoef(y_true[lag:], y_pred[:-lag])[0, 1]
+        else:
+            correlations[i] = np.nan
+    
+    return lags, correlations
+
+
+def compute_session_cross_correlation(
+    true_list: List[np.ndarray],
+    pred_list: List[np.ndarray],
+    sampling_freq: float,
+    max_lag_ms: float = 500.0,
+    min_lag_ms: float = 0.0,
+    channel_idx: Optional[int] = None,
+) -> Dict[str, Any]:
+    max_lag_samples = int(max_lag_ms * sampling_freq / 1000.0)
+    min_lag_samples = int(min_lag_ms * sampling_freq / 1000.0)
+    
+    n_trials = min(len(true_list), len(pred_list))
+    lags_samples = np.arange(min_lag_samples, max_lag_samples + 1)
+    lags_ms = lags_samples * 1000.0 / sampling_freq
+    
+    all_correlations = np.full((n_trials, len(lags_samples)), np.nan)
+    peak_correlations = np.full(n_trials, np.nan)
+    optimal_lags_ms = np.full(n_trials, np.nan)
+    
+    for k in range(n_trials):
+        y_true = np.asarray(true_list[k])
+        y_pred = np.asarray(pred_list[k])
+        
+        if y_true is None or y_pred is None:
+            continue
+            
+        if y_true.ndim == 2 and channel_idx is not None:
+            y_true = y_true[:, channel_idx]
+        elif y_true.ndim == 2:
+            y_true = y_true.mean(axis=1)
+            
+        if y_pred.ndim == 2 and channel_idx is not None:
+            y_pred = y_pred[:, channel_idx]
+        elif y_pred.ndim == 2:
+            y_pred = y_pred.mean(axis=1)
+        
+        _, corrs = compute_cross_correlation(
+            y_true, y_pred, max_lag_samples, min_lag_samples
+        )
+        all_correlations[k, :] = corrs
+        
+        valid_mask = ~np.isnan(corrs)
+        if valid_mask.any():
+            valid_corrs = corrs[valid_mask]
+            valid_lags = lags_ms[valid_mask]
+            peak_idx = np.argmax(valid_corrs)
+            peak_correlations[k] = valid_corrs[peak_idx]
+            optimal_lags_ms[k] = valid_lags[peak_idx]
+    
+    return {
+        "lags_ms": lags_ms,
+        "correlations": all_correlations,
+        "peak_correlations": peak_correlations,
+        "optimal_lags_ms": optimal_lags_ms,
+        "n_trials": n_trials,
+    }
+
+
+def compute_average_cross_correlation(
+    session_result: Dict[str, Any],
+) -> Dict[str, Any]:
+    correlations = session_result["correlations"]
+    lags_ms = session_result["lags_ms"]
+    
+    with np.errstate(all='ignore'):
+        mean_corr = np.nanmean(correlations, axis=0)
+        median_corr = np.nanmedian(correlations, axis=0)
+        std_corr = np.nanstd(correlations, axis=0)
+    
+    valid_mask = ~np.isnan(mean_corr)
+    if valid_mask.any():
+        valid_mean = mean_corr[valid_mask]
+        valid_lags = lags_ms[valid_mask]
+        peak_idx = np.argmax(valid_mean)
+        avg_optimal_lag = valid_lags[peak_idx]
+        avg_peak_corr = valid_mean[peak_idx]
+    else:
+        avg_optimal_lag = np.nan
+        avg_peak_corr = np.nan
+    
+    valid_lags_trial = session_result["optimal_lags_ms"]
+    mask = ~np.isnan(valid_lags_trial)
+    
+    return {
+        "lags_ms": lags_ms,
+        "mean_correlation": mean_corr,
+        "median_correlation": median_corr,
+        "std_correlation": std_corr,
+        "avg_optimal_lag_ms": avg_optimal_lag,
+        "median_optimal_lag_ms": np.nanmedian(valid_lags_trial[mask]) if mask.any() else np.nan,
+        "avg_peak_correlation": avg_peak_corr,
+        "lag_std_ms": np.nanstd(valid_lags_trial[mask]) if mask.any() else np.nan,
+    }

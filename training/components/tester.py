@@ -88,6 +88,20 @@ class Tester:
         meta: Dict[str, List[Any]],
     ) -> Dict[str, Any]:
 
+        # Ensure all predicted arrays match the length of Y_true (some models might return unsliced)
+        if Yp is not None:
+            Yp = [
+                yp[: len(yt)] if yp is not None else None for yt, yp in zip(Y_true, Yp)
+            ]
+        if Zp is not None:
+            Zp = [
+                zp[: len(yt)] if zp is not None else None for yt, zp in zip(Y_true, Zp)
+            ]
+        if Xp is not None:
+            Xp = [
+                xp[: len(yt)] if xp is not None else None for yt, xp in zip(Y_true, Xp)
+            ]
+
         pearson_per_trial, pearson_overall_mean = pearson_r_per_channel(Y_true, Yp)
 
         pearson_trial_means = []
@@ -161,29 +175,73 @@ class Tester:
         }
 
     def _slice_data(self, Y_list_margined, Z_list_margined, meta_list):
+        sfreq = self.data_params.sampling_frequency
+        neural_shift_ms = getattr(self.data_params, "neural_shift", None) or 0
+        behavioral_shift_ms = getattr(self.data_params, "behavioral_shift", None) or 0
+
+        neural_shift_samp = int(round(neural_shift_ms * sfreq / 1000))
+        behavioral_shift_samp = int(round(behavioral_shift_ms * sfreq / 1000))
+
         _Y, _Z, _meta = [], [], []
         Z_list_margined = (
             [None] * len(Y_list_margined)
             if Z_list_margined is None
             else Z_list_margined
         )
+
         for Y, Z, meta in zip(Y_list_margined, Z_list_margined, meta_list):
-            chunk_margin_ts = meta["chunk_margin_ts"]
+            n_samples = Y.shape[0]
+            chunk_margin_ts = meta.get("chunk_margin_ts", 0)
 
-            Y_sliced = Y[chunk_margin_ts:-chunk_margin_ts]
-            meta["time"] = meta["time"][chunk_margin_ts:-chunk_margin_ts]
+            base_start = chunk_margin_ts
+            base_end = n_samples - chunk_margin_ts
 
-            if self.data_params.channels.is_behavioral_neural:
-                Z_sliced = Z[chunk_margin_ts:-chunk_margin_ts]
+            # Standard valid window logic
+            y_start = base_start + max(0, neural_shift_samp)
+            y_end = base_end + min(0, neural_shift_samp)
+            z_start = base_start + max(0, behavioral_shift_samp)
+            z_end = base_end + min(0, behavioral_shift_samp)
+
+            valid_start = max(y_start, z_start)
+            valid_end = min(y_end, z_end)
+
+            if valid_end <= valid_start:
+                continue
+
+            Y_sliced = Y[
+                valid_start - neural_shift_samp : valid_end - neural_shift_samp
+            ]
+
+            if Z is not None:
+                if Z.shape[0] == n_samples:
+                    Z_sliced = Z[
+                        valid_start
+                        - behavioral_shift_samp : valid_end
+                        - behavioral_shift_samp
+                    ]
+                else:
+                    z_len = valid_end - valid_start
+                    z_offset = valid_start - chunk_margin_ts - behavioral_shift_samp
+                    Z_sliced = Z[z_offset : z_offset + z_len]
             else:
-                Z_sliced = Z
+                Z_sliced = None
+
+            # Update meta
+            new_meta = meta.copy()
+            if "time" in new_meta and new_meta["time"] is not None:
+                new_meta["time"] = new_meta["time"][valid_start:valid_end]
+
+            new_meta["chunk_margin"] = 0.0
+            new_meta["chunk_margin_ts"] = 0
+            new_meta["margined_duration"] = float(len(Y_sliced)) / sfreq
+
             _Y.append(Y_sliced)
             _Z.append(Z_sliced)
-            _meta.append(meta)
+            _meta.append(new_meta)
 
         _Z = None if all([_z is None for _z in _Z]) else _Z
         self.logger.info(
-            f"Sliced data: Y={length(_Y)}, Z={length(_Z)}, meta={length(meta_list)}"
+            f"Sliced data: Y={length(_Y)}, Z={length(_Z)}, meta={length(_meta)}"
         )
         return _Y, _Z, _meta
 

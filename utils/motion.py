@@ -5,8 +5,8 @@ from utils.miscellaneous import contains_nulls
 from typing import Optional
 
 
-SAVGOL_WINDOW_LENGTH = 9
-SAVGOL_POLYORDER = 3
+SAVGOL_WINDOW_LENGTH = 31
+SAVGOL_POLYORDER = 4
 
 
 def interpolate(behavior: list, original_length_ts: int) -> list:

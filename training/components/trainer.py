@@ -129,7 +129,7 @@ class Trainer:
                 f"behavioral={behavioral_shift_ms}ms ({behavioral_shift_samp} samples)"
             )
 
-        _Y, _Z = [], []
+        _Y, _Z, _meta = [], [], []
         Z_list_margined = (
             [None] * len(Y_list_margined)
             if Z_list_margined is None
@@ -137,11 +137,11 @@ class Trainer:
         )
 
         for Y, Z, meta in zip(Y_list_margined, Z_list_margined, meta_list):
-            chunk_margin = meta["chunk_margin_ts"]
-            n_samples = len(Y)
+            n_samples = Y.shape[0]
+            chunk_margin_ts = meta.get("chunk_margin_ts", 0)
 
-            base_start = chunk_margin
-            base_end = n_samples - chunk_margin
+            base_start = chunk_margin_ts
+            base_end = n_samples - chunk_margin_ts
 
             y_start = base_start + max(0, neural_shift_samp)
             y_end = base_end + min(0, neural_shift_samp)
@@ -154,7 +154,7 @@ class Trainer:
 
             if valid_end <= valid_start:
                 self.logger.warning(
-                    f"Shift too large for trial: margin={chunk_margin}, "
+                    f"Shift too large for trial: margin={chunk_margin_ts}, "
                     f"neural_shift={neural_shift_samp}, behavioral_shift={behavioral_shift_samp}"
                 )
                 continue
@@ -163,28 +163,37 @@ class Trainer:
                 valid_start - neural_shift_samp : valid_end - neural_shift_samp
             ]
 
-            output_type = getattr(
-                self.data_params.channels, "output_type", "behavioral"
-            )
-            if output_type == "neural":
-                Z_sliced = Z[
-                    valid_start
-                    - behavioral_shift_samp : valid_end
-                    - behavioral_shift_samp
-                ]
+            if Z is not None:
+                if Z.shape[0] == n_samples:
+                    Z_sliced = Z[
+                        valid_start
+                        - behavioral_shift_samp : valid_end
+                        - behavioral_shift_samp
+                    ]
+                else:
+                    z_len = valid_end - valid_start
+                    z_offset = valid_start - chunk_margin_ts - behavioral_shift_samp
+                    Z_sliced = Z[z_offset : z_offset + z_len]
             else:
-                z_len = valid_end - valid_start
-                z_offset = valid_start - chunk_margin - behavioral_shift_samp
-                Z_sliced = Z[z_offset : z_offset + z_len]
+                Z_sliced = None
+
+            new_meta = meta.copy()
+            if "time" in new_meta and new_meta["time"] is not None:
+                new_meta["time"] = new_meta["time"][valid_start:valid_end]
+
+            new_meta["chunk_margin"] = 0.0
+            new_meta["chunk_margin_ts"] = 0
+            new_meta["margined_duration"] = float(len(Y_sliced)) / sfreq
 
             _Y.append(Y_sliced)
             _Z.append(Z_sliced)
+            _meta.append(new_meta)
 
         _Z = None if all([_z is None for _z in _Z]) else _Z
         self.logger.info(
-            f"Sliced data: Y={length(_Y)}, Z={length(_Z)}, meta={length(meta_list)}"
+            f"Sliced data: Y={length(_Y)}, Z={length(_Z)}, meta={length(_meta)}"
         )
-        return _Y, _Z
+        return _Y, _Z, _meta
 
     def load_model(self, model_timestamp: str):
 
@@ -235,11 +244,13 @@ class Trainer:
             raise ValueError(f"Unknown framework type: {self.framework_type}")
 
     def _prepare_data(self):
-        Y_train, Z_train, meta_train = self.train_loader.get_full_dataset()
-        Y_val, Z_val, meta_val = self.val_loader.get_full_dataset()
+        Y_train_m, Z_train_m, meta_train_m = self.train_loader.get_full_dataset()
+        Y_val_m, Z_val_m, meta_val_m = self.val_loader.get_full_dataset()
 
-        Y_train, Z_train = self._slice_data(Y_train, Z_train, meta_train)
-        Y_val, Z_val = self._slice_data(Y_val, Z_val, meta_val)
+        Y_train, Z_train, meta_train = self._slice_data(
+            Y_train_m, Z_train_m, meta_train_m
+        )
+        Y_val, Z_val, meta_val = self._slice_data(Y_val_m, Z_val_m, meta_val_m)
 
         return Y_train, Z_train, meta_train, Y_val, Z_val, meta_val
 
@@ -272,6 +283,8 @@ class Trainer:
             "nx": self.model_params.nx,
             "n1": self.model_params.n1,
             "i": getattr(self.model_params, "i", None),
+            "rescale_states": getattr(self.model_params, "rescale_states", True),
+            "max_eigenvalue": getattr(self.model_params, "max_eigenvalue", 0.995),
             "r_mean_Y": float(r_mean_val) if r_mean_val is not None else None,
             "r_mean_Z": float(r_mean_Z_val) if r_mean_Z_val is not None else None,
         }
@@ -362,34 +375,21 @@ class Trainer:
             self.logger.info("Beginning training...")
             self.framework._train(Y_train, Z_train)
 
+        if fast:
+            self.logger.info("Fast mode enabled: Skipping all post-training predictions and forecasts.")
+            return {}
+
+        # --- FULL EVALUATION (NON-FAST MODE) ---
         Zp_val, Yp_val, Xp_val = self.framework._predict(Y_val)
 
         from utils.stats import pearson_r_per_channel
 
         r_list_val, r_mean_val = pearson_r_per_channel(Y_val, Yp_val)
-        _, r_mean_Z_val = self._compute_z_correlation(Z_val, Zp_val)
+        r_list_Z_val, r_mean_Z_val = self._compute_z_correlation(Z_val, Zp_val)
+        input_channels = meta_val[0].get("input_channels", []) if meta_val else []
+        output_channels = meta_val[0].get("output_channels", []) if meta_val else []
 
-        if fast:
-            r_list_Z_val, _ = self._compute_z_correlation(Z_val, Zp_val)
-
-            input_channels = meta_val[0].get("input_channels", []) if meta_val else []
-            output_channels = meta_val[0].get("output_channels", []) if meta_val else []
-
-            self._save_metadata(
-                r_mean_val,
-                r_mean_Z_val,
-                r_per_channel_Y=r_list_val,
-                r_per_channel_Z=r_list_Z_val,
-                input_channels=input_channels,
-                output_channels=output_channels,
-            )
-            return {
-                "pearson_r_mean": r_mean_val,
-                "pearson_r_mean_Z": r_mean_Z_val,
-                "pearson_r_per_channel": r_list_val,
-                "pearson_r_per_channel_Z": r_list_Z_val,
-            }
-
+        # Training set evaluation
         Zp_train, Yp_train, Xp_train = self.framework._predict(Y_train)
         r_list_train, r_mean_train = pearson_r_per_channel(Y_train, Yp_train)
 
@@ -423,9 +423,13 @@ class Trainer:
         )
         train_results.update(train_forecast)
 
-        self.save_results(train_results, self.train_loader.dataset.df, type="train")
+        self.save_results(
+            train_results,
+            self.train_loader.dataset.df,
+            type="train",
+            meta_list=meta_train,
+        )
 
-        r_list_Z_val, _ = self._compute_z_correlation(Z_val, Zp_val)
         val_results = {
             "Y": Y_val,
             "Z": Z_val,
@@ -434,13 +438,8 @@ class Trainer:
             "Xp": Xp_val,
             "pearson_r_per_channel": r_list_val,
             "pearson_r_mean": r_mean_val,
-            "input_channels": meta_val[0].get("input_channels", []) if meta_val else [],
-            "behavioral_input_channels": (
-                meta_val[0].get("behavioral_input_channels", []) if meta_val else []
-            ),
-            "output_channels": (
-                meta_val[0].get("output_channels", []) if meta_val else []
-            ),
+            "input_channels": input_channels,
+            "output_channels": output_channels,
         }
         if r_list_Z_val is not None:
             val_results["pearson_r_per_channel_Z"] = r_list_Z_val
@@ -452,11 +451,35 @@ class Trainer:
         )
         val_results.update(val_forecast)
 
-        self.save_results(val_results, self.val_loader.dataset.df, type="val")
+        self.save_results(
+            val_results, self.val_loader.dataset.df, type="val", meta_list=meta_val
+        )
+
+        try:
+            out_dir = Path(self.results_config.save_dir)
+            html_path = str(out_dir / f"results_plot_{self.run_timestamp}.html")
+            
+            target_block, target_trial = 9, 8
+            trial_idx = 0  # default
+            for idx, m in enumerate(meta_val):
+                if m.get("block") == target_block and m.get("trial") == target_trial:
+                    trial_idx = idx
+                    break
+            
+            self.plot_results(val_results, trial_idx=trial_idx, show_forecast=True, output_html=html_path, meta=meta_val[trial_idx] if meta_val else None)
+            self.logger.info(f"Results plot saved: {html_path} (trial_idx={trial_idx})")
+        except Exception as e:
+            self.logger.warning(f"Could not generate results plot: {e}")
 
         return val_results
 
-    def save_results(self, results: dict, input_df: pl.DataFrame, type: str):
+    def save_results(
+        self,
+        results: dict,
+        input_df: pl.DataFrame,
+        type: str,
+        meta_list: list[dict] = None,
+    ):
 
         def safe_tolist(arr):
             if arr is None:
@@ -487,6 +510,25 @@ class Trainer:
                 new_cols.append(
                     pl.Series(name=key, values=[safe_tolist(x) for x in results[key]])
                 )
+
+        if meta_list is not None:
+            new_cols.append(
+                pl.Series(
+                    name="time", values=[safe_tolist(m.get("time")) for m in meta_list]
+                )
+            )
+            new_cols.append(
+                pl.Series(
+                    name="chunk_margin",
+                    values=[m.get("chunk_margin") for m in meta_list],
+                )
+            )
+            new_cols.append(
+                pl.Series(
+                    name="margined_duration",
+                    values=[m.get("margined_duration") for m in meta_list],
+                )
+            )
 
         if "pearson_r_mean" in results:
             new_cols.append(pl.lit(results["pearson_r_mean"]).alias("pearsonr_mean"))
@@ -593,9 +635,266 @@ class Trainer:
                     "nx": self.model_params.nx,
                     "n1": self.model_params.n1,
                     "i": getattr(self.model_params, "i", None),
+                    "alpha_Q": getattr(self.model_params, "alpha_Q", None),
+                    "alpha_R": getattr(self.model_params, "alpha_R", None),
+                    "backward_kalman": getattr(self.model_params, "backward_kalman", False),
+                    "rescale_states": getattr(self.model_params, "rescale_states", True),
+                    "max_eigenvalue": getattr(self.model_params, "max_eigenvalue", 0.995),
                 }
                 with open(out_dir / f"model_{ts}_metadata.json", "w") as f:
                     json.dump(metadata, f)
 
         except Exception as e:
             self.logger.warning(f"Could not save model/trainer artifacts: {e}")
+
+    def plot_results(
+        self,
+        results: dict,
+        trial_idx: int = 0,
+        show_forecast: bool = True,
+        output_html: str = None,
+        meta: dict = None,
+    ):
+        import plotly.graph_objects as go
+        from plotly.subplots import make_subplots
+
+        Y = np.array(results["Y"][trial_idx])
+        Yp = np.array(results["Yp"][trial_idx])
+        Z = np.array(results["Z"][trial_idx]) if results.get("Z") and results["Z"][trial_idx] is not None else None
+        Zp = np.array(results["Zp"][trial_idx]) if results.get("Zp") and results["Zp"][trial_idx] is not None else None
+
+        input_channels = results.get("input_channels", [])
+        output_channels = results.get("output_channels", [])
+        
+        n_y_chan = Y.shape[1] if Y.ndim == 2 else 1
+        n_z_chan = Z.shape[1] if Z is not None and Z.ndim == 2 else (1 if Z is not None else 0)
+
+        if not input_channels:
+            input_channels = [f"Y_ch{i}" for i in range(n_y_chan)]
+        if not output_channels and n_z_chan > 0:
+            output_channels = [f"Z_ch{i}" for i in range(n_z_chan)]
+
+        pearson_Y = results.get("pearson_r_per_channel", [])
+        if isinstance(pearson_Y, list) and len(pearson_Y) > trial_idx:
+            pearson_Y = pearson_Y[trial_idx] if isinstance(pearson_Y[trial_idx], list) else pearson_Y
+        pearson_Y = np.atleast_1d(pearson_Y)
+
+        pearson_Z = results.get("pearson_r_per_channel_Z", [])
+        if isinstance(pearson_Z, list) and len(pearson_Z) > trial_idx:
+            pearson_Z = pearson_Z[trial_idx] if isinstance(pearson_Z[trial_idx], list) else pearson_Z
+        pearson_Z = np.atleast_1d(pearson_Z) if pearson_Z is not None else np.array([])
+
+        sampling_freq = self.data_params.sampling_frequency
+        t = np.arange(len(Y)) / sampling_freq
+
+        n_rows = n_y_chan + n_z_chan
+        n_cols = 2 if show_forecast and results.get("Y_future_true") is not None else 1
+
+        subplot_titles = []
+        for i, ch in enumerate(input_channels[:n_y_chan]):
+            r = pearson_Y[i] if i < len(pearson_Y) else np.nan
+            subplot_titles.append(f"{ch} - Prediction (r={r:.3f})")
+            if n_cols == 2:
+                subplot_titles.append(f"{ch} - Forecast")
+        for i, ch in enumerate(output_channels[:n_z_chan]):
+            r = pearson_Z[i] if i < len(pearson_Z) else np.nan
+            subplot_titles.append(f"{ch} - Prediction (r={r:.3f})")
+            if n_cols == 2:
+                subplot_titles.append(f"{ch} - Forecast")
+
+        fig = make_subplots(
+            rows=n_rows,
+            cols=n_cols,
+            subplot_titles=subplot_titles,
+            vertical_spacing=0.04,
+            horizontal_spacing=0.05,
+        )
+
+        has_forecast = show_forecast and results.get("Y_future_true") is not None
+        if has_forecast:
+            Y_concat = np.array(results["Y_concat_for_plot"][trial_idx])
+            Y_future_true = np.array(results["Y_future_true"][trial_idx])
+            Y_future_pred = np.array(results["Y_future_pred"][trial_idx])
+
+            m = getattr(self.model_params.forecast, "m", 2)
+            m_samples = int(m * sampling_freq)
+            T = len(Y_concat)
+            Tpast = max(0, T - m_samples)
+            t_concat = np.arange(T) / sampling_freq
+
+        for i in range(n_y_chan):
+            row = i + 1
+            y_true = Y[:, i] if Y.ndim == 2 else Y
+            y_pred = Yp[:, i] if Yp.ndim == 2 else Yp
+            
+            fig.add_trace(
+                go.Scatter(x=t, y=y_true, name="True", line=dict(color="#59546c", width=1.2)),
+                row=row, col=1
+            )
+            fig.add_trace(
+                go.Scatter(x=t, y=y_pred, name="Predicted", line=dict(color="#ff0035", width=1.2, dash="dot")),
+                row=row, col=1
+            )
+            
+            if has_forecast:
+                y_concat = Y_concat[:, i] if Y_concat.ndim == 2 else Y_concat
+                y_ft = Y_future_true[:, i] if Y_future_true.ndim == 2 else Y_future_true
+                y_fp = Y_future_pred[:, i] if Y_future_pred.ndim == 2 else Y_future_pred
+
+                y_fp_mean, y_fp_std = np.mean(y_fp), np.std(y_fp)
+                y_ft_mean, y_ft_std = np.mean(y_ft), np.std(y_ft)
+                if y_fp_std > 1e-10:
+                    y_fp_scaled = (y_fp - y_fp_mean) / y_fp_std * y_ft_std + y_ft_mean
+                else:
+                    y_fp_scaled = y_fp
+
+                fig.add_trace(
+                    go.Scatter(x=t_concat[:Tpast], y=y_concat[:Tpast], name="History", line=dict(color="#8b939c", width=1.2)),
+                    row=row, col=2
+                )
+                t_future = t_concat[Tpast:T]
+                fig.add_trace(
+                    go.Scatter(x=t_future, y=y_ft, name="True Future", line=dict(color="#59546c", width=1.2)),
+                    row=row, col=2
+                )
+                fig.add_trace(
+                    go.Scatter(x=t_future, y=y_fp_scaled, name="Forecast (rescaled)", line=dict(color="#ff0035", width=1.2, dash="dot")),
+                    row=row, col=2
+                )
+                fig.add_vline(x=t_concat[Tpast], line_dash="dash", line_color="#59546c", line_width=1, row=row, col=2)
+
+        if Z is not None and Zp is not None:
+            has_z_forecast = has_forecast and results.get("Z_future_true") is not None
+            if has_z_forecast:
+                Z_concat = np.array(results["Z_concat_for_plot"][trial_idx])
+                Z_future_true = np.array(results["Z_future_true"][trial_idx])
+                Z_future_pred = np.array(results["Z_future_pred"][trial_idx])
+
+            for i in range(n_z_chan):
+                row = n_y_chan + i + 1
+                z_true = Z[:, i] if Z.ndim == 2 else Z
+                z_pred = Zp[:, i] if Zp.ndim == 2 else Zp
+                
+                z_pred_mean, z_pred_std = np.mean(z_pred), np.std(z_pred)
+                z_true_mean, z_true_std = np.mean(z_true), np.std(z_true)
+                if z_pred_std > 1e-10:
+                    z_pred_scaled = (z_pred - z_pred_mean) / z_pred_std * z_true_std + z_true_mean
+                else:
+                    z_pred_scaled = z_pred
+                
+                fig.add_trace(
+                    go.Scatter(x=t, y=z_true, name="True", line=dict(color="#59546c", width=1.2)),
+                    row=row, col=1
+                )
+                fig.add_trace(
+                    go.Scatter(x=t, y=z_pred_scaled, name="Predicted", line=dict(color="#ff0035", width=1.2, dash="dot")),
+                    row=row, col=1
+                )
+                
+                if has_z_forecast:
+                    z_concat = Z_concat[:, i] if Z_concat.ndim == 2 else Z_concat
+                    z_ft = Z_future_true[:, i] if Z_future_true.ndim == 2 else Z_future_true
+                    z_fp = Z_future_pred[:, i] if Z_future_pred.ndim == 2 else Z_future_pred
+
+                    z_fp_mean, z_fp_std = np.mean(z_fp), np.std(z_fp)
+                    z_ft_mean, z_ft_std = np.mean(z_ft), np.std(z_ft)
+                    if z_fp_std > 1e-10:
+                        z_fp_scaled = (z_fp - z_fp_mean) / z_fp_std * z_ft_std + z_ft_mean
+                    else:
+                        z_fp_scaled = z_fp
+
+                    fig.add_trace(
+                        go.Scatter(x=t_concat[:Tpast], y=z_concat[:Tpast], name="History", line=dict(color="#8b939c", width=1.2)),
+                        row=row, col=2
+                    )
+                    t_future = t_concat[Tpast:T]
+                    if len(t_future) > len(z_ft):
+                        t_future = t_future[:len(z_ft)]
+                    fig.add_trace(
+                        go.Scatter(x=t_future, y=z_ft, name="True Future", line=dict(color="#59546c", width=1.2)),
+                        row=row, col=2
+                    )
+                    fig.add_trace(
+                        go.Scatter(x=t_future, y=z_fp_scaled, name="Forecast", line=dict(color="#ff0035", width=1.2, dash="dot")),
+                        row=row, col=2
+                    )
+                    fig.add_vline(x=t_concat[Tpast], line_dash="dash", line_color="#59546c", line_width=1, row=row, col=2)
+
+        mp = self.model_params
+        config_str = (
+            f"nx={mp.nx} | n1={mp.n1} | i={getattr(mp, 'i', 'N/A')} | "
+            f"α_Q={getattr(mp, 'alpha_Q', 'N/A')} | α_R={getattr(mp, 'alpha_R', 'N/A')} | "
+            f"rescale={getattr(mp, 'rescale_states', 'N/A')} | max_eig={getattr(mp, 'max_eigenvalue', 'N/A')}"
+        )
+        
+        fig.update_layout(
+            height=250 * n_rows + 80, 
+            width=1400,
+            title=dict(
+                text=f"<b>Trial {trial_idx} - Predictions & Forecasts</b><br><span style='font-size:12px'>{config_str}</span>",
+                x=0.5,
+                xanchor='center',
+            ),
+            showlegend=False,
+            template="plotly_white",
+            font=dict(family="Montserrat, sans-serif"),
+            margin=dict(t=100),
+        )
+
+        if output_html:
+            import yaml
+            model_config = self.config.model.to_dict() if hasattr(self.config.model, 'to_dict') else dict(self.config.model)
+            yaml_str = yaml.dump({'model': model_config}, default_flow_style=False, sort_keys=False)
+            
+            if meta:
+                trial_info = f"Participant {meta.get('participant_id', 'N/A')} | Session {meta.get('session', 'N/A')} | Block {meta.get('block', 'N/A')} | Trial {meta.get('trial', 'N/A')}"
+            else:
+                trial_info = f"Trial Index: {trial_idx}"
+            
+            fig_html = fig.to_html(full_html=False, include_plotlyjs='cdn')
+            
+            html_content = f'''<!DOCTYPE html>
+<html>
+<head>
+    <title>PSID Results - {trial_info}</title>
+    <style>
+        body {{ font-family: 'Montserrat', sans-serif; margin: 20px; }}
+        .trial-header {{
+            font-size: 20px;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 15px;
+        }}
+        .config-box {{
+            background-color: #f5f5f5;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 15px 20px;
+            margin-bottom: 20px;
+            font-family: monospace;
+            font-size: 13px;
+            white-space: pre;
+            overflow-x: auto;
+        }}
+        .config-title {{
+            font-family: 'Montserrat', sans-serif;
+            font-size: 16px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #333;
+        }}
+    </style>
+</head>
+<body>
+    <div class="trial-header">📊 {trial_info}</div>
+    <div class="config-title">📋 Model Configuration</div>
+    <div class="config-box">{yaml_str}</div>
+    {fig_html}
+</body>
+</html>'''
+            
+            with open(output_html, 'w') as f:
+                f.write(html_content)
+            self.logger.info(f"Saved plot to {output_html}")
+        return fig
+

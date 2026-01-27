@@ -83,12 +83,20 @@ class PSIDWrapper:
         n1: int = self.config.model.n1
         i: int = self.config.model.i
         time_first: bool = self.config.model.time_first
-        Q_scale: float = getattr(self.config.model, "Q_scale", 1.0)
-        R_scale: float = getattr(self.config.model, "R_scale", 1.0)
-        S_scale: float = getattr(self.config.model, "S_scale", 1.0)
+        alpha_Q: float = float(getattr(self.config.model, "alpha_Q", 0.0))
+        alpha_R: float = float(getattr(self.config.model, "alpha_R", 0.0))
+        backward_kalman: bool = getattr(self.config.model, "backward_kalman", False)
+        rescale_states: bool = getattr(self.config.model, "rescale_states", True)
+        max_eigenvalue = getattr(self.config.model, "max_eigenvalue", 0.995)
+        # Handle YAML null which becomes None
+        if max_eigenvalue is None:
+            max_eigenvalue = 1.0
+        else:
+            max_eigenvalue = float(max_eigenvalue)
         self.logger.info(
             f"Calling PSID.PSID with nx={nx}, n1={n1}, i={i}, time_first={time_first}, "
-            f"Q_scale={Q_scale}, R_scale={R_scale}, S_scale={S_scale}"
+            f"alpha_Q={alpha_Q}, alpha_R={alpha_R}, backward_kalman={backward_kalman}, "
+            f"rescale_states={rescale_states}, max_eigenvalue={max_eigenvalue}"
         )
 
         self.idSys = PSIDClass(
@@ -102,14 +110,17 @@ class PSIDWrapper:
             remove_mean_Y=True,
             remove_mean_Z=True,
             time_first=time_first,
-            Q_scale=Q_scale,
-            R_scale=R_scale,
-            S_scale=S_scale,
+            alpha_Q=alpha_Q,
+            alpha_R=alpha_R,
+            backward_kalman=backward_kalman,
+            rescale_states=rescale_states,
+            max_eigenvalue=max_eigenvalue,
         )
         return self.idSys
 
     def predict(self, Y: TrialList):
-        return self.idSys.predict(Y)
+        use_smoothing = getattr(self.idSys, "backward_kalman", False)
+        return self.idSys.predict(Y, useSmoothing=use_smoothing)
 
     def validate(self, Y: TrialList) -> Dict[str, Any]:
         Zp, Yp, Xp = self.idSys.predict(Y)
@@ -209,15 +220,6 @@ class PSIDWrapper:
 
             Zf, Yf, Xf = self.forecast(m, Y_past)
 
-            if Yf is None:
-                raise RuntimeError("Model returned no Y forecast")
-
-            if isinstance(residual_mean, np.ndarray) and isinstance(
-                residual_std, np.ndarray
-            ):
-                noise = np.random.normal(residual_mean, residual_std, size=Yf.shape)
-                Yf = Yf + noise
-
             Y_concat = np.concatenate([Y_past, Yf], axis=0)
             Z_concat = (
                 np.concatenate([Z_past, Zf], axis=0)
@@ -311,8 +313,24 @@ class DPADWrapper:
         n1: int = self.config.model.n1
         method_code: str = self.config.model.method_code
         epochs: int = self.config.model.epochs
+        
+        def safe_cast(val, cast_type):
+            return cast_type(val) if val is not None else None
+
+        dropout = safe_cast(getattr(self.config.model, "dropout", None), float)
+        weight_decay = safe_cast(getattr(self.config.model, "weight_decay", None), float)
+        hidden_size = safe_cast(getattr(self.config.model, "hidden_size", None), int)
+        layers = safe_cast(getattr(self.config.model, "layers", None), int)
+        loss_name = getattr(self.config.model, "loss_name", None)
+        
+        behavior_loss_weight = safe_cast(getattr(self.config.model, "behavior_loss_weight", 1.0), float)
+        recon_loss_weight = safe_cast(getattr(self.config.model, "recon_loss_weight", 1.0), float)
+        use_correlation_loss = getattr(self.config.model, "use_correlation_loss", True)
+        fast = getattr(self.config.model, "fast", False)
+
         consistency_loss_weight: float = getattr(
-            self.config.model, "consistency_loss_weight", 0.0
+            self.config.model, "consistency_loss_weight",
+            getattr(self.config.model, "alpha_behavior", 0.0)
         )
 
         self.logger.info(
@@ -322,15 +340,68 @@ class DPADWrapper:
         Y_dpad = [y.T for y in Y]
         Z_dpad = [z.T for z in Z] if Z is not None else None
 
-        self.idSys = DPADModel()
+        self.idSys = DPADModel(log_dir=self.config.results.log_dir)
         args = DPADModel.prepare_args(method_code)
+
+        # Apply overrides from config
+        def update_arg_dict(d, key, val):
+            if isinstance(d, dict):
+                d[key] = val
+
+        # Handle top-level fit arguments
+        if dropout is not None:
+            for arg_name in ["A1_args", "K1_args", "Cy1_args", "Cz1_args", "A2_args", "K2_args", "Cy2_args", "Cz2_args", "A_args", "K_args", "Cy_args", "Cz_args"]:
+                if arg_name in args:
+                    update_arg_dict(args[arg_name], "dropout_rate", dropout)
+        
+        if weight_decay is not None:
+            for arg_name in ["A1_args", "K1_args", "Cy1_args", "Cz1_args", "A2_args", "K2_args", "Cy2_args", "Cz2_args", "A_args", "K_args", "Cy_args", "Cz_args"]:
+                if arg_name in args:
+                    update_arg_dict(args[arg_name], "kernel_regularizer_name", "l2")
+                    update_arg_dict(args[arg_name], "kernel_regularizer_args", {"l": weight_decay})
+        
+        if hidden_size is not None and layers is not None:
+            for arg_name in ["A1_args", "K1_args", "Cy1_args", "Cz1_args", "A2_args", "K2_args", "Cy2_args", "Cz2_args", "A_args", "K_args", "Cy_args", "Cz_args"]:
+                if arg_name in args:
+                    update_arg_dict(args[arg_name], "units", [hidden_size] * layers)
+                    update_arg_dict(args[arg_name], "activation", "relu")
+                    update_arg_dict(args[arg_name], "use_bias", True)
+
+        parsed_alpha = args.pop("consistency_loss_weight", 0.0)
+        final_alpha = consistency_loss_weight if getattr(self.config.model, "alpha_behavior", None) is not None or getattr(self.config.model, "consistency_loss_weight", None) is not None else parsed_alpha
+
+        parsed_loss = args.pop("loss_name", None)
+        final_loss = loss_name if loss_name is not None else parsed_loss
+        if not use_correlation_loss:
+            final_loss = None
+        
+        parsed_bw = args.pop("behavior_loss_weight", 1.0)
+        final_bw = behavior_loss_weight if getattr(self.config.model, "behavior_loss_weight", None) is not None else parsed_bw
+
+        parsed_rw = args.pop("recon_loss_weight", 1.0)
+        final_rw = recon_loss_weight if getattr(self.config.model, "recon_loss_weight", None) is not None else parsed_rw
+
+        final_esm = getattr(self.config.model, "early_stopping_measure", args.pop("early_stopping_measure", "val_loss"))
+        final_esp = getattr(self.config.model, "early_stopping_patience", args.pop("early_stopping_patience", 16))
+        final_esmin = getattr(self.config.model, "start_from_epoch_rnn", args.pop("start_from_epoch_rnn", 0))
+
         self.idSys.fit(
             Y_dpad,
             Z=Z_dpad,
             nx=nx,
             n1=n1,
             epochs=epochs,
-            consistency_loss_weight=consistency_loss_weight,
+            consistency_loss_weight=final_alpha,
+            loss_name=final_loss,
+            behavior_loss_weight=final_bw,
+            recon_loss_weight=final_rw,
+            early_stopping_measure=final_esm,
+            early_stopping_patience=final_esp,
+            start_from_epoch_rnn=final_esmin,
+            skip_predictions=fast,
+            tb_make_prediction_plots=getattr(self.config.model, "tb_make_prediction_plots", False),
+            tb_make_prediction_scatters=getattr(self.config.model, "tb_make_prediction_scatters", False),
+            tb_plot_epoch_mod=getattr(self.config.model, "tb_plot_epoch_mod", 20),
             **args,
         )
         return self.idSys
@@ -419,44 +490,13 @@ class DPADWrapper:
             valid = [v for v in out if v is not None]
             return np.vstack(valid) if valid else None
 
-        if residual_mean is not None and residual_std is not None:
-            Yf_list, Zf_list, Xf_list = [], [], []
-            Y_current = Y_past.copy()
+        self.idSys.set_steps_ahead(list(range(1, m + 1)))
+        self.idSys.set_multi_step_with_data_gen(True, noise_samples=0)
+        preds = self.idSys.predict(_pad_to_block(Y_past))
 
-            for _ in range(m):
-                self.idSys.set_steps_ahead([1])
-                self.idSys.set_multi_step_with_data_gen(True, noise_samples=0)
-                preds = self.idSys.predict(_pad_to_block(Y_current))
-
-                Zp, Yp, Xp = preds[0], preds[1], preds[2]
-
-                if Yp is not None:
-                    y_next = Yp[-1:, :]
-                    noise = np.random.normal(
-                        residual_mean, residual_std, size=y_next.shape
-                    )
-                    y_next_noisy = y_next + noise
-                else:
-                    y_next_noisy = np.zeros((1, ny))
-
-                Yf_list.append(y_next_noisy)
-                Zf_list.append(Zp[-1:, :] if Zp is not None else None)
-                Xf_list.append(Xp[-1:, :] if Xp is not None else None)
-                Y_current = np.concatenate([Y_current, y_next_noisy], axis=0)
-
-            Yf = np.vstack(Yf_list) if Yf_list else None
-            Zf_valid = [z for z in Zf_list if z is not None]
-            Zf = np.vstack(Zf_valid) if Zf_valid else None
-            Xf_valid = [x for x in Xf_list if x is not None]
-            Xf = np.vstack(Xf_valid) if Xf_valid else None
-        else:
-            self.idSys.set_steps_ahead(list(range(1, m + 1)))
-            self.idSys.set_multi_step_with_data_gen(True, noise_samples=0)
-            preds = self.idSys.predict(_pad_to_block(Y_past))
-
-            Zf = _stack_last(preds[:m])
-            Yf = _stack_last(preds[m : 2 * m])
-            Xf = _stack_last(preds[2 * m : 3 * m])
+        Zf = _stack_last(preds[:m])
+        Yf = _stack_last(preds[m : 2 * m])
+        Xf = _stack_last(preds[2 * m : 3 * m])
 
         return Zf, Yf, Xf
 

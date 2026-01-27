@@ -12,6 +12,7 @@ from dashboard.subtabs import (
     render_predictions_tab,
     render_forecasting_tab,
     render_latent_states_tab,
+    render_cross_correlation_analysis_tab,
 )
 from dashboard.subtabs.rsa_analysis import render_rsa_subtab
 
@@ -157,12 +158,35 @@ def model_predictions_tab(project_root):
                 f"Participant {hdr_pid} | Session {hdr_ses} | Block {hdr_blk} | Trial {hdr_tri}"
             )
 
-            predictions_subtab, forecasting_subtab, latent_states_subtab, rsa_subtab = (
-                st.tabs(["Predictions", "Forecasting", "Latent States", "RSA Analysis"])
+            (
+                performance_tab,
+                lag_analysis_tab,
+                predictions_subtab,
+                forecasting_subtab,
+                latent_states_subtab,
+                rsa_subtab,
+            ) = st.tabs(
+                [
+                    "Global Performance",
+                    "Lag Analysis",
+                    "Predictions",
+                    "Forecasting",
+                    "Latent States",
+                    "RSA Analysis",
+                ]
             )
 
             st.session_state["config_path"] = cfg_path
             st.session_state["run_timestamp"] = run_ts
+
+            with performance_tab:
+                from dashboard.subtabs import render_cross_trial_performance_tab
+                render_cross_trial_performance_tab(split_res)
+
+            with lag_analysis_tab:
+                cfg = get_config(str(cfg_path))
+                fs = getattr(cfg.data, "sampling_frequency", 60.0)
+                render_cross_correlation_analysis_tab(split_res, sampling_freq=fs)
 
             with predictions_subtab:
                 render_predictions_tab(split_res, trial_idx, cfg_path)

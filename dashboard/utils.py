@@ -3,7 +3,9 @@ import numpy as np
 from utils.data_loader import natural_sort_key
 
 
-def get_channel_lists(block_data: pl.DataFrame) -> tuple[list[str], list[str]]:
+def get_channel_lists(
+    block_data: pl.DataFrame,
+) -> tuple[list[str], list[str], list[str]]:
     lfp_channels = sorted(
         [
             col
@@ -22,7 +24,19 @@ def get_channel_lists(block_data: pl.DataFrame) -> tuple[list[str], list[str]]:
         ],
         key=natural_sort_key,
     )
-    return lfp_channels, ecog_channels
+    motion_channels = sorted(
+        [
+            col
+            for col in block_data.columns
+            if col.lower().startswith("tracing_")
+            or col in ["x", "y", "motion_time"]
+            or "velocity" in col.lower()
+            or "acceleration" in col.lower()
+            or "jerk" in col.lower()
+        ],
+        key=natural_sort_key,
+    )
+    return lfp_channels, ecog_channels, motion_channels
 
 
 def get_trial_metadata(trial_data: pl.DataFrame, trial_idx: int = 0) -> dict:

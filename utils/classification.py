@@ -1,11 +1,11 @@
 from typing import Dict, Any, List, Tuple, Optional
 import numpy as np
 from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.model_selection import TimeSeriesSplit, GridSearchCV
+from sklearn.model_selection import TimeSeriesSplit, GridSearchCV, permutation_test_score
 from sklearn.pipeline import Pipeline
 from sklearn.linear_model import LogisticRegression
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, FunctionTransformer
 from sklearn.metrics import (
     accuracy_score,
     balanced_accuracy_score,
@@ -21,14 +21,8 @@ from sklearn.metrics import (
 import mne
 from mne.decoding import CSP
 
-# TODO: Make these configurable parameters instead of hardcoded constants
 
-SAMPLING_FREQ = 60
-
-EPOCH_LENGTH_SEC = 1.0
-EPOCH_OVERLAP = 0.5
-
-CLASSIFIERS = ["Logistic Regression", "LDA"]
+CLASSIFIERS = ["LDA"]
 
 
 class ChronoGroupsSplit:
@@ -99,9 +93,10 @@ def epoch_trial(
 def prepare_epoched_data(
     split_results: List[Dict[str, Any]],
     feature_source: str = "Xp",
-    epoch_length_sec: float = EPOCH_LENGTH_SEC,
-    overlap: float = EPOCH_OVERLAP,
-    fs: float = SAMPLING_FREQ,
+    epoch_length_sec: float = 1.0,
+    overlap: float = 0.5,
+    fs: float = 60,
+    mode: str = "prediction",
     forecast_horizon_sec: Optional[float] = None,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, List[Dict[str, Any]]]:
     epoch_length = int(epoch_length_sec * fs)
@@ -116,7 +111,7 @@ def prepare_epoched_data(
     current_block_id = 0
 
     for split_res in split_results:
-        if forecast_horizon is not None:
+        if mode == "forecast":
             if feature_source == "Yp":
                 data_key = "Y_future_pred"
             elif feature_source == "Xp":
@@ -224,32 +219,27 @@ def get_classifier(clf_name: str, params: Optional[Dict[str, Any]] = None):
 
 
 def get_param_grid(clf_name: str) -> Dict[str, List]:
-    csp_params = {
-        "csp__n_components": [2, 4, 6, 8],
-        "csp__reg": [None, "empirical", "ledoit_wolf", "oas"],
-        "csp__log": [True, False],
-    }
-
-    if clf_name == "Logistic Regression":
+    if clf_name == "LDA":
         clf_params = {
-            "classifier__C": [0.001, 0.01, 0.1, 1, 10, 100],
-            "classifier__penalty": ["l1", "l2"],
-            "classifier__solver": ["liblinear", "saga"],
-        }
-    elif clf_name == "LDA":
-        clf_params = {
-            "classifier__solver": ["svd", "lsqr", "eigen"],
-            "classifier__shrinkage": [None, "auto", 0.1, 0.5, 0.9],
+            "classifier__solver": ["lsqr"],
+            "classifier__shrinkage": ["auto", 0.1, 0.5],  # auto uses Ledoit-Wolf
         }
     else:
         clf_params = {}
 
-    return {**csp_params, **clf_params}
+    return clf_params
 
 
-def create_pipeline(clf_name: str, fs: float = SAMPLING_FREQ) -> Pipeline:
+def _transpose_for_csp(X):
+    if X.ndim == 3:
+        return np.transpose(X, (0, 2, 1))
+    return X
+
+
+def create_pipeline(clf_name: str, fs: float = 60) -> Pipeline:
     steps = [
-        ("csp", CSP()),
+        ("transpose", FunctionTransformer(_transpose_for_csp)),
+        ("csp", CSP(n_components=4, reg="ledoit_wolf", log=True)),
         ("scaler", StandardScaler()),
         ("classifier", get_classifier(clf_name)),
     ]
@@ -262,23 +252,14 @@ def run_grid_search_cv(
     y: np.ndarray,
     groups: np.ndarray,
     n_splits: int = 5,
-    fs: float = SAMPLING_FREQ,
+    fs: float = 60,
+    param_grid: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Dict[str, Any], float, Dict[str, Any]]:
     from sklearn.base import clone
 
     pipeline = create_pipeline(clf_name, fs=fs)
-    param_grid = get_param_grid(clf_name)
-
-    if clf_name == "LDA":
-        filtered_grid = {}
-        for key, values in param_grid.items():
-            if key == "classifier__shrinkage":
-                filtered_grid[key] = values
-            elif key == "classifier__solver":
-                filtered_grid[key] = values
-            else:
-                filtered_grid[key] = values
-        param_grid = filtered_grid
+    if param_grid is None:
+        param_grid = get_param_grid(clf_name)
 
     chrono_cv = ChronoGroupsSplit(warn_if_blocks_ignored=True)
     splits = chrono_cv.split(X, y, groups)
@@ -369,6 +350,70 @@ def run_grid_search_cv(
     }
 
     return best_params, best_score, results
+
+
+def run_permutation_test(
+    pipeline: Pipeline,
+    X: np.ndarray,
+    y: np.ndarray,
+    groups: np.ndarray,
+    cv: Any,
+    n_permutations: int = 100,
+    scoring: str = "balanced_accuracy",
+    logger: Optional[Any] = None,
+) -> Tuple[float, np.ndarray, float]:
+    """
+    Perform group-aware permutation testing.
+    Standard sklearn permutation_test_score shuffles at the sample level,
+    which is invalid for blocked/epoched data. This shuffles at the group level.
+    """
+    from sklearn.model_selection import cross_val_score
+    from sklearn.base import clone
+    import joblib
+
+    if logger:
+        logger.info(
+            f"Running group-aware permutation test ({n_permutations} permutations)..."
+        )
+
+    obs_scores = cross_val_score(
+        pipeline, X, y, cv=cv, groups=groups, scoring=scoring, n_jobs=-1
+    )
+    obs_mean_score = np.mean(obs_scores)
+
+    unique_groups = np.unique(groups)
+    group_to_label = {}
+    for g in unique_groups:
+        group_to_label[g] = y[groups == g][0]
+
+    group_ids = list(group_to_label.keys())
+    labels = np.array([group_to_label[g] for g in group_ids])
+
+    def run_one_permutation(seed):
+        rng = np.random.RandomState(seed)
+        perm_labels = rng.permutation(labels)
+        perm_map = dict(zip(group_ids, perm_labels))
+
+        y_perm = np.array([perm_map[g] for g in groups])
+
+        p_scores = cross_val_score(
+            clone(pipeline), X, y_perm, cv=cv, groups=groups, scoring=scoring, n_jobs=-1
+        )
+        return np.mean(p_scores)
+
+    permutation_scores = np.array(
+        joblib.Parallel(n_jobs=-1)(
+            joblib.delayed(run_one_permutation)(i) for i in range(n_permutations)
+        )
+    )
+
+    pvalue = (np.sum(permutation_scores >= obs_mean_score) + 1) / (n_permutations + 1)
+    if logger:
+        logger.info(
+            f"Permutation Test - Obs: {obs_mean_score:.4f}, p-value: {pvalue:.4f}"
+        )
+
+    return obs_mean_score, permutation_scores, pvalue
 
 
 def evaluate_on_test_set(

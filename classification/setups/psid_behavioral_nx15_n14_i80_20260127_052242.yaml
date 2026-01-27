@@ -10,7 +10,7 @@ classification:
   prediction_feature_source: Xp    # Xp, Yp, Y, or Both
   forecast_feature_source: Xp      # Xp or Yp
   permutation_test: true
-  n_permutations: 1000
+  n_permutations: 100
   param_grid:
     LDA:
       classifier__solver: ["lsqr", "svd", "eigen"]
