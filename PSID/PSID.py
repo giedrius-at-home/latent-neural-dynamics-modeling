@@ -114,10 +114,12 @@ def getHSize(Y, i, time_first=True):
     return ny, ySamples, N, y1, NTot
 
 
-def fitCzViaKFRegression(s, Y, Z, time_first):
+def fitCzViaKFRegression(
+    s, Y, Z, time_first, use_smoothing=False
+):  # Modified by Giedrius
     """
     Fits the behavior projection parameter Cz by first estimating
-    the latent states with a Kalman filter and then using ordinary
+    the latent states with a Kalman filter (or smoother) and then using ordinary # Modified by Giedrius
     least squares regression
     """
     if not isinstance(Y, (list, tuple)):
@@ -127,7 +129,7 @@ def fitCzViaKFRegression(s, Y, Z, time_first):
         else:
             YTF = Y.T
             ZTF = Z.T
-        xHat = s.kalman(YTF)[0]
+        xHat = s.predict(YTF, useSmoothing=use_smoothing)[2]  # Modified by Giedrius
     else:
         for yInd in range(len(Y)):
             if time_first:
@@ -136,7 +138,9 @@ def fitCzViaKFRegression(s, Y, Z, time_first):
             else:
                 YTFThis = Y[yInd].T
                 ZTFThis = Z[yInd].T
-            xHatThis = s.kalman(YTFThis)[0]
+            xHatThis = s.predict(YTFThis, useSmoothing=use_smoothing)[
+                2
+            ]  # Modified by Giedrius
             if yInd == 0:
                 xHat = xHatThis
                 ZTF = ZTFThis
@@ -161,9 +165,11 @@ def PSID(
     remove_mean_Z=True,
     zscore_Y=False,
     zscore_Z=False,
-    Q_scale=1.0,  # modified by Giedrius
-    R_scale=1.0,  # modified by Giedrius
-    S_scale=1.0,  # modified by Giedrius
+    alpha_Q=0.0,  # Modified by Giedrius
+    alpha_R=0.0,  # Modified by Giedrius
+    backward_kalman=False,  # Modified by Giedrius
+    rescale_states=True,  # Modified by Giedrius
+    max_eigenvalue=0.995,  # Modified by Giedrius
 ) -> LSSM:
     """
     PSID PSID: Preferential Subspace Identification Algorithm
@@ -410,6 +416,13 @@ def PSID(
         Xk = np.concatenate((Xk, Xk2))  # Eq. (29)
         Xk_Plus1 = np.concatenate((Xk_Plus1, Xk2_Plus1))  # Eq. (29)
 
+    # Rescale states to have Unit Variance # Modified by Giedrius
+    if rescale_states and Xk.shape[0] > 0:  # Modified by Giedrius
+        x_std = np.std(Xk, axis=1, keepdims=True)  # Modified by Giedrius
+        x_std[x_std == 0] = 1.0  # Modified by Giedrius
+        Xk = Xk / x_std  # Modified by Giedrius
+        Xk_Plus1 = Xk_Plus1 / x_std  # Modified by Giedrius
+
     # Parameter identification
     if n1 > 0:
         # A associated with the z-related states
@@ -427,7 +440,20 @@ def PSID(
         else:
             A = A23
 
-    w = Xk_Plus1 - A @ Xk  # Eq. (34)
+    # Eigenvalue damping for stability # Modified by Giedrius
+    if max_eigenvalue is not None and max_eigenvalue < 1.0 and A.size > 0 and A.shape[0] == A.shape[1]:  # Modified by Giedrius
+        eig_vals, eig_vecs = np.linalg.eig(A)  # Modified by Giedrius
+        magnitudes = np.abs(eig_vals)  # Modified by Giedrius
+        unstable_indices = magnitudes > max_eigenvalue  # Modified by Giedrius
+        if np.any(unstable_indices):  # Modified by Giedrius
+            eig_vals[unstable_indices] = (
+                eig_vals[unstable_indices] / magnitudes[unstable_indices] * max_eigenvalue
+            )  # Modified by Giedrius
+            A = np.real(
+                eig_vecs @ np.diag(eig_vals) @ np.linalg.inv(eig_vecs)
+            )  # Modified by Giedrius
+
+    # w = Xk_Plus1 - A @ Xk  # Eq. (34)
 
     if nz > 0:
         Cz = projOrth(WS["Zii"], Xk)[
@@ -439,6 +465,9 @@ def PSID(
     Cy = projOrth(WS["Yii"], Xk)[
         1
     ]  # WS['Yii'] @ Xk.T @ np.linalg.pinv(Xk @ Xk.T)    # Eq. (32)
+
+
+    w = Xk_Plus1 - A @ Xk  # Eq. (34)
     v = WS["Yii"] - Cy @ Xk  # Eq. (34)
 
     # Compute noise covariances
@@ -450,14 +479,39 @@ def PSID(
     Q = (Q + Q.T) / 2  # Make precisely symmetric
     R = (R + R.T) / 2  # Make precisely symmetric
 
-    # modified by Giedrius
-    Q = Q * Q_scale
-    R = R * R_scale
-    S = S * S_scale
+    # Regularize R using the eigenvalues of the Neural data (Y) # Modified by Giedrius
+    if alpha_R > 0:  # Modified by Giedrius
+        Y_all = (
+            np.concatenate(Y, axis=0) if isinstance(Y, (list, tuple)) else Y
+        )  # Modified by Giedrius
+        if not time_first:
+            Y_all = Y_all.T  # Modified by Giedrius
+        eig_Y = np.max(np.real(
+            np.linalg.eigvals(np.cov(Y_all, rowvar=False))
+        ))  # Modified by Giedrius
+        R = R + (alpha_R * eig_Y * np.eye(R.shape[0]))  # Modified by Giedrius
 
-    s = LSSM.LSSM(params={"A": A, "C": Cy, "Q": Q, "R": R, "S": S})
+    # Regularize Q using the eigenvalues of the estimated states (X) # Modified by Giedrius
+    if alpha_Q > 0:  # Modified by Giedrius
+        eig_X = np.max(np.real(
+            np.linalg.eigvals(np.cov(Xk, rowvar=True))
+        ))  # Xk is (nx, N) # Modified by Giedrius
+        Q = Q + (alpha_Q * eig_X * np.eye(Q.shape[0]))  # Modified by Giedrius
+
+    s = LSSM.LSSM(
+        params={
+            "A": A,
+            "C": Cy,
+            "Q": Q,
+            "R": R,
+            "S": S,
+            "backward_kalman": backward_kalman,
+        }
+    )  # Modified by Giedrius
     if fit_Cz_via_KF and nz > 0:
-        Cz = fitCzViaKFRegression(s, Y, Z, time_first)
+        Cz = fitCzViaKFRegression(
+            s, Y, Z, time_first, use_smoothing=backward_kalman
+        )  # Modified by Giedrius
     s.Cz = Cz
 
     s.YPrepModel = YPrepModel
