@@ -52,7 +52,6 @@ def render_psd_heatmap(
         rel_offset=onset,
     )
 
-    fig = update_fig_title(fig, [f"{channel} PSD Heatmap", metadata_str])
     st.plotly_chart(fig, use_container_width=True)
 
 
@@ -79,10 +78,10 @@ def render_average_psd_trial_level(trial_data, channels, channel_type, metadata_
 
     if freqs is not None:
         fig = plot_average_psd(freqs, psd_data, title="")
-
-        title_parts = [f"Trial-level Average {channel_type} PSD", metadata_str]
-        fig = update_fig_title(fig, title_parts)
         st.plotly_chart(fig, use_container_width=True)
+        st.caption(
+            f"Trial-level average PSD — {metadata_str} — Channels: {', '.join(channels)}"
+        )
 
 
 def render_average_psd_session_level(channels, channel_type):
@@ -95,17 +94,18 @@ def render_average_psd_session_level(channels, channel_type):
     session = st.session_state.get("session")
 
     if not participant_id or not session:
-        st.warning("Session information not available")
         return
 
+    selected_dataset = st.session_state.get("selected_dataset")
+
     try:
-        session_data = load_participant_session_data(participant_id, session)
-    except Exception as e:
-        st.error(f"Could not load session data: {e}")
+        session_data = load_participant_session_data(
+            participant_id, session, selected_dataset
+        )
+    except Exception:
         return
 
     if session_data.is_empty():
-        st.info("No session data available")
         return
 
     dbs_on_data = session_data.filter(pl.col("stim") == "on")
@@ -128,13 +128,134 @@ def render_average_psd_session_level(channels, channel_type):
 
     if freqs is not None:
         fig_dbs = plot_average_psd_dbs_comparison(freqs, psd_data, title="")
-
-        title_parts_dbs = [
-            f"Session-level Average {channel_type} PSD • DBS ON vs OFF",
-            f"Participant {participant_id} • Session {session}",
-        ]
-        fig_dbs = update_fig_title(fig_dbs, title_parts_dbs)
         st.plotly_chart(fig_dbs, use_container_width=True)
+        st.caption(
+            f"Session-level average PSD comparison (DBS ON vs OFF) — {participant_id}, Session: {session} — Channels: {', '.join(channels)}"
+        )
+
+
+def render_average_psd_participant_level(channels, channel_type):
+    if not channels:
+        return
+
+    from utils.data_loader import load_participant_data
+    from dashboard.backbone import PARTICIPANT_COLORS, PLOT_STYLE
+
+    participant_id = st.session_state.get("participant_id")
+    selected_dataset = st.session_state.get("selected_dataset")
+
+    if not participant_id:
+        st.info("Please select a participant in the sidebar.")
+        return
+
+    try:
+        participant_data = load_participant_data(participant_id, selected_dataset)
+    except Exception as e:
+        st.error(f"Could not load participant data: {str(e)}")
+        return
+
+    if participant_data.is_empty():
+        st.info("No data available for this participant.")
+        return
+
+    first_channel = channels[0]
+    psd_col = f"{first_channel}_psd_values"
+    freq_col = f"{first_channel}_psd_freq"
+
+    if (
+        psd_col not in participant_data.columns
+        or freq_col not in participant_data.columns
+    ):
+        st.warning(
+            f"PSD data not found for {first_channel}. Available columns: {', '.join([c for c in participant_data.columns if 'psd' in c.lower()])}"
+        )
+        return
+
+    sessions = sorted(participant_data["session"].unique().to_list())
+
+    st.info(
+        f"Showing PSD comparison across {len(sessions)} session(s) for {participant_id}"
+    )
+
+    session_colors = px.colors.qualitative.Plotly
+
+    for ch in channels:
+        psd_col = f"{ch}_psd_values"
+        freq_col = f"{ch}_psd_freq"
+
+        if (
+            psd_col not in participant_data.columns
+            or freq_col not in participant_data.columns
+        ):
+            st.warning(f"PSD data not found for channel {ch}")
+            continue
+
+        freqs = None
+        fig = go.Figure()
+
+        for idx, session in enumerate(sessions):
+            session_data = participant_data.filter(pl.col("session") == session)
+            if session_data.is_empty():
+                continue
+
+            session_color = session_colors[idx % len(session_colors)]
+
+            if freqs is None:
+                try:
+                    freqs = np.array(session_data[freq_col][0])
+                except Exception as e:
+                    st.warning(f"Could not extract frequencies for {ch}: {str(e)}")
+                    continue
+
+            dbs_on_data = session_data.filter(pl.col("stim") == "on")
+            dbs_off_data = session_data.filter(pl.col("stim") == "off")
+
+            on_means = compute_per_trial_psd_means(dbs_on_data, ch)
+            off_means = compute_per_trial_psd_means(dbs_off_data, ch)
+
+            if len(on_means) > 0:
+                psds_on = np.vstack(on_means)
+                mean_psd_on = 10 * np.log10(np.mean(psds_on, axis=0)) + 120
+                fig.add_trace(
+                    go.Scatter(
+                        x=freqs,
+                        y=mean_psd_on,
+                        mode="lines",
+                        name=f"Session {session} ON",
+                        line=dict(color=session_color, width=1.2),
+                    )
+                )
+
+            if len(off_means) > 0:
+                psds_off = np.vstack(off_means)
+                mean_psd_off = 10 * np.log10(np.mean(psds_off, axis=0)) + 120
+                fig.add_trace(
+                    go.Scatter(
+                        x=freqs,
+                        y=mean_psd_off,
+                        mode="lines",
+                        name=f"Session {session} OFF",
+                        line=dict(color=session_color, width=1.2, dash="dot"),
+                    )
+                )
+
+        if freqs is not None and len(fig.data) > 0:
+            fig.update_layout(
+                title=f"{ch} - {participant_id} (All Sessions)",
+                xaxis_title="Frequency (Hz)",
+                yaxis_title="Power/Frequency (dB/Hz)",
+                template="plotly_white",
+                font=dict(family=PLOT_STYLE.font_family, size=12, color="#0e131f"),
+                legend=dict(font=dict(size=10, family=PLOT_STYLE.font_family)),
+                showlegend=True,
+                margin=dict(l=60, r=80, t=60, b=60),
+            )
+            st.plotly_chart(fig, use_container_width=True)
+            st.caption(
+                f"PSD comparison across sessions for {participant_id} — Channel: {ch}"
+            )
+        else:
+            st.warning(f"No PSD data could be plotted for channel {ch}")
 
 
 def render_psd_heatmap_tab(trial_data, lfp_channels, ecog_channels, metadata_str):
@@ -181,7 +302,6 @@ def render_average_psd_tab(
     trial_data, block_data, lfp_channels, ecog_channels, metadata_str
 ):
     st.markdown("### Trial-level Average PSD")
-    st.markdown("Average PSD for the selected trial across time epochs")
 
     col1_trial, col2_trial = st.columns(2)
 
@@ -208,7 +328,6 @@ def render_average_psd_tab(
     st.markdown("---")
 
     st.markdown("### Session-level Average PSD")
-    st.markdown("Average PSD across all blocks in the session, comparing DBS ON vs OFF")
 
     col1_session, col2_session = st.columns(2)
 
@@ -227,6 +346,28 @@ def render_average_psd_tab(
         )
         if selected_ecog_session:
             render_average_psd_session_level(selected_ecog_session, "ECoG")
+
+    st.markdown("---")
+
+    st.markdown("### Participant-level Average PSD")
+
+    col1_part, col2_part = st.columns(2)
+
+    with col1_part:
+        st.markdown("#### LFP")
+        selected_lfp_part = st.multiselect(
+            "Select LFP Channels", lfp_channels, key="lfp_psd_avg_participant"
+        )
+        if selected_lfp_part:
+            render_average_psd_participant_level(selected_lfp_part, "LFP")
+
+    with col2_part:
+        st.markdown("#### ECoG")
+        selected_ecog_part = st.multiselect(
+            "Select ECoG Channels", ecog_channels, key="ecog_psd_avg_participant"
+        )
+        if selected_ecog_part:
+            render_average_psd_participant_level(selected_ecog_part, "ECoG")
 
 
 def psd_analysis_tab(block_data, lfp_channels, ecog_channels):
@@ -257,7 +398,9 @@ def psd_analysis_tab(block_data, lfp_channels, ecog_channels):
 
     st.subheader(metadata_str)
 
-    psd_tab, avg_psd_tab = st.tabs(["PSD Heatmap", "Average PSD"])
+    psd_tab, avg_psd_tab, multi_psd_tab = st.tabs(
+        ["PSD Heatmap", "Average PSD", "Multi-Participant PSD"]
+    )
 
     with psd_tab:
         render_psd_heatmap_tab(trial_data, lfp_channels, ecog_channels, metadata_str)
@@ -266,3 +409,124 @@ def psd_analysis_tab(block_data, lfp_channels, ecog_channels):
         render_average_psd_tab(
             trial_data, block_data, lfp_channels, ecog_channels, metadata_str
         )
+
+    with multi_psd_tab:
+        render_multi_participant_psd_analysis(lfp_channels + ecog_channels, "LFP+ECoG")
+
+
+def render_multi_participant_psd_analysis(channels, channel_type):
+    """
+    Renders PSD comparison across all participants for selected channels.
+    """
+    if not channels:
+        return
+
+    st.markdown("### Multi-Participant PSD Comparison (All Participants)")
+
+    from utils.data_loader import get_all_participants, load_participant_data
+    from dashboard.backbone import PARTICIPANT_COLORS, PLOT_COLOR, LINE_STYLE
+    from utils.plots import _create_base_figure
+
+    selected_dataset = st.session_state.get("selected_dataset")
+    participants = get_all_participants(selected_dataset)
+
+    if not participants:
+        st.warning("No participants found.")
+        return
+
+    target_channel = st.selectbox(
+        "Select channel for comparison", channels, key="multi_participant_psd_chan"
+    )
+
+    psd_results = {}  # {p_id: {'on': mean_psd, 'off': mean_psd, 'freqs': freqs}}
+
+    with st.spinner("Computing multi-participant PSDs..."):
+        for p_id in participants:
+            try:
+                # Load all data for participant to aggregate
+                # This could be memory intensive, but robust for now
+                p_df = load_participant_data(p_id, selected_dataset)
+
+                if p_df.is_empty():
+                    continue
+
+                if f"{target_channel}_psd_values" not in p_df.columns:
+                    continue
+
+                on_df = p_df.filter(pl.col("stim") == "on")
+                off_df = p_df.filter(pl.col("stim") == "off")
+
+                freqs = None
+                if not p_df.is_empty():
+                    freqs = np.array(p_df[f"{target_channel}_psd_freq"][0])
+
+                on_mean = None
+                off_mean = None
+
+                if not on_df.is_empty():
+                    vals = np.vstack(
+                        [
+                            np.array(x)
+                            for x in on_df[f"{target_channel}_psd_values"].to_list()
+                        ]
+                    )
+                    if vals.size > 0:
+                        on_mean = 10 * np.log10(vals.mean(axis=0)) + 120
+
+                if not off_df.is_empty():
+                    vals = np.vstack(
+                        [
+                            np.array(x)
+                            for x in off_df[f"{target_channel}_psd_values"].to_list()
+                        ]
+                    )
+                    if vals.size > 0:
+                        off_mean = 10 * np.log10(vals.mean(axis=0)) + 120
+
+                psd_results[p_id] = {"on": on_mean, "off": off_mean, "freqs": freqs}
+
+            except Exception as e:
+                # Silently skip if error to avoid clutter
+                continue
+
+    # Plotting
+    if not psd_results:
+        st.info("No data available for multi-participant comparison.")
+        return
+
+    fig = _create_base_figure("", "Frequency (Hz)", "Power/Frequency (dB/Hz)")
+
+    for p_id, res in psd_results.items():
+        if p_id in PARTICIPANT_COLORS:
+            colors = PARTICIPANT_COLORS[p_id]
+            c_on = colors["dbs_on"] if isinstance(colors, dict) else colors.dbs_on
+            c_off = colors["dbs_off"] if isinstance(colors, dict) else colors.dbs_off
+        else:
+            c_on = PLOT_COLOR.stim_on
+            c_off = PLOT_COLOR.stim_off
+
+        freqs = res["freqs"]
+
+        if res["on"] is not None and freqs is not None:
+            fig.add_trace(
+                go.Scatter(
+                    x=freqs,
+                    y=res["on"],
+                    mode="lines",
+                    name=f"{p_id} ON",
+                    line=dict(color=c_on, width=1.2),
+                )
+            )
+
+        if res["off"] is not None and freqs is not None:
+            fig.add_trace(
+                go.Scatter(
+                    x=freqs,
+                    y=res["off"],
+                    mode="lines",
+                    name=f"{p_id} OFF",
+                    line=dict(color=c_off, width=1.2, dash=LINE_STYLE.secondary),
+                )
+            )
+
+    st.plotly_chart(fig, use_container_width=True)

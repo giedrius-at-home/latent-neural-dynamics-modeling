@@ -4,16 +4,26 @@ import plotly.graph_objects as go
 from pathlib import Path
 from typing import Dict, Any
 from scipy import stats as scipy_stats
+import pandas as pd
 
 from training.components.tester import Tester
-from dashboard.backbone import PALETTE
+from dashboard.backbone import (
+    PALETTE,
+    PLOT_STYLE,
+    PLOT_COLOR,
+    create_base_time_series_figure,
+    add_margin_visualization,
+    add_caption_below,
+)
 from dashboard.subtabs.helpers import get_trial_time_axis, transpose_if_needed
 from utils.stats import (
     compute_residual_statistics,
     qq_plot_data,
     normality_tests,
     probability_plot_data,
+    probability_plot_data,
     whiteness_test,
+    compute_power_spectrum,
 )
 
 
@@ -36,13 +46,21 @@ def render_y_prediction_plot(
         else (y_pred.squeeze() if n_chan == 1 else y_pred[:, channel_idx])
     )
 
-    fig = go.Figure()
+    onset_time = t_abs.min() if len(t_abs) > 0 else 0.0
+    fig = create_base_time_series_figure(
+        time_abs=t_abs,
+        onset_time=onset_time,
+        y_label="Amplitude (µV)",
+        title="",
+    )
+
     fig.add_trace(
         go.Scatter(
             x=t_abs,
             y=y_true_c,
-            name="Y_true (µV)",
+            name="True",
             mode="lines",
+            line=dict(color=PLOT_COLOR.stim_off, width=PLOT_STYLE.line_width_normal),
         )
     )
     if y_pred_c is not None:
@@ -50,16 +68,16 @@ def render_y_prediction_plot(
             go.Scatter(
                 x=t_abs,
                 y=y_pred_c,
-                name="Y_pred (µV)",
+                name="Predicted",
                 mode="lines",
+                line=dict(
+                    color=PLOT_COLOR.stim_on,
+                    width=PLOT_STYLE.line_width_normal,
+                    dash="dot",
+                ),
             )
         )
 
-    fig.update_layout(
-        title=f"Y and Y_p — {channel_name} (r={r_ch:.3f})",
-        xaxis_title="Time (s)",
-        yaxis_title="Amplitude (µV)",
-    )
     st.plotly_chart(fig, use_container_width=True)
 
 
@@ -80,7 +98,8 @@ def render_y_scatter_plot(
             name="Predictions",
             marker=dict(
                 size=4,
-                color="rgba(31, 119, 180, 0.6)",
+                color=PALETTE.twilight_indigo,
+                opacity=0.6,
                 line=dict(width=0),
             ),
         )
@@ -88,15 +107,6 @@ def render_y_scatter_plot(
 
     min_val = min(np.min(y_true_c), np.min(y_pred_c))
     max_val = max(np.max(y_true_c), np.max(y_pred_c))
-    fig.add_trace(
-        go.Scatter(
-            x=[min_val, max_val],
-            y=[min_val, max_val],
-            mode="lines",
-            name="Identity (y=x)",
-            line=dict(color="red", dash="dash", width=2),
-        )
-    )
 
     slope, intercept, r_value, p_value, std_err = scipy_stats.linregress(
         y_true_c, y_pred_c
@@ -112,7 +122,7 @@ def render_y_scatter_plot(
             y=y_line,
             mode="lines",
             name="OLS Fit",
-            line=dict(color="blue", width=2),
+            line=dict(color=PALETTE.strawberry_red, width=1.2),
         )
     )
 
@@ -140,12 +150,14 @@ def render_y_scatter_plot(
     )
 
     fig.update_layout(
-        title=f"True vs Predicted — {channel_name} (Pearson r={r_ch:.3f})",
-        xaxis_title="Y_true (µV)",
-        yaxis_title="Y_pred (µV)",
-        showlegend=True,
+        template="plotly_white",
+        font=dict(family=PLOT_STYLE.font_family),
+        margin=dict(l=60, r=80, t=40, b=60),
+        xaxis_title="True Amplitude (µV)",
+        yaxis_title="Predicted Amplitude (µV)",
     )
     st.plotly_chart(fig, use_container_width=True)
+    st.caption(f"True vs Predicted — {channel_name} (Pearson r={r_ch:.3f})")
 
     st.markdown("#### OLS Regression Coefficients")
     col1, col2, col3, col4 = st.columns(4)
@@ -154,7 +166,7 @@ def render_y_scatter_plot(
     with col2:
         st.metric("Intercept (µV)", f"{intercept:.4f}")
     with col3:
-        st.metric("R²", f"{r_squared:.4f}")
+        st.metric("R2", f"{r_squared:.4f}")
     with col4:
         st.metric("p-value", f"{p_value:.2e}")
 
@@ -164,8 +176,9 @@ def render_y_residual_plot(
     y_pred_c: np.ndarray,
     t_abs: np.ndarray,
     channel_name: str,
+    chunk_margin: float = 0.0,
 ):
-    residuals = y_pred_c - y_true_c
+    residuals = y_true_c - y_pred_c
 
     fig = go.Figure()
 
@@ -175,17 +188,23 @@ def render_y_residual_plot(
             y=residuals,
             mode="lines",
             name="Residuals",
-            line=dict(color=PALETTE.strawberry_red),
+            line=dict(color=PALETTE.strawberry_red, width=1.2),
         )
     )
     rmse = np.sqrt(np.mean(residuals**2))
 
+    if chunk_margin > 0:
+        add_margin_visualization(fig, t_abs, chunk_margin)
+
     fig.update_layout(
-        title=f"Residuals (Prediction Errors) — {channel_name} (RMSE={rmse:.3f} µV)",
+        template="plotly_white",
+        font=dict(family=PLOT_STYLE.font_family),
+        margin=dict(l=60, r=80, t=40, b=60),
         xaxis_title="Time (s)",
-        yaxis_title="Error (µV)",
+        yaxis_title="Residual (µV)",
     )
     st.plotly_chart(fig, use_container_width=True)
+    st.caption(f"Residuals (Prediction Errors) — {channel_name} (RMSE={rmse:.3f} µV)")
 
 
 def render_statistics_table(
@@ -194,7 +213,7 @@ def render_statistics_table(
     r_ch: float,
     channel_name: str,
 ):
-    residuals = y_pred_c - y_true_c
+    residuals = y_true_c - y_pred_c
     mae = np.mean(np.abs(residuals))
     rmse = np.sqrt(np.mean(residuals**2))
 
@@ -210,7 +229,7 @@ def render_statistics_table(
         st.metric("Pearson r", f"{r_ch:.4f}")
 
     with col2:
-        st.metric("R²", f"{r_squared:.4f}")
+        st.metric("R2", f"{r_squared:.4f}")
 
     with col3:
         st.metric("RMSE (µV)", f"{rmse:.3f}")
@@ -242,35 +261,18 @@ def render_residual_diagnostics(
 
     norm_tests = normality_tests(residuals)
 
-    st.markdown("#### Normality Tests")
-    st.markdown(
-        "**Null Hypothesis:** Residuals are normally distributed. "
-        "Low p-values (< 0.05) suggest non-normality."
+    st.markdown("#### Normality Test")
+    shapiro_stat, shapiro_p = norm_tests["shapiro"]
+    st.metric(
+        "Shapiro-Wilk Test",
+        f"p = {shapiro_p:.4f}",
+        delta=f"stat = {shapiro_stat:.4f}",
     )
-
-    col1, col2 = st.columns(2)
-    with col1:
-        shapiro_stat, shapiro_p = norm_tests["shapiro"]
-        st.metric(
-            "Shapiro-Wilk Test",
-            f"p = {shapiro_p:.4f}",
-            delta=f"stat = {shapiro_stat:.4f}",
-        )
-
-    with col2:
-        ks_stat, ks_p = norm_tests["ks"]
-        st.metric(
-            "Kolmogorov-Smirnov Test",
-            f"p = {ks_p:.4f}",
-            delta=f"stat = {ks_stat:.4f}",
-        )
 
     st.markdown("#### Q-Q Plot (Quantile-Quantile)")
-    st.markdown(
-        "Points should lie on the diagonal line if residuals are normally distributed."
-    )
 
-    theoretical_q, sample_q = qq_plot_data(residuals)
+    residuals_std = (residuals - np.mean(residuals)) / (np.std(residuals) + 1e-12)
+    theoretical_q, sample_q = qq_plot_data(residuals_std)
 
     if len(theoretical_q) > 0:
         fig_qq = go.Figure()
@@ -281,38 +283,38 @@ def render_residual_diagnostics(
                 y=sample_q,
                 mode="markers",
                 name="Residuals",
-                marker=dict(size=4, color="rgba(31, 119, 180, 0.6)"),
+                marker=dict(size=4, color=PALETTE.twilight_indigo, opacity=0.6),
             )
         )
 
-        min_val = min(theoretical_q.min(), sample_q.min())
-        max_val = max(theoretical_q.max(), sample_q.max())
+        min_q = min(np.min(theoretical_q), np.min(sample_q))
+        max_q = max(np.max(theoretical_q), np.max(sample_q))
         fig_qq.add_trace(
             go.Scatter(
-                x=[min_val, max_val],
-                y=[min_val, max_val],
+                x=[min_q, max_q],
+                y=[min_q, max_q],
                 mode="lines",
-                name="Normal Distribution",
-                line=dict(color="red", dash="dash", width=2),
+                name="Reference",
+                line=dict(color=PALETTE.strawberry_red, width=1, dash="dash"),
             )
         )
 
         fig_qq.update_layout(
-            title=f"Q-Q Plot — {channel_name}",
-            xaxis_title="Theoretical Quantiles",
-            yaxis_title="Sample Quantiles",
-            showlegend=True,
+            template="plotly_white",
+            font=dict(family=PLOT_STYLE.font_family),
+            margin=dict(l=60, r=80, t=40, b=60),
+            showlegend=False,
+            xaxis_title="Theoretical Quantiles (Normal)",
+            yaxis_title="Sample Quantiles (Standardized)",
         )
         st.plotly_chart(fig_qq, use_container_width=True)
+        st.caption(f"Q-Q Plot — {channel_name} (Standardized)")
     else:
-        st.warning("Not enough data for Q-Q plot")
+        pass
 
     st.markdown("#### Probability Plot (CDF Comparison)")
-    st.markdown(
-        "Empirical CDF should closely match theoretical normal CDF if residuals are Gaussian."
-    )
 
-    theoretical_cdf, empirical_cdf = probability_plot_data(residuals)
+    theoretical_cdf, empirical_cdf = probability_plot_data(residuals_std)
 
     if len(theoretical_cdf) > 0:
         fig_prob = go.Figure()
@@ -323,7 +325,7 @@ def render_residual_diagnostics(
                 y=empirical_cdf,
                 mode="markers",
                 name="Empirical CDF",
-                marker=dict(size=3, color="rgba(31, 119, 180, 0.6)"),
+                marker=dict(size=3, color=PALETTE.twilight_indigo),
             )
         )
 
@@ -332,20 +334,23 @@ def render_residual_diagnostics(
                 x=[0, 1],
                 y=[0, 1],
                 mode="lines",
-                name="Perfect Match",
-                line=dict(color="red", dash="dash", width=2),
+                name="Reference",
+                line=dict(color=PALETTE.strawberry_red, width=1, dash="dash"),
             )
         )
 
         fig_prob.update_layout(
-            title=f"Probability Plot — {channel_name}",
-            xaxis_title="Theoretical CDF (Normal)",
-            yaxis_title="Empirical CDF",
-            showlegend=True,
+            template="plotly_white",
+            font=dict(family=PLOT_STYLE.font_family),
+            margin=dict(l=60, r=80, t=40, b=60),
+            showlegend=False,
+            xaxis_title="Theoretical Cumulative Probability",
+            yaxis_title="Empirical Cumulative Probability",
         )
         st.plotly_chart(fig_prob, use_container_width=True)
+        st.caption(f"Probability Plot — {channel_name}")
     else:
-        st.warning("Not enough data for probability plot")
+        pass
 
     st.markdown("#### Whiteness Test (Ljung-Box)")
     whiteness_results = whiteness_test(residuals)
@@ -374,32 +379,192 @@ def render_residual_diagnostics(
                 x=lags,
                 y=acf,
                 name="ACF",
-                marker=dict(color="rgba(31, 119, 180, 0.6)"),
+                marker=dict(color=PALETTE.twilight_indigo),
             )
         )
 
         confidence_interval = 1.96 / np.sqrt(len(residuals.flatten()))
         fig_acf.add_hline(
             y=confidence_interval,
-            line_dash="dash",
-            line_color="red",
+            line_dash="dot",
+            line_color=PALETTE.cool_steel,
             annotation_text="95% CI",
         )
         fig_acf.add_hline(
             y=-confidence_interval,
-            line_dash="dash",
-            line_color="red",
+            line_dash="dot",
+            line_color=PALETTE.cool_steel,
         )
 
         fig_acf.update_layout(
-            title=f"Autocorrelation Function — {channel_name}",
-            xaxis_title="Lag",
-            yaxis_title="ACF",
+            template="plotly_white",
+            font=dict(family=PLOT_STYLE.font_family),
+            margin=dict(l=60, r=80, t=40, b=60),
             showlegend=False,
+            xaxis_title="Lag",
+            yaxis_title="Autocorrelation",
         )
         st.plotly_chart(fig_acf, use_container_width=True)
+        st.caption(f"Autocorrelation Function — {channel_name}")
     else:
-        st.warning("Not enough data for ACF plot")
+        pass
+
+
+def render_system_eigenvalues(idSys):
+    A = getattr(idSys, "A", None)
+    if A is None:
+        return
+
+    nx_brain = getattr(idSys, "nx_brain", A.shape[0])
+    nx_noise = getattr(idSys, "nx_noise", 0)
+
+    st.markdown("---")
+    st.markdown("### System Dynamics Stability")
+
+    A_np = np.array(A) if not isinstance(A, np.ndarray) else A
+    if A_np.size == 0:
+        st.info("System matrix A is empty")
+        return
+
+    A_brain = A_np[:nx_brain, :nx_brain]
+    ev_brain = np.linalg.eigvals(A_brain) if nx_brain > 0 else np.array([])
+
+    ev_noise = np.array([])
+    if nx_noise > 0:
+        A_noise = A_np[nx_brain:, nx_brain:]
+        ev_noise = np.linalg.eigvals(A_noise)
+
+    col1, col2 = st.columns([1, 1])
+
+    with col1:
+        fig = go.Figure()
+
+        # Unit circle for stability reference
+        theta = np.linspace(0, 2 * np.pi, 100)
+        fig.add_trace(
+            go.Scatter(
+                x=np.cos(theta),
+                y=np.sin(theta),
+                mode="lines",
+                line=dict(color="rgba(150, 150, 150, 0.5)", dash="dash"),
+                name="Unit Circle",
+                showlegend=False,
+            )
+        )
+
+        if ev_brain.size > 0:
+            fig.add_trace(
+                go.Scatter(
+                    x=ev_brain.real,
+                    y=ev_brain.imag,
+                    mode="markers",
+                    marker=dict(
+                        size=12,
+                        color=PLOT_COLOR.stim_on,
+                        line=dict(width=1, color="black"),
+                    ),
+                    name="Brain Dynamics",
+                    hovertemplate="<b>Brain - Real:</b> %{x:.4f}<br><b>Imag:</b> %{y:.4f}<br><b>Magnitude:</b> %{customdata:.4f}<extra></extra>",
+                    customdata=np.abs(ev_brain),
+                )
+            )
+
+        if ev_noise.size > 0:
+            fig.add_trace(
+                go.Scatter(
+                    x=ev_noise.real,
+                    y=ev_noise.imag,
+                    mode="markers",
+                    marker=dict(
+                        size=10,
+                        color=PALETTE.strawberry_red,
+                        symbol="diamond",
+                        line=dict(width=1, color="black"),
+                    ),
+                    name="Behavior Noise",
+                    hovertemplate="<b>Noise - Real:</b> %{x:.4f}<br><b>Imag:</b> %{y:.4f}<br><b>Magnitude:</b> %{customdata:.4f}<extra></extra>",
+                    customdata=np.abs(ev_noise),
+                )
+            )
+
+        max_val = 1.1
+        if ev_brain.size > 0 or ev_noise.size > 0:
+            all_ev = np.concatenate([ev_brain, ev_noise])
+            max_val = max(1.1, np.max(np.abs(all_ev)) * 1.1)
+
+        fig.add_shape(
+            type="line",
+            x0=-max_val,
+            y0=0,
+            x1=max_val,
+            y1=0,
+            line=dict(color="lightgray", width=1),
+        )
+        fig.add_shape(
+            type="line",
+            x0=0,
+            y0=-max_val,
+            x1=0,
+            y1=max_val,
+            line=dict(color="lightgray", width=1),
+        )
+
+        fig.update_layout(
+            template="plotly_white",
+            xaxis_title="Real",
+            yaxis_title="Imaginary",
+            xaxis=dict(range=[-max_val, max_val], scaleanchor="y", scaleratio=1),
+            yaxis=dict(range=[-max_val, max_val], scaleanchor="x", scaleratio=1),
+            width=450,
+            height=450,
+            margin=dict(l=20, r=20, t=20, b=20),
+            legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
+        )
+        st.plotly_chart(fig, use_container_width=True)
+        st.caption(
+            "Eigenvalues of the augmented system matrix A. Points inside the unit circle indicate stable dynamics."
+        )
+
+    with col2:
+        if ev_brain.size > 0:
+            st.markdown("#### Brain Eigenvalues")
+            df_brain = pd.DataFrame(
+                {
+                    "Real": ev_brain.real,
+                    "Imag": ev_brain.imag,
+                    "Magnitude": np.abs(ev_brain),
+                    "Phase (rad)": np.angle(ev_brain),
+                }
+            )
+            st.dataframe(
+                df_brain.style.format("{:.4f}"),
+                hide_index=True,
+                use_container_width=True,
+            )
+            max_eig_b = np.max(np.abs(ev_brain))
+            st.info(
+                f"**Brain Spectral Radius:** {max_eig_b:.4f} ({'Stable' if max_eig_b < 1.0 else 'Unstable'})"
+            )
+
+        if ev_noise.size > 0:
+            st.markdown("#### Behavior Noise Eigenvalues")
+            df_noise = pd.DataFrame(
+                {
+                    "Real": ev_noise.real,
+                    "Imag": ev_noise.imag,
+                    "Magnitude": np.abs(ev_noise),
+                    "Phase (rad)": np.angle(ev_noise),
+                }
+            )
+            st.dataframe(
+                df_noise.style.format("{:.4f}"),
+                hide_index=True,
+                use_container_width=True,
+            )
+            max_eig_n = np.max(np.abs(ev_noise))
+            st.info(
+                f"**Noise Spectral Radius:** {max_eig_n:.4f} ({'Stable' if max_eig_n < 1.0 else 'Unstable'})"
+            )
 
 
 def render_learned_noise_diagnostics(
@@ -407,13 +572,6 @@ def render_learned_noise_diagnostics(
     run_ts: str,
 ):
     st.markdown("### Learned Noise Covariance Matrices")
-    st.markdown(
-        "These matrices characterize the stochastic dynamics learned by the model:\n"
-        "- **Q**: Process noise covariance (state dynamics)\n"
-        "- **R**: Observation noise covariance (measurement noise)\n"
-        "- **S**: Cross-covariance between process and observation noise"
-    )
-
     with st.spinner("Loading model..."):
         tester = Tester.from_config_file(config_path, run_timestamp=run_ts)
         tester._load_model_for_run()
@@ -423,6 +581,10 @@ def render_learned_noise_diagnostics(
     if hasattr(model, "idSys"):
         idSys = model.idSys
 
+        # System matrix eigenvalues
+        render_system_eigenvalues(idSys)
+
+        st.markdown("---")
         Q = getattr(idSys, "Q", None)
         R = getattr(idSys, "R", None)
         S = getattr(idSys, "S", None)
@@ -504,36 +666,32 @@ def render_z_scatter_plot(
     channel_name: str,
     r_ch: float,
 ):
+    from dashboard.subtabs.helpers import rescale_to_reference
+
+    z_pred_c_rescaled = rescale_to_reference(z_pred_c, z_true_c)
+
     fig = go.Figure()
 
     fig.add_trace(
         go.Scatter(
             x=z_true_c,
-            y=z_pred_c,
+            y=z_pred_c_rescaled,
             mode="markers",
-            name="Predictions",
+            name="Predictions (rescaled)",
             marker=dict(
                 size=4,
-                color="rgba(31, 119, 180, 0.6)",
+                color=PALETTE.twilight_indigo,
+                opacity=0.6,
                 line=dict(width=0),
             ),
         )
     )
 
-    min_val = min(np.min(z_true_c), np.min(z_pred_c))
-    max_val = max(np.max(z_true_c), np.max(z_pred_c))
-    fig.add_trace(
-        go.Scatter(
-            x=[min_val, max_val],
-            y=[min_val, max_val],
-            mode="lines",
-            name="Identity (y=x)",
-            line=dict(color="red", dash="dash", width=2),
-        )
-    )
+    min_val = min(np.min(z_true_c), np.min(z_pred_c_rescaled))
+    max_val = max(np.max(z_true_c), np.max(z_pred_c_rescaled))
 
     slope, intercept, r_value, p_value, std_err = scipy_stats.linregress(
-        z_true_c, z_pred_c
+        z_true_c, z_pred_c_rescaled
     )
     r_squared = r_value**2
 
@@ -546,14 +704,14 @@ def render_z_scatter_plot(
             y=y_line,
             mode="lines",
             name="OLS Fit",
-            line=dict(color="blue", width=2),
+            line=dict(color=PALETTE.strawberry_red, width=1.2),
         )
     )
 
     annotation_text = (
         f"<b>OLS Regression:</b><br>"
         f"y = {slope:.4f}x + {intercept:.4f}<br>"
-        f"R² = {r_squared:.4f}<br>"
+        f"R2 = {r_squared:.4f}<br>"
         f"p-value = {p_value:.2e}"
     )
 
@@ -574,12 +732,17 @@ def render_z_scatter_plot(
     )
 
     fig.update_layout(
-        title=f"True vs Predicted — {channel_name} (Pearson r={r_ch:.3f})",
-        xaxis_title="Z_true",
-        yaxis_title="Z_pred",
+        template="plotly_white",
+        font=dict(family=PLOT_STYLE.font_family),
+        margin=dict(l=60, r=80, t=40, b=60),
         showlegend=True,
+        xaxis_title="True Value",
+        yaxis_title="Predicted Value (rescaled)",
     )
     st.plotly_chart(fig, use_container_width=True)
+    st.caption(
+        f"True vs Predicted — {channel_name} (Pearson r={r_ch:.3f}) — *Predictions rescaled to match Z_true mean/std*"
+    )
 
     st.markdown("#### OLS Regression Coefficients")
     col1, col2, col3, col4 = st.columns(4)
@@ -588,7 +751,7 @@ def render_z_scatter_plot(
     with col2:
         st.metric("Intercept", f"{intercept:.4f}")
     with col3:
-        st.metric("R²", f"{r_squared:.4f}")
+        st.metric("R2", f"{r_squared:.4f}")
     with col4:
         st.metric("p-value", f"{p_value:.2e}")
 
@@ -598,8 +761,9 @@ def render_z_residual_plot(
     z_pred_c: np.ndarray,
     t_abs: np.ndarray,
     channel_name: str,
+    chunk_margin: float = 0.0,
 ):
-    residuals = z_pred_c - z_true_c
+    residuals = z_true_c - z_pred_c
 
     fig = go.Figure()
 
@@ -609,17 +773,23 @@ def render_z_residual_plot(
             y=residuals,
             mode="lines",
             name="Residuals",
-            line=dict(color=PALETTE.strawberry_red),
+            line=dict(color=PALETTE.strawberry_red, width=1.2),
         )
     )
     rmse = np.sqrt(np.mean(residuals**2))
 
+    if chunk_margin > 0:
+        add_margin_visualization(fig, t_abs, chunk_margin)
+
     fig.update_layout(
-        title=f"Residuals (Prediction Errors) — {channel_name} (RMSE={rmse:.3f})",
+        template="plotly_white",
+        font=dict(family=PLOT_STYLE.font_family),
+        margin=dict(l=60, r=80, t=40, b=60),
         xaxis_title="Time (s)",
-        yaxis_title="Error",
+        yaxis_title="Residual",
     )
     st.plotly_chart(fig, use_container_width=True)
+    st.caption(f"Residuals (Prediction Errors) — {channel_name} (RMSE={rmse:.3f})")
 
 
 def render_z_statistics_table(
@@ -628,7 +798,7 @@ def render_z_statistics_table(
     r_ch: float,
     channel_name: str,
 ):
-    residuals = z_pred_c - z_true_c
+    residuals = z_true_c - z_pred_c
     mae = np.mean(np.abs(residuals))
     rmse = np.sqrt(np.mean(residuals**2))
 
@@ -644,7 +814,7 @@ def render_z_statistics_table(
         st.metric("Pearson r", f"{r_ch:.4f}")
 
     with col2:
-        st.metric("R²", f"{r_squared:.4f}")
+        st.metric("R2", f"{r_squared:.4f}")
 
     with col3:
         st.metric("RMSE", f"{rmse:.3f}")
@@ -660,7 +830,10 @@ def render_z_prediction_plot(
     channel_idx: int,
     channel_name: str,
     r_ch: float,
+    chunk_margin: float = 0.0,
 ):
+    from dashboard.subtabs.helpers import rescale_to_reference
+
     nz_chan = z_true.shape[1] if z_true.ndim == 2 else 1
     z_true = transpose_if_needed(z_true, len(t_abs))
     z_pred = transpose_if_needed(z_pred, len(t_abs))
@@ -668,41 +841,89 @@ def render_z_prediction_plot(
     z_true_c = z_true.squeeze() if nz_chan == 1 else z_true[:, channel_idx]
     z_pred_c = z_pred.squeeze() if nz_chan == 1 else z_pred[:, channel_idx]
 
-    mean_true = np.mean(z_true_c)
-    mean_pred = np.mean(z_pred_c)
-    std_true = np.std(z_true_c)
-    std_pred = np.std(z_pred_c)
-    if std_pred > 0:
-        scale_factor = std_true / std_pred
-        z_pred_c_scaled = (z_pred_c - mean_pred) * scale_factor + mean_true
-    else:
-        scale_factor = 1.0
-        z_pred_c_scaled = z_pred_c - mean_pred + mean_true
+    z_pred_c_rescaled = rescale_to_reference(z_pred_c, z_true_c)
 
-    fig = go.Figure()
+    onset_time = t_abs.min() if len(t_abs) > 0 else 0.0
+    fig = create_base_time_series_figure(
+        time_abs=t_abs,
+        onset_time=onset_time,
+        y_label="Value",
+        title="",
+    )
+
     fig.add_trace(
         go.Scatter(
             x=t_abs,
             y=z_true_c,
             name="Z_true",
             mode="lines",
+            line=dict(color=PLOT_COLOR.stim_off, width=PLOT_STYLE.line_width_normal),
         )
     )
     fig.add_trace(
         go.Scatter(
             x=t_abs,
-            y=z_pred_c_scaled,
-            name=f"Z_pred (scaled ×{scale_factor:.2f})",
+            y=z_pred_c_rescaled,
+            name="Z_pred (rescaled)",
             mode="lines",
+            line=dict(
+                color=PLOT_COLOR.stim_on, width=PLOT_STYLE.line_width_normal, dash="dot"
+            ),
         )
     )
 
-    fig.update_layout(
-        title=f"Z and Z_p — {channel_name} (r={r_ch:.3f})",
-        xaxis_title="Time (s)",
-        yaxis_title="Value",
+    if chunk_margin > 0:
+        add_margin_visualization(fig, t_abs, chunk_margin)
+
+    st.plotly_chart(fig, use_container_width=True)
+    r_str = f"{r_ch:.3f}" if not np.isnan(r_ch) else "N/A"
+    st.caption(
+        f"Behavioral Prediction: {channel_name} (Pearson r={r_str}) — *Predictions rescaled to match Z_true mean/std for visualization*"
+    )
+
+
+def render_prediction_psd_analysis(y_true, y_pred, sampling_rate=60, channel_name=""):
+    if y_true is None or y_pred is None:
+        return
+
+    from dashboard.backbone import create_base_psd_line_figure
+
+    freqs_t, psd_t = compute_power_spectrum(y_true, sampling_rate)
+    freqs_p, psd_p = compute_power_spectrum(y_pred, sampling_rate)
+
+    psd_t_val = psd_t.squeeze() if psd_t.ndim > 1 else psd_t
+    psd_p_val = psd_p.squeeze() if psd_p.ndim > 1 else psd_p
+
+    psd_t_db = 10 * np.log10(psd_t_val + 1e-20) + 120
+    psd_p_db = 10 * np.log10(psd_p_val + 1e-20) + 120
+
+    fig = create_base_psd_line_figure(
+        x_label="Frequency (Hz)",
+        y_label="Power (dB)",
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=freqs_t,
+            y=psd_t_db,
+            name="True PSD",
+            mode="lines",
+            line=dict(color=PLOT_COLOR.stim_off, width=PLOT_STYLE.line_width_normal),
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=freqs_p,
+            y=psd_p_db,
+            name="Predicted PSD",
+            mode="lines",
+            line=dict(
+                color=PLOT_COLOR.stim_on, width=PLOT_STYLE.line_width_normal, dash="dot"
+            ),
+        )
     )
     st.plotly_chart(fig, use_container_width=True)
+    st.caption(f"PSD Analysis: True vs Predicted — {channel_name}")
 
 
 def render_predictions_tab(split_res: Dict[str, Any], trial_idx: int, cfg_path: Path):
@@ -710,19 +931,10 @@ def render_predictions_tab(split_res: Dict[str, Any], trial_idx: int, cfg_path: 
     Yp = split_res["Yp"]
     Zp = split_res["Zp"]
     pearson_tr = split_res["pearson_per_channel"]
-    pearson_mean = split_res["pearson_mean"]
 
     y_t = np.array(Y_true[trial_idx])
     y_p = np.array(Yp[trial_idx])
     z_p = None if Zp[trial_idx] is None else np.array(Zp[trial_idx])
-
-    r_list = pearson_tr[trial_idx] if pearson_tr else []
-
-    if r_list:
-        valid_r = [r for r in r_list if not (r is None or np.isnan(r))]
-        r_mean = np.mean(valid_r) if len(valid_r) > 0 else np.nan
-    else:
-        r_mean = np.nan
 
     offsets = split_res.get("offset", [])
     t_offset = (
@@ -732,6 +944,24 @@ def render_predictions_tab(split_res: Dict[str, Any], trial_idx: int, cfg_path: 
     )
     n_samples = y_t.shape[0]
     t_abs = get_trial_time_axis(split_res, trial_idx, n_samples, t_offset)
+
+    chunk_margin_val = split_res.get("chunk_margin", 0.0)
+    if isinstance(chunk_margin_val, list):
+        chunk_margin = (
+            float(chunk_margin_val[trial_idx])
+            if trial_idx < len(chunk_margin_val)
+            else 0.0
+        )
+    else:
+        chunk_margin = float(chunk_margin_val) if chunk_margin_val is not None else 0.0
+    pearson_tr_trial = pearson_tr[trial_idx] if pearson_tr else []
+    r_list = pearson_tr_trial
+
+    if r_list:
+        valid_r = [r for r in r_list if not (r is None or np.isnan(r))]
+        r_mean = np.mean(valid_r) if len(valid_r) > 0 else np.nan
+    else:
+        r_mean = np.nan
 
     chan_names = split_res.get("input_channels", [])
     behavioral_input_names = split_res.get("behavioral_input_channels", []) or []
@@ -772,29 +1002,49 @@ def render_predictions_tab(split_res: Dict[str, Any], trial_idx: int, cfg_path: 
             pass
 
     st.markdown("#### Time Series: Y_true vs Y_pred")
-    fig_ts = go.Figure()
+
+    onset_time = t_abs.min() if len(t_abs) > 0 else 0.0
+    fig_ts = create_base_time_series_figure(
+        time_abs=t_abs,
+        onset_time=onset_time,
+        y_label="Amplitude (µV)",
+        title="",
+    )
     fig_ts.add_trace(
         go.Scatter(
             x=t_abs,
             y=y_true_c,
-            name="Y_true (µV)",
+            name="True",
             mode="lines",
+            line=dict(color=PLOT_COLOR.stim_off, width=PLOT_STYLE.line_width_normal),
         )
     )
     fig_ts.add_trace(
         go.Scatter(
             x=t_abs,
             y=y_pred_c,
-            name="Y_pred (µV)",
+            name="Predicted",
             mode="lines",
+            line=dict(
+                color=PLOT_COLOR.stim_on, width=PLOT_STYLE.line_width_normal, dash="dot"
+            ),
         )
     )
-    fig_ts.update_layout(
-        title=f"Y and Y_p — {selected_name} (r={r_ch:.3f})",
-        xaxis_title="Time (s)",
-        yaxis_title="Amplitude (µV)",
-    )
+
+    r_str = f"{r_ch:.3f}" if not np.isnan(r_ch) else "N/A"
     st.plotly_chart(fig_ts, use_container_width=True)
+    r_str = f"{r_ch:.3f}" if not np.isnan(r_ch) else "N/A"
+    st.caption(f"Neural Signal Prediction: {selected_name} (Pearson r={r_str})")
+
+    from utils.config import get_config
+
+    cfg = get_config(str(cfg_path))
+    fs = getattr(cfg.data, "sampling_frequency", 60)
+
+    st.markdown("#### PSD Analysis: True vs Predicted")
+    render_prediction_psd_analysis(
+        y_true_c, y_pred_c, sampling_rate=fs, channel_name=selected_name
+    )
 
     st.markdown("#### Scatter Plot: True vs Predicted")
     render_y_scatter_plot(y_true_c, y_pred_c, selected_name, r_ch)
@@ -806,18 +1056,10 @@ def render_predictions_tab(split_res: Dict[str, Any], trial_idx: int, cfg_path: 
 
     st.markdown("---")
     with st.expander("Residual Diagnostics & Normality Tests", expanded=False):
-        st.markdown(
-            "Comprehensive diagnostics to verify that residuals follow a Gaussian distribution, "
-            "which is a key assumption for many state-space models."
-        )
         render_residual_diagnostics(y_true_c, y_pred_c, selected_name)
 
     st.markdown("---")
     with st.expander("Learned Noise Covariance Matrices", expanded=False):
-        st.markdown(
-            "Visualize the noise covariance matrices (Q, R, S) learned by the model during training. "
-            "These characterize the stochastic dynamics of the system."
-        )
         if "config_path" in st.session_state and "run_timestamp" in st.session_state:
             render_learned_noise_diagnostics(
                 str(st.session_state["config_path"]), st.session_state["run_timestamp"]
@@ -879,6 +1121,11 @@ def render_predictions_tab(split_res: Dict[str, Any], trial_idx: int, cfg_path: 
             st.markdown("#### Time Series: Z_true vs Z_pred")
             render_z_prediction_plot(z_t, z_p, t_abs, z_c, selected_z_name, r_z_ch)
 
+            st.markdown("#### PSD Analysis: Z_true vs Z_pred")
+            render_prediction_psd_analysis(
+                z_true_c, z_pred_c, sampling_rate=fs, channel_name=selected_z_name
+            )
+
             st.markdown("#### Scatter Plot: True vs Predicted")
             render_z_scatter_plot(z_true_c, z_pred_c, selected_z_name, r_z_ch)
 
@@ -896,9 +1143,6 @@ def render_predictions_tab(split_res: Dict[str, Any], trial_idx: int, cfg_path: 
 
             st.markdown("---")
             with st.expander("Detrended Z_pred Diagnostics", expanded=False):
-                st.markdown(
-                    "Analysis of Z_pred with mean removed to check if it represents white Gaussian noise."
-                )
                 z_pred_detrended = z_pred_c - np.mean(z_pred_c)
                 z_true_zero = np.zeros_like(z_pred_detrended)
                 render_residual_diagnostics(

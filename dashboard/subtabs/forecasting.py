@@ -4,12 +4,28 @@ import plotly.graph_objects as go
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 
-from dashboard.backbone import PALETTE
+from dashboard.backbone import (
+    PALETTE,
+    PLOT_STYLE,
+    PLOT_COLOR,
+    create_base_time_series_figure,
+    add_caption_below,
+)
 from dashboard.subtabs.helpers import (
     get_trial_time_axis,
     compute_forecast_for_trial,
 )
 from utils.config import get_config
+from dashboard.subtabs.predictions import (
+    render_y_scatter_plot,
+    render_y_residual_plot,
+    render_statistics_table,
+    render_residual_diagnostics,
+    render_prediction_psd_analysis,
+    render_z_scatter_plot,
+    render_z_residual_plot,
+    render_z_statistics_table,
+)
 from utils.stats import (
     compute_power_spectrum,
     find_dominant_frequencies,
@@ -29,21 +45,33 @@ def render_y_forecast_plot(
     channel_name: str,
     r_fore_ch: float,
 ):
+    from dashboard.subtabs.helpers import rescale_to_reference
+    
     n_chan = y_concat.shape[1] if y_concat.ndim == 2 else 1
     y_concat_c = y_concat.squeeze() if n_chan == 1 else y_concat[:, channel_idx]
     y_ft_c = y_future_true.squeeze() if n_chan == 1 else y_future_true[:, channel_idx]
     y_fp_c = y_future_pred.squeeze() if n_chan == 1 else y_future_pred[:, channel_idx]
+    
+    # Rescale forecast to match true signal's mean/std for visualization
+    y_fp_c_rescaled = rescale_to_reference(y_fp_c, y_ft_c)
 
     T = len(y_concat_c)
     Tpast = max(0, T - m_samples)
     t_past = t_abs_margined[:Tpast]
     t_future = t_abs_margined[Tpast:T]
 
+    t_present_idx = max(0, Tpast - 1) if Tpast > 0 else 0
     t_present = (
-        t_abs_margined[Tpast] if Tpast < len(t_abs_margined) else t_abs_margined[-1]
+        t_abs_margined[t_present_idx] if t_present_idx < len(t_abs_margined) else t_abs_margined[-1]
     )
 
-    fig = go.Figure()
+    onset_time = t_abs_margined.min() if len(t_abs_margined) > 0 else 0.0
+    fig = create_base_time_series_figure(
+        time_abs=t_abs_margined,
+        onset_time=onset_time,
+        y_label="Amplitude (µV)",
+        title="",
+    )
 
     if Tpast > 0:
         fig.add_trace(
@@ -52,18 +80,18 @@ def render_y_forecast_plot(
                 y=y_concat_c[:Tpast],
                 name="History",
                 mode="lines",
-                line=dict(color=PALETTE.twilight_indigo, width=2),
+                line=dict(color=PALETTE.cool_steel, width=PLOT_STYLE.line_width_normal),
             )
         )
 
         t_future_plot = t_abs_margined[Tpast - 1 : T]
         last_hist_val = y_concat_c[Tpast - 1]
         y_ft_plot = np.concatenate(([last_hist_val], y_ft_c))
-        y_fp_plot = np.concatenate(([last_hist_val], y_fp_c))
+        y_fp_plot = np.concatenate(([last_hist_val], y_fp_c_rescaled))
     else:
         t_future_plot = t_future
         y_ft_plot = y_ft_c
-        y_fp_plot = y_fp_c
+        y_fp_plot = y_fp_c_rescaled
 
     fig.add_trace(
         go.Scatter(
@@ -71,7 +99,7 @@ def render_y_forecast_plot(
             y=y_ft_plot,
             name="True Future",
             mode="lines",
-            line=dict(color="#2ca02c", width=2),
+            line=dict(color=PLOT_COLOR.stim_off, width=PLOT_STYLE.line_width_normal),
         )
     )
 
@@ -79,30 +107,27 @@ def render_y_forecast_plot(
         go.Scatter(
             x=t_future_plot,
             y=y_fp_plot,
-            name="Forecast",
+            name="Forecast (rescaled)",
             mode="lines",
-            line=dict(color=PALETTE.strawberry_red, width=2),
+            line=dict(
+                color=PLOT_COLOR.stim_on, width=PLOT_STYLE.line_width_normal, dash="dot"
+            ),
         )
     )
 
     fig.add_vline(
         x=t_present,
         line_dash="dash",
-        line_color="gray",
-        line_width=2,
-        annotation_text="Present",
-        annotation_position="top",
+        line_color=PALETTE.vintage_grape,
+        line_width=1.2,
+        annotation_text="Forecast Start",
+        annotation_position="top right",
+        annotation_font=dict(size=10, color=PALETTE.vintage_grape),
     )
 
-    m_seconds = m_samples / SAMPLING_FREQ
-    fig.update_layout(
-        title=f"Y Forecast (horizon={m_seconds:.2f}s) — {channel_name} (r={r_fore_ch:.3f})",
-        xaxis_title="Time (s)",
-        yaxis_title="Amplitude (µV)",
-        showlegend=True,
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-    )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, key=f"y_forecast_{channel_name}")
+    r_str = f"{r_fore_ch:.3f}" if not np.isnan(r_fore_ch) else "N/A"
+    st.caption(f"Neural Signal Forecast: {channel_name} (Pearson r={r_str}) — *Forecast rescaled to match Y_true mean/std for visualization*")
 
 
 def render_z_forecast_plot(
@@ -115,22 +140,14 @@ def render_z_forecast_plot(
     channel_name: str,
     r_fore_z_ch: float,
 ):
+    from dashboard.subtabs.helpers import rescale_to_reference
 
     nz_chan = z_future_true.shape[1] if z_future_true.ndim == 2 else 1
 
     z_ft_c = z_future_true.squeeze() if nz_chan == 1 else z_future_true[:, channel_idx]
     z_fp_c = z_future_pred.squeeze() if nz_chan == 1 else z_future_pred[:, channel_idx]
 
-    mean_true = np.mean(z_ft_c)
-    mean_pred = np.mean(z_fp_c)
-    std_true = np.std(z_ft_c)
-    std_pred = np.std(z_fp_c)
-    if std_pred > 0:
-        scale_factor = std_true / std_pred
-        z_fp_c = (z_fp_c - mean_pred) * scale_factor + mean_true
-    else:
-        scale_factor = 1.0
-        z_fp_c = z_fp_c - mean_pred + mean_true
+    z_fp_c_rescaled = rescale_to_reference(z_fp_c, z_ft_c)
 
     T = (
         len(z_concat)
@@ -141,11 +158,18 @@ def render_z_forecast_plot(
     t_past = t_abs_margined[:Tpast]
     t_future = t_abs_margined[Tpast : Tpast + len(z_ft_c)]
 
+    t_present_idx = max(0, Tpast - 1) if Tpast > 0 else 0
     t_present = (
-        t_abs_margined[Tpast] if Tpast < len(t_abs_margined) else t_abs_margined[-1]
+        t_abs_margined[t_present_idx] if t_present_idx < len(t_abs_margined) else t_abs_margined[-1]
     )
 
-    fig = go.Figure()
+    onset_time = t_abs_margined.min() if len(t_abs_margined) > 0 else 0.0
+    fig = create_base_time_series_figure(
+        time_abs=t_abs_margined,
+        onset_time=onset_time,
+        y_label="Value",
+        title="",
+    )
 
     if z_concat is not None:
         z_concat = np.array(z_concat)
@@ -157,22 +181,24 @@ def render_z_forecast_plot(
                     y=z_concat_c[:Tpast],
                     name="History",
                     mode="lines",
-                    line=dict(color=PALETTE.twilight_indigo, width=2),
+                    line=dict(
+                        color=PALETTE.cool_steel, width=PLOT_STYLE.line_width_normal
+                    ),
                 )
             )
 
             t_future_plot = t_abs_margined[Tpast - 1 : Tpast + len(z_ft_c)]
             last_hist_val = z_concat_c[Tpast - 1]
             z_ft_plot = np.concatenate(([last_hist_val], z_ft_c))
-            z_fp_plot = np.concatenate(([last_hist_val], z_fp_c))
+            z_fp_plot = np.concatenate(([last_hist_val], z_fp_c_rescaled))
         else:
             t_future_plot = t_future
             z_ft_plot = z_ft_c
-            z_fp_plot = z_fp_c
+            z_fp_plot = z_fp_c_rescaled
     else:
         t_future_plot = t_future
         z_ft_plot = z_ft_c
-        z_fp_plot = z_fp_c
+        z_fp_plot = z_fp_c_rescaled
 
     fig.add_trace(
         go.Scatter(
@@ -180,161 +206,36 @@ def render_z_forecast_plot(
             y=z_ft_plot,
             name="True Future",
             mode="lines",
-            line=dict(color="#2ca02c", width=2),
+            line=dict(color=PLOT_COLOR.stim_off, width=PLOT_STYLE.line_width_normal),
         )
     )
     fig.add_trace(
         go.Scatter(
             x=t_future_plot,
             y=z_fp_plot,
-            name=f"Forecast (scaled ×{scale_factor:.2f})",
+            name="Forecast (rescaled)",
             mode="lines",
-            line=dict(color=PALETTE.strawberry_red, width=2),
+            line=dict(
+                color=PLOT_COLOR.stim_on, width=PLOT_STYLE.line_width_normal, dash="dot"
+            ),
         )
     )
 
     fig.add_vline(
         x=t_present,
         line_dash="dash",
-        line_color="gray",
-        line_width=2,
-        annotation_text="Present",
-        annotation_position="top",
+        line_color=PALETTE.vintage_grape,
+        line_width=1.2,
+        annotation_text="Forecast Start",
+        annotation_position="top right",
+        annotation_font=dict(size=10, color=PALETTE.vintage_grape),
     )
 
-    m_seconds = m_samples / SAMPLING_FREQ
-    fig.update_layout(
-        title=f"Z Forecast (horizon={m_seconds:.2f}s) — {channel_name} (r={r_fore_z_ch:.3f})",
-        xaxis_title="Time (s)",
-        yaxis_title="Value",
-        showlegend=True,
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    st.plotly_chart(fig, use_container_width=True, key=f"z_forecast_{channel_name}")
+    r_str = f"{r_fore_z_ch:.3f}" if not np.isnan(r_fore_z_ch) else "N/A"
+    st.caption(
+        f"Behavioral Forecast: {channel_name} (Pearson r={r_str}) — *Forecast rescaled to match Z_true mean/std for visualization*"
     )
-    st.plotly_chart(fig, use_container_width=True)
-
-
-def render_frequency_analysis(
-    y_future_true: np.ndarray,
-    y_future_pred: np.ndarray,
-    channel_name: str,
-    sampling_freq: float = SAMPLING_FREQ,
-):
-
-    st.markdown(f"### Frequency Analysis — {channel_name}")
-    st.markdown("Compare frequency content of true vs predicted signals")
-
-    freqs_true, psd_true = compute_power_spectrum(y_future_true, sampling_freq)
-    freqs_pred, psd_pred = compute_power_spectrum(y_future_pred, sampling_freq)
-
-    psd_true_1d = psd_true.flatten() if psd_true.ndim > 1 else psd_true
-    psd_pred_1d = psd_pred.flatten() if psd_pred.ndim > 1 else psd_pred
-
-    from utils.stats import (
-        compare_band_power,
-        CLINICAL_FREQUENCY_BANDS,
-    )
-
-    band_comparison = compare_band_power(
-        y_future_true, y_future_pred, sampling_freq, CLINICAL_FREQUENCY_BANDS
-    )
-
-    from plotly.subplots import make_subplots
-
-    fig = make_subplots(
-        rows=1,
-        cols=2,
-        subplot_titles=[
-            "PSD Overlay",
-            "Band Power Comparison",
-        ],
-        horizontal_spacing=0.1,
-    )
-
-    fig.add_trace(
-        go.Scatter(
-            x=freqs_true,
-            y=psd_true_1d,
-            mode="lines",
-            name="True",
-            line=dict(color="blue", width=2),
-        ),
-        row=1,
-        col=1,
-    )
-
-    fig.add_trace(
-        go.Scatter(
-            x=freqs_pred,
-            y=psd_pred_1d,
-            mode="lines",
-            name="Predicted",
-            line=dict(color="red", width=2, dash="dash"),
-        ),
-        row=1,
-        col=1,
-    )
-
-    band_names = list(band_comparison.keys())
-    true_powers = [band_comparison[b]["true"] for b in band_names]
-    pred_powers = [band_comparison[b]["pred"] for b in band_names]
-
-    fig.add_trace(
-        go.Bar(
-            x=band_names,
-            y=true_powers,
-            name="True",
-            marker_color="blue",
-            showlegend=False,
-        ),
-        row=1,
-        col=2,
-    )
-
-    fig.add_trace(
-        go.Bar(
-            x=band_names,
-            y=pred_powers,
-            name="Predicted",
-            marker_color="red",
-            showlegend=False,
-        ),
-        row=1,
-        col=2,
-    )
-
-    fig.update_xaxes(title_text="Frequency (Hz)", row=1, col=1)
-    fig.update_yaxes(title_text="PSD", type="log", row=1, col=1)
-
-    fig.update_xaxes(title_text="Frequency Band", row=1, col=2)
-    fig.update_yaxes(title_text="Power", row=1, col=2)
-
-    fig.update_layout(
-        height=400, showlegend=True, title_text=f"Frequency Analysis — {channel_name}"
-    )
-
-    st.plotly_chart(fig, use_container_width=True)
-
-    st.markdown("#### Band Power Statistics")
-
-    import pandas as pd
-
-    band_stats = []
-    for band_name, stats in band_comparison.items():
-        freq_range = stats["freq_range"]
-        band_stats.append(
-            {
-                "Band": f"{band_name} ({freq_range[0]}-{freq_range[1]} Hz)",
-                "True Power": f"{stats['true']:.2e}",
-                "Pred Power": f"{stats['pred']:.2e}",
-                "Error": f"{stats['error']:.2e}",
-                "Ratio": (
-                    f"{stats['ratio']:.3f}" if not np.isnan(stats["ratio"]) else "N/A"
-                ),
-            }
-        )
-
-    df_bands = pd.DataFrame(band_stats)
-    st.dataframe(df_bands, use_container_width=True, hide_index=True)
 
 
 def render_forecasting_tab(
@@ -414,7 +315,6 @@ def render_forecasting_tab(
             f_res = trial_forecast
 
     if not f_res:
-        st.warning("Failed to compute forecast for this trial.")
         return
 
     try:
@@ -501,39 +401,48 @@ def render_forecasting_tab(
                 r_fore_ch,
             )
 
+            cfg = get_config(str(cfg_path))
+            fs = getattr(cfg.data, "sampling_frequency", SAMPLING_FREQ)
+
+            y_future_true_arr = np.array(y_future_true)
+            y_future_pred_arr = np.array(y_future_pred)
+
+            if y_future_true_arr.ndim == 1:
+                y_true_ch = y_future_true_arr
+            elif y_future_true_arr.ndim == 2 and c < y_future_true_arr.shape[1]:
+                y_true_ch = y_future_true_arr[:, c]
+            else:
+                y_true_ch = y_future_true_arr.flatten()
+
+            if y_future_pred_arr.ndim == 1:
+                y_pred_ch = y_future_pred_arr
+            elif y_future_pred_arr.ndim == 2 and c < y_future_pred_arr.shape[1]:
+                y_pred_ch = y_future_pred_arr[:, c]
+            else:
+                y_pred_ch = y_future_pred_arr.flatten()
+
+            T = len(y_concat)
+            Tpast = max(0, T - m)
+            t_future = t_abs_margined[Tpast:T]
+
+            st.markdown("#### PSD Analysis: True Future vs Forecast")
+            render_prediction_psd_analysis(
+                y_true_ch, y_pred_ch, sampling_rate=fs, channel_name=selected_name
+            )
+
+            st.markdown("#### Scatter Plot: True Future vs Forecast")
+            render_y_scatter_plot(y_true_ch, y_pred_ch, selected_name, r_fore_ch)
+
+            st.markdown("#### Residual Plot: Prediction Errors Over Time")
+            render_y_residual_plot(y_true_ch, y_pred_ch, t_future, selected_name)
+
+            render_statistics_table(y_true_ch, y_pred_ch, r_fore_ch, selected_name)
+
             st.markdown("---")
-            try:
-                cfg = get_config(str(cfg_path))
-                sampling_freq = cfg.data.sampling_frequency
-
-                y_future_true_arr = np.array(y_future_true)
-                y_future_pred_arr = np.array(y_future_pred)
-
-                if y_future_true_arr.ndim == 1:
-                    y_true_ch = y_future_true_arr
-                elif y_future_true_arr.ndim == 2 and c < y_future_true_arr.shape[1]:
-                    y_true_ch = y_future_true_arr[:, c]
-                else:
-                    y_true_ch = y_future_true_arr.flatten()
-
-                if y_future_pred_arr.ndim == 1:
-                    y_pred_ch = y_future_pred_arr
-                elif y_future_pred_arr.ndim == 2 and c < y_future_pred_arr.shape[1]:
-                    y_pred_ch = y_future_pred_arr[:, c]
-                else:
-                    y_pred_ch = y_future_pred_arr.flatten()
-
-                if y_true_ch.ndim == 0 or y_pred_ch.ndim == 0:
-                    st.warning("Invalid channel data for frequency analysis")
-                else:
-                    render_frequency_analysis(
-                        y_true_ch,
-                        y_pred_ch,
-                        selected_name,
-                        sampling_freq,
-                    )
-            except Exception as e:
-                st.warning(f"Could not render frequency analysis: {e}")
+            with st.expander(
+                "Residual Diagnostics & Normality Tests (Forecast)", expanded=False
+            ):
+                render_residual_diagnostics(y_true_ch, y_pred_ch, selected_name)
 
             z_concat = f_res.get("Z_concat_for_plot")
             z_future_true = f_res.get("Z_future_true")
@@ -584,8 +493,44 @@ def render_forecasting_tab(
                         selected_z_name,
                         r_fore_z_ch,
                     )
-                except Exception as e:
-                    st.warning(f"Could not render Z forecast: {e}")
+
+                    cfg = get_config(str(cfg_path))
+                    fs = getattr(cfg.data, "sampling_frequency", SAMPLING_FREQ)
+
+                    if z_future_true.ndim == 2:
+                        z_ft_c = z_future_true[:, z_c]
+                        z_fp_c = z_future_pred[:, z_c]
+                    else:
+                        z_ft_c = z_future_true
+                        z_fp_c = z_future_pred
+
+                    Tpast = max(0, len(t_abs_margined) - m)
+                    t_future_z = t_abs_margined[Tpast : Tpast + len(z_ft_c)]
+
+                    st.markdown("#### PSD Analysis: True Future vs Forecast")
+                    render_prediction_psd_analysis(
+                        z_ft_c, z_fp_c, sampling_rate=fs, channel_name=selected_z_name
+                    )
+
+                    st.markdown("#### Scatter Plot: True Future vs Forecast")
+                    render_z_scatter_plot(z_ft_c, z_fp_c, selected_z_name, r_fore_z_ch)
+
+                    st.markdown("#### Residual Plot: Prediction Errors Over Time")
+                    render_z_residual_plot(z_ft_c, z_fp_c, t_future_z, selected_z_name)
+
+                    render_z_statistics_table(
+                        z_ft_c, z_fp_c, r_fore_z_ch, selected_z_name
+                    )
+
+                    st.markdown("---")
+                    with st.expander(
+                        "Residual Diagnostics & Normality Tests (Forecast)",
+                        expanded=False,
+                    ):
+                        render_residual_diagnostics(z_ft_c, z_fp_c, selected_z_name)
+
+                except Exception:
+                    pass
 
             x_future_pred = f_res.get("X_future_pred")
 
@@ -602,9 +547,6 @@ def render_forecasting_tab(
 
                             st.markdown("---")
                             st.subheader("Latent States Forecast Frequency Analysis")
-                            st.markdown(
-                                "Verify that forecasted latent states preserve frequency dynamics"
-                            )
 
                             if x_future_true.ndim == 1:
                                 x_future_true = x_future_true.reshape(-1, 1)
@@ -637,11 +579,11 @@ def render_forecasting_tab(
                             cfg = get_config(str(cfg_path))
                             sampling_freq = cfg.data.sampling_frequency
 
-                            render_frequency_analysis(
+                            render_prediction_psd_analysis(
                                 x_true_dim,
                                 x_pred_dim,
-                                f"Latent Dimension {latent_dim+1}",
-                                sampling_freq,
+                                sampling_rate=sampling_freq,
+                                channel_name=f"Latent Dimension {latent_dim+1}",
                             )
 
                 except Exception as e:
@@ -649,5 +591,5 @@ def render_forecasting_tab(
                         f"Could not render latent forecast frequency analysis: {e}"
                     )
 
-    except Exception as e:
-        st.warning(f"Could not render forecast plot: {e}")
+    except Exception:
+        pass

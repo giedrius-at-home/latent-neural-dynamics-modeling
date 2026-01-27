@@ -13,7 +13,7 @@ from utils.data_loader import (
     load_participant_block_data,
     natural_sort_key,
     get_available_datasets,
-    DEFAULT_DATASET,
+    set_participants_path,
 )
 from dashboard.time_series_tab import time_series_tab
 from dashboard.psd_analysis_tab import psd_analysis_tab
@@ -36,16 +36,13 @@ if not available_datasets:
     st.sidebar.error("No datasets found in resampled_recordings/")
     st.stop()
 
-default_idx = 0
-if DEFAULT_DATASET in available_datasets:
-    default_idx = available_datasets.index(DEFAULT_DATASET)
-
 selected_dataset = st.sidebar.selectbox(
     "Dataset",
     options=available_datasets,
-    index=default_idx,
+    index=0,
     help="Select which resampled recordings dataset to use",
 )
+set_participants_path(selected_dataset)
 
 if (
     "selected_dataset" not in st.session_state

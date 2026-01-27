@@ -18,12 +18,52 @@ PLOT_COLOR = DotDict(
 
 PLOT_STYLE = DotDict(
     {
-        "font_family": "sans-serif",
+        "font_family": "Montserrat",
         "title_size": 16,
         "axis_label_size": 14,
         "tick_label_size": 12,
-        "line_width_normal": 2,
+        "line_width_normal": 1.2,
         "line_width_thick": 3,
+    }
+)
+
+LINE_STYLE = DotDict(
+    {
+        "primary": "solid",
+        "secondary": "dot",
+    }
+)
+
+PARTICIPANT_COLORS = DotDict(
+    {
+        "PDI1": DotDict(
+            {
+                "base": "#1f77b4",
+                "dbs_on": "#5da5da",
+                "dbs_off": "#0e4d7a",
+            }
+        ),
+        "PDI2": DotDict(
+            {
+                "base": "#ff7f0e",
+                "dbs_on": "#ffb366",
+                "dbs_off": "#cc5500",
+            }
+        ),
+        "PDI3": DotDict(
+            {
+                "base": "#2ca02c",
+                "dbs_on": "#5fd35f",
+                "dbs_off": "#1a6b1a",
+            }
+        ),
+        "PDI4": DotDict(
+            {
+                "base": "#9467bd",
+                "dbs_on": "#b999d4",
+                "dbs_off": "#5c3d7a",
+            }
+        ),
     }
 )
 
@@ -197,6 +237,169 @@ def create_base_time_series_figure(
         ),
         showlegend=True,
         margin=dict(l=60, r=80, t=100, b=60),
+    )
+
+    return fig
+
+
+def add_margin_visualization(
+    fig,
+    time_abs,
+    chunk_margin: float,
+    margin_color: str = "rgba(89, 84, 108, 0.1)",
+    line_color: str = "#59546c",
+):
+    if chunk_margin <= 0 or len(time_abs) == 0:
+        return fig
+
+    time_min = (
+        float(time_abs[0])
+        if hasattr(time_abs, "__getitem__")
+        else float(time_abs.min())
+    )
+    time_max = (
+        float(time_abs[-1])
+        if hasattr(time_abs, "__getitem__")
+        else float(time_abs.max())
+    )
+
+    margin_end_left = time_min + chunk_margin
+    margin_start_right = time_max - chunk_margin
+
+    fig.add_vrect(
+        x0=time_min,
+        x1=margin_end_left,
+        fillcolor=margin_color,
+        layer="below",
+        line_width=0,
+    )
+    fig.add_vline(
+        x=margin_end_left,
+        line_dash="dash",
+        line_color=line_color,
+        line_width=2,
+        annotation_text="Margin End",
+        annotation_position="top right",
+        annotation_font=dict(size=10, color=line_color),
+    )
+
+    fig.add_vrect(
+        x0=margin_start_right,
+        x1=time_max,
+        fillcolor=margin_color,
+        layer="below",
+        line_width=0,
+    )
+    fig.add_vline(
+        x=margin_start_right,
+        line_dash="dash",
+        line_color=line_color,
+        line_width=2,
+        annotation_text="Margin Start",
+        annotation_position="top left",
+        annotation_font=dict(size=10, color=line_color),
+    )
+
+    return fig
+
+
+def add_caption_below(fig, caption_text: str):
+    fig.add_annotation(
+        text=caption_text,
+        xref="paper",
+        yref="paper",
+        x=0.5,
+        y=-0.15,
+        showarrow=False,
+        font=dict(
+            size=11, family=PLOT_STYLE.font_family, color=PALETTE.twilight_indigo
+        ),
+        xanchor="center",
+        yanchor="top",
+    )
+    current_margin = fig.layout.margin
+    fig.update_layout(
+        margin=dict(
+            l=current_margin.l if current_margin.l else 60,
+            r=current_margin.r if current_margin.r else 80,
+            t=current_margin.t if current_margin.t else 60,
+            b=100,
+        )
+    )
+    return fig
+
+
+def create_base_psd_heatmap_figure(
+    x_label: str = "Time (s)", y_label: str = "Frequency (Hz)"
+):
+    fig = go.Figure()
+
+    fig.update_layout(
+        xaxis=dict(
+            title=dict(
+                text=x_label,
+                font=dict(
+                    size=PLOT_STYLE.axis_label_size, family=PLOT_STYLE.font_family
+                ),
+            ),
+            tickfont=dict(size=PLOT_STYLE.tick_label_size),
+        ),
+        yaxis=dict(
+            title=dict(
+                text=y_label,
+                font=dict(
+                    size=PLOT_STYLE.axis_label_size, family=PLOT_STYLE.font_family
+                ),
+            ),
+            tickfont=dict(size=PLOT_STYLE.tick_label_size),
+        ),
+        template="plotly_white",
+        font=dict(
+            family=PLOT_STYLE.font_family,
+            size=PLOT_STYLE.tick_label_size,
+            color="#0e131f",
+        ),
+        margin=dict(l=60, r=80, t=40, b=60),
+    )
+
+    return fig
+
+
+def create_base_psd_line_figure(
+    x_label: str = "Frequency (Hz)", y_label: str = "Power/Frequency (dB/Hz)"
+):
+    fig = go.Figure()
+
+    fig.update_layout(
+        xaxis=dict(
+            title=dict(
+                text=x_label,
+                font=dict(
+                    size=PLOT_STYLE.axis_label_size, family=PLOT_STYLE.font_family
+                ),
+            ),
+            tickfont=dict(size=PLOT_STYLE.tick_label_size),
+        ),
+        yaxis=dict(
+            title=dict(
+                text=y_label,
+                font=dict(
+                    size=PLOT_STYLE.axis_label_size, family=PLOT_STYLE.font_family
+                ),
+            ),
+            tickfont=dict(size=PLOT_STYLE.tick_label_size),
+        ),
+        template="plotly_white",
+        font=dict(
+            family=PLOT_STYLE.font_family,
+            size=PLOT_STYLE.tick_label_size,
+            color="#0e131f",
+        ),
+        legend=dict(
+            font=dict(size=PLOT_STYLE.tick_label_size, family=PLOT_STYLE.font_family)
+        ),
+        showlegend=True,
+        margin=dict(l=60, r=80, t=40, b=60),
     )
 
     return fig

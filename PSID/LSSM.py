@@ -173,6 +173,10 @@ class LSSM:
                 innovCovInv = np.linalg.pinv(self.innovCov)
                 self.K = (self.A @ self.Pp @ self.C.T + self.S) @ innovCovInv
                 self.Kf = self.Pp @ self.C.T @ innovCovInv
+                self.Pf = self.Pp - self.Kf @ self.C @ self.Pp  # Modified by Giedrius
+                self.Cs = (
+                    self.Pf @ self.A.T @ np.linalg.pinv(self.Pp)
+                )  # Modified by Giedrius
                 self.Kv = self.S @ innovCovInv
                 self.A_KC = self.A - self.K @ self.C
             except Exception as err:
@@ -406,13 +410,66 @@ class LSSM:
         else:
             return allXp, allYp, allXf, allPp, allPf
 
-    def predict(self, Y, U=None, useXFilt=False, **kwargs):
+    def smooth(self, Y, U=None, steady_state=True, **kwargs):  # Modified by Giedrius
+        """Applies the RTS smoother associated with the LSSM # Modified by Giedrius"""
+        if self.state_dim == 0:  # Modified by Giedrius
+            allXp = np.zeros((Y.shape[0], self.state_dim))  # Modified by Giedrius
+            allYp = np.zeros((Y.shape[0], self.output_dim))  # Modified by Giedrius
+            return None, allYp, allXp  # Modified by Giedrius
+
+        # Forward pass # Modified by Giedrius
+        if not steady_state:  # Modified by Giedrius
+            allXp, allYp, allXf, allPp, allPf = self.kalman(
+                Y, U=U, return_state_cov=True, steady_state=False, **kwargs
+            )  # Modified by Giedrius
+        else:  # Modified by Giedrius
+            allXp, allYp, allXf = self.kalman(
+                Y, U=U, steady_state=True, **kwargs
+            )  # Modified by Giedrius
+
+        N = allXf.shape[0]  # Modified by Giedrius
+        nx = self.state_dim  # Modified by Giedrius
+        allXs = np.zeros((N, nx))  # Modified by Giedrius
+        allXs[-1, :] = allXf[-1, :]  # Modified by Giedrius
+
+        # Backward pass (RTS) # Modified by Giedrius
+        for t in range(N - 2, -1, -1):  # Modified by Giedrius
+            if not steady_state:  # Modified by Giedrius
+                Ct = (
+                    allPf[t] @ self.A.T @ np.linalg.pinv(allPp[t + 1])
+                )  # Modified by Giedrius
+            else:  # Modified by Giedrius
+                Ct = self.Cs  # Modified by Giedrius
+
+            # x_s[t] = x_f[t] + Ct @ (x_s[t+1] - x_p[t+1]) # Modified by Giedrius
+            allXs[t, :] = allXf[t, :] + (
+                Ct @ (allXs[t + 1, :] - allXp[t + 1, :])
+            )  # Modified by Giedrius
+
+        allYs = self.generateObservationFromStates(
+            allXs, u=U, param_names=["C", "D"], prep_model_param="YPrepModel"
+        )  # Modified by Giedrius
+        if (hasattr(self, "Cz") and self.Cz is not None) or (
+            hasattr(self, "Dz") and self.Dz is not None
+        ):  # Modified by Giedrius
+            allZs = self.generateObservationFromStates(
+                allXs, u=U, param_names=["Cz", "Dz"], prep_model_param="ZPrepModel"
+            )  # Modified by Giedrius
+        else:  # Modified by Giedrius
+            allZs = None  # Modified by Giedrius
+
+        return allZs, allYs, allXs  # Modified by Giedrius
+
+    def predict(
+        self, Y, U=None, useXFilt=False, useSmoothing=False, **kwargs
+    ):  # Modified by Giedrius
         if isinstance(Y, (list, tuple)):  # If segments of data are provided as a list
             for trialInd, trialY in enumerate(Y):
                 trialOuts = self.predict(
                     trialY,
                     U=U if U is None else U[trialInd],
                     useXFilt=useXFilt,
+                    useSmoothing=useSmoothing,  # Modified by Giedrius
                     **kwargs,
                 )
                 if trialInd == 0:
@@ -421,6 +478,9 @@ class LSSM:
                     outs = [outs[oi] + [o] for oi, o in enumerate(trialOuts)]
             return tuple(outs)
         # If only one data segment is provided
+        if useSmoothing:  # Modified by Giedrius
+            return self.smooth(Y, U=U, **kwargs)  # Modified by Giedrius
+
         allXp, allYp, allXf = self.kalman(Y, U=U, **kwargs)[0:3]
         if useXFilt:
             allXp = allXf

@@ -6,6 +6,9 @@ from typing import Tuple, Dict, List, Optional
 
 
 def compute_rdm(data: np.ndarray, metric: str = "correlation") -> np.ndarray:
+    if metric == "correlation" and (data.ndim == 1 or data.shape[1] == 1):
+        metric = "euclidean"
+
     distances = pdist(data, metric=metric)
     rdm = squareform(distances)
 

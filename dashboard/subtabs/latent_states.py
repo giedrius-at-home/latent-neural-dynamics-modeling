@@ -9,6 +9,13 @@ from sklearn.cross_decomposition import CCA as SklearnCCA
 from umap import UMAP
 
 from dashboard.subtabs.helpers import get_trial_time_axis
+from dashboard.backbone import (
+    create_base_time_series_figure,
+    PLOT_STYLE,
+    PALETTE,
+    PLOT_COLOR,
+    add_margin_visualization,
+)
 from utils.config import get_config
 from utils.stats import (
     compute_power_spectrum,
@@ -27,15 +34,21 @@ def render_latent_states_plot(
     duration: Optional[float],
     trial_idx: int,
 ):
-    fig = go.Figure()
     t_x = (
         np.linspace(t_abs[0], t_abs[-1], x_p.shape[0])
         if len(t_abs) != x_p.shape[0]
         else t_abs
     )
     nx = x_p.shape[1] if x_p.ndim == 2 else 1
-    x_min = float(np.nanmin(x_p))
-    x_max = float(np.nanmax(x_p))
+
+    onset_time = t_x.min() if len(t_x) > 0 else 0.0
+
+    fig = create_base_time_series_figure(
+        time_abs=t_x,
+        onset_time=onset_time,
+        y_label="Raw value",
+        title="",
+    )
 
     for d in range(nx):
         series = x_p[:, d] if nx > 1 else x_p.squeeze()
@@ -45,36 +58,39 @@ def render_latent_states_plot(
                 y=series,
                 name=f"X_p[{d}]",
                 mode="lines",
+                line=dict(width=PLOT_STYLE.line_width_normal),
             )
         )
 
     if duration is not None:
-        event_start = (
-            t_offset + float(chunk_margin) if chunk_margin is not None else t_x[0]
-        )
+        event_start = onset_time
         event_end = (
             t_offset
             + float(duration)
             - (float(chunk_margin) if chunk_margin is not None else 0.0)
         )
-        fig.add_vrect(
-            x0=event_start,
-            x1=event_end,
-            fillcolor="rgba(0, 100, 0, 0.1)",
-            layer="below",
-            line_width=0,
+        fig.add_vline(
+            x=event_start,
+            line_dash="dash",
+            line_color=PALETTE.twilight_indigo,
+            annotation_text="Event Start",
+            annotation_font=dict(size=10, color=PALETTE.twilight_indigo),
         )
-        fig.add_vline(x=event_start, line_dash="dash", line_color="green")
-        fig.add_vline(x=event_end, line_dash="dash", line_color="red")
+        fig.add_vline(
+            x=event_end,
+            line_dash="dash",
+            line_color=PALETTE.vintage_grape,
+            annotation_text="Event End",
+            annotation_font=dict(size=10, color=PALETTE.vintage_grape),
+        )
 
     fig.update_layout(
-        title=f"Latent states X_p — Trial {trial_idx}",
-        xaxis_title="Time (s)",
-        yaxis_title="Raw value",
-        xaxis_range=[t_x[0], t_x[-1]],
-        yaxis_range=[x_min, x_max],
+        template="plotly_white",
+        font=dict(family=PLOT_STYLE.font_family),
+        margin=dict(l=60, r=80, t=20, b=60),
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, key=f"latent_ts_{trial_idx}")
+    st.caption(f"Latent States (X_p) — Trial {trial_idx} — {nx} dimensions")
 
 
 def render_auxiliary_predictions_plot(
@@ -85,15 +101,21 @@ def render_auxiliary_predictions_plot(
     duration: Optional[float],
     trial_idx: int,
 ):
-    fig = go.Figure()
     t_z = (
         np.linspace(t_abs[0], t_abs[-1], z_p.shape[0])
         if len(t_abs) != z_p.shape[0]
         else t_abs
     )
     nz = z_p.shape[1] if z_p.ndim == 2 else 1
-    z_min = float(np.nanmin(z_p))
-    z_max = float(np.nanmax(z_p))
+
+    onset_time = t_z.min() if len(t_z) > 0 else 0.0
+
+    fig = create_base_time_series_figure(
+        time_abs=t_z,
+        onset_time=onset_time,
+        y_label="Value",
+        title="",
+    )
 
     for d in range(nz):
         series = z_p[:, d] if nz > 1 else z_p.squeeze()
@@ -103,36 +125,41 @@ def render_auxiliary_predictions_plot(
                 y=series,
                 name=f"Z_p[{d}]",
                 mode="lines",
+                line=dict(width=PLOT_STYLE.line_width_normal),
             )
         )
 
     if duration is not None:
-        event_start = (
-            t_offset + float(chunk_margin) if chunk_margin is not None else t_z[0]
-        )
+        event_start = onset_time
         event_end = (
             t_offset
             + float(duration)
             - (float(chunk_margin) if chunk_margin is not None else 0.0)
         )
-        fig.add_vrect(
-            x0=event_start,
-            x1=event_end,
-            fillcolor="rgba(0, 100, 0, 0.1)",
-            layer="below",
-            line_width=0,
+        fig.add_vline(
+            x=event_start,
+            line_dash="dash",
+            line_color=PALETTE.twilight_indigo,
+            annotation_text="Event Start",
+            annotation_font=dict(size=10, color=PALETTE.twilight_indigo),
         )
-        fig.add_vline(x=event_start, line_dash="dash", line_color="green")
-        fig.add_vline(x=event_end, line_dash="dash", line_color="red")
+        fig.add_vline(
+            x=event_end,
+            line_dash="dash",
+            line_color=PALETTE.vintage_grape,
+            annotation_text="Event End",
+            annotation_font=dict(size=10, color=PALETTE.vintage_grape),
+        )
 
     fig.update_layout(
-        title=f"Other predictions Z_p — Trial {trial_idx}",
-        xaxis_title="Time (s)",
-        yaxis_title="Value",
-        xaxis_range=[t_z[0], t_z[-1]],
-        yaxis_range=[z_min, z_max],
+        template="plotly_white",
+        font=dict(family=PLOT_STYLE.font_family),
+        margin=dict(l=60, r=80, t=20, b=60),
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, key=f"aux_z_ts_{trial_idx}")
+    st.caption(
+        f"Auxiliary Variable Predictions (Z_p) — Trial {trial_idx} — {nz} dimensions"
+    )
 
 
 def render_tsne_umap_plot(
@@ -144,12 +171,6 @@ def render_tsne_umap_plot(
         return
 
     n_samples, n_dims = x_p.shape
-
-    if n_dims < 3:
-        st.info(
-            f"Latent space has only {n_dims} dimensions. Dimensionality reduction is most useful for higher-dimensional spaces."
-        )
-        return
 
     if z_p is not None and z_p.size > 0:
         if z_p.ndim == 2:
@@ -199,12 +220,15 @@ def render_tsne_umap_plot(
             )
         )
         fig_tsne.update_layout(
-            title=f"t-SNE of Latent States — Trial {trial_idx}",
+            template="plotly_white",
+            font=dict(family=PLOT_STYLE.font_family),
             xaxis_title="t-SNE 1",
             yaxis_title="t-SNE 2",
             height=400,
+            margin=dict(l=60, r=20, t=20, b=60),
         )
-        st.plotly_chart(fig_tsne, use_container_width=True)
+        st.plotly_chart(fig_tsne, use_container_width=True, key=f"tsne_{trial_idx}")
+        st.caption(f"t-SNE Projection — Trial {trial_idx}")
 
     with col2:
         st.markdown("##### UMAP Projection")
@@ -234,12 +258,15 @@ def render_tsne_umap_plot(
             )
         )
         fig_umap.update_layout(
-            title=f"UMAP of Latent States — Trial {trial_idx}",
+            template="plotly_white",
+            font=dict(family=PLOT_STYLE.font_family),
             xaxis_title="UMAP 1",
             yaxis_title="UMAP 2",
             height=400,
+            margin=dict(l=60, r=20, t=20, b=60),
         )
-        st.plotly_chart(fig_umap, use_container_width=True)
+        st.plotly_chart(fig_umap, use_container_width=True, key=f"umap_{trial_idx}")
+        st.caption(f"UMAP Projection — Trial {trial_idx}")
 
 
 def render_cca_analysis(
@@ -300,13 +327,16 @@ def render_cca_analysis(
             )
         )
         fig_corr.update_layout(
-            title=f"Canonical Correlations — Trial {trial_idx}",
+            template="plotly_white",
+            font=dict(family=PLOT_STYLE.font_family),
             xaxis_title="Canonical Component",
             yaxis_title="Correlation",
             yaxis_range=[0, 1.1],
             height=400,
+            margin=dict(l=60, r=20, t=20, b=60),
         )
-        st.plotly_chart(fig_corr, use_container_width=True)
+        st.plotly_chart(fig_corr, use_container_width=True, key=f"cca_corr_{trial_idx}")
+        st.caption(f"Canonical Correlations — Trial {trial_idx}")
 
     with col2:
         st.markdown("**Cumulative Variance Explained**")
@@ -326,8 +356,10 @@ def render_cca_analysis(
                 y=cum_var_x,
                 mode="lines+markers",
                 name=x_label,
-                line=dict(color="blue", width=2),
-                marker=dict(size=8),
+                line=dict(
+                    color=PALETTE.twilight_indigo, width=PLOT_STYLE.line_width_normal
+                ),
+                marker=dict(size=6),
             )
         )
         fig_var.add_trace(
@@ -336,19 +368,24 @@ def render_cca_analysis(
                 y=cum_var_z,
                 mode="lines+markers",
                 name=z_label,
-                line=dict(color="red", width=2),
-                marker=dict(size=8),
+                line=dict(
+                    color=PALETTE.strawberry_red, width=PLOT_STYLE.line_width_normal
+                ),
+                marker=dict(size=6),
             )
         )
         fig_var.update_layout(
-            title=f"Cumulative Variance — Trial {trial_idx}",
+            template="plotly_white",
+            font=dict(family=PLOT_STYLE.font_family),
             xaxis_title="Canonical Component",
             yaxis_title="Cumulative Variance (%)",
             yaxis_range=[0, 105],
             height=400,
             showlegend=True,
+            margin=dict(l=60, r=20, t=20, b=60),
         )
-        st.plotly_chart(fig_var, use_container_width=True)
+        st.plotly_chart(fig_var, use_container_width=True, key=f"cca_var_{trial_idx}")
+        st.caption(f"Cumulative Variance — Trial {trial_idx}")
 
     st.markdown("**Canonical Variate Relationships**")
 
@@ -390,12 +427,19 @@ def render_cca_analysis(
                 )
 
                 fig_scatter.update_layout(
-                    title=f"Component {i+1} (r={canonical_corrs[i]:.3f})",
+                    template="plotly_white",
+                    font=dict(family=PLOT_STYLE.font_family),
                     xaxis_title=f"{x_label} CC{i+1}",
                     yaxis_title=f"{z_label} CC{i+1}",
                     height=400,
+                    margin=dict(l=60, r=20, t=20, b=60),
                 )
-                st.plotly_chart(fig_scatter, use_container_width=True)
+                st.plotly_chart(
+                    fig_scatter,
+                    use_container_width=True,
+                    key=f"cca_scatter_{trial_idx}_{i}",
+                )
+                st.caption(f"Component {i+1} (Correlation r={canonical_corrs[i]:.3f})")
 
     st.markdown("**CCA Loadings (Weights)**")
     st.markdown(
@@ -419,12 +463,17 @@ def render_cca_analysis(
             )
         )
         fig_load_x.update_layout(
-            title=f"{x_label} Loadings",
+            template="plotly_white",
+            font=dict(family=PLOT_STYLE.font_family),
             xaxis_title="Canonical Component",
             yaxis_title="Original Dimension",
             height=300,
+            margin=dict(l=60, r=20, t=20, b=60),
         )
-        st.plotly_chart(fig_load_x, use_container_width=True)
+        st.plotly_chart(
+            fig_load_x, use_container_width=True, key=f"cca_load_x_{trial_idx}"
+        )
+        st.caption(f"{x_label} Loadings")
 
     with col2:
         st.markdown(f"**{z_label} Loadings**")
@@ -441,12 +490,17 @@ def render_cca_analysis(
             )
         )
         fig_load_z.update_layout(
-            title=f"{z_label} Loadings",
+            template="plotly_white",
+            font=dict(family=PLOT_STYLE.font_family),
             xaxis_title="Canonical Component",
             yaxis_title="Original Dimension",
             height=300,
+            margin=dict(l=60, r=20, t=20, b=60),
         )
-        st.plotly_chart(fig_load_z, use_container_width=True)
+        st.plotly_chart(
+            fig_load_z, use_container_width=True, key=f"cca_load_z_{trial_idx}"
+        )
+        st.caption(f"{z_label} Loadings")
 
     st.markdown("**Summary Statistics**")
     stat_cols = st.columns(4)
@@ -496,18 +550,23 @@ def render_eigenvalue_analysis(x_p: np.ndarray, trial_idx: int):
             go.Bar(
                 x=list(range(1, len(eigenvalues) + 1)),
                 y=eigenvalues,
-                marker_color="steelblue",
+                marker_color=PALETTE.twilight_indigo,
                 text=[f"{ev:.2f}" for ev in eigenvalues],
                 textposition="outside",
             )
         )
         fig_eigen.update_layout(
-            title=f"Eigenvalues of Latent Covariance — Trial {trial_idx}",
+            template="plotly_white",
+            font=dict(family=PLOT_STYLE.font_family),
             xaxis_title="Component",
             yaxis_title="Eigenvalue",
             height=400,
+            margin=dict(l=60, r=20, t=20, b=60),
         )
-        st.plotly_chart(fig_eigen, use_container_width=True)
+        st.plotly_chart(
+            fig_eigen, use_container_width=True, key=f"eigen_spectrum_{trial_idx}"
+        )
+        st.caption(f"Eigenvalue Spectrum — Trial {trial_idx}")
 
     with col2:
         st.markdown("##### Explained Variance")
@@ -517,7 +576,7 @@ def render_eigenvalue_analysis(x_p: np.ndarray, trial_idx: int):
                 x=list(range(1, len(explained_var) + 1)),
                 y=explained_var,
                 name="Individual",
-                marker_color="lightblue",
+                marker_color=PALETTE.cool_steel,
             )
         )
         fig_var.add_trace(
@@ -526,18 +585,23 @@ def render_eigenvalue_analysis(x_p: np.ndarray, trial_idx: int):
                 y=cumulative_var,
                 name="Cumulative",
                 mode="lines+markers",
-                line=dict(color="red", width=2),
-                marker=dict(size=8),
+                line=dict(
+                    color=PALETTE.strawberry_red, width=PLOT_STYLE.line_width_normal
+                ),
+                marker=dict(size=6),
             )
         )
         fig_var.update_layout(
-            title=f"Variance Explained — Trial {trial_idx}",
+            template="plotly_white",
+            font=dict(family=PLOT_STYLE.font_family),
             xaxis_title="Component",
             yaxis_title="Variance Explained (%)",
             height=400,
             showlegend=True,
+            margin=dict(l=60, r=20, t=20, b=60),
         )
-        st.plotly_chart(fig_var, use_container_width=True)
+        st.plotly_chart(fig_var, use_container_width=True, key=f"eigen_var_{trial_idx}")
+        st.caption(f"Cumulative Variance — Trial {trial_idx}")
 
     st.markdown("##### Statistics")
     stat_cols = st.columns(4)
@@ -602,7 +666,7 @@ def render_phase_space_analysis(
     _render_single_trial_heatmap(x_p, dim_x, dim_y, z_p, trial_idx)
 
     st.markdown("---")
-    st.markdown("#### Trajectory with Arrows")
+    st.markdown("#### Trajectory")
     render_trajectory(x_p, dim_x, dim_y, split_res, trial_idx, z_p=z_p)
 
     st.markdown("---")
@@ -643,15 +707,22 @@ def _render_single_trial_heatmap(
     )
 
     fig.update_layout(
-        title=f"Phase Space Heatmap: Dimension {dim_x+1} vs Dimension {dim_y+1}",
+        template="plotly_white",
+        font=dict(family=PLOT_STYLE.font_family),
         xaxis_title=f"Latent Dimension {dim_x+1}",
         yaxis_title=f"Latent Dimension {dim_y+1}",
         showlegend=False,
         hovermode="closest",
         height=600,
+        margin=dict(l=60, r=20, t=20, b=60),
     )
 
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(
+        fig, use_container_width=True, key=f"phase_heatmap_{trial_idx}_{dim_x}_{dim_y}"
+    )
+    st.caption(
+        f"Phase Space Heatmap: Dimension {dim_x+1} vs Dimension {dim_y+1} — Trial {trial_idx}"
+    )
 
 
 def _render_dbs_comparison(
@@ -792,8 +863,12 @@ def _render_dbs_comparison(
         fig.update_yaxes(title_text=f"Latent Dimension {dim_y+1}", row=1, col=2)
 
         fig.update_layout(
-            title_text=f"DBS ON/OFF Phase Space Comparison: Dim {dim_x+1} vs Dim {dim_y+1}",
+            template="plotly_white",
+            font=dict(family=PLOT_STYLE.font_family),
+            xaxis_title=f"Latent Dimension {dim_x+1}",
+            yaxis_title=f"Latent Dimension {dim_y+1}",
             height=600,
+            margin=dict(l=60, r=20, t=20, b=60),
         )
     else:
         condition = "on" if has_on else "off"
@@ -801,7 +876,6 @@ def _render_dbs_comparison(
         hist_smooth = hist_on_smooth if has_on else hist_off_smooth
 
         fig = go.Figure()
-
         fig.add_trace(
             go.Heatmap(
                 x=x_bins[:-1],
@@ -812,15 +886,19 @@ def _render_dbs_comparison(
                 hovertemplate="X: %{x:.3f}<br>Y: %{y:.3f}<br>Density: %{z:.1f}<extra></extra>",
             )
         )
-
         fig.update_layout(
-            title=f"DBS {condition} Phase Space: Dim {dim_x+1} vs Dim {dim_y+1} ({n_trials} trials)",
+            template="plotly_white",
+            font=dict(family=PLOT_STYLE.font_family),
             xaxis_title=f"Latent Dimension {dim_x+1}",
             yaxis_title=f"Latent Dimension {dim_y+1}",
             height=600,
+            margin=dict(l=60, r=20, t=20, b=60),
         )
 
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, key=f"dbs_compare_{trial_idx}")
+    st.caption(
+        f"DBS Phase Space Comparison: Dim {dim_x+1} vs Dim {dim_y+1} — Trial {trial_idx}"
+    )
 
     st.markdown("#### Distribution Statistics")
 
@@ -850,15 +928,13 @@ def render_latent_frequency_analysis(
     trial_idx: int,
     sampling_freq: float = SAMPLING_FREQ,
 ):
-
-    st.markdown("### Frequency Analysis of Latent Dynamics")
+    st.markdown("### Spectral Analysis")
     st.markdown("Compare frequency content of latent states vs neural signals")
 
     if x_p.ndim == 1:
         x_p = x_p.reshape(-1, 1)
     if y_true.ndim == 1:
         y_true = y_true.reshape(-1, 1)
-
     if x_p.shape[0] < x_p.shape[1]:
         x_p = x_p.T
     if y_true.shape[0] < y_true.shape[1]:
@@ -885,96 +961,85 @@ def render_latent_frequency_analysis(
 
     x_signal = x_p[:, latent_dim]
     y_signal = y_true[:, neural_chan]
-
     min_len = min(len(x_signal), len(y_signal))
-    x_signal = x_signal[:min_len]
-    y_signal = y_signal[:min_len]
+    x_signal, y_signal = x_signal[:min_len], y_signal[:min_len]
 
     freqs_x, psd_x = compute_power_spectrum(x_signal, sampling_freq)
     freqs_y, psd_y = compute_power_spectrum(y_signal, sampling_freq)
 
-    dom_freqs_x, dom_powers_x = find_dominant_frequencies(freqs_x, psd_x, n_peaks=5)
-    dom_freqs_y, dom_powers_y = find_dominant_frequencies(freqs_y, psd_y, n_peaks=5)
+    psd_x_db = 10 * np.log10(psd_x.flatten() + 1e-20) + 120
+    psd_y_db = 10 * np.log10(psd_y.flatten() + 1e-20) + 120
 
-    spec_corr = spectral_correlation(freqs_x, psd_x, psd_y)
+    from scipy.signal import stft
 
-    fig = go.Figure()
+    nperseg = min(len(x_signal), 128)
+    if nperseg < 8:
+        nperseg = len(x_signal)
+
+    fx, tx, Zxx_x = stft(x_signal, fs=sampling_freq, nperseg=nperseg)
+    fy, ty, Zxx_y = stft(y_signal, fs=sampling_freq, nperseg=nperseg)
+
+    spec_x = 10 * np.log10(np.abs(Zxx_x) + 1e-20) + 120
+    spec_y = 10 * np.log10(np.abs(Zxx_y) + 1e-20) + 120
+
+    fig = make_subplots(
+        rows=1,
+        cols=3,
+        subplot_titles=[
+            "PSD Overlay",
+            f"Latent Dim {latent_dim+1}",
+            f"Neural Chan {neural_chan+1}",
+        ],
+        column_widths=[0.4, 0.3, 0.3],
+        horizontal_spacing=0.08,
+    )
 
     fig.add_trace(
         go.Scatter(
             x=freqs_x,
-            y=psd_x,
-            mode="lines",
-            name=f"Latent Dim {latent_dim+1}",
-            line=dict(color="purple", width=2),
-        )
+            y=psd_x_db,
+            name="Latent",
+            line=dict(color=PALETTE.twilight_indigo, width=1.2),
+        ),
+        row=1,
+        col=1,
     )
-
     fig.add_trace(
         go.Scatter(
             x=freqs_y,
-            y=psd_y,
-            mode="lines",
-            name=f"Neural Chan {neural_chan+1}",
-            line=dict(color="orange", width=2, dash="dash"),
-        )
+            y=psd_y_db,
+            name="Neural",
+            line=dict(color=PALETTE.strawberry_red, width=1.2, dash="dash"),
+        ),
+        row=1,
+        col=1,
     )
-
-    if len(dom_freqs_x) > 0:
-        fig.add_trace(
-            go.Scatter(
-                x=dom_freqs_x,
-                y=dom_powers_x,
-                mode="markers",
-                name="Latent Peaks",
-                marker=dict(size=10, color="purple", symbol="x"),
-            )
-        )
-
-    if len(dom_freqs_y) > 0:
-        fig.add_trace(
-            go.Scatter(
-                x=dom_freqs_y,
-                y=dom_powers_y,
-                mode="markers",
-                name="Neural Peaks",
-                marker=dict(size=10, color="orange", symbol="circle"),
-            )
-        )
+    fig.add_trace(
+        go.Heatmap(z=spec_x, x=tx, y=fx, colorscale="Viridis", showscale=False),
+        row=1,
+        col=2,
+    )
+    fig.add_trace(
+        go.Heatmap(z=spec_y, x=ty, y=fy, colorscale="Viridis", showscale=False),
+        row=1,
+        col=3,
+    )
 
     fig.update_layout(
-        title=f"Power Spectrum: Latent Dim {latent_dim+1} vs Neural Chan {neural_chan+1}",
-        xaxis_title="Frequency (Hz)",
-        yaxis_title="Power Spectral Density",
-        yaxis_type="log",
-        showlegend=True,
-        hovermode="x unified",
+        template="plotly_white",
+        font=dict(family=PLOT_STYLE.font_family),
+        height=400,
+        margin=dict(l=60, r=20, t=40, b=60),
     )
+    fig.update_xaxes(title_text="Freq (Hz)", row=1, col=1)
+    fig.update_yaxes(title_text="Power (dB)", row=1, col=1)
+    fig.update_xaxes(title_text="Time (s)", row=1, col=2)
+    fig.update_yaxes(title_text="Freq (Hz)", row=1, col=2)
+    fig.update_xaxes(title_text="Time (s)", row=1, col=3)
 
-    st.plotly_chart(fig, use_container_width=True)
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.markdown(f"#### Dominant Frequencies (Latent Dim {latent_dim+1})")
-        if len(dom_freqs_x) > 0:
-            for i, (freq, power) in enumerate(zip(dom_freqs_x, dom_powers_x)):
-                st.metric(f"Peak {i+1}", f"{freq:.2f} Hz", f"Power: {power:.2e}")
-        else:
-            st.info("No dominant peaks detected")
-
-    with col2:
-        st.markdown(f"#### Dominant Frequencies (Neural Chan {neural_chan+1})")
-        if len(dom_freqs_y) > 0:
-            for i, (freq, power) in enumerate(zip(dom_freqs_y, dom_powers_y)):
-                st.metric(f"Peak {i+1}", f"{freq:.2f} Hz", f"Power: {power:.2e}")
-        else:
-            st.info("No dominant peaks detected")
-
-    st.markdown("#### Spectral Correlation")
-    st.metric(
-        "Correlation between spectra",
-        f"{spec_corr:.4f}",
+    st.plotly_chart(fig, use_container_width=True, key=f"latent_spectral_{trial_idx}")
+    st.caption(
+        f"Spectral analysis: Latent Dim {latent_dim+1} vs Neural Chan {neural_chan+1} (Dashed)"
     )
 
 
@@ -1029,13 +1094,42 @@ def render_trajectory(
             x=x,
             y=y,
             mode="lines",
-            line=dict(color="steelblue", width=2),
+            line=dict(color="rgba(56, 64, 95, 0.3)", width=0.8),
             showlegend=False,
-            hovertemplate="x: %{x:.3f}<br>y: %{y:.3f}<extra></extra>",
+            hoverinfo="skip",
         )
     )
 
-    arrow_step = max(step, len(x) // 2)
+    # Colored markers based on selection
+    fig.add_trace(
+        go.Scatter(
+            x=x,
+            y=y,
+            mode="markers",
+            marker=dict(
+                size=3.5,
+                color=color_values,
+                colorscale="Viridis",
+                showscale=True,
+                colorbar=dict(
+                    title=color_label,
+                    thickness=15,
+                    len=0.7,
+                    title_font=dict(size=10),
+                    tickfont=dict(size=9),
+                ),
+            ),
+            showlegend=False,
+            hovertemplate=f"<b>Time</b>: %{{text}}<br>X: %{{x:.3f}}<br>Y: %{{y:.3f}}<br>{color_label}: %{{marker.color:.3f}}<extra></extra>",
+            text=(
+                [f"{t:.2f}s" for t in t_abs]
+                if t_abs is not None
+                else [f"idx {i}" for i in range(len(x))]
+            ),
+        )
+    )
+
+    arrow_step = max(3, len(x) // 35)
     arrow_indices = np.arange(0, len(dx), arrow_step)
 
     for i in arrow_indices:
@@ -1050,10 +1144,11 @@ def render_trajectory(
                 axref="x",
                 ayref="y",
                 showarrow=True,
-                arrowhead=2,
-                arrowsize=1.5,
-                arrowwidth=2,
-                arrowcolor="rgba(70, 130, 180, 0.7)",
+                arrowhead=1,
+                arrowsize=0.8,
+                arrowwidth=0.8,
+                arrowcolor=PALETTE.twilight_indigo,
+                opacity=0.6,
             )
     fig.add_trace(
         go.Scatter(
@@ -1061,10 +1156,10 @@ def render_trajectory(
             y=[y[0]],
             mode="markers",
             marker=dict(
-                size=15,
-                color="green",
+                size=10,
+                color="white",
                 symbol="circle",
-                line=dict(width=2, color="darkgreen"),
+                line=dict(width=1.5, color=PALETTE.cool_steel),
             ),
             name="Start",
         )
@@ -1076,22 +1171,25 @@ def render_trajectory(
             y=[y[-1]],
             mode="markers",
             marker=dict(
-                size=15,
-                color="red",
-                symbol="square",
-                line=dict(width=2, color="darkred"),
+                size=10,
+                color=PALETTE.strawberry_red,
+                symbol="circle",
+                line=dict(width=1.5, color="white"),
             ),
             name="End",
         )
     )
 
     fig.update_layout(
-        title=f"Trajectory: Dim {dim_x+1} vs Dim {dim_y+1} — Trial {trial_idx}",
+        template="plotly_white",
+        font=dict(family=PLOT_STYLE.font_family),
         xaxis_title=f"Latent Dimension {dim_x+1}",
         yaxis_title=f"Latent Dimension {dim_y+1}",
         height=600,
+        margin=dict(l=60, r=20, t=20, b=60),
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, key=f"trajectory_{trial_idx}")
+    st.caption(f"Trajectory: Dim {dim_x+1} vs Dim {dim_y+1} — Trial {trial_idx}")
 
 
 def render_latent_states_tab(split_res: Dict[str, Any], trial_idx: int):
