@@ -142,9 +142,7 @@ def render_behavioral_tab(trial_data, metadata_str):
             groups[base] = {}
         groups[base][comp] = col
 
-    sorted_groups = sorted(
-        groups.items(), key=lambda x: (x[0] != "position", x[0])
-    )
+    sorted_groups = sorted(groups.items(), key=lambda x: (x[0] != "position", x[0]))
 
     for base, comps in sorted_groups:
         display_base = base.replace("tracing_", "").replace("_", " ").title()
@@ -178,11 +176,17 @@ def render_behavioral_tab(trial_data, metadata_str):
         if "magnitude" in comps:
             col_name = comps["magnitude"]
             if "velocity" in col_name.lower() or "speed" in col_name.lower():
-                fig_mag = plot_speed_time_series(coords_data, col_name=col_name, time_col=time_col)
+                fig_mag = plot_speed_time_series(
+                    coords_data, col_name=col_name, time_col=time_col
+                )
             elif "acceleration" in col_name.lower():
-                fig_mag = plot_acceleration_time_series(coords_data, col_name=col_name, time_col=time_col)
+                fig_mag = plot_acceleration_time_series(
+                    coords_data, col_name=col_name, time_col=time_col
+                )
             elif "jerk" in col_name.lower():
-                fig_mag = plot_jerk_time_series(coords_data, col_name=col_name, time_col=time_col)
+                fig_mag = plot_jerk_time_series(
+                    coords_data, col_name=col_name, time_col=time_col
+                )
             else:
                 fig_mag = plot_component_time_series(
                     coords_data,
@@ -192,7 +196,7 @@ def render_behavioral_tab(trial_data, metadata_str):
                 )
             st.plotly_chart(fig_mag, use_container_width=True)
 
-        st.markdown("---")      
+        st.markdown("---")
 
 
 def render_cross_trial_speed(block_data):
@@ -243,8 +247,6 @@ def render_cross_trial_speed(block_data):
 def render_neural_tab(trial_data, lfp_channels, ecog_channels, metadata_str):
     render_neural_channels(trial_data, lfp_channels, "LFP", metadata_str)
     render_neural_channels(trial_data, ecog_channels, "ECoG", metadata_str)
-
-
 
 
 def render_cross_trial_tab(block_data):

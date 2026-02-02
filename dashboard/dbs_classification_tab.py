@@ -72,6 +72,7 @@ def render_confusion_matrix(cm: np.ndarray, key: str):
     fig.update_layout(
         xaxis_title="Predicted",
         yaxis_title="True",
+        yaxis=dict(autorange="reversed"),
         height=350,
         template="plotly_white",
         font=dict(family=PLOT_STYLE.font_family),

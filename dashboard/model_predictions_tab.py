@@ -181,6 +181,7 @@ def model_predictions_tab(project_root):
 
             with performance_tab:
                 from dashboard.subtabs import render_cross_trial_performance_tab
+
                 render_cross_trial_performance_tab(split_res)
 
             with lag_analysis_tab:

@@ -47,7 +47,7 @@ def get_participant_sessions(dataset: str = None):
     if participants_path is None:
         logger.warning("PARTICIPANTS_PATH is None and no dataset provided.")
         return {}
-    
+
     logger.info(f"PARTICIPANTS_PATH: {participants_path}")
     if not participants_path.exists():
         st.error(f"Data directory not found at: {participants_path}")
@@ -100,7 +100,7 @@ def load_participant_block_data(
     participants_path = DATA_PATH / dataset if dataset else PARTICIPANTS_PATH
     if participants_path is None:
         raise ValueError("PARTICIPANTS_PATH is None and no dataset provided.")
-    
+
     block_msg = f", Block {block}"
     st.info(f"Loading data for P{participant_id}, Session {session}{block_msg}...")
 

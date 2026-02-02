@@ -376,7 +376,9 @@ class Trainer:
             self.framework._train(Y_train, Z_train)
 
         if fast:
-            self.logger.info("Fast mode enabled: Skipping all post-training predictions and forecasts.")
+            self.logger.info(
+                "Fast mode enabled: Skipping all post-training predictions and forecasts."
+            )
             return {}
 
         # --- FULL EVALUATION (NON-FAST MODE) ---
@@ -458,15 +460,21 @@ class Trainer:
         try:
             out_dir = Path(self.results_config.save_dir)
             html_path = str(out_dir / f"results_plot_{self.run_timestamp}.html")
-            
+
             target_block, target_trial = 9, 8
             trial_idx = 0  # default
             for idx, m in enumerate(meta_val):
                 if m.get("block") == target_block and m.get("trial") == target_trial:
                     trial_idx = idx
                     break
-            
-            self.plot_results(val_results, trial_idx=trial_idx, show_forecast=True, output_html=html_path, meta=meta_val[trial_idx] if meta_val else None)
+
+            self.plot_results(
+                val_results,
+                trial_idx=trial_idx,
+                show_forecast=True,
+                output_html=html_path,
+                meta=meta_val[trial_idx] if meta_val else None,
+            )
             self.logger.info(f"Results plot saved: {html_path} (trial_idx={trial_idx})")
         except Exception as e:
             self.logger.warning(f"Could not generate results plot: {e}")
@@ -637,9 +645,15 @@ class Trainer:
                     "i": getattr(self.model_params, "i", None),
                     "alpha_Q": getattr(self.model_params, "alpha_Q", None),
                     "alpha_R": getattr(self.model_params, "alpha_R", None),
-                    "backward_kalman": getattr(self.model_params, "backward_kalman", False),
-                    "rescale_states": getattr(self.model_params, "rescale_states", True),
-                    "max_eigenvalue": getattr(self.model_params, "max_eigenvalue", 0.995),
+                    "backward_kalman": getattr(
+                        self.model_params, "backward_kalman", False
+                    ),
+                    "rescale_states": getattr(
+                        self.model_params, "rescale_states", True
+                    ),
+                    "max_eigenvalue": getattr(
+                        self.model_params, "max_eigenvalue", 0.995
+                    ),
                 }
                 with open(out_dir / f"model_{ts}_metadata.json", "w") as f:
                     json.dump(metadata, f)
@@ -660,14 +674,24 @@ class Trainer:
 
         Y = np.array(results["Y"][trial_idx])
         Yp = np.array(results["Yp"][trial_idx])
-        Z = np.array(results["Z"][trial_idx]) if results.get("Z") and results["Z"][trial_idx] is not None else None
-        Zp = np.array(results["Zp"][trial_idx]) if results.get("Zp") and results["Zp"][trial_idx] is not None else None
+        Z = (
+            np.array(results["Z"][trial_idx])
+            if results.get("Z") and results["Z"][trial_idx] is not None
+            else None
+        )
+        Zp = (
+            np.array(results["Zp"][trial_idx])
+            if results.get("Zp") and results["Zp"][trial_idx] is not None
+            else None
+        )
 
         input_channels = results.get("input_channels", [])
         output_channels = results.get("output_channels", [])
-        
+
         n_y_chan = Y.shape[1] if Y.ndim == 2 else 1
-        n_z_chan = Z.shape[1] if Z is not None and Z.ndim == 2 else (1 if Z is not None else 0)
+        n_z_chan = (
+            Z.shape[1] if Z is not None and Z.ndim == 2 else (1 if Z is not None else 0)
+        )
 
         if not input_channels:
             input_channels = [f"Y_ch{i}" for i in range(n_y_chan)]
@@ -676,12 +700,20 @@ class Trainer:
 
         pearson_Y = results.get("pearson_r_per_channel", [])
         if isinstance(pearson_Y, list) and len(pearson_Y) > trial_idx:
-            pearson_Y = pearson_Y[trial_idx] if isinstance(pearson_Y[trial_idx], list) else pearson_Y
+            pearson_Y = (
+                pearson_Y[trial_idx]
+                if isinstance(pearson_Y[trial_idx], list)
+                else pearson_Y
+            )
         pearson_Y = np.atleast_1d(pearson_Y)
 
         pearson_Z = results.get("pearson_r_per_channel_Z", [])
         if isinstance(pearson_Z, list) and len(pearson_Z) > trial_idx:
-            pearson_Z = pearson_Z[trial_idx] if isinstance(pearson_Z[trial_idx], list) else pearson_Z
+            pearson_Z = (
+                pearson_Z[trial_idx]
+                if isinstance(pearson_Z[trial_idx], list)
+                else pearson_Z
+            )
         pearson_Z = np.atleast_1d(pearson_Z) if pearson_Z is not None else np.array([])
 
         sampling_freq = self.data_params.sampling_frequency
@@ -726,16 +758,25 @@ class Trainer:
             row = i + 1
             y_true = Y[:, i] if Y.ndim == 2 else Y
             y_pred = Yp[:, i] if Yp.ndim == 2 else Yp
-            
+
             fig.add_trace(
-                go.Scatter(x=t, y=y_true, name="True", line=dict(color="#59546c", width=1.2)),
-                row=row, col=1
+                go.Scatter(
+                    x=t, y=y_true, name="True", line=dict(color="#59546c", width=1.2)
+                ),
+                row=row,
+                col=1,
             )
             fig.add_trace(
-                go.Scatter(x=t, y=y_pred, name="Predicted", line=dict(color="#ff0035", width=1.2, dash="dot")),
-                row=row, col=1
+                go.Scatter(
+                    x=t,
+                    y=y_pred,
+                    name="Predicted",
+                    line=dict(color="#ff0035", width=1.2, dash="dot"),
+                ),
+                row=row,
+                col=1,
             )
-            
+
             if has_forecast:
                 y_concat = Y_concat[:, i] if Y_concat.ndim == 2 else Y_concat
                 y_ft = Y_future_true[:, i] if Y_future_true.ndim == 2 else Y_future_true
@@ -749,19 +790,44 @@ class Trainer:
                     y_fp_scaled = y_fp
 
                 fig.add_trace(
-                    go.Scatter(x=t_concat[:Tpast], y=y_concat[:Tpast], name="History", line=dict(color="#8b939c", width=1.2)),
-                    row=row, col=2
+                    go.Scatter(
+                        x=t_concat[:Tpast],
+                        y=y_concat[:Tpast],
+                        name="History",
+                        line=dict(color="#8b939c", width=1.2),
+                    ),
+                    row=row,
+                    col=2,
                 )
                 t_future = t_concat[Tpast:T]
                 fig.add_trace(
-                    go.Scatter(x=t_future, y=y_ft, name="True Future", line=dict(color="#59546c", width=1.2)),
-                    row=row, col=2
+                    go.Scatter(
+                        x=t_future,
+                        y=y_ft,
+                        name="True Future",
+                        line=dict(color="#59546c", width=1.2),
+                    ),
+                    row=row,
+                    col=2,
                 )
                 fig.add_trace(
-                    go.Scatter(x=t_future, y=y_fp_scaled, name="Forecast (rescaled)", line=dict(color="#ff0035", width=1.2, dash="dot")),
-                    row=row, col=2
+                    go.Scatter(
+                        x=t_future,
+                        y=y_fp_scaled,
+                        name="Forecast (rescaled)",
+                        line=dict(color="#ff0035", width=1.2, dash="dot"),
+                    ),
+                    row=row,
+                    col=2,
                 )
-                fig.add_vline(x=t_concat[Tpast], line_dash="dash", line_color="#59546c", line_width=1, row=row, col=2)
+                fig.add_vline(
+                    x=t_concat[Tpast],
+                    line_dash="dash",
+                    line_color="#59546c",
+                    line_width=1,
+                    row=row,
+                    col=2,
+                )
 
         if Z is not None and Zp is not None:
             has_z_forecast = has_forecast and results.get("Z_future_true") is not None
@@ -774,51 +840,100 @@ class Trainer:
                 row = n_y_chan + i + 1
                 z_true = Z[:, i] if Z.ndim == 2 else Z
                 z_pred = Zp[:, i] if Zp.ndim == 2 else Zp
-                
+
                 z_pred_mean, z_pred_std = np.mean(z_pred), np.std(z_pred)
                 z_true_mean, z_true_std = np.mean(z_true), np.std(z_true)
                 if z_pred_std > 1e-10:
-                    z_pred_scaled = (z_pred - z_pred_mean) / z_pred_std * z_true_std + z_true_mean
+                    z_pred_scaled = (
+                        z_pred - z_pred_mean
+                    ) / z_pred_std * z_true_std + z_true_mean
                 else:
                     z_pred_scaled = z_pred
-                
+
                 fig.add_trace(
-                    go.Scatter(x=t, y=z_true, name="True", line=dict(color="#59546c", width=1.2)),
-                    row=row, col=1
+                    go.Scatter(
+                        x=t,
+                        y=z_true,
+                        name="True",
+                        line=dict(color="#59546c", width=1.2),
+                    ),
+                    row=row,
+                    col=1,
                 )
                 fig.add_trace(
-                    go.Scatter(x=t, y=z_pred_scaled, name="Predicted", line=dict(color="#ff0035", width=1.2, dash="dot")),
-                    row=row, col=1
+                    go.Scatter(
+                        x=t,
+                        y=z_pred_scaled,
+                        name="Predicted",
+                        line=dict(color="#ff0035", width=1.2, dash="dot"),
+                    ),
+                    row=row,
+                    col=1,
                 )
-                
+
                 if has_z_forecast:
                     z_concat = Z_concat[:, i] if Z_concat.ndim == 2 else Z_concat
-                    z_ft = Z_future_true[:, i] if Z_future_true.ndim == 2 else Z_future_true
-                    z_fp = Z_future_pred[:, i] if Z_future_pred.ndim == 2 else Z_future_pred
+                    z_ft = (
+                        Z_future_true[:, i]
+                        if Z_future_true.ndim == 2
+                        else Z_future_true
+                    )
+                    z_fp = (
+                        Z_future_pred[:, i]
+                        if Z_future_pred.ndim == 2
+                        else Z_future_pred
+                    )
 
                     z_fp_mean, z_fp_std = np.mean(z_fp), np.std(z_fp)
                     z_ft_mean, z_ft_std = np.mean(z_ft), np.std(z_ft)
                     if z_fp_std > 1e-10:
-                        z_fp_scaled = (z_fp - z_fp_mean) / z_fp_std * z_ft_std + z_ft_mean
+                        z_fp_scaled = (
+                            z_fp - z_fp_mean
+                        ) / z_fp_std * z_ft_std + z_ft_mean
                     else:
                         z_fp_scaled = z_fp
 
                     fig.add_trace(
-                        go.Scatter(x=t_concat[:Tpast], y=z_concat[:Tpast], name="History", line=dict(color="#8b939c", width=1.2)),
-                        row=row, col=2
+                        go.Scatter(
+                            x=t_concat[:Tpast],
+                            y=z_concat[:Tpast],
+                            name="History",
+                            line=dict(color="#8b939c", width=1.2),
+                        ),
+                        row=row,
+                        col=2,
                     )
                     t_future = t_concat[Tpast:T]
                     if len(t_future) > len(z_ft):
-                        t_future = t_future[:len(z_ft)]
+                        t_future = t_future[: len(z_ft)]
                     fig.add_trace(
-                        go.Scatter(x=t_future, y=z_ft, name="True Future", line=dict(color="#59546c", width=1.2)),
-                        row=row, col=2
+                        go.Scatter(
+                            x=t_future,
+                            y=z_ft,
+                            name="True Future",
+                            line=dict(color="#59546c", width=1.2),
+                        ),
+                        row=row,
+                        col=2,
                     )
                     fig.add_trace(
-                        go.Scatter(x=t_future, y=z_fp_scaled, name="Forecast", line=dict(color="#ff0035", width=1.2, dash="dot")),
-                        row=row, col=2
+                        go.Scatter(
+                            x=t_future,
+                            y=z_fp_scaled,
+                            name="Forecast",
+                            line=dict(color="#ff0035", width=1.2, dash="dot"),
+                        ),
+                        row=row,
+                        col=2,
                     )
-                    fig.add_vline(x=t_concat[Tpast], line_dash="dash", line_color="#59546c", line_width=1, row=row, col=2)
+                    fig.add_vline(
+                        x=t_concat[Tpast],
+                        line_dash="dash",
+                        line_color="#59546c",
+                        line_width=1,
+                        row=row,
+                        col=2,
+                    )
 
         mp = self.model_params
         config_str = (
@@ -826,14 +941,14 @@ class Trainer:
             f"α_Q={getattr(mp, 'alpha_Q', 'N/A')} | α_R={getattr(mp, 'alpha_R', 'N/A')} | "
             f"rescale={getattr(mp, 'rescale_states', 'N/A')} | max_eig={getattr(mp, 'max_eigenvalue', 'N/A')}"
         )
-        
+
         fig.update_layout(
-            height=250 * n_rows + 80, 
+            height=250 * n_rows + 80,
             width=1400,
             title=dict(
                 text=f"<b>Trial {trial_idx} - Predictions & Forecasts</b><br><span style='font-size:12px'>{config_str}</span>",
                 x=0.5,
-                xanchor='center',
+                xanchor="center",
             ),
             showlegend=False,
             template="plotly_white",
@@ -843,17 +958,24 @@ class Trainer:
 
         if output_html:
             import yaml
-            model_config = self.config.model.to_dict() if hasattr(self.config.model, 'to_dict') else dict(self.config.model)
-            yaml_str = yaml.dump({'model': model_config}, default_flow_style=False, sort_keys=False)
-            
+
+            model_config = (
+                self.config.model.to_dict()
+                if hasattr(self.config.model, "to_dict")
+                else dict(self.config.model)
+            )
+            yaml_str = yaml.dump(
+                {"model": model_config}, default_flow_style=False, sort_keys=False
+            )
+
             if meta:
                 trial_info = f"Participant {meta.get('participant_id', 'N/A')} | Session {meta.get('session', 'N/A')} | Block {meta.get('block', 'N/A')} | Trial {meta.get('trial', 'N/A')}"
             else:
                 trial_info = f"Trial Index: {trial_idx}"
-            
-            fig_html = fig.to_html(full_html=False, include_plotlyjs='cdn')
-            
-            html_content = f'''<!DOCTYPE html>
+
+            fig_html = fig.to_html(full_html=False, include_plotlyjs="cdn")
+
+            html_content = f"""<!DOCTYPE html>
 <html>
 <head>
     <title>PSID Results - {trial_info}</title>
@@ -891,10 +1013,9 @@ class Trainer:
     <div class="config-box">{yaml_str}</div>
     {fig_html}
 </body>
-</html>'''
-            
-            with open(output_html, 'w') as f:
+</html>"""
+
+            with open(output_html, "w") as f:
                 f.write(html_content)
             self.logger.info(f"Saved plot to {output_html}")
         return fig
-

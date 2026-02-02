@@ -1,0 +1,47 @@
+model:
+  name: "psid_behavioral_nx15_n14_i80_dbs_off"
+  nx: 15  
+  n1: 4 
+  i: 80
+  time_first: true
+  fast: false
+  reuse_splits: true
+  alpha_Q: 1e-3
+  alpha_R: 1e-2
+  backward_kalman: true
+  rescale_states: true
+  max_eigenvalue: 0.995
+  forecast:
+    m: 2
+    history: 5 
+
+data:
+  root: "resampled_recordings/participants_at_60Hz_scaled_1e6_raw_05_30" 
+  participant: "PDI4"
+  session: "3"
+  blocks: "all"
+  channels:
+    neural_input: [
+      "ECOG_1_beta", "ECOG_2_beta", "ECOG_3_beta", "ECOG_4_beta"
+    ]
+    output_type: "behavioral"
+    output: [
+      "tracing_velocity_x", "tracing_velocity_y", "tracing_velocity_magnitude",
+      "tracing_acceleration_x", "tracing_acceleration_y", "tracing_acceleration_magnitude"
+    ]
+    input_lag: null
+  split:
+    within_session_split: true
+    train: 0.6
+    val: 0.2
+    test: 0.2
+    min_train_epochs: 50
+  batch_size: 32
+  sampling_frequency: 60
+  dbs_condition: "off"
+  jitter: 0
+
+results:
+  save_dir: "results/{model.name}"
+  log_dir: "{results.save_dir}/logs"
+  checkpoint_dir: "checkpoints"

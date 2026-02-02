@@ -440,7 +440,9 @@ def plot_coordinates_time_series(
 
 
 def plot_speed_time_series(
-    trial_df: pl.DataFrame, col_name: str = "tracing_velocity_magnitude", time_col: str = "motion_time"
+    trial_df: pl.DataFrame,
+    col_name: str = "tracing_velocity_magnitude",
+    time_col: str = "motion_time",
 ) -> go.Figure:
     time_data = trial_df[time_col].to_numpy()
     speed_data = trial_df[col_name].to_numpy()
@@ -469,7 +471,9 @@ def plot_speed_time_series(
 
 
 def plot_acceleration_time_series(
-    trial_df: pl.DataFrame, col_name: str = "tracing_acceleration_magnitude", time_col: str = "motion_time"
+    trial_df: pl.DataFrame,
+    col_name: str = "tracing_acceleration_magnitude",
+    time_col: str = "motion_time",
 ) -> go.Figure:
     time_data = trial_df[time_col].to_numpy()
     accel_data = trial_df[col_name].to_numpy()
@@ -498,7 +502,9 @@ def plot_acceleration_time_series(
 
 
 def plot_jerk_time_series(
-    trial_df: pl.DataFrame, col_name: str = "tracing_jerk_magnitude", time_col: str = "motion_time"
+    trial_df: pl.DataFrame,
+    col_name: str = "tracing_jerk_magnitude",
+    time_col: str = "motion_time",
 ) -> go.Figure:
     time_data = trial_df[time_col].to_numpy()
     jerk_data = trial_df[col_name].to_numpy()
