@@ -313,24 +313,31 @@ class DPADWrapper:
         n1: int = self.config.model.n1
         method_code: str = self.config.model.method_code
         epochs: int = self.config.model.epochs
-        
+
         def safe_cast(val, cast_type):
             return cast_type(val) if val is not None else None
 
         dropout = safe_cast(getattr(self.config.model, "dropout", None), float)
-        weight_decay = safe_cast(getattr(self.config.model, "weight_decay", None), float)
+        weight_decay = safe_cast(
+            getattr(self.config.model, "weight_decay", None), float
+        )
         hidden_size = safe_cast(getattr(self.config.model, "hidden_size", None), int)
         layers = safe_cast(getattr(self.config.model, "layers", None), int)
         loss_name = getattr(self.config.model, "loss_name", None)
-        
-        behavior_loss_weight = safe_cast(getattr(self.config.model, "behavior_loss_weight", 1.0), float)
-        recon_loss_weight = safe_cast(getattr(self.config.model, "recon_loss_weight", 1.0), float)
+
+        behavior_loss_weight = safe_cast(
+            getattr(self.config.model, "behavior_loss_weight", 1.0), float
+        )
+        recon_loss_weight = safe_cast(
+            getattr(self.config.model, "recon_loss_weight", 1.0), float
+        )
         use_correlation_loss = getattr(self.config.model, "use_correlation_loss", True)
         fast = getattr(self.config.model, "fast", False)
 
         consistency_loss_weight: float = getattr(
-            self.config.model, "consistency_loss_weight",
-            getattr(self.config.model, "alpha_behavior", 0.0)
+            self.config.model,
+            "consistency_loss_weight",
+            getattr(self.config.model, "alpha_behavior", 0.0),
         )
 
         self.logger.info(
@@ -350,40 +357,106 @@ class DPADWrapper:
 
         # Handle top-level fit arguments
         if dropout is not None:
-            for arg_name in ["A1_args", "K1_args", "Cy1_args", "Cz1_args", "A2_args", "K2_args", "Cy2_args", "Cz2_args", "A_args", "K_args", "Cy_args", "Cz_args"]:
+            for arg_name in [
+                "A1_args",
+                "K1_args",
+                "Cy1_args",
+                "Cz1_args",
+                "A2_args",
+                "K2_args",
+                "Cy2_args",
+                "Cz2_args",
+                "A_args",
+                "K_args",
+                "Cy_args",
+                "Cz_args",
+            ]:
                 if arg_name in args:
                     update_arg_dict(args[arg_name], "dropout_rate", dropout)
-        
+
         if weight_decay is not None:
-            for arg_name in ["A1_args", "K1_args", "Cy1_args", "Cz1_args", "A2_args", "K2_args", "Cy2_args", "Cz2_args", "A_args", "K_args", "Cy_args", "Cz_args"]:
+            for arg_name in [
+                "A1_args",
+                "K1_args",
+                "Cy1_args",
+                "Cz1_args",
+                "A2_args",
+                "K2_args",
+                "Cy2_args",
+                "Cz2_args",
+                "A_args",
+                "K_args",
+                "Cy_args",
+                "Cz_args",
+            ]:
                 if arg_name in args:
                     update_arg_dict(args[arg_name], "kernel_regularizer_name", "l2")
-                    update_arg_dict(args[arg_name], "kernel_regularizer_args", {"l": weight_decay})
-        
+                    update_arg_dict(
+                        args[arg_name], "kernel_regularizer_args", {"l": weight_decay}
+                    )
+
         if hidden_size is not None and layers is not None:
-            for arg_name in ["A1_args", "K1_args", "Cy1_args", "Cz1_args", "A2_args", "K2_args", "Cy2_args", "Cz2_args", "A_args", "K_args", "Cy_args", "Cz_args"]:
+            for arg_name in [
+                "A1_args",
+                "K1_args",
+                "Cy1_args",
+                "Cz1_args",
+                "A2_args",
+                "K2_args",
+                "Cy2_args",
+                "Cz2_args",
+                "A_args",
+                "K_args",
+                "Cy_args",
+                "Cz_args",
+            ]:
                 if arg_name in args:
                     update_arg_dict(args[arg_name], "units", [hidden_size] * layers)
                     update_arg_dict(args[arg_name], "activation", "relu")
                     update_arg_dict(args[arg_name], "use_bias", True)
 
         parsed_alpha = args.pop("consistency_loss_weight", 0.0)
-        final_alpha = consistency_loss_weight if getattr(self.config.model, "alpha_behavior", None) is not None or getattr(self.config.model, "consistency_loss_weight", None) is not None else parsed_alpha
+        final_alpha = (
+            consistency_loss_weight
+            if getattr(self.config.model, "alpha_behavior", None) is not None
+            or getattr(self.config.model, "consistency_loss_weight", None) is not None
+            else parsed_alpha
+        )
 
         parsed_loss = args.pop("loss_name", None)
         final_loss = loss_name if loss_name is not None else parsed_loss
         if not use_correlation_loss:
             final_loss = None
-        
+
         parsed_bw = args.pop("behavior_loss_weight", 1.0)
-        final_bw = behavior_loss_weight if getattr(self.config.model, "behavior_loss_weight", None) is not None else parsed_bw
+        final_bw = (
+            behavior_loss_weight
+            if getattr(self.config.model, "behavior_loss_weight", None) is not None
+            else parsed_bw
+        )
 
         parsed_rw = args.pop("recon_loss_weight", 1.0)
-        final_rw = recon_loss_weight if getattr(self.config.model, "recon_loss_weight", None) is not None else parsed_rw
+        final_rw = (
+            recon_loss_weight
+            if getattr(self.config.model, "recon_loss_weight", None) is not None
+            else parsed_rw
+        )
 
-        final_esm = getattr(self.config.model, "early_stopping_measure", args.pop("early_stopping_measure", "val_loss"))
-        final_esp = getattr(self.config.model, "early_stopping_patience", args.pop("early_stopping_patience", 16))
-        final_esmin = getattr(self.config.model, "start_from_epoch_rnn", args.pop("start_from_epoch_rnn", 0))
+        final_esm = getattr(
+            self.config.model,
+            "early_stopping_measure",
+            args.pop("early_stopping_measure", "val_loss"),
+        )
+        final_esp = getattr(
+            self.config.model,
+            "early_stopping_patience",
+            args.pop("early_stopping_patience", 16),
+        )
+        final_esmin = getattr(
+            self.config.model,
+            "start_from_epoch_rnn",
+            args.pop("start_from_epoch_rnn", 0),
+        )
 
         self.idSys.fit(
             Y_dpad,
@@ -399,8 +472,12 @@ class DPADWrapper:
             early_stopping_patience=final_esp,
             start_from_epoch_rnn=final_esmin,
             skip_predictions=fast,
-            tb_make_prediction_plots=getattr(self.config.model, "tb_make_prediction_plots", False),
-            tb_make_prediction_scatters=getattr(self.config.model, "tb_make_prediction_scatters", False),
+            tb_make_prediction_plots=getattr(
+                self.config.model, "tb_make_prediction_plots", False
+            ),
+            tb_make_prediction_scatters=getattr(
+                self.config.model, "tb_make_prediction_scatters", False
+            ),
             tb_plot_epoch_mod=getattr(self.config.model, "tb_plot_epoch_mod", 20),
             **args,
         )

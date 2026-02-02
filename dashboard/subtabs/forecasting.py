@@ -46,12 +46,12 @@ def render_y_forecast_plot(
     r_fore_ch: float,
 ):
     from dashboard.subtabs.helpers import rescale_to_reference
-    
+
     n_chan = y_concat.shape[1] if y_concat.ndim == 2 else 1
     y_concat_c = y_concat.squeeze() if n_chan == 1 else y_concat[:, channel_idx]
     y_ft_c = y_future_true.squeeze() if n_chan == 1 else y_future_true[:, channel_idx]
     y_fp_c = y_future_pred.squeeze() if n_chan == 1 else y_future_pred[:, channel_idx]
-    
+
     # Rescale forecast to match true signal's mean/std for visualization
     y_fp_c_rescaled = rescale_to_reference(y_fp_c, y_ft_c)
 
@@ -62,7 +62,9 @@ def render_y_forecast_plot(
 
     t_present_idx = max(0, Tpast - 1) if Tpast > 0 else 0
     t_present = (
-        t_abs_margined[t_present_idx] if t_present_idx < len(t_abs_margined) else t_abs_margined[-1]
+        t_abs_margined[t_present_idx]
+        if t_present_idx < len(t_abs_margined)
+        else t_abs_margined[-1]
     )
 
     onset_time = t_abs_margined.min() if len(t_abs_margined) > 0 else 0.0
@@ -127,7 +129,9 @@ def render_y_forecast_plot(
 
     st.plotly_chart(fig, use_container_width=True, key=f"y_forecast_{channel_name}")
     r_str = f"{r_fore_ch:.3f}" if not np.isnan(r_fore_ch) else "N/A"
-    st.caption(f"Neural Signal Forecast: {channel_name} (Pearson r={r_str}) — *Forecast rescaled to match Y_true mean/std for visualization*")
+    st.caption(
+        f"Neural Signal Forecast: {channel_name} (Pearson r={r_str}) — *Forecast rescaled to match Y_true mean/std for visualization*"
+    )
 
 
 def render_z_forecast_plot(
@@ -160,7 +164,9 @@ def render_z_forecast_plot(
 
     t_present_idx = max(0, Tpast - 1) if Tpast > 0 else 0
     t_present = (
-        t_abs_margined[t_present_idx] if t_present_idx < len(t_abs_margined) else t_abs_margined[-1]
+        t_abs_margined[t_present_idx]
+        if t_present_idx < len(t_abs_margined)
+        else t_abs_margined[-1]
     )
 
     onset_time = t_abs_margined.min() if len(t_abs_margined) > 0 else 0.0

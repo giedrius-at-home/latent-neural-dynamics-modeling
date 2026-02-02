@@ -1,5 +1,5 @@
 model:
-  name: "psid_behavioral_nx15_n14_i80"
+  name: "psid_behavioral_nx15_n14_i80_dbs_both"
   nx: 15  
   n1: 4 
   i: 80
