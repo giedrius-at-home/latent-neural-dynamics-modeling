@@ -2,6 +2,7 @@ import pickle
 import argparse
 from pathlib import Path
 from typing import Dict, Any, Optional, List
+from datetime import datetime
 import numpy as np
 import sys
 import polars as pl
@@ -127,16 +128,12 @@ def compute_classification_for_config(
             feature_source=feature_source,
         )
 
-        results_dir = (
-            Path(config.results.project_root)
-            / "results"
-            / (_get_first(config.run.dbs_on).variant if flipped else config.run.variant)
-        )
         if flipped:
             h_val = config.classification.get("h", 1.0)
             m_val = config.classification.get("m", 1.0)
-            save_dir = results_dir / f"flipped_h{h_val}_m{m_val}"
+            save_dir = Path(config.results.results_dir) / f"{run_ts}/classification/h{h_val}_m{m_val}"
         else:
+            results_dir = Path(config.results.project_root) / "results" / config.run.variant
             save_dir = results_dir / f"{run_ts}/classification"
         save_dir.mkdir(parents=True, exist_ok=True)
 
@@ -206,6 +203,9 @@ def compute(config):
         if not isinstance(m_values, list):
             m_values = [m_values]
         
+        run_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        logger.info(f"Flipped classification run timestamp: {run_ts}")
+        
         all_results = []
         for h_val in h_values:
             for m_val in m_values:
@@ -219,6 +219,7 @@ def compute(config):
                     config,
                     "flipped",
                     config.classification.get("prediction_feature_source", "Xp"),
+                    run_ts=run_ts,
                     A_on=A_on,
                     A_off=A_off,
                     A_both=A_both,

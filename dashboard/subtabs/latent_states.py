@@ -1193,11 +1193,14 @@ def render_trajectory(
 
 
 def render_latent_states_tab(split_res: Dict[str, Any], trial_idx: int):
-    Xp = split_res["Xp"]
-    Zp = split_res["Zp"]
+    Xp = split_res.get("Xp", [])
+    Zp = split_res.get("Zp", [])
 
-    x_p = np.array(Xp[trial_idx])
-    z_p = None if Zp[trial_idx] is None else np.array(Zp[trial_idx])
+    xp_trial = Xp[trial_idx] if Xp and len(Xp) > trial_idx else None
+    x_p = np.array(xp_trial) if xp_trial is not None else None
+    
+    zp_trial = Zp[trial_idx] if Zp and len(Zp) > trial_idx else None
+    z_p = np.array(zp_trial) if zp_trial is not None else None
 
     Z_true = split_res.get("Z", [])
     z_true = None
@@ -1302,4 +1305,6 @@ def render_latent_states_tab(split_res: Dict[str, Any], trial_idx: int):
             )
 
     else:
-        st.info("No latent states available for this trial.")
+        st.info(
+            "No latent states (Xp) available for this trial. "
+        )

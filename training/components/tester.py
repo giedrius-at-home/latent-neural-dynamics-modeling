@@ -43,6 +43,10 @@ class Tester:
             from utils.frameworks import DPADFramework
 
             self.framework = DPADFramework(self.config)
+        elif framework_type == "autoarima":
+            from utils.frameworks import AutoARIMAFramework
+
+            self.framework = AutoARIMAFramework(self.config)
         else:
             raise ValueError(
                 f"Unknown or unsupported framework for testing: {framework_type}"
@@ -58,25 +62,32 @@ class Tester:
         model_path = results_dir / f"model_{self.run_timestamp}.pkl"
 
         metadata_path = results_dir / f"model_{self.run_timestamp}_metadata.json"
-
+        metadata = {}
         if metadata_path.exists():
             with open(metadata_path, "r") as f:
                 metadata = json.load(f)
-            self.logger.info(f"Loading DPAD model with metadata: {metadata}")
+            self.logger.info(f"Loading model with metadata: {metadata}")
 
+        framework_type = metadata.get("framework_type", "psid")
+        
         with open(model_path, "rb") as f:
-            idSys = pickle.load(f)
+            model_obj = pickle.load(f)
 
         self._init_framework()
-        self.framework.model = self.framework._initialize_model()
-        self.framework.model.idSys = idSys
-
-        if metadata_path.exists() and hasattr(idSys, "restoreModels"):
-            self.logger.info("Restoring DPAD TensorFlow models from saved weights...")
-            idSys.restoreModels()
-            self.logger.info(f"Loaded DPAD model from {model_path}")
+        
+        if framework_type == "autoarima":
+            self.framework.model = model_obj
+            self.logger.info(f"Loaded AutoARIMA model from {model_path}")
         else:
-            self.logger.info(f"Loaded PSID model from {model_path}")
+            self.framework.model = self.framework._initialize_model()
+            self.framework.model.idSys = model_obj
+
+            if metadata_path.exists() and hasattr(model_obj, "restoreModels"):
+                self.logger.info("Restoring DPAD TensorFlow models from saved weights...")
+                model_obj.restoreModels()
+                self.logger.info(f"Loaded DPAD model from {model_path}")
+            else:
+                self.logger.info(f"Loaded PSID model from {model_path}")
 
     @staticmethod
     def _get_metrics(
@@ -88,7 +99,6 @@ class Tester:
         meta: Dict[str, List[Any]],
     ) -> Dict[str, Any]:
 
-        # Ensure all predicted arrays match the length of Y_true (some models might return unsliced)
         if Yp is not None:
             Yp = [
                 yp[: len(yt)] if yp is not None else None for yt, yp in zip(Y_true, Yp)

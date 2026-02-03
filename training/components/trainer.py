@@ -240,6 +240,10 @@ class Trainer:
             from utils.frameworks import DPADFramework
 
             self.framework = DPADFramework(self.config)
+        elif self.framework_type == "autoarima":
+            from utils.frameworks import AutoARIMAFramework
+
+            self.framework = AutoARIMAFramework(self.config)
         else:
             raise ValueError(f"Unknown framework type: {self.framework_type}")
 
@@ -629,6 +633,23 @@ class Trainer:
                     "n1": self.model_params.n1,
                     "method_code": self.model_params.method_code,
                     "epochs": self.model_params.epochs,
+                }
+                with open(out_dir / f"model_{ts}_metadata.json", "w") as f:
+                    json.dump(metadata, f)
+
+            elif self.framework_type == "autoarima":
+                with open(f"{model_path}.pkl", "wb") as f:
+                    pickle.dump(self.framework.model, f)
+                self.logger.info(f"Saved AutoARIMA model to {model_path}.pkl")
+
+                metadata = {
+                    "framework_type": "autoarima",
+                    "sp": getattr(self.model_params, "sp", 1),
+                    "max_p": getattr(self.model_params, "max_p", 5),
+                    "max_q": getattr(self.model_params, "max_q", 5),
+                    "max_d": getattr(self.model_params, "max_d", 2),
+                    "n_models_Y": len(self.framework.model.models_Y),
+                    "n_models_Z": len(self.framework.model.models_Z),
                 }
                 with open(out_dir / f"model_{ts}_metadata.json", "w") as f:
                     json.dump(metadata, f)
