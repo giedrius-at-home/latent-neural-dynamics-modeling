@@ -4,6 +4,7 @@ import pickle
 import polars as pl
 from pathlib import Path
 from typing import Optional, Dict, Any, List
+import re
 
 from training.components.tester import Tester
 from utils.polars import get_scalar_value, convert_series_to_list
@@ -16,6 +17,7 @@ def list_variants(results_root: Path) -> List[str]:
 
 
 def list_run_timestamps(variant_dir: Path) -> List[str]:
+    
     ts = set()
     for p in variant_dir.glob("val_results_*"):
         name = p.name
@@ -29,11 +31,18 @@ def list_run_timestamps(variant_dir: Path) -> List[str]:
         name = p.name
         if name.startswith("model_") and name.endswith("_metadata.json"):
             ts.add(name.replace("model_", "").replace("_metadata.json", ""))
+    ts_pattern = re.compile(r"^\d{8}_\d{6}$")
+    for p in variant_dir.iterdir():
+        if p.is_dir() and ts_pattern.match(p.name) and (p / "classification").exists():
+            ts.add(p.name)
     return sorted(list(ts))
 
 
 def config_for_variant(project_root: Path, variant_name: str) -> Optional[Path]:
     cfg = project_root / "training" / "setups" / f"{variant_name}.yaml"
+    if cfg.exists():
+        return cfg
+    cfg = project_root / "classification" / "setups" / f"{variant_name}.yaml"
     return cfg if cfg.exists() else None
 
 
@@ -96,7 +105,11 @@ def load_precomputed_results(
                 if "Zp" in cols
                 else [None] * n_trials
             ),
-            "Xp": convert_series_to_list(df["Xp"].to_list()),
+            "Xp": (
+                convert_series_to_list(df["Xp"].to_list())
+                if "Xp" in cols
+                else [None] * n_trials
+            ),
             "pearson_per_channel": (
                 convert_series_to_list(df["pearson_per_channel"].to_list())
                 if "pearson_per_channel" in cols

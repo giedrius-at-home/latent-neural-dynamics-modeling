@@ -392,6 +392,11 @@ def dbs_classification_tab(project_root):
     RESULTS_ROOT = project_root / "results"
 
     from dashboard.subtabs import list_variants, list_run_timestamps, config_for_variant
+    from dashboard.subtabs.classification import (
+        load_classification_results,
+        create_line_plot_by_history,
+        create_summary_table,
+    )
 
     variants = list_variants(RESULTS_ROOT)
     if len(variants) == 0:
@@ -414,10 +419,24 @@ def dbs_classification_tab(project_root):
         return
 
     classification_dir = variant_dir / run_ts / "classification"
+    
+    has_flipped_results = False
     if classification_dir.exists():
-        num_results = len(list(classification_dir.glob("*.pkl")))
-        if num_results > 0:
-            st.success(f"Found {num_results} precomputed classification result(s)")
+        import re
+        hm_pattern = re.compile(r"^h[\d.]+_m[\d.]+$")
+        hm_dirs = [d for d in classification_dir.iterdir() if d.is_dir() and hm_pattern.match(d.name)]
+        has_flipped_results = len(hm_dirs) > 0
+    
+    if classification_dir.exists():
+        num_pkl = len(list(classification_dir.glob("*.pkl")))
+        num_hm = len(hm_dirs) if has_flipped_results else 0
+        if num_pkl > 0 or num_hm > 0:
+            msg_parts = []
+            if num_pkl > 0:
+                msg_parts.append(f"{num_pkl} standard classification result(s)")
+            if num_hm > 0:
+                msg_parts.append(f"{num_hm} (h, m) combinations")
+            st.success(f"Found {', '.join(msg_parts)}")
         else:
             st.warning(
                 "No precomputed results found. Run the classification script first."
@@ -428,10 +447,61 @@ def dbs_classification_tab(project_root):
         )
 
     st.markdown("---")
-    mode_tabs = st.tabs(["From Predictions", "From Forecasts"])
+    
+    if has_flipped_results:
+        mode_tabs = st.tabs(["Flipped Classification", "From Predictions", "From Forecasts"])
+        
+        with mode_tabs[0]:
+            st.markdown("## Classification Results on Different History and Forecast Windows")
+            
+            flipped_results = load_classification_results(classification_dir)
+            
+            if not flipped_results:
+                st.warning(f"Could not load flipped classification results")
+            else:
+                
+                valid_test_results = {k: v for k, v in flipped_results.items() if "test_results" in v}
+                
+                if not valid_test_results:
+                    st.warning("No valid test results found. Note: m must be >= epoch_length (1.0s) to generate test samples.")
+                    plot_results = flipped_results
+                    plot_metric = "best_cv_score"
+                else:
+                    plot_results = valid_test_results
+                    plot_metric = "balanced_accuracy"
 
-    with mode_tabs[0]:
-        render_classification_from_predictions(variant_dir, run_ts)
+                st.markdown("### Performance by History Length")
+                fig_lines = create_line_plot_by_history(plot_results, metric=plot_metric)
+                st.plotly_chart(fig_lines, use_container_width=True)
+                
+                # st.markdown("### Detailed Results Table")
+                # import pandas as pd
+                # table_data = create_summary_table(flipped_results)
+                # df = pd.DataFrame(table_data)
+                
+                # format_dict = {"h (s)": "{:.1f}", "m (s)": "{:.1f}", "CV Score": "{:.3f}"}
+                # if "Balanced Acc" in df.columns:
+                #     format_dict["Balanced Acc"] = "{:.3f}"
+                # if "Test Acc" in df.columns:
+                #     format_dict["Test Acc"] = "{:.3f}"
+                # if "p-value" in df.columns:
+                #     format_dict["p-value"] = "{:.4f}"
+                
+                # st.dataframe(
+                #     df.style.format(format_dict).background_gradient(subset=["CV Score"], cmap="RdYlGn", vmin=0.5, vmax=1.0),
+                #     use_container_width=True,
+                # )
+        
+        with mode_tabs[1]:
+            render_classification_from_predictions(variant_dir, run_ts)
 
-    with mode_tabs[1]:
-        render_classification_from_forecasts(variant_dir, run_ts)
+        with mode_tabs[2]:
+            render_classification_from_forecasts(variant_dir, run_ts)
+    else:
+        mode_tabs = st.tabs(["From Predictions", "From Forecasts"])
+
+        with mode_tabs[0]:
+            render_classification_from_predictions(variant_dir, run_ts)
+
+        with mode_tabs[1]:
+            render_classification_from_forecasts(variant_dir, run_ts)

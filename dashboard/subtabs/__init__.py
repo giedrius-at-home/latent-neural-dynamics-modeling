@@ -18,6 +18,9 @@ from dashboard.subtabs.latent_states import render_latent_states_tab
 from dashboard.subtabs.cross_correlation_analysis import (
     render_cross_correlation_analysis_tab,
 )
+from dashboard.subtabs.classification import (
+    render_classification_tab,
+)
 
 __all__ = [
     "list_variants",
@@ -36,4 +39,5 @@ __all__ = [
     "render_forecasting_tab",
     "render_latent_states_tab",
     "render_cross_correlation_analysis_tab",
+    "render_classification_tab",
 ]

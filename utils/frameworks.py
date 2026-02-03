@@ -7,6 +7,7 @@ from utils.stats import pearson_r_per_channel
 import numpy as np
 import sys
 from pathlib import Path
+import pandas as pd
 
 psid_path = Path(__file__).parent.parent / "PSID"
 if str(psid_path.parent) not in sys.path:
@@ -700,3 +701,326 @@ class DPADWrapper:
 class DPADFramework(BaseFramework):
     def _initialize_model(self):
         return DPADWrapper(self.config)
+
+
+class AutoARIMAWrapper:
+
+    def __init__(self, config: Config):
+        self.config = config
+        self.logger = get_logger()
+        self.models_Y = []
+        self.models_Z = []
+        self.Y_train = None
+        self.Z_train = None
+        self.Y_mean = None
+        self.Y_std = None
+        self.Z_mean = None
+        self.Z_std = None
+
+    def train(self, Y: TrialList, Z: Optional[TrialList] = None):
+        from sktime.forecasting.arima import AutoARIMA
+        
+        self.logger.info("Training AutoARIMA models...")
+        
+        Y_concat = np.concatenate(Y, axis=0)
+        n_channels_Y = Y_concat.shape[1] if Y_concat.ndim == 2 else 1
+        
+        self.Y_mean = np.mean(Y_concat, axis=0, keepdims=True)
+        self.Y_std = np.std(Y_concat, axis=0, keepdims=True)
+        self.Y_std[self.Y_std < 1e-10] = 1.0
+        Y_concat_zscored = (Y_concat - self.Y_mean) / self.Y_std
+        
+        self.Y_train = [(y - self.Y_mean) / self.Y_std for y in Y]
+        
+        sp = getattr(self.config.model, 'sp', 1)
+        max_p = getattr(self.config.model, 'max_p', 5)
+        max_q = getattr(self.config.model, 'max_q', 5)
+        max_d = getattr(self.config.model, 'max_d', 2)
+        
+        self.logger.info(
+            f"AutoARIMA params: sp={sp}, max_p={max_p}, max_q={max_q}, max_d={max_d}, "
+            f"n_channels_Y={n_channels_Y}"
+        )
+        
+        self.models_Y = []
+        for ch in range(n_channels_Y):
+            y_series = pd.Series(Y_concat_zscored[:, ch])
+            
+            model = AutoARIMA(
+                sp=sp,
+                suppress_warnings=True,
+                max_p=max_p,
+                max_q=max_q,
+                max_d=max_d,
+                stepwise=True,
+                n_jobs=1,
+            )
+            model.fit(y_series)
+            self.models_Y.append(model)
+            self.logger.info(f"Fitted AutoARIMA for Y channel {ch}")
+        
+        if Z is not None:
+            Z_concat = np.concatenate(Z, axis=0)
+            n_channels_Z = Z_concat.shape[1] if Z_concat.ndim == 2 else 1
+            
+            self.Z_mean = np.mean(Z_concat, axis=0, keepdims=True)
+            self.Z_std = np.std(Z_concat, axis=0, keepdims=True)
+            self.Z_std[self.Z_std < 1e-10] = 1.0
+            Z_concat_zscored = (Z_concat - self.Z_mean) / self.Z_std
+            
+            self.Z_train = [(z - self.Z_mean) / self.Z_std for z in Z]
+            
+            Y_exog = pd.DataFrame(Y_concat_zscored)
+            
+            self.models_Z = []
+            for ch in range(n_channels_Z):
+                z_series = pd.Series(Z_concat_zscored[:, ch])
+                
+                model = AutoARIMA(
+                    sp=sp,
+                    max_p=max_p,
+                    max_q=max_q,
+                    max_d=max_d,
+                    stepwise=True,
+                    n_jobs=1,
+                )
+                model.fit(z_series, X=Y_exog)
+                self.models_Z.append(model)
+                self.logger.info(f"Fitted ARIMAX for Z channel {ch} (with Y exogenous)")
+        
+        self.logger.info("AutoARIMA training complete")
+        return self
+
+    def predict(self, Y: TrialList) -> Tuple[Optional[TrialList], TrialList, None]:
+        
+        all_Yp = []
+        
+        for y_trial in Y:
+            y_zscored = (y_trial - self.Y_mean) / self.Y_std
+            n_samples = y_trial.shape[0]
+            n_channels = y_trial.shape[1] if y_trial.ndim == 2 else 1
+            
+            Yp_trial = np.zeros((n_samples, n_channels))
+            for ch, model in enumerate(self.models_Y):
+                if hasattr(model, '_forecaster') and hasattr(model._forecaster, 'predict_in_sample'):
+                    fitted = model._forecaster.predict_in_sample()
+                    Yp_trial[:len(fitted), ch] = fitted.values
+                else:
+                    raise RuntimeError(f"AutoARIMA model for Y channel {ch} does not support in-sample prediction")
+            
+            Yp_trial = Yp_trial * self.Y_std + self.Y_mean
+            all_Yp.append(Yp_trial)
+        
+        all_Zp = None
+        if self.models_Z and self.Z_mean is not None:
+            all_Zp = []
+            for y_trial in Y:
+                y_zscored = (y_trial - self.Y_mean) / self.Y_std
+                n_samples = y_trial.shape[0]
+                n_channels_Z = len(self.models_Z)
+                Zp_trial = np.zeros((n_samples, n_channels_Z))
+                
+                for ch, model in enumerate(self.models_Z):
+                    if hasattr(model, '_forecaster') and hasattr(model._forecaster, 'predict_in_sample'):
+                        fitted = model._forecaster.predict_in_sample()
+                        Zp_trial[:len(fitted), ch] = fitted.values
+                    else:
+                        raise RuntimeError(f"ARIMAX model for Z channel {ch} does not support in-sample prediction")
+                
+                all_Zp.append(Zp_trial * self.Z_std + self.Z_mean)
+        
+        return all_Zp, all_Yp, None
+
+    def validate(self, Y: TrialList) -> Dict[str, Any]:
+        Zp, Yp, Xp = self.predict(Y)
+        r_list, r_mean = pearson_r_per_channel(Y, Yp)
+        result = {
+            "Y": Y,
+            "Zp": Zp,
+            "Yp": Yp,
+            "Xp": Xp,
+            "Yp_shape": state_shape(Yp),
+            "Zp_shape": (None if Zp is None else state_shape(Zp)),
+            "Xp_shape": None,
+            "pearson_r_per_channel": r_list,
+            "pearson_r_mean": r_mean,
+        }
+        return result
+
+    def test(self, Y: TrialList) -> Dict[str, Any]:
+        return self.validate(Y)
+
+    def forecast(self, m: int, Y_past: Array2D) -> Tuple[Optional[Array2D], Array2D, None]:
+        
+        n_channels_Y = Y_past.shape[1] if Y_past.ndim == 2 else 1
+        Y_past_zscored = (Y_past - self.Y_mean) / self.Y_std
+        Yf = np.zeros((m, n_channels_Y))
+        
+        for ch, model in enumerate(self.models_Y):
+            y_series = pd.Series(Y_past_zscored[:, ch])
+            try:
+                model_updated = model.clone()
+                model_updated.update(y_series)
+                fh = list(range(1, m + 1))
+                forecast = model_updated.predict(fh=fh)
+                Yf[:, ch] = forecast.values
+            except Exception as e:
+                self.logger.warning(f"Forecast failed for channel {ch}: {e}")
+                Yf[:, ch] = Y_past_zscored[-1, ch]
+        
+        Yf = Yf * self.Y_std + self.Y_mean
+        
+        Zf = None
+        if self.models_Z and self.Z_mean is not None:
+            n_channels_Z = len(self.models_Z)
+            Zf = np.zeros((m, n_channels_Z))
+            
+            Yf_zscored = (Yf - self.Y_mean) / self.Y_std
+            Y_exog_forecast = pd.DataFrame(Yf_zscored)
+            
+            for ch, model in enumerate(self.models_Z):
+                try:
+                    fh = list(range(1, m + 1))
+                    forecast = model.predict(fh=fh, X=Y_exog_forecast)
+                    Zf[:, ch] = forecast.values
+                except Exception as e:
+                    self.logger.warning(f"Z forecast failed for channel {ch}: {e}")
+                    Zf[:, ch] = 0.0
+            Zf = Zf * self.Z_std + self.Z_mean
+        
+        return Zf, Yf, None
+
+    def validate_forecast(
+        self,
+        Y_list: TrialList,
+        Z_list: Optional[TrialList] = None,
+        margin: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        m_seconds = self.config.model.forecast.m
+        history_seconds = self.config.model.forecast.history
+        sampling_freq = self.config.data.sampling_frequency
+        m = int(m_seconds * sampling_freq)
+        history = int(history_seconds * sampling_freq)
+
+        Zp_val, Yp_val, Xp_val = self.predict(Y_list)
+
+        all_residuals = []
+        for y_true, y_pred in zip(Y_list, Yp_val):
+            if y_pred is not None:
+                all_residuals.append(y_true - y_pred)
+
+        if all_residuals:
+            all_residuals_concat = np.concatenate(all_residuals, axis=0)
+            residual_mean = np.mean(all_residuals_concat, axis=0)
+            residual_std = np.std(all_residuals_concat, axis=0)
+        else:
+            residual_mean = 0.0
+            residual_std = 0.0
+
+        results = {
+            "m": m,
+            "Y_future_true": [],
+            "Y_future_pred": [],
+            "Y_concat_for_plot": [],
+            "Z_future_true": [],
+            "Z_future_pred": [],
+            "Z_concat_for_plot": [],
+            "X_future_pred": [],
+            "pearson_per_channel": [],
+            "pearson_per_channel_Z": [],
+            "residual_mean": (
+                residual_mean.tolist()
+                if isinstance(residual_mean, np.ndarray)
+                else residual_mean
+            ),
+            "residual_std": (
+                residual_std.tolist()
+                if isinstance(residual_std, np.ndarray)
+                else residual_std
+            ),
+        }
+
+        for idx, Y in enumerate(Y_list):
+            T = Y.shape[0]
+            if history + m > T:
+                raise ValueError(
+                    f"history + m ({history} + {m} = {history + m}) must not exceed trial length T={T}"
+                )
+
+            start = 0
+            history_end = history
+            forecast_end = history + m
+
+            Y_past = Y[start:history_end]
+            Y_future_true = Y[history_end:forecast_end]
+
+            Z = Z_list[idx] if Z_list is not None and idx < len(Z_list) else None
+            Z_future_true = Z[history_end:forecast_end] if Z is not None else None
+            Z_past = Z[start:history_end] if Z is not None else None
+
+            Zf, Yf, Xf = self.forecast(m, Y_past)
+
+            Y_concat = np.concatenate([Y_past, Yf], axis=0)
+            Z_concat = (
+                np.concatenate([Z_past, Zf], axis=0)
+                if Z_past is not None and Zf is not None
+                else None
+            )
+
+            r_list, _ = pearson_r_per_channel([Y_future_true], [Yf])
+            r_list = (
+                r_list[0] if isinstance(r_list, list) and len(r_list) > 0 else r_list
+            )
+
+            if Z_future_true is not None and Zf is not None:
+                r_list_Z, _ = pearson_r_per_channel([Z_future_true], [Zf])
+                r_list_Z = (
+                    r_list_Z[0]
+                    if isinstance(r_list_Z, list) and len(r_list_Z) > 0
+                    else r_list_Z
+                )
+            else:
+                r_list_Z = []
+
+            results["Y_future_true"].append(Y_future_true.tolist())
+            results["Y_future_pred"].append(Yf.tolist())
+            results["Y_concat_for_plot"].append(Y_concat.tolist())
+            results["Z_future_true"].append(
+                Z_future_true.tolist() if Z_future_true is not None else None
+            )
+            results["Z_future_pred"].append(Zf.tolist() if Zf is not None else None)
+            results["Z_concat_for_plot"].append(
+                Z_concat.tolist() if Z_concat is not None else None
+            )
+            results["X_future_pred"].append(None)  # No latent states in ARIMA
+            results["pearson_per_channel"].append(r_list)
+            results["pearson_per_channel_Z"].append(r_list_Z)
+
+        flat_r = []
+        for r in results["pearson_per_channel"]:
+            if r is None:
+                continue
+            for v in r:
+                if v is not None and not np.isnan(v):
+                    flat_r.append(float(v))
+        results["pearson_overall_mean"] = (
+            float(np.mean(flat_r)) if len(flat_r) > 0 else np.nan
+        )
+
+        flat_r_Z = []
+        for r in results["pearson_per_channel_Z"]:
+            if r is None or not r:
+                continue
+            for v in r:
+                if v is not None and not np.isnan(v):
+                    flat_r_Z.append(float(v))
+        results["pearson_overall_mean_Z"] = (
+            float(np.mean(flat_r_Z)) if len(flat_r_Z) > 0 else np.nan
+        )
+
+        return results
+
+
+class AutoARIMAFramework(BaseFramework):
+    def _initialize_model(self):
+        return AutoARIMAWrapper(self.config)
