@@ -1,18 +1,14 @@
 model:
   name: "dpad_behavioral_raw_recordings"
-  nx: 30  
+  nx: 15  
   n1: 4 
-  method_code: "DPAD_uAKCzCy2HL128FCyErSVZ20MinEp30Cz1RGL2L1e-4LR1e-3BW100RW0.01Alpha5.0GRULossCCSpecoptAdam_scED_1000_0.95Hilb"
+  method_code: "DPAD_CNN_uAKCzCy2HL128U"
   
   epochs: 3000
   fast: false
   
-  steps_ahead: [1, 2, 3, 4]
-  steps_ahead_loss_weights: [1.0, 1.0, 1.0, 1.0]
-
-  tb_make_prediction_plots: true
-  tb_make_prediction_scatters: true
-  tb_plot_epoch_mod: 1
+  steps_ahead: [1]
+  steps_ahead_loss_weights: [1.0]
 
   forecast:
     m: 2  

@@ -335,15 +335,8 @@ class DPADWrapper:
         use_correlation_loss = getattr(self.config.model, "use_correlation_loss", True)
         fast = getattr(self.config.model, "fast", False)
 
-        consistency_loss_weight: float = getattr(
-            self.config.model,
-            "consistency_loss_weight",
-            getattr(self.config.model, "alpha_behavior", 0.0),
-        )
-
         self.logger.info(
-            f"Training DPAD with nx={nx}, n1={n1}, method_code={method_code}, epochs={epochs}, "
-            f"consistency_loss_weight={consistency_loss_weight}"
+            f"Training DPAD with nx={nx}, n1={n1}, method_code={method_code}, epochs={epochs}"
         )
         Y_dpad = [y.T for y in Y]
         Z_dpad = [z.T for z in Z] if Z is not None else None
@@ -416,14 +409,6 @@ class DPADWrapper:
                     update_arg_dict(args[arg_name], "activation", "relu")
                     update_arg_dict(args[arg_name], "use_bias", True)
 
-        parsed_alpha = args.pop("consistency_loss_weight", 0.0)
-        final_alpha = (
-            consistency_loss_weight
-            if getattr(self.config.model, "alpha_behavior", None) is not None
-            or getattr(self.config.model, "consistency_loss_weight", None) is not None
-            else parsed_alpha
-        )
-
         parsed_loss = args.pop("loss_name", None)
         final_loss = loss_name if loss_name is not None else parsed_loss
         if not use_correlation_loss:
@@ -459,13 +444,23 @@ class DPADWrapper:
             args.pop("start_from_epoch_rnn", 0),
         )
 
+        final_use_cnn = getattr(
+            self.config.model,
+            "use_cnn_envelope",
+            args.pop("use_cnn_envelope", False),
+        )
+        final_cnn_args = getattr(
+            self.config.model,
+            "cnn_args",
+            args.pop("cnn_args", {}),
+        )
+
         self.idSys.fit(
             Y_dpad,
             Z=Z_dpad,
             nx=nx,
             n1=n1,
             epochs=epochs,
-            consistency_loss_weight=final_alpha,
             loss_name=final_loss,
             behavior_loss_weight=final_bw,
             recon_loss_weight=final_rw,
@@ -473,13 +468,8 @@ class DPADWrapper:
             early_stopping_patience=final_esp,
             start_from_epoch_rnn=final_esmin,
             skip_predictions=fast,
-            tb_make_prediction_plots=getattr(
-                self.config.model, "tb_make_prediction_plots", False
-            ),
-            tb_make_prediction_scatters=getattr(
-                self.config.model, "tb_make_prediction_scatters", False
-            ),
-            tb_plot_epoch_mod=getattr(self.config.model, "tb_plot_epoch_mod", 20),
+            use_cnn_envelope=final_use_cnn,
+            cnn_args=final_cnn_args,
             **args,
         )
         return self.idSys
