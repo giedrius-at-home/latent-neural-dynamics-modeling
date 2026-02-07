@@ -1,0 +1,9 @@
+model:
+  name: "psid_grid_search"
+  i: 80
+  grid_search:
+    nx: [5, 10, 15, 20, 25]
+    n1: [4, 8, 12, 16]
+    alpha_Q: [1e-5, 1e-4, 1e-3]
+    alpha_R: [1e-3, 1e-2]
+{ _ble_edit_exec_gexec__save_lastarg "$@"; } 4>&1 5>&2 &>/dev/null
