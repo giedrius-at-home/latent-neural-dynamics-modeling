@@ -421,10 +421,10 @@ def _render_per_channel_plots(all_metadata: list, channel_type: str = "Z"):
                 font=dict(family="Inter, sans-serif"),
                 margin=dict(l=60, r=40, t=60, b=100),
             )
-            fig.update_xaxes(tickangle=45, tickfont=dict(size=10))
             fig.update_yaxes(
                 zeroline=True, zerolinecolor="rgba(0,0,0,0.2)", zerolinewidth=1
             )
+
 
             st.plotly_chart(fig, use_container_width=True)
 
@@ -475,67 +475,57 @@ def feature_importance_tab(project_root: Path):
         st.info("No runs found for this variant.")
         return
 
-    main_tab_single, main_tab_grid = st.tabs(
-        [
-            "Single Run Analysis",
-            "Grid Search Results",
-        ]
-    )
+    run_ts = st.selectbox("Run timestamp", options=runs, key="fi_run")
+    cfg_path = config_for_variant(project_root, variant)
 
-    with main_tab_grid:
-        _render_grid_search_results(variant_dir, runs)
+    if cfg_path is None:
+        st.error(f"Config not found for variant '{variant}'.")
+        return
 
-    with main_tab_single:
-        run_ts = st.selectbox("Run timestamp", options=runs, key="fi_run")
-        cfg_path = config_for_variant(project_root, variant)
+    cfg = get_config(str(cfg_path))
+    input_channels = cfg.data.channels.neural_input
 
-        if cfg_path is None:
-            st.error(f"Config not found for variant '{variant}'.")
-            return
+    if not input_channels:
+        st.error("No input channels defined in config.")
+        return
 
-        cfg = get_config(str(cfg_path))
-        input_channels = cfg.data.channels.neural_input
+    model_path = _find_model_path(variant_dir, run_ts)
 
-        if not input_channels:
-            st.error("No input channels defined in config.")
-            return
+    if model_path is None:
+        st.error("No model file found.")
+        return
 
-        model_path = _find_model_path(variant_dir, run_ts)
+    if st.button("Compute Feature Importance", key="fi_compute"):
+        st.session_state["fi_computed"] = (str(model_path), input_channels)
 
-        if model_path is None:
-            st.error("No model file found.")
-            return
+    if st.session_state.get("fi_computed"):
+        cached_path, cached_channels = st.session_state["fi_computed"]
+        if cached_path == str(model_path):
+            with st.spinner("Computing feature importance..."):
+                try:
+                    importance, ranked = load_model_and_compute_importance(
+                        model_path, cached_channels
+                    )
 
-        if st.button("Compute Feature Importance", key="fi_compute"):
-            st.session_state["fi_computed"] = (str(model_path), input_channels)
+                    st.success(f"Analyzed {len(importance)} neural features.")
 
-        if st.session_state.get("fi_computed"):
-            cached_path, cached_channels = st.session_state["fi_computed"]
-            if cached_path == str(model_path):
-                with st.spinner("Computing feature importance..."):
-                    try:
-                        importance, ranked = load_model_and_compute_importance(
-                            model_path, cached_channels
-                        )
+                    tab_chart, tab_table, tab_perf = st.tabs(
+                        [
+                            "Importance Chart",
+                            "Rankings Table",
+                            "Performance Summary",
+                        ]
+                    )
 
-                        st.success(f"Analyzed {len(importance)} neural features.")
+                    with tab_chart:
+                        _render_importance_bar_chart(importance)
 
-                        tab_chart, tab_table, tab_perf = st.tabs(
-                            [
-                                "Importance Chart",
-                                "Rankings Table",
-                                "Performance Summary",
-                            ]
-                        )
+                    with tab_table:
+                        _render_rankings_table(importance)
 
-                        with tab_chart:
-                            _render_importance_bar_chart(importance)
+                    with tab_perf:
+                        _render_performance_summary(variant_dir, run_ts)
 
-                        with tab_table:
-                            _render_rankings_table(importance)
+                except Exception as e:
+                    st.error(f"Error computing importance: {e}")
 
-                        with tab_perf:
-                            _render_performance_summary(variant_dir, run_ts)
-
-                    except Exception as e:
-                        st.error(f"Error computing importance: {e}")

@@ -454,10 +454,20 @@ def dbs_classification_tab(project_root):
         with mode_tabs[0]:
             st.markdown("## Classification Results on Different History and Forecast Windows")
             
-            flipped_results = load_classification_results(classification_dir)
+            # Reset results if variant or run changes
+            current_selection = (variant, run_ts)
+            if st.session_state.get("flipped_selection") != current_selection:
+                st.session_state["flipped_results"] = None
+                st.session_state["flipped_selection"] = current_selection
+
+            if st.button("Load/Refresh Flipped Results"):
+                with st.spinner("Loading results..."):
+                    st.session_state["flipped_results"] = load_classification_results(classification_dir)
+            
+            flipped_results = st.session_state.get("flipped_results")
             
             if not flipped_results:
-                st.warning(f"Could not load flipped classification results")
+                st.info("Click 'Load/Refresh Flipped Results' to visualize the (h, m) history/forecast sweep.")
             else:
                 
                 valid_test_results = {k: v for k, v in flipped_results.items() if "test_results" in v}

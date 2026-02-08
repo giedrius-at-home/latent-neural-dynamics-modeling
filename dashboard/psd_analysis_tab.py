@@ -98,9 +98,10 @@ def render_average_psd_session_level(channels, channel_type):
 
     selected_dataset = st.session_state.get("selected_dataset")
 
+    cols_to_load = [f"{ch}_psd_values" for ch in channels] + [f"{ch}_psd_freq" for ch in channels] + ["stim"]
     try:
         session_data = load_participant_session_data(
-            participant_id, session, selected_dataset
+            participant_id, session, selected_dataset, columns=cols_to_load
         )
     except Exception:
         return
@@ -148,8 +149,9 @@ def render_average_psd_participant_level(channels, channel_type):
         st.info("Please select a participant in the sidebar.")
         return
 
+    cols_to_load = [f"{ch}_psd_values" for ch in channels] + [f"{ch}_psd_freq" for ch in channels] + ["session", "stim"]
     try:
-        participant_data = load_participant_data(participant_id, selected_dataset)
+        participant_data = load_participant_data(participant_id, selected_dataset, columns=cols_to_load)
     except Exception as e:
         st.error(f"Could not load participant data: {str(e)}")
         return
@@ -443,9 +445,15 @@ def render_multi_participant_psd_analysis(channels, channel_type):
     with st.spinner("Computing multi-participant PSDs..."):
         for p_id in participants:
             try:
-                # Load all data for participant to aggregate
-                # This could be memory intensive, but robust for now
-                p_df = load_participant_data(p_id, selected_dataset)
+                # Load only required columns for participant to aggregate
+                cols_to_load = [
+                    f"{target_channel}_psd_values",
+                    f"{target_channel}_psd_freq",
+                    "stim",
+                ]
+                p_df = load_participant_data(
+                    p_id, selected_dataset, columns=cols_to_load
+                )
 
                 if p_df.is_empty():
                     continue

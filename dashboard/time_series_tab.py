@@ -506,9 +506,10 @@ def render_population_level_tab(neural_channels):
     with st.spinner("Loading population data..."):
         for p_id in participants:
             try:
-                # Load all data for participant
-                # Use load_participant_data which is cached
-                df = load_participant_data(p_id, selected_dataset)
+                # Load only required columns for participant to aggregate
+                # This drastically reduces memory usage
+                cols_to_load = [target_channel, "stim"]
+                df = load_participant_data(p_id, selected_dataset, columns=cols_to_load)
                 if df.is_empty() or target_channel not in df.columns:
                     continue
 
@@ -619,8 +620,9 @@ def render_session_level_tab(neural_channels):
             try:
                 from utils.data_loader import load_participant_session_data
 
+                cols_to_load = [target_channel, "stim"]
                 df = load_participant_session_data(
-                    participant_id, s_id, selected_dataset
+                    participant_id, s_id, selected_dataset, columns=cols_to_load
                 )
 
                 if df.is_empty() or target_channel not in df.columns:

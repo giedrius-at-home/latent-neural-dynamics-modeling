@@ -95,7 +95,11 @@ def get_all_participants(dataset: str = None) -> list[str]:
 
 @st.cache_data
 def load_participant_block_data(
-    participant_id: str, session: str, block: str, dataset: str = None
+    participant_id: str,
+    session: str,
+    block: str,
+    dataset: str = None,
+    columns: list[str] = None,
 ):
     participants_path = DATA_PATH / dataset if dataset else PARTICIPANTS_PATH
     if participants_path is None:
@@ -110,14 +114,19 @@ def load_participant_block_data(
 
     p_partition_path = participants_path / p_partition / s_partition / b_partition / "*"
 
-    print(f"Loading data from: {p_partition_path}")
-    df = pl.read_parquet(p_partition_path)
+    logger.info(f"Loading data from: {p_partition_path}")
+    try:
+        df = pl.read_parquet(p_partition_path, columns=columns)
+    except Exception as e:
+        logger.warning(f"Failed to load block data with pl.read_parquet: {e}")
+        logger.info("Attempting to load files individually...")
+        df = _load_multiple_parquet_files(str(p_partition_path), columns=columns)
     return df
 
 
 @st.cache_data
 def load_participant_session_data(
-    participant_id: str, session: str, dataset: str = None
+    participant_id: str, session: str, dataset: str = None, columns: list[str] = None
 ):
     participants_path = DATA_PATH / dataset if dataset else PARTICIPANTS_PATH
     if participants_path is None:
@@ -129,36 +138,19 @@ def load_participant_session_data(
     session_path = participants_path / p_partition / s_partition / "*" / "*"
 
     try:
-        df = pl.read_parquet(session_path, rechunk=False)
+        df = pl.read_parquet(session_path, columns=columns, rechunk=False)
     except Exception as e:
         logger.warning(f"Failed to load session data with rechunk=False: {e}")
         logger.info("Attempting to load files individually...")
-
-        from glob import glob
-
-        parquet_files = glob(str(session_path))
-
-        if not parquet_files:
-            raise FileNotFoundError(f"No parquet files found at {session_path}")
-
-        dfs = []
-        for file in parquet_files:
-            try:
-                dfs.append(pl.read_parquet(file))
-            except Exception as file_error:
-                logger.warning(f"Skipping file {file}: {file_error}")
-                continue
-
-        if not dfs:
-            raise ValueError("No valid parquet files could be loaded")
-
-        df = pl.concat(dfs, how="diagonal")
+        df = _load_multiple_parquet_files(str(session_path), columns=columns)
 
     return df
 
 
 @st.cache_data
-def load_participant_data(participant_id: str, dataset: str = None):
+def load_participant_data(
+    participant_id: str, dataset: str = None, columns: list[str] = None
+):
     participants_path = DATA_PATH / dataset if dataset else PARTICIPANTS_PATH
     if participants_path is None:
         raise ValueError("PARTICIPANTS_PATH is None and no dataset provided.")
@@ -168,29 +160,44 @@ def load_participant_data(participant_id: str, dataset: str = None):
     participant_path = participants_path / p_partition / "*" / "*" / "*"
 
     try:
-        df = pl.read_parquet(participant_path, rechunk=False)
+        df = pl.read_parquet(participant_path, columns=columns, rechunk=False)
     except Exception as e:
         logger.warning(f"Failed to load participant data with rechunk=False: {e}")
         logger.info("Attempting to load files individually...")
-
-        from glob import glob
-
-        parquet_files = glob(str(participant_path))
-
-        if not parquet_files:
-            raise FileNotFoundError(f"No parquet files found at {participant_path}")
-
-        dfs = []
-        for file in parquet_files:
-            try:
-                dfs.append(pl.read_parquet(file))
-            except Exception as file_error:
-                logger.warning(f"Skipping file {file}: {file_error}")
-                continue
-
-        if not dfs:
-            raise ValueError("No valid parquet files could be loaded")
-
-        df = pl.concat(dfs, how="diagonal")
+        df = _load_multiple_parquet_files(str(participant_path), columns=columns)
 
     return df
+
+
+def _load_multiple_parquet_files(
+    path_glob: str, columns: list[str] = None
+) -> pl.DataFrame:
+    from glob import glob
+
+    parquet_files = glob(path_glob)
+
+    if not parquet_files:
+        raise FileNotFoundError(f"No parquet files found at {path_glob}")
+
+    lazy_dfs = []
+    for file in parquet_files:
+        try:
+            # Using scan_parquet is much more memory efficient
+            # We select columns immediately to reduce memory usage during scanning
+            lf = pl.scan_parquet(file)
+            if columns:
+                # Filter columns to only those present in the file
+                available_cols = [c for c in columns if c in lf.columns]
+                # Even if available_cols is empty, we select them to ensure we don't load other columns
+                lf = lf.select(available_cols)
+            lazy_dfs.append(lf)
+        except Exception as file_error:
+            logger.warning(f"Skipping file {file}: {file_error}")
+            continue
+
+    if not lazy_dfs:
+        raise ValueError("No valid parquet files could be loaded")
+
+    # Diagonal concat handles schema mismatches and type unification (like Null vs Float32)
+    return pl.concat(lazy_dfs, how="diagonal").collect()
+
