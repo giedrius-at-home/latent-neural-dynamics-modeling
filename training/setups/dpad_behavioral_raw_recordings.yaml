@@ -7,6 +7,9 @@ model:
   epochs: 3000
   fast: false
   
+  # steps_ahead: [1, 2, 3, 4]
+  # steps_ahead_loss_weights: [1.0, 1.0, 1.0, 1.0]
+
   steps_ahead: [1]
   steps_ahead_loss_weights: [1.0]
 
