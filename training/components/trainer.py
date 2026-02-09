@@ -617,15 +617,16 @@ class Trainer:
             model_path = out_dir / f"model_{ts}"
 
             if self.framework_type == "dpad":
-                self.framework.model.idSys.discardModels()
+                try:
+                    self.framework.model.idSys.discardModels()
 
-                model_path_pkl = f"{model_path}.pkl"
-                with open(model_path_pkl, "wb") as f:
-                    pickle.dump(self.framework.model.idSys, f)
+                    model_path_pkl = f"{model_path}.pkl"
+                    with open(model_path_pkl, "wb") as f:
+                        pickle.dump(self.framework.model.idSys, f)
 
-                self.logger.info(f"Saved DPAD model to {model_path_pkl}")
-
-                self.framework.model.idSys.restoreModels()
+                    self.logger.info(f"Saved DPAD model to {model_path_pkl}")
+                finally:
+                    self.framework.model.idSys.restoreModels()
 
                 metadata = {
                     "framework_type": "dpad",

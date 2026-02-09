@@ -792,11 +792,23 @@ class AutoARIMAWrapper:
             
             Yp_trial = np.zeros((n_samples, n_channels))
             for ch, model in enumerate(self.models_Y):
-                if hasattr(model, '_forecaster') and hasattr(model._forecaster, 'predict_in_sample'):
-                    fitted = model._forecaster.predict_in_sample()
-                    Yp_trial[:len(fitted), ch] = fitted.values
-                else:
-                    raise RuntimeError(f"AutoARIMA model for Y channel {ch} does not support in-sample prediction")
+                try:
+                    model_clone = model.clone()
+                    
+                    for t in range(n_samples):
+                        pred = model_clone.predict(fh=[1])
+                        Yp_trial[t, ch] = pred.values[0]
+                        
+                        y_obs = pd.Series([y_zscored[t, ch]], index=[t])
+                        model_clone.update(y_obs)
+                        
+                except Exception as e:
+                    self.logger.warning(
+                        f"Rolling prediction failed for Y channel {ch}: {e}. "
+                        f"Falling back to last known value."
+                    )
+                    # Fallback: use the last training value
+                    Yp_trial[:, ch] = y_zscored[-1, ch] if n_samples > 0 else 0.0
             
             Yp_trial = Yp_trial * self.Y_std + self.Y_mean
             all_Yp.append(Yp_trial)
@@ -804,18 +816,32 @@ class AutoARIMAWrapper:
         all_Zp = None
         if self.models_Z and self.Z_mean is not None:
             all_Zp = []
-            for y_trial in Y:
+            for trial_idx, y_trial in enumerate(Y):
                 y_zscored = (y_trial - self.Y_mean) / self.Y_std
                 n_samples = y_trial.shape[0]
                 n_channels_Z = len(self.models_Z)
                 Zp_trial = np.zeros((n_samples, n_channels_Z))
                 
                 for ch, model in enumerate(self.models_Z):
-                    if hasattr(model, '_forecaster') and hasattr(model._forecaster, 'predict_in_sample'):
-                        fitted = model._forecaster.predict_in_sample()
-                        Zp_trial[:len(fitted), ch] = fitted.values
-                    else:
-                        raise RuntimeError(f"ARIMAX model for Z channel {ch} does not support in-sample prediction")
+                    try:
+                        model_clone = model.clone()
+                        
+                        for t in range(n_samples):
+                            y_exog = pd.DataFrame([y_zscored[t, :]], index=[t])
+                            pred = model_clone.predict(fh=[1], X=y_exog)
+                            Zp_trial[t, ch] = pred.values[0]
+                            
+                            # Note: For ARIMAX, we need to provide the actual Z value
+                            # Since we don't have it during pure prediction, we use the predicted value
+                            z_obs = pd.Series([Zp_trial[t, ch]], index=[t])
+                            model_clone.update(z_obs, X=y_exog)
+                            
+                    except Exception as e:
+                        self.logger.warning(
+                            f"Rolling prediction failed for Z channel {ch}: {e}. "
+                            f"Falling back to zero."
+                        )
+                        Zp_trial[:, ch] = 0.0
                 
                 all_Zp.append(Zp_trial * self.Z_std + self.Z_mean)
         
