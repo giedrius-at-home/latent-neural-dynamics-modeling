@@ -229,20 +229,26 @@ def _chunk_recordings(
             (pl.col("trial_time") + 2 * chunk_margin).alias("margined_duration"),
         )
         .with_columns(
-            (pl.col("margined_onset") * sfreq).cast(pl.UInt32).alias("start_ts"),
+            (pl.col("margined_onset") * sfreq).round().cast(pl.UInt32).alias("start_ts"),
             (pl.col("margined_duration") * sfreq)
+            .round()
             .cast(pl.UInt32)
             .alias("chunk_length_ts"),
-            (pl.col("trial_time") * sfreq).cast(pl.UInt32).alias("original_length_ts"),
+            (pl.col("trial_time") * sfreq).round().cast(pl.UInt32).alias("original_length_ts"),
+            (pl.col("onset") * sfreq).round().cast(pl.UInt32).alias("onset_ts"),
         )
         .with_columns(
-            pl.int_ranges(0, pl.col("chunk_length_ts"), dtype=pl.UInt32)
+            (
+                pl.int_ranges(0, pl.col("chunk_length_ts"), dtype=pl.UInt32)
+                + pl.col("start_ts")
+            )
             .truediv(sfreq)
-            .add(pl.col("margined_onset"))
             .alias("time"),
-            pl.int_ranges(0, pl.col("original_length_ts"), dtype=pl.UInt32)
+            (
+                pl.int_ranges(0, pl.col("original_length_ts"), dtype=pl.UInt32)
+                + pl.col("onset_ts")
+            )
             .truediv(sfreq)
-            .add(pl.col("onset"))
             .alias("time_original"),
         )
     )

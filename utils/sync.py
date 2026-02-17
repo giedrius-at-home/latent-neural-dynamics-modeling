@@ -8,8 +8,8 @@ def find_overlap_window(neural_time, behavior_time):
     return overlap_start, overlap_end
 
 
-def generate_master_grid(start_time, end_time, target_sfreq=60.0):
-    n_samples = int((end_time - start_time) * target_sfreq) + 1
+def generate_master_grid(start_time, end_time, target_sfreq=80.0):
+    n_samples = int((end_time - start_time) * target_sfreq)
     return np.linspace(
         start_time, start_time + (n_samples - 1) / target_sfreq, n_samples
     )
