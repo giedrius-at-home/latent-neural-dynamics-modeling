@@ -39,11 +39,17 @@ def list_run_timestamps(variant_dir: Path) -> List[str]:
 
 
 def config_for_variant(project_root: Path, variant_name: str) -> Optional[Path]:
-    cfg = project_root / "training" / "setups" / f"{variant_name}.yaml"
-    if cfg.exists():
+    # Search recursively for the yaml file in training/setups
+    training_setups = project_root / "training" / "setups"
+    for cfg in training_setups.rglob(f"{variant_name}.yaml"):
         return cfg
-    cfg = project_root / "classification" / "setups" / f"{variant_name}.yaml"
-    return cfg if cfg.exists() else None
+        
+    # Search recursively for the yaml file in classification/setups
+    classification_setups = project_root / "classification" / "setups"
+    for cfg in classification_setups.rglob(f"{variant_name}.yaml"):
+        return cfg
+        
+    return None
 
 
 def check_precomputed_results(variant_dir: Path, run_ts: str) -> Dict[str, bool]:

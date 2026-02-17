@@ -10,7 +10,7 @@ def main(args):
     logger.info(f"Configuration loaded from: {args.config}")
     logger.info(f"Config content: \n{config}")
 
-    construct_participants_table(config)
+    construct_participants_table(config, participant_id=args.participant, session=args.session)
 
 
 if __name__ == "__main__":
@@ -20,6 +20,12 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--config", type=str, required=True, help="Path to the configuration file."
+    )
+    parser.add_argument(
+        "--participant", type=str, default=None, help="Participant ID to process."
+    )
+    parser.add_argument(
+        "--session", type=str, default=None, help="Session ID to process."
     )
     args = parser.parse_args()
 

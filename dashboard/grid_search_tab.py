@@ -58,7 +58,7 @@ def grid_search_tab(project_root: Path, results_root=None):
         st.info(
             "No grid search results found. Run a grid search first:\n\n"
             "```bash\n"
-            "python -m training.psid_grid_search --config training/setups/gs_PDI1_S2_part1_check.yaml\n"
+            "python -m training.psid_grid_search --config (path to your config under training/setups/)\n"
             "```"
         )
         return
