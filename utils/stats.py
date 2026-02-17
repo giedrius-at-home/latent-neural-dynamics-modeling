@@ -330,26 +330,6 @@ def compare_band_power(
     return results
 
 
-def compute_spectral_coherence(
-    signal1: np.ndarray, signal2: np.ndarray, fs: float, nperseg: Optional[int] = None
-) -> Tuple[np.ndarray, np.ndarray]:
-    from scipy.signal import coherence
-
-    if signal1.ndim == 0 or signal2.ndim == 0:
-        return np.array([]), np.array([])
-
-    if signal1.ndim > 1:
-        signal1 = signal1.flatten()
-    if signal2.ndim > 1:
-        signal2 = signal2.flatten()
-
-    if nperseg is None:
-        nperseg = min(len(signal1), 256)
-
-    freqs, coh = coherence(signal1, signal2, fs=fs, nperseg=nperseg)
-    return freqs, coh
-
-
 def compute_cross_correlation(
     y_true: np.ndarray,
     y_pred: np.ndarray,

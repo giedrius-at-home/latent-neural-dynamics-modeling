@@ -57,9 +57,13 @@ class BaseFramework:
         Y_list: TrialList,
         Z_list: Optional[TrialList] = None,
         margin: Optional[float] = None,
+        Yp_val: Optional[TrialList] = None,
+        Zp_val: Optional[TrialList] = None,
     ) -> Dict[str, Any]:
         self.logger.info("Starting forecast validation...")
-        return self.model.validate_forecast(Y_list, Z_list=Z_list, margin=margin)
+        return self.model.validate_forecast(
+            Y_list, Z_list=Z_list, margin=margin, Yp_val=Yp_val, Zp_val=Zp_val
+        )
 
 
 class PSIDWrapper:
@@ -151,6 +155,8 @@ class PSIDWrapper:
         Y_list: TrialList,
         Z_list: Optional[TrialList] = None,
         margin: Optional[float] = None,
+        Yp_val: Optional[TrialList] = None,
+        Zp_val: Optional[TrialList] = None,
     ) -> Dict[str, Any]:
 
         m_seconds = self.config.model.forecast.m
@@ -160,7 +166,10 @@ class PSIDWrapper:
         history = int(history_seconds * sampling_freq)
         margin_sec = margin if margin is not None else 0.0
 
-        Zp_val, Yp_val, Xp_val = self.predict(Y_list)
+        if Yp_val is None:
+            Zp_val_local, Yp_val_local, Xp_val_local = self.predict(Y_list)
+            Yp_val = Yp_val_local
+            Zp_val = Zp_val_local
 
         all_residuals = []
         for y_true, y_pred in zip(Y_list, Yp_val):
@@ -573,6 +582,8 @@ class DPADWrapper:
         Y_list: TrialList,
         Z_list: Optional[TrialList] = None,
         margin: int = 0,
+        Yp_val: Optional[TrialList] = None,
+        Zp_val: Optional[TrialList] = None,
     ) -> Dict[str, Any]:
         m_seconds = self.config.model.forecast.m
         history_seconds = self.config.model.forecast.history
@@ -583,7 +594,10 @@ class DPADWrapper:
         self.idSys.set_steps_ahead([1])
         self.idSys.set_multi_step_with_data_gen(False)
 
-        Zp_val, Yp_val, Xp_val = self.predict(Y_list)
+        if Yp_val is None:
+            Zp_val_local, Yp_val_local, Xp_val_local = self.predict(Y_list)
+            Yp_val = Yp_val_local
+            Zp_val = Zp_val_local
 
         all_residuals = []
         for y_true, y_pred in zip(Y_list, Yp_val):
@@ -706,78 +720,125 @@ class AutoARIMAWrapper:
         self.Y_std = None
         self.Z_mean = None
         self.Z_std = None
+        
+        # Store necessary params from config so they survive pickling
+        self.forecast_m = getattr(config.model.forecast, 'm', 2.0)
+        self.forecast_history = getattr(config.model.forecast, 'history', 5.0)
+        self.sampling_freq = getattr(config.data, 'sampling_frequency', 60)
+        self.n_fit_trials = getattr(config.model, 'n_fit_trials', 1)
+
+    def __getstate__(self):
+        """Exclude unpicklable logger and large training data from serialization."""
+        state = self.__dict__.copy()
+        state.pop("logger", None)
+        state.pop("config", None)
+        state.pop("Y_train", None)
+        state.pop("Z_train", None)
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        self.logger = get_logger()
+        # self.config remains None after unpickling, but we have stored params
+        self.Y_train = None
+        self.Z_train = None
 
     def train(self, Y: TrialList, Z: Optional[TrialList] = None):
         from sktime.forecasting.arima import AutoARIMA
-        
+
         self.logger.info("Training AutoARIMA models...")
-        
+
         Y_concat = np.concatenate(Y, axis=0)
         n_channels_Y = Y_concat.shape[1] if Y_concat.ndim == 2 else 1
-        
+
         self.Y_mean = np.mean(Y_concat, axis=0, keepdims=True)
         self.Y_std = np.std(Y_concat, axis=0, keepdims=True)
         self.Y_std[self.Y_std < 1e-10] = 1.0
-        Y_concat_zscored = (Y_concat - self.Y_mean) / self.Y_std
-        
+
         self.Y_train = [(y - self.Y_mean) / self.Y_std for y in Y]
-        
+
         sp = getattr(self.config.model, 'sp', 1)
         max_p = getattr(self.config.model, 'max_p', 5)
         max_q = getattr(self.config.model, 'max_q', 5)
         max_d = getattr(self.config.model, 'max_d', 2)
-        
+        n_fit_trials = self.n_fit_trials
+
+        n_available = len(self.Y_train)
+        n_to_fit = min(n_fit_trials, n_available)
+        fit_indices = np.linspace(
+            0, n_available - 1, n_to_fit, dtype=int
+        ).tolist()
+
         self.logger.info(
             f"AutoARIMA params: sp={sp}, max_p={max_p}, max_q={max_q}, max_d={max_d}, "
-            f"n_channels_Y={n_channels_Y}"
+            f"n_channels_Y={n_channels_Y}, fitting per-trial on {n_to_fit} "
+            f"representative trials (indices: {fit_indices})"
         )
-        
+
+        # Fit Y channels — per-trial windowed approach (NOT concatenated)
         self.models_Y = []
         for ch in range(n_channels_Y):
-            y_series = pd.Series(Y_concat_zscored[:, ch])
-            
-            model = AutoARIMA(
-                sp=sp,
-                suppress_warnings=True,
-                max_p=max_p,
-                max_q=max_q,
-                max_d=max_d,
-                stepwise=True,
-                n_jobs=1,
-            )
-            model.fit(y_series)
-            self.models_Y.append(model)
-            self.logger.info(f"Fitted AutoARIMA for Y channel {ch}")
-        
-        if Z is not None:
-            Z_concat = np.concatenate(Z, axis=0)
-            n_channels_Z = Z_concat.shape[1] if Z_concat.ndim == 2 else 1
-            
-            self.Z_mean = np.mean(Z_concat, axis=0, keepdims=True)
-            self.Z_std = np.std(Z_concat, axis=0, keepdims=True)
-            self.Z_std[self.Z_std < 1e-10] = 1.0
-            Z_concat_zscored = (Z_concat - self.Z_mean) / self.Z_std
-            
-            self.Z_train = [(z - self.Z_mean) / self.Z_std for z in Z]
-            
-            Y_exog = pd.DataFrame(Y_concat_zscored)
-            
-            self.models_Z = []
-            for ch in range(n_channels_Z):
-                z_series = pd.Series(Z_concat_zscored[:, ch])
-                
+            best_model = None
+            for i, trial_idx in enumerate(fit_indices):
+                y_series = pd.Series(self.Y_train[trial_idx][:, ch])
+
                 model = AutoARIMA(
                     sp=sp,
+                    suppress_warnings=True,
                     max_p=max_p,
                     max_q=max_q,
                     max_d=max_d,
                     stepwise=True,
                     n_jobs=1,
                 )
-                model.fit(z_series, X=Y_exog)
-                self.models_Z.append(model)
-                self.logger.info(f"Fitted ARIMAX for Z channel {ch} (with Y exogenous)")
-        
+                model.fit(y_series)
+                if best_model is None:
+                    best_model = model
+                self.logger.info(
+                    f"Fitted AutoARIMA for Y ch {ch}, trial {trial_idx} "
+                    f"({i + 1}/{n_to_fit})"
+                )
+
+            self.models_Y.append(best_model)
+            self.logger.info(f"Selected model for Y channel {ch}")
+
+        if Z is not None:
+            Z_concat = np.concatenate(Z, axis=0)
+            n_channels_Z = Z_concat.shape[1] if Z_concat.ndim == 2 else 1
+
+            self.Z_mean = np.mean(Z_concat, axis=0, keepdims=True)
+            self.Z_std = np.std(Z_concat, axis=0, keepdims=True)
+            self.Z_std[self.Z_std < 1e-10] = 1.0
+
+            self.Z_train = [(z - self.Z_mean) / self.Z_std for z in Z]
+
+            self.models_Z = []
+            for ch in range(n_channels_Z):
+                best_model = None
+                for i, trial_idx in enumerate(fit_indices):
+                    z_series = pd.Series(self.Z_train[trial_idx][:, ch])
+                    y_exog = pd.DataFrame(self.Y_train[trial_idx])
+
+                    model = AutoARIMA(
+                        sp=sp,
+                        suppress_warnings=True,
+                        max_p=max_p,
+                        max_q=max_q,
+                        max_d=max_d,
+                        stepwise=True,
+                        n_jobs=1,
+                    )
+                    model.fit(z_series, X=y_exog)
+                    if best_model is None:
+                        best_model = model
+                    self.logger.info(
+                        f"Fitted ARIMAX for Z ch {ch}, trial {trial_idx} "
+                        f"({i + 1}/{n_to_fit})"
+                    )
+
+                self.models_Z.append(best_model)
+                self.logger.info(f"Selected model for Z channel {ch}")
+
         self.logger.info("AutoARIMA training complete")
         return self
 
@@ -793,21 +854,51 @@ class AutoARIMAWrapper:
             Yp_trial = np.zeros((n_samples, n_channels))
             for ch, model in enumerate(self.models_Y):
                 try:
-                    model_clone = model.clone()
+                    # Correct path for sktime AutoARIMA -> pmdarima -> statsmodels
+                    # sktime.AutoARIMA has _forecaster (pmdarima.AutoARIMA)
+                    # pmdarima.AutoARIMA has model_ (pmdarima.ARIMA) after fit
+                    # pmdarima.ARIMA has arima_res_ (statsmodels result)
+                    pm_auto = getattr(model, '_forecaster', None)
+                    pm_model = getattr(pm_auto, 'model_', None) if pm_auto else None
+                    res = getattr(pm_model, 'arima_res_', None) if pm_model else None
                     
-                    for t in range(n_samples):
-                        pred = model_clone.predict(fh=[1])
-                        Yp_trial[t, ch] = pred.values[0]
+                    if res is not None:
+                        # Apply trained parameters to new data
+                        new_res = res.apply(y_zscored[:, ch])
                         
-                        y_obs = pd.Series([y_zscored[t, ch]], index=[t])
-                        model_clone.update(y_obs)
+                        # One-step-ahead predictions for the whole trial (in-sample for new_res)
+                        preds = new_res.predict()
+                        
+                        # Handle potential shape mismatch if predict() returns different length
+                        if len(preds) == n_samples:
+                            Yp_trial[:, ch] = preds
+                        else:
+                            self.logger.warning(
+                                f"SARIMAX.apply().predict() length mismatch for Y channel {ch}. "
+                                f"Expected {n_samples}, got {len(preds)}. Falling back to rolling prediction."
+                            )
+                            import copy
+                            model_clone = copy.deepcopy(model)
+                            for t in range(n_samples):
+                                pred = model_clone.predict(fh=[1])
+                                Yp_trial[t, ch] = pred.values[0]
+                                y_obs = pd.Series([y_zscored[t, ch]], index=[t])
+                                model_clone.update(y_obs)
+                    else:
+                        self.logger.warning(f"Statsmodels results not found for Y channel {ch}. Falling back to rolling.")
+                        import copy
+                        model_clone = copy.deepcopy(model)
+                        for t in range(n_samples):
+                            pred = model_clone.predict(fh=[1])
+                            Yp_trial[t, ch] = pred.values[0]
+                            y_obs = pd.Series([y_zscored[t, ch]], index=[t])
+                            model_clone.update(y_obs)
                         
                 except Exception as e:
                     self.logger.warning(
-                        f"Rolling prediction failed for Y channel {ch}: {e}. "
+                        f"Fast prediction failed for Y channel {ch}: {e}. "
                         f"Falling back to last known value."
                     )
-                    # Fallback: use the last training value
                     Yp_trial[:, ch] = y_zscored[-1, ch] if n_samples > 0 else 0.0
             
             Yp_trial = Yp_trial * self.Y_std + self.Y_mean
@@ -822,23 +913,35 @@ class AutoARIMAWrapper:
                 n_channels_Z = len(self.models_Z)
                 Zp_trial = np.zeros((n_samples, n_channels_Z))
                 
+                y_exog = pd.DataFrame(y_zscored)
+                
                 for ch, model in enumerate(self.models_Z):
                     try:
-                        model_clone = model.clone()
+                        # Bypass sktime — go through pmdarima/statsmodels directly
+                        pm_auto = getattr(model, '_forecaster', None)
+                        pm_model = getattr(pm_auto, 'model_', None) if pm_auto else None
+                        res = getattr(pm_model, 'arima_res_', None) if pm_model else None
                         
-                        for t in range(n_samples):
-                            y_exog = pd.DataFrame([y_zscored[t, :]], index=[t])
-                            pred = model_clone.predict(fh=[1], X=y_exog)
-                            Zp_trial[t, ch] = pred.values[0]
+                        if res is not None:
+                            # Use a dummy endogenous series (zeros) since we don't
+                            # have the true Z for this trial — we're decoding it.
+                            z_dummy = np.zeros(n_samples)
+                            new_res = res.apply(z_dummy, exog=y_exog)
+                            preds = new_res.predict()
                             
-                            # Note: For ARIMAX, we need to provide the actual Z value
-                            # Since we don't have it during pure prediction, we use the predicted value
-                            z_obs = pd.Series([Zp_trial[t, ch]], index=[t])
-                            model_clone.update(z_obs, X=y_exog)
+                            if len(preds) == n_samples:
+                                Zp_trial[:, ch] = preds
+                            else:
+                                Zp_trial[:, ch] = 0.0
+                        else:
+                            self.logger.warning(
+                                f"No statsmodels result for Z channel {ch}. Using zero."
+                            )
+                            Zp_trial[:, ch] = 0.0
                             
                     except Exception as e:
                         self.logger.warning(
-                            f"Rolling prediction failed for Z channel {ch}: {e}. "
+                            f"AutoARIMA prediction failed for Z channel {ch}: {e}. "
                             f"Falling back to zero."
                         )
                         Zp_trial[:, ch] = 0.0
@@ -873,15 +976,27 @@ class AutoARIMAWrapper:
         Yf = np.zeros((m, n_channels_Y))
         
         for ch, model in enumerate(self.models_Y):
-            y_series = pd.Series(Y_past_zscored[:, ch])
             try:
-                model_updated = model.clone()
-                model_updated.update(y_series)
-                fh = list(range(1, m + 1))
-                forecast = model_updated.predict(fh=fh)
-                Yf[:, ch] = forecast.values
+                pm_auto = getattr(model, '_forecaster', None)
+                pm_model = getattr(pm_auto, 'model_', None) if pm_auto else None
+                res = getattr(pm_model, 'arima_res_', None) if pm_model else None
+                
+                if res is not None:
+                    # Apply parameters to the past data
+                    new_res = res.apply(Y_past_zscored[:, ch])
+                    
+                    # Forecast from the end of the past data
+                    forecast = new_res.forecast(steps=m)
+                    Yf[:, ch] = forecast.values if hasattr(forecast, 'values') else forecast
+                else:
+                    import copy
+                    model_updated = copy.deepcopy(model)
+                    model_updated.update(pd.Series(Y_past_zscored[:, ch]))
+                    fh = list(range(1, m + 1))
+                    forecast = model_updated.predict(fh=fh)
+                    Yf[:, ch] = forecast.values
             except Exception as e:
-                self.logger.warning(f"Forecast failed for channel {ch}: {e}")
+                self.logger.warning(f"Fast forecast failed for channel {ch}: {e}")
                 Yf[:, ch] = Y_past_zscored[-1, ch]
         
         Yf = Yf * self.Y_std + self.Y_mean
@@ -892,15 +1007,35 @@ class AutoARIMAWrapper:
             Zf = np.zeros((m, n_channels_Z))
             
             Yf_zscored = (Yf - self.Y_mean) / self.Y_std
-            Y_exog_forecast = pd.DataFrame(Yf_zscored)
+            Y_past_zscored = (Y_past - self.Y_mean) / self.Y_std
             
             for ch, model in enumerate(self.models_Z):
                 try:
-                    fh = list(range(1, m + 1))
-                    forecast = model.predict(fh=fh, X=Y_exog_forecast)
-                    Zf[:, ch] = forecast.values
+                    # Bypass sktime, go through pmdarima/statsmodels directly
+                    pm_auto = getattr(model, '_forecaster', None)
+                    pm_model = getattr(pm_auto, 'model_', None) if pm_auto else None
+                    res = getattr(pm_model, 'arima_res_', None) if pm_model else None
+                    
+                    if res is not None:
+                        # We need a "dummy" endogenous series for the history period.
+                        # Use zeros since we don't have ground-truth Z for new data.
+                        z_dummy = np.zeros(Y_past_zscored.shape[0])
+                        y_exog_past = pd.DataFrame(Y_past_zscored)
+                        
+                        # Apply the fitted ARIMAX params to the history period
+                        new_res = res.apply(z_dummy, exog=y_exog_past)
+                        
+                        # Forecast m steps ahead with future neural predictions as exog
+                        y_exog_future = pd.DataFrame(Yf_zscored)
+                        fc = new_res.forecast(steps=m, exog=y_exog_future)
+                        Zf[:, ch] = fc.values if hasattr(fc, 'values') else fc
+                    else:
+                        self.logger.warning(
+                            f"No statsmodels result found for Z channel {ch}. Using zero."
+                        )
+                        Zf[:, ch] = 0.0
                 except Exception as e:
-                    self.logger.warning(f"Z forecast failed for channel {ch}: {e}")
+                    self.logger.warning(f"AutoARIMA Z forecast failed for channel {ch}: {e}")
                     Zf[:, ch] = 0.0
             Zf = Zf * self.Z_std + self.Z_mean
         
@@ -911,14 +1046,18 @@ class AutoARIMAWrapper:
         Y_list: TrialList,
         Z_list: Optional[TrialList] = None,
         margin: Optional[float] = None,
+        Yp_val: Optional[TrialList] = None,
+        Zp_val: Optional[TrialList] = None,
     ) -> Dict[str, Any]:
-        m_seconds = self.config.model.forecast.m
-        history_seconds = self.config.model.forecast.history
-        sampling_freq = self.config.data.sampling_frequency
+        m_seconds = self.forecast_m
+        history_seconds = self.forecast_history
+        sampling_freq = self.sampling_freq
         m = int(m_seconds * sampling_freq)
         history = int(history_seconds * sampling_freq)
 
-        Zp_val, Yp_val, Xp_val = self.predict(Y_list)
+        if Yp_val is None:
+            self.logger.info("Yp_val not provided to validate_forecast, running prediction...")
+            Zp_val, Yp_val, Xp_val = self.predict(Y_list)
 
         all_residuals = []
         for y_true, y_pred in zip(Y_list, Yp_val):

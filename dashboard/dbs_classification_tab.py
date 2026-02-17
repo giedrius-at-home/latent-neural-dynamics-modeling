@@ -17,6 +17,12 @@ from dashboard.backbone import (
     PLOT_STYLE,
     PLOT_COLOR,
 )
+from dashboard.subtabs.classification import (
+    load_classification_results,
+    create_line_plot_by_history,
+    create_line_plot_by_future,
+    create_summary_table,
+)
 
 
 def load_all_splits(
@@ -36,7 +42,7 @@ def save_classification_results(results: Dict[str, Any], save_path: Path):
         pickle.dump(results, f)
 
 
-def load_classification_results(save_path: Path) -> Optional[Dict[str, Any]]:
+def load_single_result(save_path: Path) -> Optional[Dict[str, Any]]:
     if save_path.exists():
         with open(save_path, "rb") as f:
             return pickle.load(f)
@@ -59,11 +65,11 @@ def render_metrics_row(results: Dict[str, Any], prefix: str = ""):
 def render_confusion_matrix(cm: np.ndarray, key: str):
     fig = go.Figure(
         data=go.Heatmap(
-            z=cm,
-            x=["OFF", "ON"],
-            y=["OFF", "ON"],
+            z=cm[::-1, ::-1],
+            x=["ON", "OFF"],
+            y=["ON", "OFF"],
             colorscale="Burg",
-            text=cm,
+            text=cm[::-1, ::-1],
             texttemplate="%{text}",
             textfont={"size": 20},
             showscale=True,
@@ -214,7 +220,7 @@ def render_classifier_section(
 
     st.markdown(f"### {clf_name}")
 
-    cached = load_classification_results(cache_path)
+    cached = load_single_result(cache_path)
     results = st.session_state.get(f"results_{key_base}", cached)
 
     if results:
@@ -271,7 +277,7 @@ def render_classifier_section(
             p_cols = st.columns(3)
             p_cols[0].metric("Observed Score", f"{p_res['score']:.4f}")
             p_cols[1].metric("p-value", f"{p_res['pvalue']:.4f}")
-            p_cols[2].metric("Permutations", f"{p_res['n_permutations']}")
+            p_cols[2].metric("Permutations", f"{p_res.get('n_permutations', 'N/A')}")
 
         if "test_results" in results:
             st.markdown("---")
@@ -297,24 +303,37 @@ def render_classification_mode(
     results_dir = variant_dir / run_ts / "classification"
 
     if not results_dir.exists():
-        st.warning(
-            f"No classification results found. Run the classification script first."
-        )
-        st.code(
-            f"python classification/compute.py --config classification/setups/default.yaml"
-        )
+        st.warning(f"No classification directory found at {results_dir.relative_to(variant_dir.parent.parent)}. Run the classification script first.")
         return
 
-    pattern = f"*_{mode}_*.pkl"
-    result_files = list(results_dir.glob(pattern))
+    # Look for results in main dir AND subdirs
+    pattern = f"*_{mode}.pkl"
+    result_files = list(results_dir.rglob(pattern))
 
     if not result_files:
-        st.info(
-            f"No {mode} classification results found. Run the classification script to generate results."
-        )
+        st.info(f"No {mode} classification results found. Run the classification script to generate results.")
         return
 
-    for result_file in sorted(result_files):
+    # Group by (h, m) if applicable
+    import re
+    hm_pattern = re.compile(r"h([\d.]+)_m([\d.]+)")
+    
+    config_map = {}
+    for f in result_files:
+        match = hm_pattern.search(f.parent.name)
+        if match:
+            h, m = float(match.group(1)), float(match.group(2))
+            config_map[f"h={h}s, m={m}s"] = f
+        else:
+            config_map["Standard (1.0s)"] = f
+    
+    if len(config_map) > 1:
+        selected_cfg = st.selectbox(f"Window Configuration (h, m) - {mode}", options=list(config_map.keys()), key=f"sel_{mode}_{run_ts}")
+        display_files = [config_map[selected_cfg]]
+    else:
+        display_files = result_files
+
+    for result_file in sorted(display_files):
         filename = result_file.stem
         parts = filename.split("_")
 
@@ -333,7 +352,7 @@ def render_classification_mode(
         st.markdown(f"### {display_name}")
         st.caption(f"Parameters: {params_str}")
 
-        results = load_classification_results(result_file)
+        results = load_single_result(result_file)
 
         if results:
             if "best_params" in results:
@@ -359,7 +378,7 @@ def render_classification_mode(
                 p_cols = st.columns(3)
                 p_cols[0].metric("Observed Score", f"{p_res['score']:.4f}")
                 p_cols[1].metric("p-value", f"{p_res['pvalue']:.4f}")
-                p_cols[2].metric("Permutations", f"{p_res['n_permutations']}")
+                p_cols[2].metric("Permutations", f"{p_res.get('n_permutations', 'N/A')}")
 
             if "test_results" in results:
                 st.markdown("---")
@@ -383,20 +402,27 @@ def render_classification_from_predictions(variant_dir: Path, run_ts: str):
 
 
 def render_classification_from_forecasts(variant_dir: Path, run_ts: str):
+    results_dir = variant_dir / run_ts / "classification"
+    if results_dir.exists():
+        all_mode_results = load_classification_results(results_dir, mode="forecast")
+        if len(all_mode_results) > 1:
+            st.markdown("## Forecast Performance")
+            col1, col2 = st.columns(2)
+            with col1:
+                st.plotly_chart(create_line_plot_by_history(all_mode_results, metric="balanced_accuracy"), use_container_width=True, key="h_fore")
+            with col2:
+                st.plotly_chart(create_line_plot_by_future(all_mode_results, metric="balanced_accuracy"), use_container_width=True, key="m_fore")
+            st.markdown("---")
+            
     render_classification_mode(variant_dir, run_ts, mode="forecast")
 
 
-def dbs_classification_tab(project_root):
+def dbs_classification_tab(project_root, results_root=None):
     st.header("DBS ON/OFF Classification")
 
-    RESULTS_ROOT = project_root / "results"
+    RESULTS_ROOT = results_root if results_root else project_root / "results"
 
     from dashboard.subtabs import list_variants, list_run_timestamps, config_for_variant
-    from dashboard.subtabs.classification import (
-        load_classification_results,
-        create_line_plot_by_history,
-        create_summary_table,
-    )
 
     variants = list_variants(RESULTS_ROOT)
     if len(variants) == 0:
@@ -421,15 +447,17 @@ def dbs_classification_tab(project_root):
     classification_dir = variant_dir / run_ts / "classification"
     
     has_flipped_results = False
+    hm_dirs = []
     if classification_dir.exists():
         import re
         hm_pattern = re.compile(r"^h[\d.]+_m[\d.]+$")
         hm_dirs = [d for d in classification_dir.iterdir() if d.is_dir() and hm_pattern.match(d.name)]
-        has_flipped_results = len(hm_dirs) > 0
+        # Flipped results tab only for variants that are explicitly flipped
+        has_flipped_results = len(hm_dirs) > 0 and "flipped" in variant.lower()
     
     if classification_dir.exists():
         num_pkl = len(list(classification_dir.glob("*.pkl")))
-        num_hm = len(hm_dirs) if has_flipped_results else 0
+        num_hm = len(hm_dirs)
         if num_pkl > 0 or num_hm > 0:
             msg_parts = []
             if num_pkl > 0:
@@ -449,64 +477,79 @@ def dbs_classification_tab(project_root):
     st.markdown("---")
     
     if has_flipped_results:
-        mode_tabs = st.tabs(["Flipped Classification", "From Predictions", "From Forecasts"])
+        st.markdown("## Classification Results on Different History and Forecast Windows")
         
-        with mode_tabs[0]:
-            st.markdown("## Classification Results on Different History and Forecast Windows")
-            
-            # Reset results if variant or run changes
-            current_selection = (variant, run_ts)
-            if st.session_state.get("flipped_selection") != current_selection:
-                st.session_state["flipped_results"] = None
-                st.session_state["flipped_selection"] = current_selection
+        # Reset results if variant or run changes
+        current_selection = (variant, run_ts)
+        if st.session_state.get("flipped_selection") != current_selection:
+            st.session_state["flipped_results"] = None
+            st.session_state["flipped_selection"] = current_selection
 
-            if st.button("Load/Refresh Flipped Results"):
-                with st.spinner("Loading results..."):
-                    st.session_state["flipped_results"] = load_classification_results(classification_dir)
+        if st.button("Load/Refresh Flipped Results"):
+            with st.spinner("Loading results..."):
+                st.session_state["flipped_results"] = load_classification_results(classification_dir)
+        
+        flipped_results = st.session_state.get("flipped_results")
+        
+        if not flipped_results:
+            st.info("Click 'Load/Refresh Flipped Results' to visualize the (h, m) history/forecast.")
+        else:
             
-            flipped_results = st.session_state.get("flipped_results")
+            valid_test_results = {k: v for k, v in flipped_results.items() if "test_results" in v}
             
-            if not flipped_results:
-                st.info("Click 'Load/Refresh Flipped Results' to visualize the (h, m) history/forecast sweep.")
+            if not valid_test_results:
+                st.warning("No valid test results found. Note: m must be >= epoch_length (1.0s) to generate test samples.")
+                plot_results = flipped_results
+                plot_metric = "best_cv_score"
             else:
-                
-                valid_test_results = {k: v for k, v in flipped_results.items() if "test_results" in v}
-                
-                if not valid_test_results:
-                    st.warning("No valid test results found. Note: m must be >= epoch_length (1.0s) to generate test samples.")
-                    plot_results = flipped_results
-                    plot_metric = "best_cv_score"
-                else:
-                    plot_results = valid_test_results
-                    plot_metric = "balanced_accuracy"
+                plot_results = valid_test_results
+                plot_metric = "balanced_accuracy"
 
-                st.markdown("### Performance by History Length")
-                fig_lines = create_line_plot_by_history(plot_results, metric=plot_metric)
-                st.plotly_chart(fig_lines, use_container_width=True)
+            st.markdown("### Flipped Performance")
+            col1, col2 = st.columns(2)
+            with col1:
+                st.plotly_chart(create_line_plot_by_history(plot_results, metric=plot_metric), use_container_width=True, key="sweep_h_flipped")
+            with col2:
+                st.plotly_chart(create_line_plot_by_future(plot_results, metric=plot_metric), use_container_width=True, key="sweep_m_flipped")
+            
+            st.markdown("---")
+            st.markdown("### Detailed Flipped Analysis")
+            
+            h_values = sorted(set(k[0] for k in flipped_results.keys()))
+            m_values = sorted(set(k[1] for k in flipped_results.keys()))
+            
+            col_sel1, col_sel2 = st.columns(2)
+            with col_sel1:
+                sel_h = st.selectbox("Select History h (s)", options=h_values, key="flipped_sel_h")
+            with col_sel2:
+                sel_m = st.selectbox("Select Forecast Horizon m (s)", options=m_values, key="flipped_sel_m")
+            
+            selected_res = flipped_results.get((sel_h, sel_m))
+            if selected_res:
+                st.markdown(f"#### Results for h={sel_h}s, m={sel_m}s")
                 
-                # st.markdown("### Detailed Results Table")
-                # import pandas as pd
-                # table_data = create_summary_table(flipped_results)
-                # df = pd.DataFrame(table_data)
-                
-                # format_dict = {"h (s)": "{:.1f}", "m (s)": "{:.1f}", "CV Score": "{:.3f}"}
-                # if "Balanced Acc" in df.columns:
-                #     format_dict["Balanced Acc"] = "{:.3f}"
-                # if "Test Acc" in df.columns:
-                #     format_dict["Test Acc"] = "{:.3f}"
-                # if "p-value" in df.columns:
-                #     format_dict["p-value"] = "{:.4f}"
-                
-                # st.dataframe(
-                #     df.style.format(format_dict).background_gradient(subset=["CV Score"], cmap="RdYlGn", vmin=0.5, vmax=1.0),
-                #     use_container_width=True,
-                # )
-        
-        with mode_tabs[1]:
-            render_classification_from_predictions(variant_dir, run_ts)
+                st.markdown("#### Cross-Validation Results")
+                render_metrics_row(selected_res, "CV ")
 
-        with mode_tabs[2]:
-            render_classification_from_forecasts(variant_dir, run_ts)
+                col1, col2 = st.columns(2)
+                with col1:
+                    render_confusion_matrix(selected_res["confusion_matrix"], f"cv_flipped_{sel_h}_{sel_m}")
+                with col2:
+                    render_roc_curve(selected_res, f"cv_flipped_{sel_h}_{sel_m}")
+
+                if "test_results" in selected_res:
+                    st.markdown("---")
+                    st.markdown("#### Test Set Results (Held Out)")
+                    test_res = selected_res["test_results"]
+                    render_metrics_row(test_res, "Test ")
+
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        render_confusion_matrix(test_res["confusion_matrix"], f"test_flipped_{sel_h}_{sel_m}")
+                    with col2:
+                        render_roc_curve(test_res, f"test_flipped_{sel_h}_{sel_m}")
+            else:
+                st.warning(f"No results found for h={sel_h}s, m={sel_m}s")
     else:
         mode_tabs = st.tabs(["From Predictions", "From Forecasts"])
 

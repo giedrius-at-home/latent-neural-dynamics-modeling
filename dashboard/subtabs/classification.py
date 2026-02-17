@@ -19,6 +19,7 @@ from dashboard.backbone import (
 
 def load_classification_results(
     results_dir: Path,
+    mode: str = "flipped"
 ) -> Dict[Tuple[float, float], Dict[str, Any]]:
     results = {}
     pattern = re.compile(r"^h([\d.]+)_m([\d.]+)$")
@@ -33,12 +34,15 @@ def load_classification_results(
         h_val = float(match.group(1))
         m_val = float(match.group(2))
         
-        # Look for LDA results (primary classifier)
-        pkl_files = list(d.glob("LDA_*.pkl"))
+        # Look for LDA results for specific mode
+        pattern_str = f"LDA*_{mode}.pkl"
+        pkl_files = list(d.glob(pattern_str))
         if not pkl_files:
             continue
             
         try:
+            # Sort to be deterministic, pick first (usually only one matches)
+            pkl_files.sort()
             with open(pkl_files[0], "rb") as f:
                 result = pickle.load(f)
             results[(h_val, m_val)] = result
@@ -236,6 +240,62 @@ def create_line_plot_by_history(
         margin=dict(l=60, r=60, t=80, b=60),
     )
     
+    return fig
+
+
+def create_line_plot_by_future(
+    results: Dict[Tuple[float, float], Dict[str, Any]],
+    metric: str = "balanced_accuracy",
+) -> go.Figure:
+    if not results:
+        return go.Figure()
+    
+    h_values = sorted(set(hm[0] for hm in results.keys()))
+    m_values = sorted(set(hm[1] for hm in results.keys()))
+    
+    colors = px.colors.qualitative.Set3[:len(h_values)]
+    fig = go.Figure()
+    
+    for i, h in enumerate(h_values):
+        y_vals = []
+        x_vals = []
+        for m in m_values:
+            if (h, m) in results:
+                res = results[(h, m)]
+                if "test_results" in res and metric in res["test_results"]:
+                    val = res["test_results"][metric]
+                elif metric in res:
+                    val = res[metric]
+                elif metric == "balanced_accuracy" and "best_cv_score" in res:
+                    val = res["best_cv_score"]
+                else:
+                    val = np.nan
+                y_vals.append(val)
+                x_vals.append(m)
+        
+        fig.add_trace(
+            go.Scatter(
+                x=x_vals,
+                y=y_vals,
+                mode="lines+markers",
+                name=f"h = {h:.1f}s",
+                line=dict(color=colors[i % len(colors)], width=2.5),
+                marker=dict(size=8),
+                hovertemplate=f"h={h:.1f}s<br>m=%{{x:.1f}}s<br>Accuracy=%{{y:.3f}}<extra></extra>",
+            )
+        )
+    
+    fig.add_hline(y=0.5, line_dash="dash", line_color=PALETTE.cool_steel, annotation_text="Chance")
+    
+    fig.update_layout(
+        title=dict(text="Classification Accuracy vs Forecast Horizon", x=0.5, xanchor="center", font=dict(size=PLOT_STYLE.title_size, family=PLOT_STYLE.font_family)),
+        xaxis=dict(title=dict(text="Forecast Horizon m (seconds)", font=dict(size=PLOT_STYLE.axis_label_size, family=PLOT_STYLE.font_family)), tickfont=dict(size=PLOT_STYLE.tick_label_size)),
+        yaxis=dict(title=dict(text="Balanced Accuracy", font=dict(size=PLOT_STYLE.axis_label_size, family=PLOT_STYLE.font_family)), tickfont=dict(size=PLOT_STYLE.tick_label_size), range=[0.4, 1.0]),
+        template="plotly_white",
+        font=dict(family=PLOT_STYLE.font_family, color=PALETTE.ink_black),
+        legend=dict(title=dict(text="History Length"), font=dict(size=PLOT_STYLE.tick_label_size)),
+        margin=dict(l=60, r=60, t=80, b=60),
+    )
     return fig
 
 

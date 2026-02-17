@@ -8,6 +8,10 @@ project_root = Path(os.path.dirname(__file__)).parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
+# Support custom results path via environment variable
+# Usage: RESULTS_PATH=/path/to/local/results streamlit run dashboard.py
+results_root = Path(os.environ.get("RESULTS_PATH", project_root / "results"))
+
 from utils.data_loader import (
     get_participant_sessions,
     load_participant_block_data,
@@ -19,7 +23,6 @@ from dashboard.time_series_tab import time_series_tab
 from dashboard.psd_analysis_tab import psd_analysis_tab
 from dashboard.model_predictions_tab import model_predictions_tab
 from dashboard.dbs_classification_tab import dbs_classification_tab
-from dashboard.feature_importance_tab import feature_importance_tab
 from dashboard.grid_search_tab import grid_search_tab
 from utils.logger import setup_logger
 
@@ -91,13 +94,12 @@ else:
             st.session_state["block"] = selected_block
             st.sidebar.success(f"Loaded: P{selected_participant_id} S{selected_session} B{selected_block}")
 
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
+tab1, tab2, tab3, tab4, tab5 = st.tabs(
     [
         "Time-Series Analysis",
         "Frequency (PSD) Analysis",
         "Model Predictions",
         "DBS Classification",
-        "Feature Importance",
         "Grid Search",
     ]
 )
@@ -124,14 +126,11 @@ with tab2:
         st.info("Select a block in the sidebar and click 'Load Block Data' to view PSD analysis.")
 
 with tab3:
-    model_predictions_tab(project_root)
+    model_predictions_tab(project_root, results_root)
 
 with tab4:
-    dbs_classification_tab(project_root)
+    dbs_classification_tab(project_root, results_root)
 
 with tab5:
-    feature_importance_tab(project_root)
-
-with tab6:
-    grid_search_tab(project_root)
+    grid_search_tab(project_root, results_root)
 

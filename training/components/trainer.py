@@ -71,8 +71,46 @@ class Trainer:
                     combined_cols.append(pl.col(f"{col}_epochs"))
 
             epoch_samp = f"{self.data_params.channels.neural_input[0]}_epochs"
+            # Define the explicit columns we want to read to avoid schema mismatches in unneeded columns (like LFP)
+            required_cols = [
+                "participant_id", "session", "block", "trial", "time", 
+                "chunk_margin", "margined_duration", "stim", "onset"
+            ]
+            # Add dynamically determined columns
+            # Note: combined_cols contains pl.col objects, we need the names for the scanner selection
+            # but actually Polars scan_parquet().select() handles pl.col objects fine.
+            
+            block_files = sorted(list(session_path.glob("block=*/0.parquet")))
+            lazy_frames = []
+            
+            for bf in block_files:
+                try:
+                    block_num = int(bf.parent.name.split("=")[1])
+                    if self.data_params.blocks != "all" and block_num not in self.data_params.blocks:
+                        continue
+                    
+                    # Skip blocks where neural data is Null or empty lists
+                    probe = pl.read_parquet(bf, columns=self.data_params.channels.neural_input, n_rows=1)
+                    if any(probe[c].dtype == pl.Null or (isinstance(probe[c].dtype, pl.List) and probe[c].list.get(0).dtype == pl.Null) 
+                           for c in self.data_params.channels.neural_input if c in probe.columns):
+                        self.logger.warning(f"Skipping empty block {block_num}")
+                        continue
+                    
+                    lf = pl.scan_parquet(bf).with_columns([
+                        pl.lit(self.data_params.participant).alias("participant_id"),
+                        pl.lit(str(self.data_params.session)).alias("session"),
+                        pl.lit(block_num).alias("block"),
+                    ])
+                    lazy_frames.append(lf)
+                except Exception as e:
+                    self.logger.warning(f"Error loading block {bf}: {e}")
+
+            if not lazy_frames:
+                raise ValueError(f"No valid data found for {self.data_params.participant}")
+
+            self.logger.info(f"Loading {len(lazy_frames)} blocks...")
             trial = (
-                pl.read_parquet(session_path)
+                pl.concat(lazy_frames, how="diagonal")
                 .select(
                     pl.col("participant_id"),
                     pl.col("session"),
@@ -88,6 +126,7 @@ class Trainer:
                     *combined_cols,
                     pl.col("onset").alias("offset"),
                 )
+                .collect()
                 .with_columns(pl.col(epoch_samp).list.len().alias("n_epochs"))
             )
 
@@ -379,6 +418,29 @@ class Trainer:
             self.logger.info("Beginning training...")
             self.framework._train(Y_train, Z_train)
 
+        try:
+            out_dir = Path(self.results_config.save_dir)
+            out_dir.mkdir(parents=True, exist_ok=True)
+            model_path = out_dir / f"model_{self.run_timestamp}.pkl"
+
+            if self.framework_type == "dpad":
+                try:
+                    self.framework.model.idSys.discardModels()
+                    with open(model_path, "wb") as f:
+                        pickle.dump(self.framework.model.idSys, f)
+                finally:
+                    self.framework.model.idSys.restoreModels()
+            elif self.framework_type == "autoarima":
+                with open(model_path, "wb") as f:
+                    pickle.dump(self.framework.model, f)
+            else:
+                with open(model_path, "wb") as f:
+                    pickle.dump(self.framework.model.idSys, f)
+
+            self.logger.info(f"Saved model checkpoint to {model_path}")
+        except Exception as e:
+            self.logger.warning(f"Could not save model checkpoint: {e}")
+
         if fast:
             self.logger.info(
                 "Fast mode enabled: Skipping all post-training predictions and forecasts."
@@ -425,7 +487,7 @@ class Trainer:
 
         chunk_margin_train = meta_train[0].get("chunk_margin") if meta_train else 0
         train_forecast = self.framework._validate_forecast(
-            Y_train, Z_list=Z_train, margin=chunk_margin_train
+            Y_train, Z_list=Z_train, margin=chunk_margin_train, Yp_val=Yp_train, Zp_val=Zp_train
         )
         train_results.update(train_forecast)
 
@@ -453,7 +515,7 @@ class Trainer:
 
         chunk_margin_val = meta_val[0].get("chunk_margin") if meta_val else 0
         val_forecast = self.framework._validate_forecast(
-            Y_val, Z_list=Z_val, margin=chunk_margin_val
+            Y_val, Z_list=Z_val, margin=chunk_margin_val, Yp_val=Yp_val, Zp_val=Zp_val
         )
         val_results.update(val_forecast)
 
