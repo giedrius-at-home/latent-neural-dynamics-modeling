@@ -198,13 +198,13 @@ def render_matrix_comparison(
         )
 
 
-def state_space_matrices_tab(project_root):
+def state_space_matrices_tab(project_root, results_root=None):
     st.header("Learned Matrices Visualization")
     st.markdown(
         "Visualize the learned decoder matrices (Cy, Cz) from PSID and DPAD models."
     )
 
-    RESULTS_ROOT = project_root / "results"
+    RESULTS_ROOT = results_root if results_root else project_root / "results"
 
     from dashboard.subtabs import list_variants, list_run_timestamps
 

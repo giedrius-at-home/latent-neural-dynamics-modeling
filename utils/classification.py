@@ -147,7 +147,14 @@ def prepare_epoched_data(
     A_both: Optional[np.ndarray] = None,
     target_future: bool = False,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, List[Dict[str, Any]]]:
-    epoch_length = int(epoch_length_sec * fs)
+    # Determine window length for classification
+    current_epoch_length_sec = epoch_length_sec
+    if m is not None and (mode in ["forecast", "flipped"] or target_future):
+        current_epoch_length_sec = m
+    elif h is not None and mode == "prediction":
+        current_epoch_length_sec = h
+
+    epoch_length = int(current_epoch_length_sec * fs)
     horizon = int(m * fs) if m else epoch_length
     history_length = int(h * fs) if h else epoch_length
 
@@ -297,7 +304,7 @@ def prepare_epoched_data(
                         )
                 continue
 
-            if forecast_horizon_sec is not None and mode == "forecast":
+            if m is not None and mode == "forecast":
                 trial_data = trial_data[:horizon]
                 if trial_data.shape[0] < epoch_length:
                     continue
@@ -672,6 +679,10 @@ def run_full_classification_analysis(
             n_permutations=n_permutations,
             logger=logger,
         )
-        results["permutation_test"] = {"score": p_mean, "pvalue": p_val}
+        results["permutation_test"] = {
+            "score": p_mean,
+            "pvalue": p_val,
+            "n_permutations": n_permutations,
+        }
 
     return results

@@ -1,6 +1,6 @@
 model:
   name: "autoarima_PDI1_S2"
-  sp: 5  
+  sp: 1  
   max_p: 5 
   max_q: 5  
   max_d: 2  
@@ -8,24 +8,24 @@ model:
   n1: 4  
   time_first: true
   fast: false
-  reuse_splits: true
+  reuse_splits: false
   forecast:
     m: 2  
     history: 5  
 
 data:
-  root: "resampled_recordings/participants_at_60Hz_scaled_1e6_raw_05_30" 
+  root: "resampled_recordings/participants_at_60Hz_scaled_1e6_all_bands_raw_05_28" 
   participant: "PDI1"
   session: "2"
   blocks: "all"
   channels:
     neural_input: [
-      "ECOG_1_beta", "ECOG_2_beta", "ECOG_3_beta", "ECOG_4_beta"
+      "ECOG_1_delta_raw", "ECOG_2_delta_raw", "ECOG_3_delta_raw", "ECOG_4_delta_raw",
+      "ECOG_1_highbeta_env", "ECOG_2_highbeta_env", "ECOG_3_highbeta_env", "ECOG_4_highbeta_env"
     ]
     output_type: "behavioral"
     output: [
       "tracing_velocity_x", "tracing_velocity_y", "tracing_velocity_magnitude",
-      "tracing_acceleration_x", "tracing_acceleration_y", "tracing_acceleration_magnitude"
     ]
     input_lag: null
   split:

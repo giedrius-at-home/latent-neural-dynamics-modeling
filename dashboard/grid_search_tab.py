@@ -7,116 +7,143 @@ import polars as pl
 from pathlib import Path
 
 
-def grid_search_tab(project_root: Path):
+def _find_parquet_source(results_dir: Path) -> Path | None:
+    """
+    Find a readable parquet source inside a grid search group directory.
+
+    Supports:
+      1. results.parquet  (single file – preferred)
+      2. results_parquet/ (partitioned directory with *.parquet leaves)
+    """
+    rp = results_dir / "results.parquet"
+    if rp.is_file():
+        return rp
+
+    parquet_dir = results_dir / "results_parquet"
+    if parquet_dir.is_dir() and any(parquet_dir.rglob("*.parquet")):
+        return parquet_dir
+
+    return None
+
+
+def grid_search_tab(project_root: Path, results_root=None):
     """Render the grid search results tab."""
     st.header("Grid Search Results Explorer")
     st.markdown(
         "Explore PSID grid search results. Select a participant and session to analyze hyper-parameters."
     )
 
-    results_dir = project_root / "results" / "psid_grid_search"
-    parquet_path = results_dir / "results.parquet"
+    RESULTS_ROOT = results_root if results_root else project_root / "results"
 
-    if not parquet_path.exists():
+    # Find all grid search result groups that have some parquet data
+    all_groups = sorted([
+        d.name for d in RESULTS_ROOT.iterdir()
+        if d.is_dir() and _find_parquet_source(d) is not None
+    ])
+
+    if not all_groups:
+        st.info("No grid search result groups found in `results/`.")
+        return
+
+    selected_group = st.selectbox(
+        "Select Result Group",
+        all_groups,
+        index=all_groups.index("psid_grid_search_part1") if "psid_grid_search_part1" in all_groups else 0,
+    )
+
+    results_dir = RESULTS_ROOT / selected_group
+    parquet_src = _find_parquet_source(results_dir)
+
+    if parquet_src is None:
         st.info(
-            "No grid search results found in `results/psid_grid_search/results.parquet`. "
-            "Run a grid search first:\n\n"
+            "No grid search results found. Run a grid search first:\n\n"
             "```bash\n"
-            "python -m training.psid_grid_search --config training/setups/psid_grid_search.yaml\n"
+            "python -m training.psid_grid_search --config training/setups/gs_PDI1_S2_part1_check.yaml\n"
             "```"
         )
         return
 
-    try:
-        q = pl.scan_parquet(parquet_path)
-        
-        with st.spinner("Fetching available participants and sessions..."):
-            partition_info = q.select(["participant_id", "session"]).unique().collect()
-        
-        participants = sorted(partition_info["participant_id"].unique().to_list())
-        
-        col_p, col_s = st.columns(2)
-        
-        with col_p:
-            selected_participant = st.selectbox("Select Participant", participants)
-            
-        sessions = sorted(
-            partition_info.filter(pl.col("participant_id") == selected_participant)["session"]
-            .unique()
-            .to_list()
-        )
-        
-        with col_s:
-            selected_session = st.selectbox("Select Session", sessions)
-
-        if f"gs_df" not in st.session_state or st.session_state.get("gs_selection") != (selected_participant, selected_session):
-            if st.button("Load Results", type="primary"):
-                with st.spinner(f"Loading results for P{selected_participant} S{selected_session}..."):
-                    df_pl = q.filter(
-                        (pl.col("participant_id") == selected_participant) & 
-                        (pl.col("session") == str(selected_session))
-                    ).collect()
-                    
-                    df = df_pl.to_pandas()
-                    st.session_state["gs_df"] = df
-                    st.session_state["gs_selection"] = (selected_participant, selected_session)
-                    st.rerun()
-            else:
-                st.info("Click 'Load Results' to fetch and analyze grid search data for the selection.")
-                # If we have old data, show a message that it's from a different selection or just stop
-                return
-        
-        df = st.session_state["gs_df"]
-        
-        if len(df) == 0:
-            st.warning(f"No results found for Participant {selected_participant}, Session {selected_session}")
-            # Clear invalid state
-            del st.session_state["gs_df"]
+    # ------------------------------------------------------------------
+    # Load the full parquet eagerly, then filter in the UI
+    # ------------------------------------------------------------------
+    cache_key = f"gs_full_{selected_group}"
+    if cache_key not in st.session_state:
+        try:
+            with st.spinner("Loading grid search results..."):
+                if parquet_src.is_dir():
+                    df_pl = pl.read_parquet(
+                        parquet_src / "**/*.parquet",
+                        hive_partitioning=True,
+                    )
+                else:
+                    df_pl = pl.read_parquet(parquet_src)
+                st.session_state[cache_key] = df_pl.to_pandas()
+        except Exception as e:
+            st.error(f"Error loading results: {e}")
             return
 
-        st.success(f"Loaded {len(df)} runs for P{selected_participant} S{selected_session}")
+    df_full = st.session_state[cache_key]
 
-    except Exception as e:
-        st.error(f"Error loading results: {e}")
+    if len(df_full) == 0:
+        st.warning("Parquet is empty — no results to display.")
         return
 
+    # ------------------------------------------------------------------
+    # Participant / session filter (if columns exist)
+    # ------------------------------------------------------------------
+    df = df_full.copy()
+
+    has_participant = "participant_id" in df.columns
+    has_session = "session" in df.columns
+
+    if has_participant or has_session:
+        filter_cols = st.columns(2)
+        if has_participant:
+            with filter_cols[0]:
+                participants = sorted(df["participant_id"].dropna().unique())
+                selected_participant = st.selectbox("Filter by Participant", ["All"] + participants)
+                if selected_participant != "All":
+                    df = df[df["participant_id"] == selected_participant]
+
+        if has_session:
+            with filter_cols[1]:
+                sessions = sorted(df["session"].dropna().unique().astype(str))
+                selected_session = st.selectbox("Filter by Session", ["All"] + sessions)
+                if selected_session != "All":
+                    df = df[df["session"].astype(str) == selected_session]
+
+    st.success(f"Showing **{len(df)}** of {len(df_full)} total runs")
+
+    # ------------------------------------------------------------------
     # Identify column types
+    # ------------------------------------------------------------------
     metric_cols = [
-        c
-        for c in df.columns
-        if c
-        in [
-            "pearson_mean",
-            "pearson_median",
-            "pearson_trimmed",
-            "pearson_fisher",
+        c for c in df.columns
+        if c in [
+            "pearson_mean", "pearson_median", "pearson_trimmed", "pearson_fisher",
             "r_squared",
-            "xcorr_mean",
-            "xcorr_median",
-            "cv",
-            "pct_above_zero",
-            "pct_above_03",
-            "n_trials",
+            "xcorr_mean", "xcorr_median", "xcorr_lag_mean_ms", "xcorr_lag_median_ms",
+            "cv", "pct_above_zero", "pct_above_03", "n_trials",
         ]
     ]
     param_cols = [
-        c
-        for c in df.columns
-        if c
-        in [
-            "nx",
-            "n1",
-            "alpha_Q",
-            "alpha_R",
-            "backward_kalman",
-            "rescale_states",
-            "max_eigenvalue",
-            "neural_bands",
-            "behavioral_outputs",
+        c for c in df.columns
+        if c in [
+            "nx", "n1", "alpha_Q", "alpha_R",
+            "backward_kalman", "rescale_states", "max_eigenvalue",
+            "neural_bands", "behavioral_outputs",
+        ]
+    ]
+    config_cols = [
+        c for c in df.columns
+        if c in [
+            "neural_input", "behavioral_output",
         ]
     ]
 
-    # Filters
+    # ------------------------------------------------------------------
+    # Filters on parameters
+    # ------------------------------------------------------------------
     st.subheader("Fine-tune Filters")
     col1, col2, col3 = st.columns(3)
 
@@ -150,20 +177,14 @@ def grid_search_tab(project_root: Path):
             selected_bk = st.multiselect("backward_kalman", bk_vals, default=bk_vals)
             filtered_df = filtered_df[filtered_df["backward_kalman"].isin(selected_bk)]
 
-        if "neural_bands" in df.columns:
-            # Convert to string to handle unhashable types like lists/arrays
-            nb_str_col = df["neural_bands"].apply(lambda x: str(list(x)) if hasattr(x, "__iter__") and not isinstance(x, str) else str(x))
-            nb_vals = sorted(nb_str_col.dropna().unique())
-            selected_nb = st.multiselect("neural_bands", nb_vals, default=nb_vals)
-            filtered_df = filtered_df[nb_str_col.isin(selected_nb)]
-
     st.markdown(f"**{len(filtered_df)} configurations** after filtering")
 
-    # Results table
+    # ------------------------------------------------------------------
+    # Results table (params + config + metrics)
+    # ------------------------------------------------------------------
     st.subheader("Comprehensive Results")
-    
-    # Column ordering: params first, then metrics
-    display_cols = param_cols + metric_cols
+
+    display_cols = param_cols + config_cols + metric_cols
     display_cols = [c for c in display_cols if c in filtered_df.columns]
 
     # Format numeric columns
@@ -176,10 +197,15 @@ def grid_search_tab(project_root: Path):
 
     st.dataframe(styled_df, use_container_width=True, height=400)
 
+    # ------------------------------------------------------------------
     # Distribution plots
+    # ------------------------------------------------------------------
     st.subheader("Metric Distributions")
 
-    available_metrics = [c for c in metric_cols if c in filtered_df.columns and filtered_df[c].notna().any()]
+    available_metrics = [
+        c for c in metric_cols
+        if c in filtered_df.columns and filtered_df[c].notna().any()
+    ]
 
     if available_metrics:
         plot_cols = st.columns(2)
@@ -196,20 +222,63 @@ def grid_search_tab(project_root: Path):
                 x=selected_metric,
                 nbins=20,
                 title=f"Distribution of {selected_metric}",
-                color_discrete_sequence=["#7c3aed"]
+                color_discrete_sequence=["#7c3aed"],
             )
         else:
             fig = px.box(
                 filtered_df,
                 y=selected_metric,
                 title=f"Distribution of {selected_metric}",
-                color_discrete_sequence=["#00d4ff"]
+                color_discrete_sequence=["#00d4ff"],
             )
 
         fig.update_layout(template="plotly_white")
         st.plotly_chart(fig, use_container_width=True)
 
+        # ------------------------------------------------------------------
+        # Heatmap Explorer
+        # ------------------------------------------------------------------
+        st.subheader("Heatmap Explorer")
+
+        heatmap_axis_candidates = (
+            [c for c in param_cols if c in filtered_df.columns]
+            + [c for c in config_cols if c in filtered_df.columns]
+        )
+
+        if len(heatmap_axis_candidates) >= 2 and selected_metric:
+            hm_cols = st.columns(2)
+            with hm_cols[0]:
+                hm_x = st.selectbox("Heatmap X-axis", heatmap_axis_candidates, index=0, key="hm_x")
+            with hm_cols[1]:
+                remaining = [c for c in heatmap_axis_candidates if c != hm_x]
+                hm_y = st.selectbox("Heatmap Y-axis", remaining, index=0, key="hm_y")
+
+            try:
+                pivot = filtered_df.pivot_table(
+                    index=hm_y, columns=hm_x, values=selected_metric, aggfunc="mean"
+                )
+                fig_heat = go.Figure(data=go.Heatmap(
+                    z=pivot.values,
+                    x=[str(c) for c in pivot.columns],
+                    y=[str(r) for r in pivot.index],
+                    colorscale="Viridis",
+                    text=np.round(pivot.values, 4),
+                    texttemplate="%{text}",
+                    colorbar=dict(title=selected_metric),
+                ))
+                fig_heat.update_layout(
+                    title=f"{selected_metric}  ({hm_x} × {hm_y})",
+                    xaxis_title=hm_x,
+                    yaxis_title=hm_y,
+                    height=500,
+                )
+                st.plotly_chart(fig_heat, use_container_width=True)
+            except Exception as e:
+                st.warning(f"Could not build heatmap: {e}")
+
+        # ------------------------------------------------------------------
         # Parameter vs metric scatter
+        # ------------------------------------------------------------------
         st.subheader("Parameter Explorer")
 
         scatter_cols = st.columns(2)
@@ -241,18 +310,19 @@ def grid_search_tab(project_root: Path):
                 color=color_param if color_param != "None" else None,
                 hover_data=filtered_df.columns.tolist(),
                 title=f"{y_metric} vs {x_param}",
-                size_max=15
+                size_max=15,
             )
             fig.update_layout(template="plotly_white")
             st.plotly_chart(fig, use_container_width=True)
 
+    # ------------------------------------------------------------------
     # Export
+    # ------------------------------------------------------------------
     st.subheader("Export Clean Data")
     csv_data = filtered_df.to_csv(index=False)
     st.download_button(
         "Download Filtered Results (CSV)",
         csv_data,
-        file_name=f"psid_grid_search_{selected_participant}_S{selected_session}.csv",
+        file_name=f"psid_grid_search_{selected_group}.csv",
         mime="text/csv",
     )
-

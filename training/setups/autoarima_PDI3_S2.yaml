@@ -1,6 +1,6 @@
 model:
   name: "autoarima_PDI3_S2"
-  sp: 5  
+  sp: 1  
   max_p: 5 
   max_q: 5  
   max_d: 2  
@@ -14,7 +14,7 @@ model:
     history: 5  
 
 data:
-  root: "resampled_recordings/participants_at_60Hz_scaled_1e6_raw_05_30" 
+  root: "resampled_recordings/participants_at_60Hz_scaled_1e6_all_bands_raw_05_28" 
   participant: "PDI3"
   session: "2"
   blocks: "all"

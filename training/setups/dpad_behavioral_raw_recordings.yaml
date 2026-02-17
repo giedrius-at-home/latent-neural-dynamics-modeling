@@ -2,7 +2,7 @@ model:
   name: "dpad_behavioral_raw_recordings"
   nx: 15  
   n1: 4 
-  method_code: "DPAD_CNN_uAKCzCy2HL128U"
+  method_code: "DPAD_CNN_FK5SK15_uAKCzCy2HL128U"
   model_timestamp: "20260208_130006"
   epochs: 3000
   fast: false

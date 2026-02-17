@@ -95,7 +95,8 @@ def compute_classification_for_config(
             overlap=config.classification.epoch_overlap,
             fs=config.classification.sampling_freq,
             mode=mode,
-            forecast_horizon_sec=config.classification.get("forecast_horizon"),
+            m=config.classification.get("m"),
+            h=config.classification.get("h"),
         )
         X_test, y_test, _, _ = (
             prepare_epoched_data(
@@ -105,7 +106,8 @@ def compute_classification_for_config(
                 overlap=config.classification.epoch_overlap,
                 fs=config.classification.sampling_freq,
                 mode=mode,
-                forecast_horizon_sec=config.classification.get("forecast_horizon"),
+                m=config.classification.get("m"),
+                h=config.classification.get("h"),
             )
             if test_list
             else (None, None, None, None)
@@ -133,8 +135,16 @@ def compute_classification_for_config(
             m_val = config.classification.get("m", 1.0)
             save_dir = Path(config.results.results_dir) / f"{run_ts}/classification/h{h_val}_m{m_val}"
         else:
+            # For non-flipped, Results dir is specific to the "both" variant being analyzed
+            # results.results_dir for flipped is usually name: variant_dbs_both_flipped
+            # whereas run.variant is variant_dbs_both
             results_dir = Path(config.results.project_root) / "results" / config.run.variant
-            save_dir = results_dir / f"{run_ts}/classification"
+            h_val = config.classification.get("h")
+            m_val = config.classification.get("m")
+            if h_val is not None or m_val is not None:
+                save_dir = results_dir / f"{run_ts}/classification/h{h_val}_m{m_val}"
+            else:
+                save_dir = results_dir / f"{run_ts}/classification"
         save_dir.mkdir(parents=True, exist_ok=True)
 
         with open(save_dir / f"{clf_name}_{feature_source}_{mode}.pkl", "wb") as f:
@@ -209,33 +219,41 @@ def compute(config):
         all_results = []
         for h_val in h_values:
             for m_val in m_values:
-                logger.info(f"Running flipped classification with h={h_val}s, m={m_val}s")
+                logger.info(f"Running flipped suite with h={h_val}s, m={m_val}s")
                 
                 config.classification.h = h_val
                 config.classification.m = m_val
                 
+                # Flipped Classification (uses A_on/A_off dynamics)
                 compute_classification_for_config(
-                    logger,
-                    config,
-                    "flipped",
+                    logger, config, "flipped",
                     config.classification.get("prediction_feature_source", "Xp"),
-                    run_ts=run_ts,
-                    A_on=A_on,
-                    A_off=A_off,
-                    A_both=A_both,
-                    trials=trials,
+                    run_ts=run_ts, A_on=A_on, A_off=A_off, A_both=A_both, trials=trials,
                 )
     else:
         verify_test_results(logger, project_root, config)
-        for mode in ["prediction", "forecast"]:
-            compute_classification_for_config(
-                logger,
-                config,
-                mode,
-                config.classification.get(f"{mode}_feature_source", "Xp"),
-                variant_dir=project_root / "results" / config.run.variant,
-                run_ts=config.run.run_ts,
-            )
+        h_values = config.classification.get("h", [None])
+        m_values = config.classification.get("m", [None])
+        
+        if not isinstance(h_values, list):
+            h_values = [h_values]
+        if not isinstance(m_values, list):
+            m_values = [m_values]
+
+        for h_val in h_values:
+            for m_val in m_values:
+                config.classification.h = h_val
+                config.classification.m = m_val
+                for mode in ["prediction", "forecast"]:
+                    logger.info(f"Running {mode} classification with h={h_val}s, m={m_val}s")
+                    compute_classification_for_config(
+                        logger,
+                        config,
+                        mode,
+                        config.classification.get(f"{mode}_feature_source", "Xp"),
+                        variant_dir=project_root / "results" / config.run.variant,
+                        run_ts=config.run.run_ts,
+                    )
 
 
 def get_dynamics(project_root, variant_cfg):

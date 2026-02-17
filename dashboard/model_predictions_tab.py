@@ -14,13 +14,12 @@ from dashboard.subtabs import (
     render_latent_states_tab,
     render_cross_correlation_analysis_tab,
 )
-from dashboard.subtabs.rsa_analysis import render_rsa_subtab
 
 
-def model_predictions_tab(project_root):
+def model_predictions_tab(project_root, results_root=None):
     st.header("Model Predictions")
 
-    RESULTS_ROOT = project_root / "results"
+    RESULTS_ROOT = results_root if results_root else project_root / "results"
 
     variants = list_variants(RESULTS_ROOT)
     if len(variants) == 0:
@@ -164,7 +163,6 @@ def model_predictions_tab(project_root):
                 predictions_subtab,
                 forecasting_subtab,
                 latent_states_subtab,
-                rsa_subtab,
             ) = st.tabs(
                 [
                     "Global Performance",
@@ -172,7 +170,6 @@ def model_predictions_tab(project_root):
                     "Predictions",
                     "Forecasting",
                     "Latent States",
-                    "RSA Analysis",
                 ]
             )
 
@@ -200,5 +197,3 @@ def model_predictions_tab(project_root):
             with latent_states_subtab:
                 render_latent_states_tab(split_res, trial_idx)
 
-            with rsa_subtab:
-                render_rsa_subtab(split_res, variant_dir)

@@ -3,6 +3,7 @@ import numpy as np
 import plotly.graph_objects as go
 from pathlib import Path
 from typing import Optional, Dict, Any, List
+import pandas as pd
 
 from dashboard.backbone import (
     PALETTE,
@@ -241,6 +242,79 @@ def render_z_forecast_plot(
     r_str = f"{r_fore_z_ch:.3f}" if not np.isnan(r_fore_z_ch) else "N/A"
     st.caption(
         f"Behavioral Forecast: {channel_name} (Pearson r={r_str}) — *Forecast rescaled to match Z_true mean/std for visualization*"
+    )
+
+
+def render_x_forecast_plot(
+    x_history: np.ndarray,
+    x_future_pred: np.ndarray,
+    t_abs_margined: np.ndarray,
+    m_samples: int,
+    n1: int,
+):
+    nx = x_history.shape[1] if x_history.ndim == 2 else 1
+    Tpast = len(x_history)
+    Tfuture = len(x_future_pred)
+    
+    t_past = t_abs_margined[:Tpast]
+    t_future = t_abs_margined[Tpast : Tpast + Tfuture]
+
+    onset_time = t_abs_margined.min() if len(t_abs_margined) > 0 else 0.0
+    fig = create_base_time_series_figure(
+        time_abs=t_abs_margined[:Tpast + Tfuture],
+        onset_time=onset_time,
+        y_label="Latent Value",
+        title="Latent State Forecast",
+    )
+
+    t_present = t_abs_margined[Tpast - 1] if Tpast > 0 else t_abs_margined[0]
+
+    for d in range(nx):
+        is_behavioral = d < n1
+        # Use Twilight Indigo for behavioral, Strawberry Red for non-behavioral
+        color = PALETTE.twilight_indigo if is_behavioral else PALETTE.strawberry_red
+        name_prefix = f"X[{d}]" + (" (beh)" if is_behavioral else " (non-beh)")
+        # History
+        fig.add_trace(
+            go.Scatter(
+                x=t_past,
+                y=x_history[:, d],
+                name=f"{name_prefix} Hist",
+                mode="lines",
+                line=dict(color=color, width=PLOT_STYLE.line_width_normal),
+                opacity=0.4,
+                showlegend=True if d < 2 or d == n1 else False,
+            )
+        )
+        
+        # Forecast
+        # Connect last history point to first forecast point
+        t_forecast_plot = np.concatenate(([t_past[-1]], t_future)) if Tpast > 0 else t_future
+        y_forecast_plot = np.concatenate(([x_history[-1, d]], x_future_pred[:, d])) if Tpast > 0 else x_future_pred[:, d]
+        
+        fig.add_trace(
+            go.Scatter(
+                x=t_forecast_plot,
+                y=y_forecast_plot,
+                name=f"{name_prefix} Fore",
+                mode="lines",
+                line=dict(color=color, width=PLOT_STYLE.line_width_normal, dash="dash"),
+                showlegend=True if d < 2 or d == n1 else False,
+            )
+        )
+
+    fig.add_vline(
+        x=t_present,
+        line_dash="dash",
+        line_color=PALETTE.vintage_grape,
+        line_width=1.2,
+        annotation_text="Forecast Start",
+        annotation_position="top right",
+    )
+
+    st.plotly_chart(fig, use_container_width=True, key="x_forecast")
+    st.caption(
+        f"Latent State Forecast: {n1} behavioral (Indigo) and {nx-n1} non-behavioral (Red) dimensions."
     )
 
 
@@ -543,54 +617,68 @@ def render_forecasting_tab(
             if x_future_pred is not None:
                 try:
                     x_future_pred = np.array(x_future_pred)
+                    
+                    cfg = get_config(str(cfg_path))
+                    n1 = getattr(cfg.model, "n1", 0)
 
                     Xp = split_res.get("Xp", [])
                     if Xp and len(Xp) > trial_idx and Xp[trial_idx] is not None:
                         x_p_trial = np.array(Xp[trial_idx])
+                        
+                        Tpast = len(y_concat) - m
+                        x_history = x_p_trial[:Tpast]
+                        
+                        st.markdown("---")
+                        st.subheader("Latent States Forecast")
+                        render_x_forecast_plot(x_history, x_future_pred, t_abs_margined, m, n1)
 
-                        if len(x_p_trial) >= m:
-                            x_future_true = x_p_trial[-m:]
+                        with st.expander("Latent State Forecast Values"):
+                            cols_x = [f"X[{i}]" + (" (beh)" if i < n1 else " (non-beh)") for i in range(x_future_pred.shape[1])]
+                            df_latents = pd.DataFrame(x_future_pred, columns=cols_x)
+                            st.dataframe(df_latents.style.format("{:.4f}"), use_container_width=True)
 
-                            st.markdown("---")
-                            st.subheader("Latent States Forecast Frequency Analysis")
+                        st.markdown("---")
+                        st.subheader("Latent States Forecast Frequency Analysis")
 
-                            if x_future_true.ndim == 1:
-                                x_future_true = x_future_true.reshape(-1, 1)
-                            if x_future_pred.ndim == 1:
-                                x_future_pred = x_future_pred.reshape(-1, 1)
+                        x_future_true = x_p_trial[-m:]
 
-                            if x_future_true.shape[0] < x_future_true.shape[1]:
-                                x_future_true = x_future_true.T
-                            if x_future_pred.shape[0] < x_future_pred.shape[1]:
-                                x_future_pred = x_future_pred.T
+                        if x_future_true.ndim == 1:
+                            x_future_true = x_future_true.reshape(-1, 1)
+                        if x_future_pred.ndim == 1:
+                            x_future_pred = x_future_pred.reshape(-1, 1)
 
-                            n_latent_dims = min(
-                                x_future_true.shape[1], x_future_pred.shape[1]
-                            )
+                        if x_future_true.shape[0] < x_future_true.shape[1]:
+                            x_future_true = x_future_true.T
+                        if x_future_pred.shape[0] < x_future_pred.shape[1]:
+                            x_future_pred = x_future_pred.T
 
-                            latent_dim = st.selectbox(
-                                "Latent dimension for frequency analysis",
-                                options=list(range(n_latent_dims)),
-                                format_func=lambda x: f"Dimension {x+1}",
-                                key="forecast_latent_dim",
-                            )
+                        n_latent_dims = min(
+                            x_future_true.shape[1], x_future_pred.shape[1]
+                        )
 
-                            x_true_dim = x_future_true[:, latent_dim]
-                            x_pred_dim = x_future_pred[:, latent_dim]
+                        latent_dim = st.selectbox(
+                            "Latent dimension for frequency analysis",
+                            options=list(range(n_latent_dims)),
+                            format_func=lambda x: f"Dimension {x+1}",
+                            key="forecast_latent_dim",
+                        )
 
-                            min_len = min(len(x_true_dim), len(x_pred_dim))
-                            x_true_dim = x_true_dim[:min_len]
-                            x_pred_dim = x_pred_dim[:min_len]
+                        x_true_dim = x_future_true[:, latent_dim]
+                        x_pred_dim = x_future_pred[:, latent_dim]
 
-                            cfg = get_config(str(cfg_path))
-                            sampling_freq = cfg.data.sampling_frequency
+                        min_len = min(len(x_true_dim), len(x_pred_dim))
+                        x_true_dim = x_true_dim[:min_len]
+                        x_pred_dim = x_pred_dim[:min_len]
 
-                            render_prediction_psd_analysis(
-                                x_true_dim,
-                                x_pred_dim,
-                                sampling_rate=sampling_freq,
-                                channel_name=f"Latent Dimension {latent_dim+1}",
-                            )
+                        cfg = get_config(str(cfg_path))
+                        sampling_freq = cfg.data.sampling_frequency
+
+                        render_prediction_psd_analysis(
+                            x_true_dim,
+                            x_pred_dim,
+                            sampling_rate=sampling_freq,
+                            channel_name=f"Latent Dimension {latent_dim+1}",
+                        )
 
                 except Exception as e:
                     st.warning(

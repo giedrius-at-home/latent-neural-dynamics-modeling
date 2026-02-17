@@ -25,6 +25,8 @@ from utils.stats import (
     probability_plot_data,
     whiteness_test,
     compute_power_spectrum,
+    find_dominant_frequencies,
+    spectral_correlation,
 )
 
 
@@ -924,7 +926,6 @@ def render_prediction_psd_analysis(y_true, y_pred, sampling_rate=60, channel_nam
         )
     )
     st.plotly_chart(fig, use_container_width=True)
-    st.caption(f"PSD Analysis: True vs Predicted — {channel_name}")
 
 
 def render_predictions_tab(split_res: Dict[str, Any], trial_idx: int, cfg_path: Path):
@@ -1124,6 +1125,7 @@ def render_predictions_tab(split_res: Dict[str, Any], trial_idx: int, cfg_path: 
         y_true_c, y_pred_c, sampling_rate=fs, channel_name=selected_name
     )
 
+
     st.markdown("#### Scatter Plot: True vs Predicted")
     render_y_scatter_plot(y_true_c, y_pred_c, selected_name, r_ch)
 
@@ -1203,6 +1205,7 @@ def render_predictions_tab(split_res: Dict[str, Any], trial_idx: int, cfg_path: 
             render_prediction_psd_analysis(
                 z_true_c, z_pred_c, sampling_rate=fs, channel_name=selected_z_name
             )
+
 
             st.markdown("#### Scatter Plot: True vs Predicted")
             render_z_scatter_plot(z_true_c, z_pred_c, selected_z_name, r_z_ch)
