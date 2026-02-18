@@ -132,11 +132,12 @@ def process_dual_band(
 
 def process_all_bands(
     recording: list[float],
-    raw_bands: dict[str, list[float]],
-    envelope_bands: dict[str, list[float]],
-    notch_freqs: list[int],
-    original_sfreq: int,
     target_sfreq: int,
+    raw_bands: dict[str, list[float]] = None,
+    envelope_bands: dict[str, list[float]] = None,
+    log_power_bands: dict[str, list[float]] = None,
+    notch_freqs: list[int] = None,
+    original_sfreq: int = 1000,
     scale_factor: float = 1.0,
 ) -> dict[str, list[float]]:
     result = {}
@@ -147,27 +148,36 @@ def process_all_bands(
             data, Fs=original_sfreq, freqs=notch_freqs, verbose=False
         )
 
-    for band_name, (low_freq, high_freq) in raw_bands.items():
+    def _process_single_band(low, high, mode):
         filtered = mne.filter.filter_data(
-            data, sfreq=original_sfreq, l_freq=low_freq, h_freq=high_freq, verbose=False
+            data, sfreq=original_sfreq, l_freq=low, h_freq=high, verbose=False
         )
-        resampled = mne.filter.resample(
-            filtered, down=original_sfreq / target_sfreq, verbose=False
-        )
-        result[band_name] = (resampled * scale_factor).tolist()
 
-    for band_name, (low_freq, high_freq) in envelope_bands.items():
-        filtered = mne.filter.filter_data(
-            data, sfreq=original_sfreq, l_freq=low_freq, h_freq=high_freq, verbose=False
-        )
-        envelope = np.abs(hilbert(filtered))
-        window_size = int(0.2 * original_sfreq)
-        kernel = np.ones(window_size) / window_size
-        envelope = np.convolve(envelope, kernel, mode="same")
+        if mode == "raw":
+            processed = filtered * scale_factor
+        else:
+            envelope = np.abs(hilbert(filtered))
+            window_size = int(0.2 * original_sfreq)
+            kernel = np.ones(window_size) / window_size
+            smoothed = np.convolve(envelope, kernel, mode="same")
+
+            if mode == "envelope":
+                processed = smoothed * scale_factor
+            elif mode == "log_power":
+                processed = 2 * np.log10(smoothed * scale_factor + 1e-12)
+
         resampled = mne.filter.resample(
-            envelope, down=original_sfreq / target_sfreq, verbose=False
+            processed, down=original_sfreq / target_sfreq, verbose=False
         )
-        result[band_name] = (resampled * scale_factor).tolist()
+        return resampled.tolist()
+
+    for bands, mode in [
+        (raw_bands or {}, "raw"),
+        (envelope_bands or {}, "envelope"),
+        (log_power_bands or {}, "log_power"),
+    ]:
+        for band_name, (low, high) in bands.items():
+            result[band_name] = _process_single_band(low, high, mode)
 
     return result
 

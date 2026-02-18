@@ -39,7 +39,7 @@ def model_predictions_tab(project_root, results_root=None):
 
     if cfg_path is None:
         st.error(
-            f"Config not found for variant '{variant}'. Expected at training/setups/{variant}.yaml"
+            f"Config not found for variant '{variant}'. Searched recursively in training/setups/ and classification/setups/"
         )
         return
 

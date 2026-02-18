@@ -1,0 +1,91 @@
+model:
+  name: psid_grid_search_PDI3_S4_log_power
+  i: 80
+  time_first: true
+  reuse_splits: true
+  forecast:
+    m: 2
+    history: 5
+  grid_search:
+    nx:
+    - 5
+    - 10
+    - 15
+    - 20
+    n1:
+    - 4
+    - 8
+    - 12
+    - 16
+    alpha_Q:
+    - 1e-5
+    - 1e-4
+    - 1e-3
+    alpha_R:
+    - 1e-3
+    - 1e-2
+    backward_kalman:
+    - true
+    rescale_states:
+    - true
+    max_eigenvalue:
+    - 0.995
+    neural_bands:
+    - - ECOG_1_beta_log_power
+      - ECOG_2_beta_log_power
+      - ECOG_3_beta_log_power
+      - ECOG_4_beta_log_power
+    - - ECOG_1_alpha_log_power
+      - ECOG_2_alpha_log_power
+      - ECOG_3_alpha_log_power
+      - ECOG_4_alpha_log_power
+    - - ECOG_1_lowbeta_log_power
+      - ECOG_2_lowbeta_log_power
+      - ECOG_3_lowbeta_log_power
+      - ECOG_4_lowbeta_log_power
+    - - ECOG_1_delta_log_power
+      - ECOG_2_delta_log_power
+      - ECOG_3_delta_log_power
+      - ECOG_4_delta_log_power
+    - - ECOG_1_theta_log_power
+      - ECOG_2_theta_log_power
+      - ECOG_3_theta_log_power
+      - ECOG_4_theta_log_power
+    - - ECOG_1_highbeta_log_power
+      - ECOG_2_highbeta_log_power
+      - ECOG_3_highbeta_log_power
+      - ECOG_4_highbeta_log_power
+    behavioral_outputs:
+    - - tracing_velocity_y
+      - tracing_acceleration_x
+      - tracing_jerk_y
+      - tracing_jerk_magnitude
+data:
+  root: resampled_recordings/participants_at_80Hz_scaled_1e6_log
+  participant: PDI3
+  session: '4'
+  blocks: all
+  channels:
+    neural_input:
+    - ECOG_1_beta_log_power
+    - ECOG_2_beta_log_power
+    - ECOG_3_beta_log_power
+    - ECOG_4_beta_log_power
+    output_type: behavioral
+    output:
+    - tracing_velocity_magnitude
+    input_lag: null
+  split:
+    within_session_split: true
+    train: 0.6
+    val: 0.2
+    test: 0.2
+    min_train_epochs: 50
+  batch_size: 32
+  sampling_frequency: 80
+  dbs_condition: both
+  jitter: 0
+results:
+  save_dir: results/psid_grid_search_log_power
+  log_dir: '{results.save_dir}/logs'
+  checkpoint_dir: checkpoints

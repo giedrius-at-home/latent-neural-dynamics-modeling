@@ -138,7 +138,7 @@ def _add_full_data(
     return participants, all_band_channels
 
 
-def construct_participants_table(config: Config):
+def construct_participants_table(config: Config, participant_id: str = None, session: str = None):
     logger = get_logger()
     data_path = Path(config.data_directory)
     save_path = Path(config.save_directory)
@@ -149,8 +149,19 @@ def construct_participants_table(config: Config):
     )
 
     for p_part in participants_partitions:
-        root, participant_id, session, block = p_part
-        p_partition_path = data_path / root / participant_id / session / block / "*"
+        root, p_id, s_id, block = p_part
+        
+        # Extract values if in key=value format
+        p_val = p_id.split("=")[-1] if "=" in p_id else p_id
+        s_val = s_id.split("=")[-1] if "=" in s_id else s_id
+
+        # Filtering logic
+        if participant_id is not None and p_val != participant_id:
+            continue
+        if session is not None and str(s_val) != str(session):
+            continue
+
+        p_partition_path = data_path / root / p_id / s_id / block / "*"
         participants = pl.read_parquet(p_partition_path)
         logger.info(f"Loaded participants from: {p_partition_path}")
 
