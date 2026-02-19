@@ -179,7 +179,9 @@ def model_predictions_tab(project_root, results_root=None):
             with performance_tab:
                 from dashboard.subtabs import render_cross_trial_performance_tab
 
-                render_cross_trial_performance_tab(split_res)
+                cfg = get_config(str(cfg_path))
+                fs = getattr(cfg.data, "sampling_frequency", 60.0)
+                render_cross_trial_performance_tab(split_res, sampling_freq=fs)
 
             with lag_analysis_tab:
                 cfg = get_config(str(cfg_path))

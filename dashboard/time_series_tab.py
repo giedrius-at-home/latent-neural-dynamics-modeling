@@ -1,6 +1,10 @@
 import streamlit as st
 import polars as pl
 import numpy as np
+import plotly.express as px
+import plotly.graph_objects as go
+import yaml
+from pathlib import Path
 
 SAMPLING_FREQ = 60
 
@@ -677,6 +681,198 @@ def render_session_level_tab(neural_channels):
             ]
         )
         st.caption(f"Session Comparison — {participant_id} — Sessions: {session_list}")
+
+        st.markdown("---")
+        st.markdown("### Neural-Behavioral Correlation Matrix (Across Session)")
+
+        # --- Dynamic Feature Discovery from Configs ---
+        config_dir = Path("training/setups/psid_grid_search")
+        cfg_neural = set()
+        # Track per-session behavioral outputs from configs
+        session_behav_map = {}  # s_id -> set of behavioral outputs
+        
+        # Search for configs matching this participant and selected sessions
+        for s_id in sessions:
+            yaml_files = list(config_dir.glob(f"gs_{participant_id}_S{s_id}_log_power*.yaml"))
+            for yf in yaml_files:
+                try:
+                    with open(yf, 'r') as f:
+                        cfg = yaml.safe_load(f)
+                    gs = cfg.get('model', {}).get('grid_search', {})
+                    
+                    # Extract Neural Bands
+                    nb = gs.get('neural_bands', [])
+                    if nb and isinstance(nb[0], list):
+                        for sl in nb: cfg_neural.update(sl)
+                    elif nb: cfg_neural.update(nb)
+                    
+                    # Extract Behavioral Outputs per session
+                    if s_id not in session_behav_map:
+                        session_behav_map[s_id] = set()
+                    bo = gs.get('behavioral_outputs', [])
+                    if bo and isinstance(bo[0], list):
+                        for sl in bo: session_behav_map[s_id].update(sl)
+                    elif bo:
+                        session_behav_map[s_id].update(bo)
+                except:
+                    continue
+
+        # Fallback behaviors per session if none found
+        fallback_behav = {
+            "tracing_velocity_y", "tracing_velocity_magnitude",
+            "tracing_jerk_x", "tracing_jerk_magnitude"
+        }
+        
+        if not cfg_neural:
+            # Fallback neural features (4 ECOG + 16 LFP pattern)
+            CONFIG_BANDS = ["alpha", "beta", "delta", "highbeta", "lowbeta", "theta"]
+            B_CHANS = ["ECOG_1", "ECOG_2", "ECOG_3", "ECOG_4"] + [f"LFP_{i}" for i in range(9, 17)]
+            cfg_neural = {f"{ch}_{band}_log_power" for band in CONFIG_BANDS for ch in B_CHANS}
+
+        target_neural = sorted(list(cfg_neural))
+
+        all_z_matrices = []
+        all_avail_neural = set()
+        all_avail_behav = set()
+        
+        with st.spinner("Analyzing neural-behavioral synchrony..."):
+            for s_id in sessions:
+                try:
+                    from utils.data_loader import load_participant_session_data, DATA_PATH
+                    
+                    p_partition = f"participant_id={participant_id}"
+                    s_partition = f"session={s_id}"
+                    test_path = DATA_PATH / selected_dataset / p_partition / s_partition
+                    first_file = next(test_path.rglob("*.parquet"), None)
+                    
+                    if not first_file: continue
+                    
+                    schema = pl.read_parquet_schema(first_file)
+                    # For this session, find what's in schema that matches our target
+                    s_neural = [c for c in target_neural if c in schema]
+                    # Use per-session behavioral outputs from config
+                    sess_target_behav = sorted(list(session_behav_map.get(s_id, fallback_behav)))
+                    s_behav = [c for c in sess_target_behav if c in schema]
+                    
+                    if not s_neural or not s_behav: continue
+                    
+                    s_cols = s_neural + s_behav
+                    load_cols = s_cols + (["chunk_margin"] if "chunk_margin" in schema else [])
+                    df_sess = load_participant_session_data(
+                        participant_id, s_id, selected_dataset, columns=load_cols
+                    )
+                    
+                    if df_sess.is_empty(): continue
+                    
+                    # Determine chunk margin for neural trimming
+                    if "chunk_margin" in df_sess.columns:
+                        chunk_margin = df_sess["chunk_margin"][0]
+                    else:
+                        chunk_margin = 2  # default 2 seconds
+                    margin_samples = int(chunk_margin * 80)  # 80 Hz sampling
+                    
+                    # Process trial by trial: trim neural margin, then align
+                    all_neural = []
+                    all_behav = []
+                    
+                    for row_idx in range(df_sess.height):
+                        # Get behavioral arrays and their length
+                        behav_arrays = []
+                        behav_len = None
+                        for bc in s_behav:
+                            arr = np.array(df_sess[bc][row_idx], dtype=float)
+                            if behav_len is None:
+                                behav_len = len(arr)
+                            behav_arrays.append(arr)
+                        
+                        if behav_len is None or behav_len < 10:
+                            continue
+                        
+                        # Trim neural features by chunk margin on both sides
+                        neural_arrays = []
+                        for nc in s_neural:
+                            arr = np.array(df_sess[nc][row_idx], dtype=float)
+                            if margin_samples > 0 and len(arr) > 2 * margin_samples:
+                                arr = arr[margin_samples:-margin_samples]
+                            arr = arr[:behav_len]
+                            if len(arr) < behav_len:
+                                arr = np.pad(arr, (0, behav_len - len(arr)), constant_values=np.nan)
+                            neural_arrays.append(arr)
+                        
+                        all_neural.append(np.column_stack(neural_arrays))
+                        all_behav.append(np.column_stack(behav_arrays))
+                    
+                    if not all_neural: continue
+                    
+                    data_n = np.vstack(all_neural)
+                    data_b = np.vstack(all_behav)
+                    
+                    mask = np.all(np.isfinite(data_n), axis=1) & np.all(np.isfinite(data_b), axis=1)
+                    if np.sum(mask) < 100: continue
+                    
+                    data_n, data_b = data_n[mask], data_b[mask]
+                    
+                    # Pearson Correlation
+                    xn = data_n - np.mean(data_n, axis=0)
+                    xb = data_b - np.mean(data_b, axis=0)
+                    std_n = np.linalg.norm(xn, axis=0)
+                    std_b = np.linalg.norm(xb, axis=0)
+                    
+                    mask_n = std_n > 1e-10
+                    mask_b = std_b > 1e-10
+                    
+                    r_sess = np.zeros((len(s_neural), len(s_behav)))
+                    if np.any(mask_n) and np.any(mask_b):
+                        r_sess[np.ix_(mask_n, mask_b)] = (xn[:, mask_n] / std_n[mask_n]).T @ (xb[:, mask_b] / std_b[mask_b])
+                    
+                    # Fisher Z
+                    z_sess = np.arctanh(np.clip(r_sess, -0.999, 0.999))
+                    
+                    all_z_matrices.append({
+                        'z': z_sess,
+                        'neural': s_neural,
+                        'behav': s_behav,
+                        'session': s_id
+                    })
+                    all_avail_neural.update(s_neural)
+                    all_avail_behav.update(s_behav)
+                    
+                except Exception:
+                    continue
+
+        if all_z_matrices:
+            # Show per-session heatmaps (each session has its own behavioral targets)
+            for entry in all_z_matrices:
+                z_mat = entry['z']
+                s_neural_list = entry['neural']
+                s_behav_list = entry['behav']
+                s_id = entry['session']
+                
+                # Rank by mean absolute Fisher z (both directions informative for PSID)
+                mean_abs_z = np.mean(np.abs(z_mat), axis=1)
+                top_10_idx = np.argsort(mean_abs_z)[::-1][:10]
+                
+                top_10_labels = [s_neural_list[i] for i in top_10_idx]
+                top_10_z = z_mat[top_10_idx, :]
+                
+                fig_heat = px.imshow(
+                    top_10_z,
+                    labels=dict(x="Behavioral Output", y="Neural Feature", color="Fisher z"),
+                    x=[b.replace("tracing_", "").replace("_", " ").title() for b in s_behav_list],
+                    y=top_10_labels,
+                    color_continuous_scale="RdBu_r",
+                    aspect="auto",
+                    zmin=-0.2, zmax=0.2 
+                )
+                fig_heat.update_layout(
+                    title=f"Top 10 Neural Features (Fisher z) — {participant_id} Session {s_id}",
+                    template="plotly_white",
+                    height=600
+                )
+                st.plotly_chart(fig_heat, use_container_width=True)
+                st.caption(f"Session {s_id} — Behavioral outputs: {', '.join(b.replace('tracing_', '') for b in s_behav_list)}")
+        else:
+            st.warning("Insufficient data or missing columns in the selected sessions for correlation analysis.")
     else:
         st.info("No session data available.")
 
