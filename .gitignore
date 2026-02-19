@@ -217,3 +217,5 @@ scripts/
 CEBRA/
 
 PSID/
+
+*.toml

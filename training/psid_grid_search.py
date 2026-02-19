@@ -156,11 +156,14 @@ def compute_session_metrics(val_dir: Path) -> dict:
         try:
             df = pl.read_parquet(parquet_file)
 
-            if "metric_pearson_r_mean_Z" in df.columns:
-                val = df["metric_pearson_r_mean_Z"].item()
-                if val is not None and not np.isnan(val):
-                    pearson_trials.append(val)
+            if "pearsonr_per_channel_Z" in df.columns:
+                val = df["pearsonr_per_channel_Z"].item()
+                if val is not None:
+                    valid_ch = [r for r in val if r is not None and not np.isnan(r)]
+                    if valid_ch:
+                        pearson_trials.append(float(np.mean(valid_ch)))
 
+            # Keep raw signal collection for xcorr and coherence (behavioral Z only as requested)
             if "Z_future_true" in df.columns and "Z_future_pred" in df.columns:
                 z_t = df["Z_future_true"].item()
                 z_p = df["Z_future_pred"].item()
@@ -182,34 +185,10 @@ def compute_session_metrics(val_dir: Path) -> dict:
                         if ch_xcorrs:
                             xcorr_trials.append(np.mean(ch_xcorrs))
                             xcorr_lag_trials.append(np.mean(ch_lags))
-
-            if "Y_future_true" in df.columns and "Y_future_pred" in df.columns:
-                y_t = df["Y_future_true"].item()
-                y_p = df["Y_future_pred"].item()
-                if y_t is not None and y_p is not None:
-                    y_t_arr = np.array(y_t)
-                    y_p_arr = np.array(y_p)
-                    if y_t_arr.ndim >= 1 and len(y_t_arr) > 0:
-                        y_t_flat = np.vstack(y_t_arr) if y_t_arr.dtype == object else y_t_arr
-                        y_p_flat = np.vstack(y_p_arr) if y_p_arr.dtype == object else y_p_arr
-                        y_true_all.append(y_t_flat)
-                        y_pred_all.append(y_p_flat)
         except Exception:
             continue
 
     metrics: dict[str, Any] = {}
-
-    if not pearson_trials and z_true_all:
-        # Compute per-trial mean Pearson r from raw signals
-        for z_t, z_p in zip(z_true_all, z_pred_all):
-            trial_rs = []
-            for ch in range(z_t.shape[1]):
-                r = np.corrcoef(z_t[:, ch], z_p[:, ch])[0, 1]
-                if not np.isnan(r):
-                    trial_rs.append(r)
-            if trial_rs:
-                pearson_trials.append(float(np.mean(trial_rs)))
-
     if pearson_trials:
         valid = [r for r in pearson_trials if not np.isnan(r)]
         if valid:
