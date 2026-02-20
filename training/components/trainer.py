@@ -283,6 +283,10 @@ class Trainer:
             from utils.frameworks import AutoARIMAFramework
 
             self.framework = AutoARIMAFramework(self.config)
+        elif self.framework_type == "varma":
+            from utils.frameworks import VARMAOLSFramework
+
+            self.framework = VARMAOLSFramework(self.config)
         else:
             raise ValueError(f"Unknown framework type: {self.framework_type}")
 
@@ -430,7 +434,7 @@ class Trainer:
                         pickle.dump(self.framework.model.idSys, f)
                 finally:
                     self.framework.model.idSys.restoreModels()
-            elif self.framework_type == "autoarima":
+            elif self.framework_type in ("autoarima", "varma"):
                 with open(model_path, "wb") as f:
                     pickle.dump(self.framework.model, f)
             else:
@@ -713,6 +717,24 @@ class Trainer:
                     "max_d": getattr(self.model_params, "max_d", 2),
                     "n_models_Y": len(self.framework.model.models_Y),
                     "n_models_Z": len(self.framework.model.models_Z),
+                }
+                with open(out_dir / f"model_{ts}_metadata.json", "w") as f:
+                    json.dump(metadata, f)
+
+            elif self.framework_type == "varma":
+                with open(f"{model_path}.pkl", "wb") as f:
+                    pickle.dump(self.framework.model, f)
+                self.logger.info(f"Saved VARMA-OLS model to {model_path}.pkl")
+
+                metadata = {
+                    "framework_type": "varma",
+                    "p": getattr(self.model_params, "p", 20),
+                    "q": getattr(self.model_params, "q", 1),
+                    "long_ar_lags": getattr(self.model_params, "long_ar_lags", 30),
+                    "K": self.framework.model.K,
+                    "n_channels_Y": self.framework.model.n_channels_Y,
+                    "n_channels_Z": self.framework.model.n_channels_Z,
+                    "beta_shape": list(self.framework.model.beta_ols.shape) if self.framework.model.beta_ols is not None else None,
                 }
                 with open(out_dir / f"model_{ts}_metadata.json", "w") as f:
                     json.dump(metadata, f)

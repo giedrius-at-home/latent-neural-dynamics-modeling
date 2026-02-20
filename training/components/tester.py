@@ -47,6 +47,10 @@ class Tester:
             from utils.frameworks import AutoARIMAFramework
 
             self.framework = AutoARIMAFramework(self.config)
+        elif framework_type == "varma":
+            from utils.frameworks import VARMAOLSFramework
+
+            self.framework = VARMAOLSFramework(self.config)
         else:
             raise ValueError(
                 f"Unknown or unsupported framework for testing: {framework_type}"
@@ -75,9 +79,9 @@ class Tester:
 
         self._init_framework()
         
-        if framework_type == "autoarima":
+        if framework_type in ("autoarima", "varma"):
             self.framework.model = model_obj
-            self.logger.info(f"Loaded AutoARIMA model from {model_path}")
+            self.logger.info(f"Loaded {framework_type} model from {model_path}")
         else:
             self.framework.model = self.framework._initialize_model()
             self.framework.model.idSys = model_obj
