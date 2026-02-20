@@ -200,4 +200,3 @@ def _load_multiple_parquet_files(
 
     # Diagonal concat handles schema mismatches and type unification (like Null vs Float32)
     return pl.concat(lazy_dfs, how="diagonal").collect()
-

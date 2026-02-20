@@ -1163,3 +1163,205 @@ def plot_signal_alignment(
     fig.update_yaxes(title_text="Correlation", row=2, col=1)
 
     return fig
+
+
+def plot_raw_alignment(
+    time_master: np.ndarray,
+    neural_data: np.ndarray | None,
+    time_raw: np.ndarray,
+    beh_raw: np.ndarray,
+    time_interp: np.ndarray,
+    beh_interp: np.ndarray,
+    neural_channel: str,
+    behavioral_var: str,
+    chunk_margin: float,
+) -> go.Figure:
+    from plotly.subplots import make_subplots
+
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+
+    if neural_data is not None and neural_channel:
+        neural_norm = (neural_data - np.nanmean(neural_data)) / (
+            np.nanstd(neural_data) + 1e-10
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=time_master,
+                y=neural_norm,
+                mode="lines",
+                name=f"{neural_channel} (Normalized)",
+                line=dict(color=PALETTE.twilight_indigo, width=1.5, dash="dot"),
+                opacity=0.5,
+            ),
+            secondary_y=False,
+        )
+
+    fig.add_trace(
+        go.Scatter(
+            x=time_interp,
+            y=beh_interp,
+            mode="lines+markers",
+            name=f"{behavioral_var} (Interpolated Grid)",
+            line=dict(color=PALETTE.strawberry_red, width=2),
+            marker=dict(size=6, symbol="x"),
+            opacity=0.9,
+        ),
+        secondary_y=True,
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=time_raw,
+            y=beh_raw,
+            mode="markers",
+            name=f"{behavioral_var} (Raw unaligned)",
+            marker=dict(color=PALETTE.vintage_grape, size=8, symbol="circle"),
+            opacity=0.7,
+        ),
+        secondary_y=True,
+    )
+
+    fig.update_layout(
+        title="",
+        template="plotly_white",
+        hovermode="x unified",
+        margin=dict(l=60, r=60, t=10, b=10),
+        legend=dict(yanchor="top", y=0.99, xanchor="right", x=0.99),
+    )
+
+    fig.update_xaxes(title_text="Time (s)")
+    if neural_data is not None and neural_channel:
+        fig.update_yaxes(title_text=f"{neural_channel} Normalized", secondary_y=False)
+    fig.update_yaxes(title_text=f"{behavioral_var} Value", secondary_y=True)
+
+    if chunk_margin > 0:
+        add_margin_visualization(fig, time_master, chunk_margin)
+
+    return fig
+
+
+def plot_residual_violin(residuals: list, trials: list) -> go.Figure:
+    fig = go.Figure()
+    colors = px.colors.qualitative.Plotly
+    for i, res in enumerate(residuals):
+        fig.add_trace(
+            go.Violin(
+                y=res,
+                name=f"Trial {trials[i]}",
+                box_visible=True,
+                line_color=colors[i % len(colors)],
+                meanline_visible=True,
+                fillcolor=colors[i % len(colors)],
+                opacity=0.6,
+                showlegend=False,
+            )
+        )
+    fig.update_layout(
+        title="",
+        yaxis_title="Interpolation Residual Value",
+        xaxis_title="Trial",
+        template="plotly_white",
+        margin=dict(l=60, r=30, t=10, b=40),
+    )
+    return fig
+
+
+def plot_raw_alignment(
+    time_master: np.ndarray,
+    neural_data: np.ndarray | None,
+    time_raw: np.ndarray,
+    beh_raw: np.ndarray,
+    time_interp: np.ndarray,
+    beh_interp: np.ndarray,
+    neural_channel: str,
+    behavioral_var: str,
+    chunk_margin: float,
+) -> go.Figure:
+    from plotly.subplots import make_subplots
+
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+
+    if neural_data is not None and neural_channel:
+        neural_norm = (neural_data - np.nanmean(neural_data)) / (
+            np.nanstd(neural_data) + 1e-10
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=time_master,
+                y=neural_norm,
+                mode="lines",
+                name=f"{neural_channel} (Normalized)",
+                line=dict(color=PALETTE.twilight_indigo, width=1.5, dash="dot"),
+                opacity=0.5,
+            ),
+            secondary_y=False,
+        )
+
+    fig.add_trace(
+        go.Scatter(
+            x=time_interp,
+            y=beh_interp,
+            mode="lines+markers",
+            name=f"{behavioral_var} (Interpolated Grid)",
+            line=dict(color=PALETTE.strawberry_red, width=2),
+            marker=dict(size=6, symbol="x"),
+            opacity=0.9,
+        ),
+        secondary_y=True,
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=time_raw,
+            y=beh_raw,
+            mode="markers",
+            name=f"{behavioral_var} (Raw unaligned)",
+            marker=dict(color=PALETTE.vintage_grape, size=8, symbol="circle"),
+            opacity=0.7,
+        ),
+        secondary_y=True,
+    )
+
+    fig.update_layout(
+        title="",
+        template="plotly_white",
+        hovermode="x unified",
+        margin=dict(l=60, r=60, t=10, b=10),
+        legend=dict(yanchor="top", y=0.99, xanchor="right", x=0.99),
+    )
+
+    fig.update_xaxes(title_text="Time (s)")
+    if neural_data is not None and neural_channel:
+        fig.update_yaxes(title_text=f"{neural_channel} Normalized", secondary_y=False)
+    fig.update_yaxes(title_text=f"{behavioral_var} Value", secondary_y=True)
+
+    if chunk_margin > 0:
+        add_margin_visualization(fig, time_master, chunk_margin)
+
+    return fig
+
+
+def plot_residual_violin(residuals: list, trials: list) -> go.Figure:
+    fig = go.Figure()
+    colors = px.colors.qualitative.Plotly
+    for i, res in enumerate(residuals):
+        fig.add_trace(
+            go.Violin(
+                y=res,
+                name=f"Trial {trials[i]}",
+                box_visible=True,
+                line_color=colors[i % len(colors)],
+                meanline_visible=True,
+                fillcolor=colors[i % len(colors)],
+                opacity=0.6,
+                showlegend=False,
+            )
+        )
+    fig.update_layout(
+        title="",
+        yaxis_title="Interpolation Residual Value",
+        xaxis_title="Trial",
+        template="plotly_white",
+        margin=dict(l=60, r=30, t=10, b=40),
+    )
+    return fig

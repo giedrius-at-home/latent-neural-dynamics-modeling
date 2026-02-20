@@ -158,6 +158,7 @@ def render_auxiliary_predictions_plot(
         f"Auxiliary Variable Predictions (Z_p) — Trial {trial_idx} — {nz} dimensions"
     )
 
+
 def render_phase_space_analysis(
     split_res: Dict[str, Any],
     trial_idx: int,
@@ -735,7 +736,7 @@ def render_latent_states_tab(split_res: Dict[str, Any], trial_idx: int):
 
     xp_trial = Xp[trial_idx] if Xp and len(Xp) > trial_idx else None
     x_p = np.array(xp_trial) if xp_trial is not None else None
-    
+
     zp_trial = Zp[trial_idx] if Zp and len(Zp) > trial_idx else None
     z_p = np.array(zp_trial) if zp_trial is not None else None
 
@@ -795,6 +796,4 @@ def render_latent_states_tab(split_res: Dict[str, Any], trial_idx: int):
         )
 
     else:
-        st.info(
-            "No latent states (Xp) available for this trial. "
-        )
+        st.info("No latent states (Xp) available for this trial. ")

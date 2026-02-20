@@ -73,12 +73,12 @@ class Tester:
             self.logger.info(f"Loading model with metadata: {metadata}")
 
         framework_type = metadata.get("framework_type", "psid")
-        
+
         with open(model_path, "rb") as f:
             model_obj = pickle.load(f)
 
         self._init_framework()
-        
+
         if framework_type in ("autoarima", "varma"):
             self.framework.model = model_obj
             self.logger.info(f"Loaded {framework_type} model from {model_path}")
@@ -87,7 +87,9 @@ class Tester:
             self.framework.model.idSys = model_obj
 
             if metadata_path.exists() and hasattr(model_obj, "restoreModels"):
-                self.logger.info("Restoring DPAD TensorFlow models from saved weights...")
+                self.logger.info(
+                    "Restoring DPAD TensorFlow models from saved weights..."
+                )
                 model_obj.restoreModels()
                 self.logger.info(f"Loaded DPAD model from {model_path}")
             else:

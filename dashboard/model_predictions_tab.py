@@ -198,4 +198,3 @@ def model_predictions_tab(project_root, results_root=None):
 
             with latent_states_subtab:
                 render_latent_states_tab(split_res, trial_idx)
-

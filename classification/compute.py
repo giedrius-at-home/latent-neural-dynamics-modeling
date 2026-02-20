@@ -133,12 +133,17 @@ def compute_classification_for_config(
         if flipped:
             h_val = config.classification.get("h", 1.0)
             m_val = config.classification.get("m", 1.0)
-            save_dir = Path(config.results.results_dir) / f"{run_ts}/classification/h{h_val}_m{m_val}"
+            save_dir = (
+                Path(config.results.results_dir)
+                / f"{run_ts}/classification/h{h_val}_m{m_val}"
+            )
         else:
             # For non-flipped, Results dir is specific to the "both" variant being analyzed
             # results.results_dir for flipped is usually name: variant_dbs_both_flipped
             # whereas run.variant is variant_dbs_both
-            results_dir = Path(config.results.project_root) / "results" / config.run.variant
+            results_dir = (
+                Path(config.results.project_root) / "results" / config.run.variant
+            )
             h_val = config.classification.get("h")
             m_val = config.classification.get("m")
             if h_val is not None or m_val is not None:
@@ -186,17 +191,19 @@ def compute(config):
         for variant_cfg in variants_to_load:
             v_cfg = _get_first(variant_cfg)
             results_root = project_root / "results" / v_cfg.variant
-            
+
             train_dir = results_root / f"train_results_{v_cfg.run_ts}"
             val_dir = results_root / f"val_results_{v_cfg.run_ts}"
 
             logger.info(f"Loading Source Data from: {v_cfg.variant}")
-            result_files = sorted(list(train_dir.rglob("0.parquet")) + list(val_dir.rglob("0.parquet")))
+            result_files = sorted(
+                list(train_dir.rglob("0.parquet")) + list(val_dir.rglob("0.parquet"))
+            )
             for f in tqdm(result_files, desc="Trials", leave=False):
                 df = pl.read_parquet(f)
-                xp_arr = np.array(df["Xp"].to_list()).squeeze() 
+                xp_arr = np.array(df["Xp"].to_list()).squeeze()
                 if xp_arr.ndim == 2 and xp_arr.shape[0] < xp_arr.shape[1]:
-                    xp_arr = xp_arr.T 
+                    xp_arr = xp_arr.T
                 trials["Xp"].append(xp_arr)
                 trials["stim"].append(df["stim"][0])
                 trials["session"].append(0)
@@ -207,34 +214,40 @@ def compute(config):
 
         h_values = config.classification.get("h", [1.0])
         m_values = config.classification.get("m", [1.0])
-        
+
         if not isinstance(h_values, list):
             h_values = [h_values]
         if not isinstance(m_values, list):
             m_values = [m_values]
-        
+
         run_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         logger.info(f"Flipped classification run timestamp: {run_ts}")
-        
+
         all_results = []
         for h_val in h_values:
             for m_val in m_values:
                 logger.info(f"Running flipped suite with h={h_val}s, m={m_val}s")
-                
+
                 config.classification.h = h_val
                 config.classification.m = m_val
-                
+
                 # Flipped Classification (uses A_on/A_off dynamics)
                 compute_classification_for_config(
-                    logger, config, "flipped",
+                    logger,
+                    config,
+                    "flipped",
                     config.classification.get("prediction_feature_source", "Xp"),
-                    run_ts=run_ts, A_on=A_on, A_off=A_off, A_both=A_both, trials=trials,
+                    run_ts=run_ts,
+                    A_on=A_on,
+                    A_off=A_off,
+                    A_both=A_both,
+                    trials=trials,
                 )
     else:
         verify_test_results(logger, project_root, config)
         h_values = config.classification.get("h", [None])
         m_values = config.classification.get("m", [None])
-        
+
         if not isinstance(h_values, list):
             h_values = [h_values]
         if not isinstance(m_values, list):
@@ -245,7 +258,9 @@ def compute(config):
                 config.classification.h = h_val
                 config.classification.m = m_val
                 for mode in ["prediction", "forecast"]:
-                    logger.info(f"Running {mode} classification with h={h_val}s, m={m_val}s")
+                    logger.info(
+                        f"Running {mode} classification with h={h_val}s, m={m_val}s"
+                    )
                     compute_classification_for_config(
                         logger,
                         config,

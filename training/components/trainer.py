@@ -73,40 +73,65 @@ class Trainer:
             epoch_samp = f"{self.data_params.channels.neural_input[0]}_epochs"
             # Define the explicit columns we want to read to avoid schema mismatches in unneeded columns (like LFP)
             required_cols = [
-                "participant_id", "session", "block", "trial", "time", 
-                "chunk_margin", "margined_duration", "stim", "onset"
+                "participant_id",
+                "session",
+                "block",
+                "trial",
+                "time",
+                "chunk_margin",
+                "margined_duration",
+                "stim",
+                "onset",
             ]
             # Add dynamically determined columns
             # Note: combined_cols contains pl.col objects, we need the names for the scanner selection
             # but actually Polars scan_parquet().select() handles pl.col objects fine.
-            
+
             block_files = sorted(list(session_path.glob("block=*/0.parquet")))
             lazy_frames = []
-            
+
             for bf in block_files:
                 try:
                     block_num = int(bf.parent.name.split("=")[1])
-                    if self.data_params.blocks != "all" and block_num not in self.data_params.blocks:
+                    if (
+                        self.data_params.blocks != "all"
+                        and block_num not in self.data_params.blocks
+                    ):
                         continue
-                    
+
                     # Skip blocks where neural data is Null or empty lists
-                    probe = pl.read_parquet(bf, columns=self.data_params.channels.neural_input, n_rows=1)
-                    if any(probe[c].dtype == pl.Null or (isinstance(probe[c].dtype, pl.List) and probe[c].list.get(0).dtype == pl.Null) 
-                           for c in self.data_params.channels.neural_input if c in probe.columns):
+                    probe = pl.read_parquet(
+                        bf, columns=self.data_params.channels.neural_input, n_rows=1
+                    )
+                    if any(
+                        probe[c].dtype == pl.Null
+                        or (
+                            isinstance(probe[c].dtype, pl.List)
+                            and probe[c].list.get(0).dtype == pl.Null
+                        )
+                        for c in self.data_params.channels.neural_input
+                        if c in probe.columns
+                    ):
                         self.logger.warning(f"Skipping empty block {block_num}")
                         continue
-                    
-                    lf = pl.scan_parquet(bf).with_columns([
-                        pl.lit(self.data_params.participant).alias("participant_id"),
-                        pl.lit(str(self.data_params.session)).alias("session"),
-                        pl.lit(block_num).alias("block"),
-                    ])
+
+                    lf = pl.scan_parquet(bf).with_columns(
+                        [
+                            pl.lit(self.data_params.participant).alias(
+                                "participant_id"
+                            ),
+                            pl.lit(str(self.data_params.session)).alias("session"),
+                            pl.lit(block_num).alias("block"),
+                        ]
+                    )
                     lazy_frames.append(lf)
                 except Exception as e:
                     self.logger.warning(f"Error loading block {bf}: {e}")
 
             if not lazy_frames:
-                raise ValueError(f"No valid data found for {self.data_params.participant}")
+                raise ValueError(
+                    f"No valid data found for {self.data_params.participant}"
+                )
 
             self.logger.info(f"Loading {len(lazy_frames)} blocks...")
             trial = (
@@ -491,7 +516,11 @@ class Trainer:
 
         chunk_margin_train = meta_train[0].get("chunk_margin") if meta_train else 0
         train_forecast = self.framework._validate_forecast(
-            Y_train, Z_list=Z_train, margin=chunk_margin_train, Yp_val=Yp_train, Zp_val=Zp_train
+            Y_train,
+            Z_list=Z_train,
+            margin=chunk_margin_train,
+            Yp_val=Yp_train,
+            Zp_val=Zp_train,
         )
         train_results.update(train_forecast)
 
@@ -734,7 +763,11 @@ class Trainer:
                     "K": self.framework.model.K,
                     "n_channels_Y": self.framework.model.n_channels_Y,
                     "n_channels_Z": self.framework.model.n_channels_Z,
-                    "beta_shape": list(self.framework.model.beta_ols.shape) if self.framework.model.beta_ols is not None else None,
+                    "beta_shape": (
+                        list(self.framework.model.beta_ols.shape)
+                        if self.framework.model.beta_ols is not None
+                        else None
+                    ),
                 }
                 with open(out_dir / f"model_{ts}_metadata.json", "w") as f:
                     json.dump(metadata, f)

@@ -17,7 +17,7 @@ def list_variants(results_root: Path) -> List[str]:
 
 
 def list_run_timestamps(variant_dir: Path) -> List[str]:
-    
+
     ts = set()
     for p in variant_dir.glob("val_results_*"):
         name = p.name
@@ -43,12 +43,12 @@ def config_for_variant(project_root: Path, variant_name: str) -> Optional[Path]:
     training_setups = project_root / "training" / "setups"
     for cfg in training_setups.rglob(f"{variant_name}.yaml"):
         return cfg
-        
+
     # Search recursively for the yaml file in classification/setups
     classification_setups = project_root / "classification" / "setups"
     for cfg in classification_setups.rglob(f"{variant_name}.yaml"):
         return cfg
-        
+
     return None
 
 
