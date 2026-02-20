@@ -467,17 +467,17 @@ def render_neural_behavioral_correlation(trial_data, lfp_channels, ecog_channels
 
         st.plotly_chart(fig, use_container_width=True)
 
-        st.markdown("#### Top 10 Channels by Absolute Correlation")
+        st.markdown("#### Top 20 Channels by Absolute Correlation")
         col1, col2 = st.columns(2)
 
         with col1:
             st.markdown("**Channel**")
-            for i, (ch, r) in enumerate(correlations[:10], 1):
+            for i, (ch, r) in enumerate(correlations[:20], 1):
                 st.text(f"{i:2d}. {ch}")
 
         with col2:
             st.markdown("**Pearson r**")
-            for i, (ch, r) in enumerate(correlations[:10], 1):
+            for i, (ch, r) in enumerate(correlations[:20], 1):
                 st.text(f"{r:+.4f}")
 
 
@@ -850,24 +850,24 @@ def render_session_level_tab(neural_channels):
                 
                 # Rank by mean absolute Fisher z (both directions informative for PSID)
                 mean_abs_z = np.mean(np.abs(z_mat), axis=1)
-                top_10_idx = np.argsort(mean_abs_z)[::-1][:10]
+                top_20_idx = np.argsort(mean_abs_z)[::-1][:20]
                 
-                top_10_labels = [s_neural_list[i] for i in top_10_idx]
-                top_10_z = z_mat[top_10_idx, :]
+                top_20_labels = [s_neural_list[i] for i in top_20_idx]
+                top_20_z = z_mat[top_20_idx, :]
                 
                 fig_heat = px.imshow(
-                    top_10_z,
+                    top_20_z,
                     labels=dict(x="Behavioral Output", y="Neural Feature", color="Fisher z"),
                     x=[b.replace("tracing_", "").replace("_", " ").title() for b in s_behav_list],
-                    y=top_10_labels,
+                    y=top_20_labels,
                     color_continuous_scale="RdBu_r",
                     aspect="auto",
                     zmin=-0.2, zmax=0.2 
                 )
                 fig_heat.update_layout(
-                    title=f"Top 10 Neural Features (Fisher z) — {participant_id} Session {s_id}",
+                    title=f"Top 20 Neural Features (Fisher z) — {participant_id} Session {s_id}",
                     template="plotly_white",
-                    height=600
+                    height=800
                 )
                 st.plotly_chart(fig_heat, use_container_width=True)
                 st.caption(f"Session {s_id} — Behavioral outputs: {', '.join(b.replace('tracing_', '') for b in s_behav_list)}")
