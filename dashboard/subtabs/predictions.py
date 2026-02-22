@@ -2,7 +2,7 @@ import streamlit as st
 import numpy as np
 import plotly.graph_objects as go
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from scipy import stats as scipy_stats
 import pandas as pd
 import json
@@ -754,9 +754,32 @@ def render_z_scatter_plot(
     with col2:
         st.metric("Intercept", f"{intercept:.4f}")
     with col3:
-        st.metric("R2", f"{r_squared:.4f}")
+            st.metric("R2", f"{r_squared:.4f}")
     with col4:
         st.metric("p-value", f"{p_value:.2e}")
+
+
+def _compute_zp_components(z_true_c: np.ndarray, xp: np.ndarray, B_z: np.ndarray, d_z: np.ndarray, n1: int, channel_idx: int) -> tuple:
+    if xp is None or B_z is None or n1 <= 0 or xp.shape[1] < n1:
+        return None, None, np.nan, np.nan
+        
+    xp_1 = xp[:, :n1]
+    xp_2 = xp[:, n1:]
+    
+    B_z_1 = B_z[channel_idx, :n1]
+    B_z_2 = B_z[channel_idx, n1:]
+    
+    zp_1 = (xp_1 @ B_z_1)
+    if d_z is not None and len(d_z) > channel_idx:
+        zp_1 += d_z[channel_idx]
+        
+    zp_2 = (xp_2 @ B_z_2) 
+    # Do not add d_z to zp_2 to avoid double counting the bias
+    
+    r_zp1 = np.corrcoef(z_true_c.flatten(), zp_1.flatten())[0, 1] if len(z_true_c) > 1 and len(zp_1) > 1 else np.nan
+    r_zp2 = np.corrcoef(z_true_c.flatten(), zp_2.flatten())[0, 1] if len(z_true_c) > 1 and len(zp_2) > 1 else np.nan
+    
+    return zp_1, zp_2, r_zp1, r_zp2
 
 
 def render_z_residual_plot(
@@ -834,6 +857,10 @@ def render_z_prediction_plot(
     channel_name: str,
     r_ch: float,
     chunk_margin: float = 0.0,
+    zp_1: Optional[np.ndarray] = None,
+    zp_2: Optional[np.ndarray] = None,
+    r_zp1: Optional[float] = None,
+    r_zp2: Optional[float] = None,
 ):
     from dashboard.subtabs.helpers import rescale_to_reference
 
@@ -875,11 +902,36 @@ def render_z_prediction_plot(
         )
     )
 
+    if zp_1 is not None and r_zp1 is not None:
+        zp_1_rescaled = rescale_to_reference(zp_1, z_true_c)
+        fig.add_trace(
+            go.Scatter(
+                x=t_abs,
+                y=zp_1_rescaled,
+                name=f"Zp_1 (beh) r={r_zp1:.3f}",
+                mode="lines",
+                line=dict(color=PALETTE.twilight_indigo, width=PLOT_STYLE.line_width_normal, dash="dashdot"),
+            )
+        )
+
+    if zp_2 is not None and r_zp2 is not None:
+        zp_2_rescaled = rescale_to_reference(zp_2, z_true_c)
+        fig.add_trace(
+            go.Scatter(
+                x=t_abs,
+                y=zp_2_rescaled,
+                name=f"Zp_2 (non-beh) r={r_zp2:.3f}",
+                mode="lines",
+                line=dict(color=PALETTE.strawberry_red, width=PLOT_STYLE.line_width_normal, dash="dot"),
+            )
+        )
+
     if chunk_margin > 0:
         add_margin_visualization(fig, t_abs, chunk_margin)
 
     st.plotly_chart(fig, use_container_width=True)
     r_str = f"{r_ch:.3f}" if not np.isnan(r_ch) else "N/A"
+    
     st.caption(
         f"Behavioral Prediction: {channel_name} (Pearson r={r_str}) — *Predictions rescaled to match Z_true mean/std for visualization*"
     )
@@ -1167,6 +1219,16 @@ def render_predictions_tab(split_res: Dict[str, Any], trial_idx: int, cfg_path: 
             st.info("Model configuration not available in session state")
 
     Z_true = split_res.get("Z")
+    
+    tester = Tester.from_config_file(str(cfg_path), run_timestamp=run_ts)
+    tester._load_model_for_run()
+    idSys = getattr(tester.framework.model, "idSys", None)
+    B_z = getattr(idSys, "B_z", None) if idSys else None
+    d_z = getattr(idSys, "d_z", None) if idSys else None
+    
+    cfg = get_config(str(cfg_path))
+    n1 = getattr(cfg.model, "n1", 0)
+
     if Z_true is not None and z_p is not None:
         z_t = None if Z_true[trial_idx] is None else np.array(Z_true[trial_idx])
 
@@ -1217,8 +1279,14 @@ def render_predictions_tab(split_res: Dict[str, Any], trial_idx: int, cfg_path: 
                 z_p_transposed.squeeze() if nz_chan == 1 else z_p_transposed[:, z_c]
             )
 
+            Xp_trial = np.array(split_res.get("Xp", [])[trial_idx]) if split_res.get("Xp") and len(split_res["Xp"]) > trial_idx else None
+            zp_1, zp_2, r_zp1, r_zp2 = None, None, None, None
+            if Xp_trial is not None and B_z is not None and n1 > 0:
+                Xp_transposed = transpose_if_needed(Xp_trial, len(t_abs))
+                zp_1, zp_2, r_zp1, r_zp2 = _compute_zp_components(z_true_c, Xp_transposed, B_z, d_z, n1, z_c)
+
             st.markdown("#### Time Series: Z_true vs Z_pred")
-            render_z_prediction_plot(z_t, z_p, t_abs, z_c, selected_z_name, r_z_ch)
+            render_z_prediction_plot(z_t, z_p, t_abs, z_c, selected_z_name, r_z_ch, zp_1=zp_1, zp_2=zp_2, r_zp1=r_zp1, r_zp2=r_zp2)
 
             st.markdown("#### PSD Analysis: Z_true vs Z_pred")
             render_prediction_psd_analysis(
