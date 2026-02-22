@@ -1003,17 +1003,21 @@ def render_predictions_tab(split_res: Dict[str, Any], trial_idx: int, cfg_path: 
         except Exception:
             pass
 
-    from dashboard.subtabs.helpers import list_variants, load_precomputed_results, list_run_timestamps
-    
+    from dashboard.subtabs.helpers import (
+        list_variants,
+        load_precomputed_results,
+        list_run_timestamps,
+    )
+
     project_root = cfg_path.parent.parent
     results_root = project_root / "results"
     all_variants = list_variants(results_root)
     arima_variants = [v for v in all_variants if v.startswith("autoarima_")]
-    
+
     baseline_yp_c = None
     baseline_r = None
     baseline_info = None
-    
+
     if arima_variants:
         st.markdown("#### ARIMA Baseline Comparison")
         selected_baseline = st.selectbox(
@@ -1022,11 +1026,11 @@ def render_predictions_tab(split_res: Dict[str, Any], trial_idx: int, cfg_path: 
             index=0,
             key="baseline_arima_select",
         )
-        
+
         if selected_baseline != "None":
             baseline_dir = results_root / selected_baseline
             baseline_timestamps = list_run_timestamps(baseline_dir)
-            
+
             if baseline_timestamps:
                 baseline_ts = st.selectbox(
                     "Baseline run timestamp",
@@ -1034,25 +1038,35 @@ def render_predictions_tab(split_res: Dict[str, Any], trial_idx: int, cfg_path: 
                     index=len(baseline_timestamps) - 1,
                     key="baseline_ts_select",
                 )
-                
+
                 # Load baseline results for same split
                 split_name = st.session_state.get("selected_split", "val")
-                baseline_res = load_precomputed_results(baseline_dir, baseline_ts, split_name)
-                
+                baseline_res = load_precomputed_results(
+                    baseline_dir, baseline_ts, split_name
+                )
+
                 if baseline_res and trial_idx < len(baseline_res.get("Yp", [])):
                     baseline_yp = baseline_res["Yp"][trial_idx]
                     if baseline_yp is not None:
                         baseline_yp = np.array(baseline_yp)
                         baseline_yp = transpose_if_needed(baseline_yp, len(t_abs))
-                        n_baseline_chan = baseline_yp.shape[1] if baseline_yp.ndim == 2 else 1
+                        n_baseline_chan = (
+                            baseline_yp.shape[1] if baseline_yp.ndim == 2 else 1
+                        )
                         if c < n_baseline_chan:
-                            baseline_yp_c = baseline_yp.squeeze() if n_baseline_chan == 1 else baseline_yp[:, c]
+                            baseline_yp_c = (
+                                baseline_yp.squeeze()
+                                if n_baseline_chan == 1
+                                else baseline_yp[:, c]
+                            )
                             # Compute baseline correlation
                             try:
-                                baseline_r = np.corrcoef(y_true_c.flatten(), baseline_yp_c.flatten())[0, 1]
+                                baseline_r = np.corrcoef(
+                                    y_true_c.flatten(), baseline_yp_c.flatten()
+                                )[0, 1]
                             except:
                                 baseline_r = np.nan
-                
+
                 # Load baseline metadata for info display
                 metadata_path = baseline_dir / f"model_{baseline_ts}_metadata.json"
                 if metadata_path.exists():
@@ -1090,7 +1104,7 @@ def render_predictions_tab(split_res: Dict[str, Any], trial_idx: int, cfg_path: 
             ),
         )
     )
-    
+
     if baseline_yp_c is not None:
         fig_ts.add_trace(
             go.Scatter(
@@ -1099,15 +1113,21 @@ def render_predictions_tab(split_res: Dict[str, Any], trial_idx: int, cfg_path: 
                 name="ARIMA",
                 mode="lines",
                 line=dict(
-                    color=PALETTE.cool_steel, width=PLOT_STYLE.line_width_normal, dash="dash"
+                    color=PALETTE.cool_steel,
+                    width=PLOT_STYLE.line_width_normal,
+                    dash="dash",
                 ),
             )
         )
 
     r_str = f"{r_ch:.3f}" if not np.isnan(r_ch) else "N/A"
-    baseline_r_str = f"{baseline_r:.3f}" if baseline_r is not None and not np.isnan(baseline_r) else "N/A"
+    baseline_r_str = (
+        f"{baseline_r:.3f}"
+        if baseline_r is not None and not np.isnan(baseline_r)
+        else "N/A"
+    )
     st.plotly_chart(fig_ts, use_container_width=True)
-    
+
     caption = f"Neural Signal Prediction: {selected_name} (Model r={r_str}"
     if baseline_yp_c is not None:
         caption += f", ARIMA r={baseline_r_str})"
@@ -1124,7 +1144,6 @@ def render_predictions_tab(split_res: Dict[str, Any], trial_idx: int, cfg_path: 
     render_prediction_psd_analysis(
         y_true_c, y_pred_c, sampling_rate=fs, channel_name=selected_name
     )
-
 
     st.markdown("#### Scatter Plot: True vs Predicted")
     render_y_scatter_plot(y_true_c, y_pred_c, selected_name, r_ch)
@@ -1205,7 +1224,6 @@ def render_predictions_tab(split_res: Dict[str, Any], trial_idx: int, cfg_path: 
             render_prediction_psd_analysis(
                 z_true_c, z_pred_c, sampling_rate=fs, channel_name=selected_z_name
             )
-
 
             st.markdown("#### Scatter Plot: True vs Predicted")
             render_z_scatter_plot(z_true_c, z_pred_c, selected_z_name, r_z_ch)

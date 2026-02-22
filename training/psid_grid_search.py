@@ -32,6 +32,7 @@ from scipy import signal
 # Helper / metrics functions (shared with aggregate_grid_search_metrics.py)
 # ---------------------------------------------------------------------------
 
+
 def fisher_z(r: float) -> float:
     r = np.clip(r, -0.9999, 0.9999)
     return 0.5 * np.log((1 + r) / (1 - r))
@@ -41,7 +42,9 @@ def inverse_fisher_z(z: float) -> float:
     return (np.exp(2 * z) - 1) / (np.exp(2 * z) + 1)
 
 
-def max_cross_correlation(true: np.ndarray, pred: np.ndarray, max_lag: int = 30) -> tuple[float, float]:
+def max_cross_correlation(
+    true: np.ndarray, pred: np.ndarray, max_lag: int = 30
+) -> tuple[float, float]:
     if len(true) < 10 or len(pred) < 10:
         return np.nan, np.nan
     true = (true - np.mean(true)) / (np.std(true) + 1e-8)
@@ -62,13 +65,17 @@ def max_cross_correlation(true: np.ndarray, pred: np.ndarray, max_lag: int = 30)
     return (max_r, float(best_lag)) if max_r > -1 else (np.nan, np.nan)
 
 
-def compute_mean_coherence(true: np.ndarray, pred: np.ndarray, fs: float = 60.0) -> float:
+def compute_mean_coherence(
+    true: np.ndarray, pred: np.ndarray, fs: float = 60.0
+) -> float:
     if len(true) < 32 or len(pred) < 32:
         return np.nan
     if true.ndim > 1:
         cohs = []
         for i in range(true.shape[1]):
-            _, Cxy = signal.coherence(true[:, i], pred[:, i], fs=fs, nperseg=min(len(true), 128))
+            _, Cxy = signal.coherence(
+                true[:, i], pred[:, i], fs=fs, nperseg=min(len(true), 128)
+            )
             cohs.append(np.mean(Cxy))
         return np.mean(cohs)
     else:
@@ -79,6 +86,7 @@ def compute_mean_coherence(true: np.ndarray, pred: np.ndarray, fs: float = 60.0)
 # ---------------------------------------------------------------------------
 # Config helpers
 # ---------------------------------------------------------------------------
+
 
 def load_config(config_path: str) -> dict:
     """Load YAML config."""
@@ -144,6 +152,7 @@ def create_run_config(base_config: dict, combo: dict, run_name: str) -> dict:
 # Aggregation: compute session-level metrics from validation parquets
 # ---------------------------------------------------------------------------
 
+
 def compute_session_metrics(val_dir: Path) -> dict:
     """Compute aggregated session-level metrics from validation results."""
     pearson_trials = []
@@ -171,14 +180,20 @@ def compute_session_metrics(val_dir: Path) -> dict:
                     z_t_arr = np.array(z_t)
                     z_p_arr = np.array(z_p)
                     if z_t_arr.ndim >= 1 and len(z_t_arr) > 0:
-                        z_t_flat = np.vstack(z_t_arr) if z_t_arr.dtype == object else z_t_arr
-                        z_p_flat = np.vstack(z_p_arr) if z_p_arr.dtype == object else z_p_arr
+                        z_t_flat = (
+                            np.vstack(z_t_arr) if z_t_arr.dtype == object else z_t_arr
+                        )
+                        z_p_flat = (
+                            np.vstack(z_p_arr) if z_p_arr.dtype == object else z_p_arr
+                        )
                         z_true_all.append(z_t_flat)
                         z_pred_all.append(z_p_flat)
 
                         ch_xcorrs, ch_lags = [], []
                         for ch in range(z_t_flat.shape[1]):
-                            xc, lag = max_cross_correlation(z_t_flat[:, ch], z_p_flat[:, ch])
+                            xc, lag = max_cross_correlation(
+                                z_t_flat[:, ch], z_p_flat[:, ch]
+                            )
                             if not np.isnan(xc):
                                 ch_xcorrs.append(xc)
                                 ch_lags.append(lag)
@@ -196,7 +211,7 @@ def compute_session_metrics(val_dir: Path) -> dict:
             metrics["pearson_median"] = float(np.median(valid))
             z_vals = [fisher_z(r) for r in valid]
             metrics["pearson_fisher"] = float(inverse_fisher_z(np.mean(z_vals)))
-            metrics["r_squared"] = float(np.mean([r ** 2 for r in valid]))
+            metrics["r_squared"] = float(np.mean([r**2 for r in valid]))
             metrics["n_trials"] = len(valid)
 
     if xcorr_trials:
@@ -210,7 +225,9 @@ def compute_session_metrics(val_dir: Path) -> dict:
         if valid_lags:
             fs = 60.0
             metrics["xcorr_lag_mean_ms"] = float((np.mean(valid_lags) / fs) * 1000.0)
-            metrics["xcorr_lag_median_ms"] = float((np.median(valid_lags) / fs) * 1000.0)
+            metrics["xcorr_lag_median_ms"] = float(
+                (np.median(valid_lags) / fs) * 1000.0
+            )
 
     # Coherence on concatenated Z
     if z_true_all:
@@ -249,11 +266,22 @@ def extract_config_from_metadata(run_dir: Path) -> dict:
         with open(meta_file, "r") as f:
             meta = json.load(f)
         params = {}
-        for key in ["nx", "n1", "alpha_Q", "alpha_R", "backward_kalman",
-                     "rescale_states", "max_eigenvalue", "i",
-                     "participant_id", "session",
-                     "input_channels", "output_channels",
-                     "r_mean_Y", "r_mean_Z"]:
+        for key in [
+            "nx",
+            "n1",
+            "alpha_Q",
+            "alpha_R",
+            "backward_kalman",
+            "rescale_states",
+            "max_eigenvalue",
+            "i",
+            "participant_id",
+            "session",
+            "input_channels",
+            "output_channels",
+            "r_mean_Y",
+            "r_mean_Z",
+        ]:
             if key in meta:
                 params[key] = meta[key]
         return params
@@ -272,11 +300,15 @@ def extract_channels_from_val_results(val_dir: Path) -> dict:
             if "input_channels" in df.columns and "input_channels" not in result:
                 val = df["input_channels"].head(1).item()
                 if val is not None:
-                    result["input_channels"] = val if isinstance(val, list) else list(val)
+                    result["input_channels"] = (
+                        val if isinstance(val, list) else list(val)
+                    )
             if "output_channels" in df.columns and "output_channels" not in result:
                 val = df["output_channels"].head(1).item()
                 if val is not None:
-                    result["output_channels"] = val if isinstance(val, list) else list(val)
+                    result["output_channels"] = (
+                        val if isinstance(val, list) else list(val)
+                    )
             if "input_channels" in result and "output_channels" in result:
                 break
         except Exception:
@@ -288,12 +320,19 @@ def extract_channels_from_val_results(val_dir: Path) -> dict:
 # Subprocess runner
 # ---------------------------------------------------------------------------
 
+
 def run_training_subprocess(
-    config: dict, combo: dict, run_name: str,
-    participant: str, session: str, timestamp: str
+    config: dict,
+    combo: dict,
+    run_name: str,
+    participant: str,
+    session: str,
+    timestamp: str,
 ) -> dict:
     """Worker: run training in a subprocess and return result row with metrics."""
-    temp_fd, temp_config_path = tempfile.mkstemp(suffix=".yaml", prefix=f"grid_run_{run_name}_")
+    temp_fd, temp_config_path = tempfile.mkstemp(
+        suffix=".yaml", prefix=f"grid_run_{run_name}_"
+    )
     try:
         with os.fdopen(temp_fd, "w") as f:
             yaml.dump(config, f)
@@ -330,15 +369,25 @@ def run_training_subprocess(
             if "input_channels" in meta_info:
                 run_metrics["neural_input"] = json.dumps(meta_info["input_channels"])
             if "output_channels" in meta_info:
-                run_metrics["behavioral_output"] = json.dumps(meta_info["output_channels"])
+                run_metrics["behavioral_output"] = json.dumps(
+                    meta_info["output_channels"]
+                )
 
             # Fallback: read channels from the val parquets directly
-            if "neural_input" not in run_metrics or "behavioral_output" not in run_metrics:
+            if (
+                "neural_input" not in run_metrics
+                or "behavioral_output" not in run_metrics
+            ):
                 ch_info = extract_channels_from_val_results(val_dir)
                 if "input_channels" in ch_info and "neural_input" not in run_metrics:
                     run_metrics["neural_input"] = json.dumps(ch_info["input_channels"])
-                if "output_channels" in ch_info and "behavioral_output" not in run_metrics:
-                    run_metrics["behavioral_output"] = json.dumps(ch_info["output_channels"])
+                if (
+                    "output_channels" in ch_info
+                    and "behavioral_output" not in run_metrics
+                ):
+                    run_metrics["behavioral_output"] = json.dumps(
+                        ch_info["output_channels"]
+                    )
 
         # Serialise list-valued combo entries (e.g. neural_bands) to strings
         serialised_combo = {}
@@ -375,7 +424,6 @@ def run_training_subprocess(
             os.remove(temp_config_path)
 
 
-
 def save_partitioned_parquet(df: pl.DataFrame, output_dir: Path) -> None:
     """
     Save grid search results as a single parquet file.
@@ -401,16 +449,26 @@ def save_partitioned_parquet(df: pl.DataFrame, output_dir: Path) -> None:
 # Main
 # ---------------------------------------------------------------------------
 
+
 def main():
     parser = argparse.ArgumentParser(description="PSID Grid Search Runner")
-    parser.add_argument("--config", type=str, required=True, help="Path to grid search config")
+    parser.add_argument(
+        "--config", type=str, required=True, help="Path to grid search config"
+    )
     parser.add_argument("--participant", type=str, help="Override participant ID")
     parser.add_argument("--session", type=str, help="Override session ID")
-    parser.add_argument("--dry-run", action="store_true", help="Print combinations without running")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Print combinations without running"
+    )
     parser.add_argument("--limit", type=int, default=None, help="Limit number of runs")
-    parser.add_argument("--workers", "-w", type=int, default=1, help="Number of parallel workers")
-    parser.add_argument("--aggregate-only", action="store_true",
-                        help="Skip training, only re-aggregate existing results and visualise")
+    parser.add_argument(
+        "--workers", "-w", type=int, default=1, help="Number of parallel workers"
+    )
+    parser.add_argument(
+        "--aggregate-only",
+        action="store_true",
+        help="Skip training, only re-aggregate existing results and visualise",
+    )
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -477,8 +535,16 @@ def main():
                     "success": True,
                 }
                 # Add model params from metadata
-                for k in ["nx", "n1", "alpha_Q", "alpha_R", "backward_kalman",
-                           "rescale_states", "max_eigenvalue", "i"]:
+                for k in [
+                    "nx",
+                    "n1",
+                    "alpha_Q",
+                    "alpha_R",
+                    "backward_kalman",
+                    "rescale_states",
+                    "max_eigenvalue",
+                    "i",
+                ]:
                     if k in meta_info:
                         entry[k] = meta_info[k]
 
@@ -486,13 +552,20 @@ def main():
                 if "input_channels" in meta_info:
                     entry["neural_input"] = json.dumps(meta_info["input_channels"])
                 if "output_channels" in meta_info:
-                    entry["behavioral_output"] = json.dumps(meta_info["output_channels"])
+                    entry["behavioral_output"] = json.dumps(
+                        meta_info["output_channels"]
+                    )
                 if "neural_input" not in entry or "behavioral_output" not in entry:
                     ch_info = extract_channels_from_val_results(val_dir)
                     if "input_channels" in ch_info and "neural_input" not in entry:
                         entry["neural_input"] = json.dumps(ch_info["input_channels"])
-                    if "output_channels" in ch_info and "behavioral_output" not in entry:
-                        entry["behavioral_output"] = json.dumps(ch_info["output_channels"])
+                    if (
+                        "output_channels" in ch_info
+                        and "behavioral_output" not in entry
+                    ):
+                        entry["behavioral_output"] = json.dumps(
+                            ch_info["output_channels"]
+                        )
 
                 entry.update(metrics)
                 results.append(entry)
@@ -554,7 +627,9 @@ def main():
             successful = df.filter(pl.col("success") == True)
             if not successful.is_empty():
                 best = successful.sort("pearson_mean", descending=True).head(1)
-                print(f"Best Pearson r: {best['pearson_mean'].item():.4f}  (run: {best['run_name'].item()})")
+                print(
+                    f"Best Pearson r: {best['pearson_mean'].item():.4f}  (run: {best['run_name'].item()})"
+                )
         print(f"Results: {output_dir}")
         print(f"{'=' * 60}")
     else:

@@ -211,7 +211,11 @@ def band_pass_resample(
     notch_freqs = config.ieeg_process.notch_freqs
     scale_factor = float(getattr(config.ieeg_process, "scale_factor", 1.0))
 
-    all_band_names = list(raw_bands.keys()) + list(envelope_bands.keys()) + list(log_power_bands.keys())
+    all_band_names = (
+        list(raw_bands.keys())
+        + list(envelope_bands.keys())
+        + list(log_power_bands.keys())
+    )
     all_band_channels = []
 
     for ieeg_field in iEEG_SCHEMA.fields:

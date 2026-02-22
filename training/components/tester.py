@@ -36,24 +36,24 @@ class Tester:
         return cls(cfg, run_timestamp=run_timestamp)
 
     def _init_framework(self):
-        framework_type = str(self.model_params.name).split("_")[0]
-        if framework_type == "psid":
+        self.framework_type = str(self.model_params.name).split("_")[0]
+        if self.framework_type == "psid":
             self.framework = PSIDFramework(self.config)
-        elif framework_type == "dpad":
+        elif self.framework_type == "dpad":
             from utils.frameworks import DPADFramework
 
             self.framework = DPADFramework(self.config)
-        elif framework_type == "autoarima":
+        elif self.framework_type == "autoarima":
             from utils.frameworks import AutoARIMAFramework
 
             self.framework = AutoARIMAFramework(self.config)
-        elif framework_type == "varma":
+        elif self.framework_type == "varma":
             from utils.frameworks import VARMAOLSFramework
 
             self.framework = VARMAOLSFramework(self.config)
         else:
             raise ValueError(
-                f"Unknown or unsupported framework for testing: {framework_type}"
+                f"Unknown or unsupported framework for testing: {self.framework_type}"
             )
 
     def _load_dataloaders(self):
@@ -73,12 +73,12 @@ class Tester:
             self.logger.info(f"Loading model with metadata: {metadata}")
 
         framework_type = metadata.get("framework_type", "psid")
-        
+
         with open(model_path, "rb") as f:
             model_obj = pickle.load(f)
 
         self._init_framework()
-        
+
         if framework_type in ("autoarima", "varma"):
             self.framework.model = model_obj
             self.logger.info(f"Loaded {framework_type} model from {model_path}")
@@ -87,7 +87,9 @@ class Tester:
             self.framework.model.idSys = model_obj
 
             if metadata_path.exists() and hasattr(model_obj, "restoreModels"):
-                self.logger.info("Restoring DPAD TensorFlow models from saved weights...")
+                self.logger.info(
+                    "Restoring DPAD TensorFlow models from saved weights..."
+                )
                 model_obj.restoreModels()
                 self.logger.info(f"Loaded DPAD model from {model_path}")
             else:
@@ -465,6 +467,10 @@ class Tester:
             )
 
     def compute_and_save_stats(self):
+
+        if self.framework_type not in ("psid", "dpad"):
+            self.logger.info("compute_and_save_stats is only supported for PSID and DPAD models.")
+            return
 
         def create_dataset(group, name, data):
             if data is None:

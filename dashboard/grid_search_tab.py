@@ -36,10 +36,13 @@ def grid_search_tab(project_root: Path, results_root=None):
     RESULTS_ROOT = results_root if results_root else project_root / "results"
 
     # Find all grid search result groups that have some parquet data
-    all_groups = sorted([
-        d.name for d in RESULTS_ROOT.iterdir()
-        if d.is_dir() and _find_parquet_source(d) is not None
-    ])
+    all_groups = sorted(
+        [
+            d.name
+            for d in RESULTS_ROOT.iterdir()
+            if d.is_dir() and _find_parquet_source(d) is not None
+        ]
+    )
 
     if not all_groups:
         st.info("No grid search result groups found in `results/`.")
@@ -48,7 +51,11 @@ def grid_search_tab(project_root: Path, results_root=None):
     selected_group = st.selectbox(
         "Select Result Group",
         all_groups,
-        index=all_groups.index("psid_grid_search_part1") if "psid_grid_search_part1" in all_groups else 0,
+        index=(
+            all_groups.index("psid_grid_search_part1")
+            if "psid_grid_search_part1" in all_groups
+            else 0
+        ),
     )
 
     results_dir = RESULTS_ROOT / selected_group
@@ -101,7 +108,9 @@ def grid_search_tab(project_root: Path, results_root=None):
         if has_participant:
             with filter_cols[0]:
                 participants = sorted(df["participant_id"].dropna().unique())
-                selected_participant = st.selectbox("Filter by Participant", ["All"] + participants)
+                selected_participant = st.selectbox(
+                    "Filter by Participant", ["All"] + participants
+                )
                 if selected_participant != "All":
                     df = df[df["participant_id"] == selected_participant]
 
@@ -118,26 +127,48 @@ def grid_search_tab(project_root: Path, results_root=None):
     # Identify column types
     # ------------------------------------------------------------------
     metric_cols = [
-        c for c in df.columns
-        if c in [
-            "pearson_mean", "pearson_median", "pearson_trimmed", "pearson_fisher",
+        c
+        for c in df.columns
+        if c
+        in [
+            "pearson_mean",
+            "pearson_median",
+            "pearson_trimmed",
+            "pearson_fisher",
             "r_squared",
-            "xcorr_mean", "xcorr_median", "xcorr_lag_mean_ms", "xcorr_lag_median_ms",
-            "cv", "pct_above_zero", "pct_above_03", "n_trials",
+            "xcorr_mean",
+            "xcorr_median",
+            "xcorr_lag_mean_ms",
+            "xcorr_lag_median_ms",
+            "cv",
+            "pct_above_zero",
+            "pct_above_03",
+            "n_trials",
         ]
     ]
     param_cols = [
-        c for c in df.columns
-        if c in [
-            "nx", "n1", "alpha_Q", "alpha_R",
-            "backward_kalman", "rescale_states", "max_eigenvalue",
-            "neural_bands", "behavioral_outputs",
+        c
+        for c in df.columns
+        if c
+        in [
+            "nx",
+            "n1",
+            "alpha_Q",
+            "alpha_R",
+            "backward_kalman",
+            "rescale_states",
+            "max_eigenvalue",
+            "neural_bands",
+            "behavioral_outputs",
         ]
     ]
     config_cols = [
-        c for c in df.columns
-        if c in [
-            "neural_input", "behavioral_output",
+        c
+        for c in df.columns
+        if c
+        in [
+            "neural_input",
+            "behavioral_output",
         ]
     ]
 
@@ -203,7 +234,8 @@ def grid_search_tab(project_root: Path, results_root=None):
     st.subheader("Metric Distributions")
 
     available_metrics = [
-        c for c in metric_cols
+        c
+        for c in metric_cols
         if c in filtered_df.columns and filtered_df[c].notna().any()
     ]
 
@@ -214,7 +246,9 @@ def grid_search_tab(project_root: Path, results_root=None):
             selected_metric = st.selectbox("Select Metric", available_metrics, index=0)
 
         with plot_cols[1]:
-            plot_type = st.radio("Plot Type", ["Histogram", "Box Plot"], horizontal=True)
+            plot_type = st.radio(
+                "Plot Type", ["Histogram", "Box Plot"], horizontal=True
+            )
 
         if plot_type == "Histogram":
             fig = px.histogram(
@@ -240,15 +274,16 @@ def grid_search_tab(project_root: Path, results_root=None):
         # ------------------------------------------------------------------
         st.subheader("Heatmap Explorer")
 
-        heatmap_axis_candidates = (
-            [c for c in param_cols if c in filtered_df.columns]
-            + [c for c in config_cols if c in filtered_df.columns]
-        )
+        heatmap_axis_candidates = [
+            c for c in param_cols if c in filtered_df.columns
+        ] + [c for c in config_cols if c in filtered_df.columns]
 
         if len(heatmap_axis_candidates) >= 2 and selected_metric:
             hm_cols = st.columns(2)
             with hm_cols[0]:
-                hm_x = st.selectbox("Heatmap X-axis", heatmap_axis_candidates, index=0, key="hm_x")
+                hm_x = st.selectbox(
+                    "Heatmap X-axis", heatmap_axis_candidates, index=0, key="hm_x"
+                )
             with hm_cols[1]:
                 remaining = [c for c in heatmap_axis_candidates if c != hm_x]
                 hm_y = st.selectbox("Heatmap Y-axis", remaining, index=0, key="hm_y")
@@ -257,15 +292,17 @@ def grid_search_tab(project_root: Path, results_root=None):
                 pivot = filtered_df.pivot_table(
                     index=hm_y, columns=hm_x, values=selected_metric, aggfunc="mean"
                 )
-                fig_heat = go.Figure(data=go.Heatmap(
-                    z=pivot.values,
-                    x=[str(c) for c in pivot.columns],
-                    y=[str(r) for r in pivot.index],
-                    colorscale="Viridis",
-                    text=np.round(pivot.values, 4),
-                    texttemplate="%{text}",
-                    colorbar=dict(title=selected_metric),
-                ))
+                fig_heat = go.Figure(
+                    data=go.Heatmap(
+                        z=pivot.values,
+                        x=[str(c) for c in pivot.columns],
+                        y=[str(r) for r in pivot.index],
+                        colorscale="Viridis",
+                        text=np.round(pivot.values, 4),
+                        texttemplate="%{text}",
+                        colorbar=dict(title=selected_metric),
+                    )
+                )
                 fig_heat.update_layout(
                     title=f"{selected_metric}  ({hm_x} × {hm_y})",
                     xaxis_title=hm_x,
@@ -299,7 +336,8 @@ def grid_search_tab(project_root: Path, results_root=None):
         if x_param and y_metric:
             color_param = st.selectbox(
                 "Color by",
-                ["None"] + [c for c in param_cols if c in filtered_df.columns and c != x_param],
+                ["None"]
+                + [c for c in param_cols if c in filtered_df.columns and c != x_param],
                 index=0,
             )
 

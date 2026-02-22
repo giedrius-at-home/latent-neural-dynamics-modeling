@@ -1163,3 +1163,339 @@ def plot_signal_alignment(
     fig.update_yaxes(title_text="Correlation", row=2, col=1)
 
     return fig
+
+
+def plot_raw_alignment(
+    time_master: np.ndarray,
+    neural_data: np.ndarray | None,
+    time_raw: np.ndarray,
+    beh_raw: np.ndarray,
+    time_interp: np.ndarray,
+    beh_interp: np.ndarray,
+    neural_channel: str,
+    behavioral_var: str,
+    chunk_margin: float,
+) -> go.Figure:
+    from plotly.subplots import make_subplots
+
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+
+    if neural_data is not None and neural_channel:
+        neural_norm = (neural_data - np.nanmean(neural_data)) / (
+            np.nanstd(neural_data) + 1e-10
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=time_master,
+                y=neural_norm,
+                mode="lines",
+                name=f"{neural_channel} (Normalized)",
+                line=dict(color=PALETTE.twilight_indigo, width=1.5, dash="dot"),
+                opacity=0.5,
+            ),
+            secondary_y=False,
+        )
+
+    fig.add_trace(
+        go.Scatter(
+            x=time_interp,
+            y=beh_interp,
+            mode="lines+markers",
+            name=f"{behavioral_var} (Interpolated Grid)",
+            line=dict(color=PALETTE.strawberry_red, width=2),
+            marker=dict(size=6, symbol="x"),
+            opacity=0.9,
+        ),
+        secondary_y=True,
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=time_raw,
+            y=beh_raw,
+            mode="markers",
+            name=f"{behavioral_var} (Raw unaligned)",
+            marker=dict(color=PALETTE.vintage_grape, size=8, symbol="circle"),
+            opacity=0.7,
+        ),
+        secondary_y=True,
+    )
+
+    fig.update_layout(
+        title="",
+        template="plotly_white",
+        hovermode="x unified",
+        margin=dict(l=60, r=60, t=10, b=10),
+        legend=dict(yanchor="top", y=0.99, xanchor="right", x=0.99),
+    )
+
+    fig.update_xaxes(title_text="Time (s)")
+    if neural_data is not None and neural_channel:
+        fig.update_yaxes(title_text=f"{neural_channel} Normalized", secondary_y=False)
+    fig.update_yaxes(title_text=f"{behavioral_var} Value", secondary_y=True)
+
+    if chunk_margin > 0:
+        add_margin_visualization(fig, time_master, chunk_margin)
+
+    return fig
+
+
+def plot_residual_violin(residuals: list, trials: list) -> go.Figure:
+    fig = go.Figure()
+    colors = px.colors.qualitative.Plotly
+    for i, res in enumerate(residuals):
+        fig.add_trace(
+            go.Violin(
+                y=res,
+                name=f"Trial {trials[i]}",
+                box_visible=True,
+                line_color=colors[i % len(colors)],
+                meanline_visible=True,
+                fillcolor=colors[i % len(colors)],
+                opacity=0.6,
+                showlegend=False,
+            )
+        )
+    fig.update_layout(
+        title="",
+        yaxis_title="Interpolation Residual Value",
+        xaxis_title="Trial",
+        template="plotly_white",
+        margin=dict(l=60, r=30, t=10, b=40),
+    )
+    return fig
+
+
+def plot_raw_alignment(
+    time_master: np.ndarray,
+    neural_data: np.ndarray | None,
+    time_raw: np.ndarray,
+    beh_raw: np.ndarray,
+    time_interp: np.ndarray,
+    beh_interp: np.ndarray,
+    neural_channel: str,
+    behavioral_var: str,
+    chunk_margin: float,
+) -> go.Figure:
+    from plotly.subplots import make_subplots
+
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+
+    if neural_data is not None and neural_channel:
+        neural_norm = (neural_data - np.nanmean(neural_data)) / (
+            np.nanstd(neural_data) + 1e-10
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=time_master,
+                y=neural_norm,
+                mode="lines",
+                name=f"{neural_channel} (Normalized)",
+                line=dict(color=PALETTE.twilight_indigo, width=1.5, dash="dot"),
+                opacity=0.5,
+            ),
+            secondary_y=False,
+        )
+
+    fig.add_trace(
+        go.Scatter(
+            x=time_interp,
+            y=beh_interp,
+            mode="lines+markers",
+            name=f"{behavioral_var} (Interpolated Grid)",
+            line=dict(color=PALETTE.strawberry_red, width=2),
+            marker=dict(size=6, symbol="x"),
+            opacity=0.9,
+        ),
+        secondary_y=True,
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=time_raw,
+            y=beh_raw,
+            mode="markers",
+            name=f"{behavioral_var} (Raw unaligned)",
+            marker=dict(color=PALETTE.vintage_grape, size=8, symbol="circle"),
+            opacity=0.7,
+        ),
+        secondary_y=True,
+    )
+
+    fig.update_layout(
+        title="",
+        template="plotly_white",
+        hovermode="x unified",
+        margin=dict(l=60, r=60, t=10, b=10),
+        legend=dict(yanchor="top", y=0.99, xanchor="right", x=0.99),
+    )
+
+    fig.update_xaxes(title_text="Time (s)")
+    if neural_data is not None and neural_channel:
+        fig.update_yaxes(title_text=f"{neural_channel} Normalized", secondary_y=False)
+    fig.update_yaxes(title_text=f"{behavioral_var} Value", secondary_y=True)
+
+    if chunk_margin > 0:
+        add_margin_visualization(fig, time_master, chunk_margin)
+
+    return fig
+
+
+def plot_residual_violin(residuals: list, trials: list) -> go.Figure:
+    fig = go.Figure()
+    colors = px.colors.qualitative.Plotly
+    for i, res in enumerate(residuals):
+        fig.add_trace(
+            go.Violin(
+                y=res,
+                name=f"Trial {trials[i]}",
+                box_visible=True,
+                line_color=colors[i % len(colors)],
+                meanline_visible=True,
+                fillcolor=colors[i % len(colors)],
+                opacity=0.6,
+                showlegend=False,
+            )
+        )
+    fig.update_layout(
+        title="",
+        yaxis_title="Interpolation Residual Value",
+        xaxis_title="Trial",
+        template="plotly_white",
+        margin=dict(l=60, r=30, t=10, b=40),
+    )
+    return fig
+
+
+def plot_micro_alignment(
+    time_master: np.ndarray,
+    neural_data: np.ndarray | None,
+    time_raw: np.ndarray,
+    beh_raw_dict: dict,
+    time_interp: np.ndarray,
+    beh_interp_dict: dict,
+    neural_channel: str,
+    window_start: float,
+    window_end: float,
+) -> go.Figure:
+    from plotly.subplots import make_subplots
+    
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    
+    mask_master = (time_master >= window_start) & (time_master <= window_end)
+    mask_raw = (time_raw >= window_start) & (time_raw <= window_end)
+    mask_interp = (time_interp >= window_start) & (time_interp <= window_end)
+    
+    t_m = time_master[mask_master]
+    t_i = time_interp[mask_interp]
+    t_r = time_raw[mask_raw]
+    
+    if len(t_m) > 0:
+        for t in t_m:
+            fig.add_vline(x=t, line_dash="dot", line_color="rgba(150, 150, 150, 0.3)", line_width=1, layer="below")
+        
+    if neural_data is not None and neural_channel:
+        neural_norm = (neural_data - np.nanmean(neural_data)) / (np.nanstd(neural_data) + 1e-10)
+        n_m = neural_norm[mask_master]
+        
+        fig.add_trace(
+            go.Scatter(
+                x=t_m,
+                y=n_m,
+                mode="lines+markers",
+                name=f"Dot A: {neural_channel}",
+                line=dict(color=PALETTE.twilight_indigo, width=1.5),
+                marker=dict(size=4, symbol="circle"),
+            ),
+            secondary_y=False,
+        )
+        
+    colors_raw = {"x": PALETTE.vintage_grape, "y": PALETTE.cool_steel}
+    colors_interp = {"x": PALETTE.strawberry_red, "y": PALETTE.ink_black}
+    
+    for var in beh_raw_dict.keys():
+        b_r = beh_raw_dict[var][mask_raw]
+        b_i = beh_interp_dict[var][mask_interp]
+        
+        fig.add_trace(
+            go.Scatter(
+                x=t_i,
+                y=b_i,
+                mode="markers",
+                name=f"Dot C: Interpolated {var}",
+                marker=dict(color=colors_interp.get(var, "red"), size=7, symbol="x"),
+            ),
+            secondary_y=True,
+        )
+        
+        fig.add_trace(
+            go.Scatter(
+                x=t_r,
+                y=b_r,
+                mode="markers",
+                name=f"Dot B: Raw {var}",
+                marker=dict(color=colors_raw.get(var, "blue"), size=4, symbol="circle"),
+            ),
+            secondary_y=True,
+        )
+        
+    if len(beh_raw_dict) > 0:
+        min_vals = []
+        max_vals = []
+        for var in beh_raw_dict.keys():
+            b_r = beh_raw_dict[var][mask_raw]
+            if len(b_r) > 0:
+                min_vals.append(np.nanmin(b_r))
+                max_vals.append(np.nanmax(b_r))
+        
+        if min_vals:
+            min_y = min(min_vals)
+            rng_y = max(max_vals) - min_y
+            if rng_y == 0: rng_y = 1
+            
+            rug_raw_y = np.full_like(t_r, min_y - rng_y * 0.1)
+            rug_grid_y = np.full_like(t_m, min_y - rng_y * 0.15)
+            
+            fig.add_trace(
+                go.Scatter(
+                    x=t_r, y=rug_raw_y, mode="markers",
+                    name="Rug: Raw Time",
+                    marker=dict(symbol="line-ns-open", size=6, color=PALETTE.vintage_grape),
+                    showlegend=False, opacity=0.6,
+                ),
+                secondary_y=True
+            )
+            fig.add_trace(
+                go.Scatter(
+                    x=t_m, y=rug_grid_y, mode="markers",
+                    name="Rug: Grid Time",
+                    marker=dict(symbol="line-ns-open", size=6, color=PALETTE.twilight_indigo),
+                    showlegend=False, opacity=0.6,
+                ),
+                secondary_y=True
+            )
+        
+    fig.update_layout(
+        title="",
+        template="plotly_white",
+        hovermode="x unified",
+        margin=dict(l=60, r=60, t=10, b=40),
+        legend=dict(yanchor="top", y=0.99, xanchor="right", x=0.99, bgcolor="rgba(255,255,255,0.7)"),
+    )
+    
+    if len(t_m) > 0:
+        ticks = np.linspace(t_m[0], t_m[-1], min(10, len(t_m)))
+        ticktexts = [f"{t:.2f}s<br>{(t - t_m[0])*1000:.0f}ms" for t in ticks]
+        fig.update_xaxes(
+            title_text="Time (Absolute & Relative window)",
+            tickvals=ticks,
+            ticktext=ticktexts,
+        )
+    else:
+        fig.update_xaxes(title_text="Time (s)")
+
+    if neural_data is not None and neural_channel:
+        fig.update_yaxes(title_text=f"{neural_channel} Normalized", secondary_y=False)
+    fig.update_yaxes(title_text="Behavioral Coordinates (x, y)", secondary_y=True)
+    
+    return fig

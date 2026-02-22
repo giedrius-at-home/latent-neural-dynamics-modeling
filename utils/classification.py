@@ -158,7 +158,6 @@ def prepare_epoched_data(
     horizon = int(m * fs) if m else epoch_length
     history_length = int(h * fs) if h else epoch_length
 
-
     X_all = []
     y_all = []
     groups_all = []
@@ -225,9 +224,9 @@ def prepare_epoched_data(
             if A_on is not None and A_off is not None:
                 if A_both is None:
                     raise ValueError("A_both is required for flipped classification")
-                
+
                 T_trial = trial_data.shape[0]
-                
+
                 if not target_future:
                     step = int(epoch_length * (1 - overlap))
                     for start in range(0, T_trial - epoch_length + 1, step):
@@ -235,17 +234,19 @@ def prepare_epoched_data(
                         X_all.append(epoch)
                         y_all.append(1 if stim == "on" else 0)
                         groups_all.append(group_id)
-                        meta_all.append({
-                            "type": "real_xp",
-                            "trial_idx": trial_idx,
-                            "start": start,
-                        })
+                        meta_all.append(
+                            {
+                                "type": "real_xp",
+                                "trial_idx": trial_idx,
+                                "start": start,
+                            }
+                        )
                 else:
                     step = int(history_length * (1 - overlap))
                     for start in range(0, T_trial - history_length + 1, step):
                         history = trial_data[start : start + history_length]
                         x_seed = history[-1]
-                        
+
                         win_on, win_off = [], []
                         curr_on, curr_off = x_seed.copy(), x_seed.copy()
                         for _ in range(horizon):
@@ -253,32 +254,36 @@ def prepare_epoched_data(
                             curr_off = A_off @ curr_off
                             win_on.append(curr_on.copy())
                             win_off.append(curr_off.copy())
-                        
-                        forecast_on = np.array(win_on) 
+
+                        forecast_on = np.array(win_on)
                         forecast_off = np.array(win_off)
-                        
+
                         epochs_on = epoch_trial(forecast_on, epoch_length, overlap)
                         epochs_off = epoch_trial(forecast_off, epoch_length, overlap)
-                        
+
                         for epoch in epochs_on:
                             X_all.append(epoch)
                             y_all.append(1)
                             groups_all.append(group_id)
-                            meta_all.append({
-                                "type": "forecast_on",
-                                "trial_idx": trial_idx,
-                                "start": start,
-                            })
-                        
+                            meta_all.append(
+                                {
+                                    "type": "forecast_on",
+                                    "trial_idx": trial_idx,
+                                    "start": start,
+                                }
+                            )
+
                         for epoch in epochs_off:
                             X_all.append(epoch)
-                            y_all.append(0) 
+                            y_all.append(0)
                             groups_all.append(group_id)
-                            meta_all.append({
-                                "type": "forecast_off",
-                                "trial_idx": trial_idx,
-                                "start": start,
-                            })
+                            meta_all.append(
+                                {
+                                    "type": "forecast_off",
+                                    "trial_idx": trial_idx,
+                                    "start": start,
+                                }
+                            )
                 continue
 
             if target_future:
@@ -466,7 +471,9 @@ def run_grid_search_cv(
     )
 
     with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", message="y_pred contains classes not in y_true")
+        warnings.filterwarnings(
+            "ignore", message="y_pred contains classes not in y_true"
+        )
         grid_search.fit(X, y)
 
     best_params = grid_search.best_params_

@@ -10,7 +10,9 @@ def main(args):
     logger.info(f"Configuration loaded from: {args.config}")
     logger.info(f"Config content: \n{config}")
 
-    construct_participants_table(config, participant_id=args.participant, session=args.session)
+    construct_participants_table(
+        config, participant_id=args.participant, session=args.session
+    )
 
 
 if __name__ == "__main__":

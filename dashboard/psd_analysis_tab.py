@@ -98,7 +98,11 @@ def render_average_psd_session_level(channels, channel_type):
 
     selected_dataset = st.session_state.get("selected_dataset")
 
-    cols_to_load = [f"{ch}_psd_values" for ch in channels] + [f"{ch}_psd_freq" for ch in channels] + ["stim"]
+    cols_to_load = (
+        [f"{ch}_psd_values" for ch in channels]
+        + [f"{ch}_psd_freq" for ch in channels]
+        + ["stim"]
+    )
     try:
         session_data = load_participant_session_data(
             participant_id, session, selected_dataset, columns=cols_to_load
@@ -149,9 +153,15 @@ def render_average_psd_participant_level(channels, channel_type):
         st.info("Please select a participant in the sidebar.")
         return
 
-    cols_to_load = [f"{ch}_psd_values" for ch in channels] + [f"{ch}_psd_freq" for ch in channels] + ["session", "stim"]
+    cols_to_load = (
+        [f"{ch}_psd_values" for ch in channels]
+        + [f"{ch}_psd_freq" for ch in channels]
+        + ["session", "stim"]
+    )
     try:
-        participant_data = load_participant_data(participant_id, selected_dataset, columns=cols_to_load)
+        participant_data = load_participant_data(
+            participant_id, selected_dataset, columns=cols_to_load
+        )
     except Exception as e:
         st.error(f"Could not load participant data: {str(e)}")
         return

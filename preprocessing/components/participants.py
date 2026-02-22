@@ -138,7 +138,9 @@ def _add_full_data(
     return participants, all_band_channels
 
 
-def construct_participants_table(config: Config, participant_id: str = None, session: str = None):
+def construct_participants_table(
+    config: Config, participant_id: str = None, session: str = None
+):
     logger = get_logger()
     data_path = Path(config.data_directory)
     save_path = Path(config.save_directory)
@@ -150,7 +152,7 @@ def construct_participants_table(config: Config, participant_id: str = None, ses
 
     for p_part in participants_partitions:
         root, p_id, s_id, block = p_part
-        
+
         # Extract values if in key=value format
         p_val = p_id.split("=")[-1] if "=" in p_id else p_id
         s_val = s_id.split("=")[-1] if "=" in s_id else s_id
@@ -240,12 +242,18 @@ def _chunk_recordings(
             (pl.col("trial_time") + 2 * chunk_margin).alias("margined_duration"),
         )
         .with_columns(
-            (pl.col("margined_onset") * sfreq).round().cast(pl.UInt32).alias("start_ts"),
+            (pl.col("margined_onset") * sfreq)
+            .round()
+            .cast(pl.UInt32)
+            .alias("start_ts"),
             (pl.col("margined_duration") * sfreq)
             .round()
             .cast(pl.UInt32)
             .alias("chunk_length_ts"),
-            (pl.col("trial_time") * sfreq).round().cast(pl.UInt32).alias("original_length_ts"),
+            (pl.col("trial_time") * sfreq)
+            .round()
+            .cast(pl.UInt32)
+            .alias("original_length_ts"),
             (pl.col("onset") * sfreq).round().cast(pl.UInt32).alias("onset_ts"),
         )
         .with_columns(

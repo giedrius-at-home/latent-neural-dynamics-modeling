@@ -255,13 +255,13 @@ def render_x_forecast_plot(
     nx = x_history.shape[1] if x_history.ndim == 2 else 1
     Tpast = len(x_history)
     Tfuture = len(x_future_pred)
-    
+
     t_past = t_abs_margined[:Tpast]
     t_future = t_abs_margined[Tpast : Tpast + Tfuture]
 
     onset_time = t_abs_margined.min() if len(t_abs_margined) > 0 else 0.0
     fig = create_base_time_series_figure(
-        time_abs=t_abs_margined[:Tpast + Tfuture],
+        time_abs=t_abs_margined[: Tpast + Tfuture],
         onset_time=onset_time,
         y_label="Latent Value",
         title="Latent State Forecast",
@@ -286,12 +286,18 @@ def render_x_forecast_plot(
                 showlegend=True if d < 2 or d == n1 else False,
             )
         )
-        
+
         # Forecast
         # Connect last history point to first forecast point
-        t_forecast_plot = np.concatenate(([t_past[-1]], t_future)) if Tpast > 0 else t_future
-        y_forecast_plot = np.concatenate(([x_history[-1, d]], x_future_pred[:, d])) if Tpast > 0 else x_future_pred[:, d]
-        
+        t_forecast_plot = (
+            np.concatenate(([t_past[-1]], t_future)) if Tpast > 0 else t_future
+        )
+        y_forecast_plot = (
+            np.concatenate(([x_history[-1, d]], x_future_pred[:, d]))
+            if Tpast > 0
+            else x_future_pred[:, d]
+        )
+
         fig.add_trace(
             go.Scatter(
                 x=t_forecast_plot,
@@ -617,25 +623,33 @@ def render_forecasting_tab(
             if x_future_pred is not None:
                 try:
                     x_future_pred = np.array(x_future_pred)
-                    
+
                     cfg = get_config(str(cfg_path))
                     n1 = getattr(cfg.model, "n1", 0)
 
                     Xp = split_res.get("Xp", [])
                     if Xp and len(Xp) > trial_idx and Xp[trial_idx] is not None:
                         x_p_trial = np.array(Xp[trial_idx])
-                        
+
                         Tpast = len(y_concat) - m
                         x_history = x_p_trial[:Tpast]
-                        
+
                         st.markdown("---")
                         st.subheader("Latent States Forecast")
-                        render_x_forecast_plot(x_history, x_future_pred, t_abs_margined, m, n1)
+                        render_x_forecast_plot(
+                            x_history, x_future_pred, t_abs_margined, m, n1
+                        )
 
                         with st.expander("Latent State Forecast Values"):
-                            cols_x = [f"X[{i}]" + (" (beh)" if i < n1 else " (non-beh)") for i in range(x_future_pred.shape[1])]
+                            cols_x = [
+                                f"X[{i}]" + (" (beh)" if i < n1 else " (non-beh)")
+                                for i in range(x_future_pred.shape[1])
+                            ]
                             df_latents = pd.DataFrame(x_future_pred, columns=cols_x)
-                            st.dataframe(df_latents.style.format("{:.4f}"), use_container_width=True)
+                            st.dataframe(
+                                df_latents.style.format("{:.4f}"),
+                                use_container_width=True,
+                            )
 
                         st.markdown("---")
                         st.subheader("Latent States Forecast Frequency Analysis")
