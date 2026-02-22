@@ -25,6 +25,7 @@ from dashboard.time_series_plots import (
     plot_session_comparison_time_series,
     plot_raw_alignment,
     plot_residual_violin,
+    plot_micro_alignment,
 )
 from utils.data_loader import (
     get_available_datasets,
@@ -935,28 +936,21 @@ def render_raw_alignment_tab(trial_data, block_data, lfp_channels, ecog_channels
     if ecog_channels:
         all_neural_channels.extend(ecog_channels)
 
-    col1, col2 = st.columns(2)
-    with col1:
-        selected_beh = st.selectbox(
-            "Select Raw Behavioral Variable", behavioral_vars, key="raw_beh_var"
-        )
-    with col2:
-        selected_neural = st.selectbox(
-            "Select Neural Channel (Optional)",
-            ["None"] + all_neural_channels,
-            key="raw_neural_channel",
-        )
+    selected_neural = st.selectbox(
+        "Select Neural Channel (Optional)",
+        ["None"] + all_neural_channels,
+        key="raw_neural_channel",
+    )
 
-    if not selected_beh:
-        return
-
-    beh_raw_list = trial_data[selected_beh][0]
+    beh_raw_x_list = trial_data["x"][0]
+    beh_raw_y_list = trial_data["y"][0]
     time_raw_list = trial_data["motion_time"][0]
     time_master_list = trial_data["time_original"][0]
     time_neural_list = trial_data["time"][0]
 
     if (
-        beh_raw_list is None
+        beh_raw_x_list is None
+        or beh_raw_y_list is None
         or time_raw_list is None
         or time_master_list is None
         or time_neural_list is None
@@ -964,7 +958,6 @@ def render_raw_alignment_tab(trial_data, block_data, lfp_channels, ecog_channels
         st.info("Missing essential time or behavior data.")
         return
 
-    beh_raw = np.array(beh_raw_list).astype(float)
     time_raw = np.array(time_raw_list).astype(float)
     time_master = np.array(time_master_list).astype(float)
     time_neural = np.array(time_neural_list).astype(float)
@@ -979,36 +972,33 @@ def render_raw_alignment_tab(trial_data, block_data, lfp_channels, ecog_channels
         if nd is not None:
             neural_data = np.array(nd).astype(float)
 
-    beh_interp = interpolate_to_grid(beh_raw, time_raw, time_master)
+    beh_raw_dict = {}
+    beh_interp_dict = {}
+    
+    for var in ["x", "y"]:
+        b_r = np.array(trial_data[var][0]).astype(float)
+        beh_raw_dict[var] = b_r
+        beh_interp_dict[var] = interpolate_to_grid(b_r, time_raw, time_master)
 
-    residuals = []
-    for i, t_m in enumerate(time_master):
-        if np.isnan(beh_interp[i]):
-            continue
-        idx_nearest = np.argmin(np.abs(time_raw - t_m))
-        res = beh_interp[i] - beh_raw[idx_nearest]
-        residuals.append(res)
-    residuals = np.array(residuals)
+    st.markdown("### Alignment Analysis")
+    
+    min_t = float(time_master[0])
+    max_t = float(time_master[-1])
+    window_start = min_t
+    window_end = max_t
 
-    rmse = np.sqrt(np.mean(residuals**2)) if len(residuals) > 0 else 0
-    max_error = np.max(np.abs(residuals)) if len(residuals) > 0 else 0
-
-    fig1 = plot_raw_alignment(
+    fig_micro = plot_micro_alignment(
         time_master=time_neural,
         neural_data=neural_data,
         time_raw=time_raw,
-        beh_raw=beh_raw,
+        beh_raw_dict=beh_raw_dict,
         time_interp=time_master,
-        beh_interp=beh_interp,
+        beh_interp_dict=beh_interp_dict,
         neural_channel=selected_neural if selected_neural != "None" else "",
-        behavioral_var=selected_beh,
-        chunk_margin=chunk_margin,
+        window_start=window_start,
+        window_end=window_end,
     )
-
-    st.plotly_chart(fig1, use_container_width=True)
-    st.caption(
-        f"**Visual Alignment**: Shows how unaligned raw {selected_beh} points are interpreted on the strictly uniform neural time grid. | **RMSE**: {rmse:.4f} | **Max Error**: {max_error:.4f} (compared to nearest raw point)"
-    )
+    st.plotly_chart(fig_micro, use_container_width=True)
 
     st.markdown("---")
     st.markdown("### Cross-Trial Interpolation Residuals")
@@ -1018,6 +1008,9 @@ def render_raw_alignment_tab(trial_data, block_data, lfp_channels, ecog_channels
     valid_trials = []
 
     global_residuals = []
+    
+    selected_beh = "x"
+    
     for tr in trials:
         tr_data = block_data.filter(pl.col("trial") == tr)
         if tr_data.is_empty():

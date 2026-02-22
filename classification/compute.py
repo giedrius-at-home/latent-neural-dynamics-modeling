@@ -286,10 +286,12 @@ def verify_test_results(logger, project_root, config):
     if not test_dir.exists():
         from training.components.tester import Tester
 
+        setup_paths = list((project_root / "training" / "setups").rglob(f"{config.run.variant}.yaml"))
+        if not setup_paths:
+            raise FileNotFoundError(f"Could not find training config for {config.run.variant}")
+        
         tester = Tester(
-            get_config(
-                str(project_root / "training" / "setups" / f"{config.run.variant}.yaml")
-            ),
+            get_config(str(setup_paths[0])),
             run_timestamp=config.run.run_ts,
         )
         tester.run_predictions()
