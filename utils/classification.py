@@ -146,6 +146,8 @@ def prepare_epoched_data(
     A_off: Optional[np.ndarray] = None,
     A_both: Optional[np.ndarray] = None,
     target_future: bool = False,
+    n1: Optional[int] = None,
+    nx: Optional[int] = None,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, List[Dict[str, Any]]]:
     # Determine window length for classification
     current_epoch_length_sec = epoch_length_sec
@@ -168,21 +170,23 @@ def prepare_epoched_data(
 
     for split_res in split_results:
         if mode == "forecast":
-            if feature_source == "Yp":
+            base_fs = feature_source.replace("_with_dbs", "")
+            if base_fs == "Yp":
                 data_key = "Y_future_pred"
-            elif feature_source == "Xp":
+            elif base_fs in ["Xp", "Xp_1", "Xp_2", "dbs"]:
                 data_key = "X_future_pred"
             else:
                 data_key = "Y_future_pred"
             data_list = split_res.get(data_key, [])
         else:
-            if feature_source == "Xp":
+            base_fs = feature_source.replace("_with_dbs", "")
+            if base_fs in ["Xp", "Xp_1", "Xp_2", "dbs"]:
                 data_list = split_res.get("Xp", [])
-            elif feature_source == "Yp":
+            elif base_fs == "Yp":
                 data_list = split_res.get("Yp", [])
-            elif feature_source == "Y":
+            elif base_fs == "Y":
                 data_list = split_res.get("Y", [])
-            elif feature_source == "Both":
+            elif base_fs == "Both":
                 xp_list = split_res.get("Xp", [])
                 yp_list = split_res.get("Yp", [])
                 data_list = []
@@ -342,7 +346,29 @@ def prepare_epoched_data(
     if len(X_all) == 0:
         return None, None, None, None
 
-    return np.array(X_all), np.array(y_all), np.array(groups_all), meta_all
+    X_arr = np.array(X_all)
+    y_arr = np.array(y_all)
+
+    base_fs = feature_source.replace("_with_dbs", "")
+    
+    if base_fs == "Xp_1":
+        if n1 is None:
+            raise ValueError("n1 must be provided for Xp_1 feature source")
+        X_arr = X_arr[:, :, :n1]
+    elif base_fs == "Xp_2":
+        if n1 is None or nx is None:
+            raise ValueError("n1 and nx must be provided for Xp_2 feature source")
+        X_arr = X_arr[:, :, n1:nx]
+    elif base_fs == "dbs":
+        time_steps = X_arr.shape[1]
+        X_arr = np.ones((len(y_arr), time_steps, 1)) * y_arr[:, None, None]
+
+    if "_with_dbs" in feature_source:
+        time_steps = X_arr.shape[1]
+        dbs_arr = np.ones((len(y_arr), time_steps, 1)) * y_arr[:, None, None]
+        X_arr = np.concatenate([X_arr, dbs_arr], axis=-1)
+
+    return X_arr, y_arr, np.array(groups_all), meta_all
 
 
 def prepare_true_eval_data(

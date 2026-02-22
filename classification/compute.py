@@ -67,6 +67,8 @@ def compute_classification_for_config(
             A_both=A_both,
             h=config.classification.get("h"),
             m=config.classification.get("m"),
+            n1=config.classification.get("n1"),
+            nx=config.classification.get("nx"),
         )
         X_test, y_test, _, _ = prepare_epoched_data(
             [trials],
@@ -80,6 +82,8 @@ def compute_classification_for_config(
             A_both=A_both,
             h=config.classification.get("h"),
             m=config.classification.get("m"),
+            n1=config.classification.get("n1"),
+            nx=config.classification.get("nx"),
         )
     else:
         splits = load_all_splits(variant_dir, run_ts)
@@ -97,6 +101,8 @@ def compute_classification_for_config(
             mode=mode,
             m=config.classification.get("m"),
             h=config.classification.get("h"),
+            n1=config.classification.get("n1"),
+            nx=config.classification.get("nx"),
         )
         X_test, y_test, _, _ = (
             prepare_epoched_data(
@@ -108,6 +114,8 @@ def compute_classification_for_config(
                 mode=mode,
                 m=config.classification.get("m"),
                 h=config.classification.get("h"),
+                n1=config.classification.get("n1"),
+                nx=config.classification.get("nx"),
             )
             if test_list
             else (None, None, None, None)
