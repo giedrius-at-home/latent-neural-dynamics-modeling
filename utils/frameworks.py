@@ -743,6 +743,17 @@ class AutoARIMAWrapper:
         self.Y_train = None
         self.Z_train = None
 
+    def load_from_file(self, model_path: str):
+        import pickle
+
+        self.logger.info(f"Loading AutoARIMA model from {model_path}")
+        with open(model_path, "rb") as f:
+            obj = pickle.load(f)
+
+        self.__dict__.update(obj.__dict__)
+        self.logger.info("AutoARIMA model loaded successfully")
+        return self
+
     def train(self, Y: TrialList, Z: Optional[TrialList] = None):
         from sktime.forecasting.arima import AutoARIMA
 
@@ -1282,6 +1293,24 @@ class VARMAOLSWrapper:
             f"K={self.K}"
         )
 
+        if self.Z_mean is not None:
+            mean_concat = np.concatenate([self.Y_mean, self.Z_mean], axis=1)
+            std_concat = np.concatenate([self.Y_std, self.Z_std], axis=1)
+            data_concat = np.concatenate([Y_concat, Z_concat], axis=1)
+        else:
+            mean_concat = self.Y_mean
+            std_concat = self.Y_std
+            data_concat = Y_concat
+
+        data_concat_zscored = (data_concat - mean_concat) / std_concat
+
+        self.logger.info(f"Training single Long-VAR on all trials concatenated (T={data_concat.shape[0]})")
+        df_concat = pd.DataFrame(data_concat_zscored)
+        long_model = VAR(df_concat)
+        long_results = long_model.fit(maxlags=long_ar_lags)
+        self.long_var_coefs = long_results.coefs
+        self.long_var_intercept = long_results.intercept
+
         # --- Process each trial and collect design matrices ---
         all_X = []
         all_target = []
@@ -1305,10 +1334,7 @@ class VARMAOLSWrapper:
                 continue
 
             # --- STEP 1: Long VAR to get residual proxies ---
-            df_trial = pd.DataFrame(data_trial)
-            long_model = VAR(df_trial)
-            long_results = long_model.fit(maxlags=long_ar_lags)
-            resid_proxy = long_results.resid.values  # (T - long_ar_lags, K)
+            resid_proxy = self._get_long_var_residuals(data_trial)  # (T - long_ar_lags, K)
             effective_data = data_trial[long_ar_lags:]  # align with residuals
 
             # --- STEP 2: Build design matrix ---
@@ -1368,6 +1394,27 @@ class VARMAOLSWrapper:
 
         return self
 
+    def load_from_file(self, model_path: str):
+        import pickle
+        with open(model_path, "rb") as f:
+            obj = pickle.load(f)
+        self.__dict__.update(obj.__dict__)
+        self.logger.info(f"Model loaded successfully from {model_path}")
+        return self
+
+    def _get_long_var_residuals(self, data_zscored: np.ndarray) -> np.ndarray:
+        L = self.long_ar_lags
+        T, K = data_zscored.shape
+        if T <= L:
+            return np.zeros((0, K))
+        
+        preds = np.tile(self.long_var_intercept, (T - L, 1))
+        for i in range(1, L + 1):
+            preds += data_zscored[L-i : T-i] @ self.long_var_coefs[i-1].T
+            
+        residuals = data_zscored[L:] - preds
+        return residuals
+
     def _predict_trial(self, data_zscored: np.ndarray) -> np.ndarray:
         """
         One-step-ahead prediction for a single trial using the fitted VARMA-OLS model.
@@ -1381,7 +1428,6 @@ class VARMAOLSWrapper:
         predictions : (T, K) one-step-ahead predictions (z-scored)
         """
         import statsmodels.api as sm
-        from statsmodels.tsa.api import VAR
 
         p = self.p
         q = self.q
@@ -1395,11 +1441,8 @@ class VARMAOLSWrapper:
             )
             return np.zeros_like(data_zscored)
 
-        # Step 1: Get residual proxies via Long VAR
-        df_trial = pd.DataFrame(data_zscored)
-        long_model = VAR(df_trial)
-        long_results = long_model.fit(maxlags=long_ar_lags)
-        resid_proxy = long_results.resid.values
+        # Step 1: Get residual proxies via global Long VAR
+        resid_proxy = self._get_long_var_residuals(data_zscored)
         effective_data = data_zscored[long_ar_lags:]
 
         # Step 2: Build design matrix and predict
@@ -1551,21 +1594,17 @@ class VARMAOLSWrapper:
         else:
             data_zscored = Y_past_zscored
 
-        # Get residual proxies for the history
-        long_ar_lags = min(self.long_ar_lags, data_zscored.shape[0] - 1)
-        if long_ar_lags < 1:
-            self.logger.warning(
-                "History too short for Long VAR. Returning last values."
-            )
-            Yf = np.tile(Y_past[-1:], (m, 1))
-            Zf = np.zeros((m, self.n_channels_Z)) if self.n_channels_Z > 0 else None
-            return Zf, Yf, None
+        long_ar_lags = self.long_ar_lags
+        required_len = long_ar_lags + max(self.p, self.q)
 
-        df_hist = pd.DataFrame(data_zscored)
-        long_model = VAR(df_hist)
-        long_results = long_model.fit(maxlags=long_ar_lags)
-        resid_proxy = long_results.resid.values
-        effective_data = data_zscored[long_ar_lags:]
+        padded_data = data_zscored
+        if data_zscored.shape[0] < required_len:
+            pad_len = required_len - data_zscored.shape[0]
+            pad_arr = np.zeros((pad_len, self.K))
+            padded_data = np.concatenate([pad_arr, data_zscored], axis=0)
+
+        resid_proxy = self._get_long_var_residuals(padded_data)
+        effective_data = padded_data[long_ar_lags:]
 
         # Forecast
         forecasts_zscored = self._forecast_from_history(effective_data, resid_proxy, m)

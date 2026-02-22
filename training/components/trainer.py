@@ -352,8 +352,8 @@ class Trainer:
 
         metadata = {
             "framework_type": self.framework_type,
-            "nx": self.model_params.nx,
-            "n1": self.model_params.n1,
+            "nx": getattr(self.model_params, "nx", None),
+            "n1": getattr(self.model_params, "n1", None),
             "i": getattr(self.model_params, "i", None),
             "rescale_states": getattr(self.model_params, "rescale_states", True),
             "max_eigenvalue": getattr(self.model_params, "max_eigenvalue", 0.995),

@@ -3,8 +3,6 @@ model:
   p: 20
   q: 1
   long_ar_lags: 30
-  nx: 4
-  n1: 4
   time_first: true
   fast: false
   reuse_splits: true
