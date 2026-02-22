@@ -12,6 +12,7 @@ from dashboard.backbone import (
     create_base_time_series_figure,
     add_caption_below,
 )
+from dashboard.subtabs.predictions import _compute_zp_components
 from dashboard.subtabs.helpers import (
     get_trial_time_axis,
     compute_forecast_for_trial,
@@ -144,6 +145,10 @@ def render_z_forecast_plot(
     channel_idx: int,
     channel_name: str,
     r_fore_z_ch: float,
+    zp_1: Optional[np.ndarray] = None,
+    zp_2: Optional[np.ndarray] = None,
+    r_zp1: Optional[float] = None,
+    r_zp2: Optional[float] = None,
 ):
     from dashboard.subtabs.helpers import rescale_to_reference
 
@@ -227,6 +232,30 @@ def render_z_forecast_plot(
             ),
         )
     )
+
+    if zp_1 is not None and r_zp1 is not None:
+        zp_1_rescaled = rescale_to_reference(zp_1, z_ft_c)
+        fig.add_trace(
+            go.Scatter(
+                x=t_future_plot[-len(zp_1_rescaled):] if Tpast == 0 else t_future_plot[1:],
+                y=zp_1_rescaled,
+                name=f"Zp_1 (beh) r={r_zp1:.3f}",
+                mode="lines",
+                line=dict(color=PALETTE.twilight_indigo, width=PLOT_STYLE.line_width_normal, dash="dashdot"),
+            )
+        )
+
+    if zp_2 is not None and r_zp2 is not None:
+        zp_2_rescaled = rescale_to_reference(zp_2, z_ft_c)
+        fig.add_trace(
+            go.Scatter(
+                x=t_future_plot[-len(zp_2_rescaled):] if Tpast == 0 else t_future_plot[1:],
+                y=zp_2_rescaled,
+                name=f"Zp_2 (non-beh) r={r_zp2:.3f}",
+                mode="lines",
+                line=dict(color=PALETTE.strawberry_red, width=PLOT_STYLE.line_width_normal, dash="dot"),
+            )
+        )
 
     fig.add_vline(
         x=t_present,
@@ -348,6 +377,7 @@ def render_forecasting_tab(
                 "X_future_pred",
                 "pearson_per_channel",
                 "pearson_per_channel_Z",
+                "Xp",
             ]
             for k in keys_to_copy:
                 if k in split_res:
@@ -569,6 +599,11 @@ def render_forecasting_tab(
                         ):
                             r_fore_z_ch = r_fore_list_z[z_c]
 
+                    if Xp_trial is not None and B_z is not None and n1 > 0:
+                        Xp_future = np.array(Xp_trial)
+                        zp_1_f, zp_2_f, r_zp1_f, r_zp2_f = _compute_zp_components(z_ft_c, Xp_future, B_z, d_z, n1, z_c)
+
+                    st.markdown("#### Time Series: True Future vs Forecast")
                     render_z_forecast_plot(
                         z_concat,
                         z_future_true,
@@ -578,20 +613,11 @@ def render_forecasting_tab(
                         z_c,
                         selected_z_name,
                         r_fore_z_ch,
+                        zp_1=zp_1_f,
+                        zp_2=zp_2_f,
+                        r_zp1=r_zp1_f,
+                        r_zp2=r_zp2_f,
                     )
-
-                    cfg = get_config(str(cfg_path))
-                    fs = getattr(cfg.data, "sampling_frequency", SAMPLING_FREQ)
-
-                    if z_future_true.ndim == 2:
-                        z_ft_c = z_future_true[:, z_c]
-                        z_fp_c = z_future_pred[:, z_c]
-                    else:
-                        z_ft_c = z_future_true
-                        z_fp_c = z_future_pred
-
-                    Tpast = max(0, len(t_abs_margined) - m)
-                    t_future_z = t_abs_margined[Tpast : Tpast + len(z_ft_c)]
 
                     st.markdown("#### PSD Analysis: True Future vs Forecast")
                     render_prediction_psd_analysis(
