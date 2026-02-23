@@ -219,3 +219,5 @@ CEBRA/
 PSID/
 
 *.toml
+
+report/
