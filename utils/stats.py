@@ -330,6 +330,57 @@ def compare_band_power(
     return results
 
 
+def compute_psd_dbs_stats(
+    freqs: np.ndarray,
+    psds_on: np.ndarray,
+    psds_off: np.ndarray,
+) -> Dict[str, Any]:
+    """
+    Compare DBS ON vs OFF PSD using Mann-Whitney U test.
+
+    Each row of psds_on / psds_off is the mean PSD spectrum of one trial.
+    The test compares the distribution of total-band power (integrated over
+    the full frequency axis) between the two conditions.
+
+    Returns dict with test results including U, p-value, effect size (rank-biserial r),
+    and per-condition mean/std of total power (in dB).
+    """
+    if psds_on.ndim == 1:
+        psds_on = psds_on[np.newaxis, :]
+    if psds_off.ndim == 1:
+        psds_off = psds_off[np.newaxis, :]
+
+    # Integrate PSD over frequency axis per trial → scalar power per trial
+    power_on = np.trapz(psds_on, freqs, axis=1)
+    power_off = np.trapz(psds_off, freqs, axis=1)
+
+    # Convert to dB scale
+    power_on_db = 10 * np.log10(np.maximum(power_on, 1e-20)) + 120
+    power_off_db = 10 * np.log10(np.maximum(power_off, 1e-20)) + 120
+
+    n_on, n_off = len(power_on_db), len(power_off_db)
+
+    result = {
+        "n_on": n_on,
+        "n_off": n_off,
+        "mean_on": float(np.mean(power_on_db)),
+        "mean_off": float(np.mean(power_off_db)),
+        "std_on": float(np.std(power_on_db)),
+        "std_off": float(np.std(power_off_db)),
+        "delta_db": float(np.mean(power_on_db) - np.mean(power_off_db)),
+    }
+
+    if n_on >= 2 and n_off >= 2:
+        U, p = stats.mannwhitneyu(power_on_db, power_off_db, alternative="two-sided")
+        # Rank-biserial correlation as effect size
+        r = 1 - (2 * U) / (n_on * n_off)
+        result.update({"U": float(U), "p": float(p), "effect_size_r": float(r)})
+    else:
+        result.update({"U": np.nan, "p": np.nan, "effect_size_r": np.nan})
+
+    return result
+
+
 def compute_cross_correlation(
     y_true: np.ndarray,
     y_pred: np.ndarray,

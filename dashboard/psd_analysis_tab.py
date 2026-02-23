@@ -9,6 +9,7 @@ from utils.plots import (
     plot_average_psd,
     plot_average_psd_dbs_comparison,
 )
+from utils.stats import compute_psd_dbs_stats
 from dashboard.utils import get_channel_lists, get_trial_metadata
 from dashboard.backbone import format_trial_metadata, update_fig_title
 
@@ -137,6 +138,99 @@ def render_average_psd_session_level(channels, channel_type):
         st.caption(
             f"Session-level average PSD comparison (DBS ON vs OFF) — {participant_id}, Session: {session} — Channels: {', '.join(channels)}"
         )
+
+        render_psd_statistical_comparison(freqs, psd_data, participant_id, session)
+
+
+def render_psd_statistical_comparison(freqs, psd_data, participant_id, session):
+    """Render DBS ON vs OFF PSD statistical comparison per channel."""
+    rows = []
+    for ch, data in psd_data.items():
+        has_on = "on" in data and data["on"].size > 0
+        has_off = "off" in data and data["off"].size > 0
+        if not (has_on and has_off):
+            continue
+
+        result = compute_psd_dbs_stats(freqs, data["on"], data["off"])
+        rows.append({"Channel": ch, **result})
+
+    if not rows:
+        return
+
+    import polars as pl
+
+    df = pl.DataFrame(rows).select(
+        "Channel",
+        pl.col("n_on").alias("N (ON)"),
+        pl.col("n_off").alias("N (OFF)"),
+        pl.col("mean_on").round(2).alias("Mean ON (dB)"),
+        pl.col("mean_off").round(2).alias("Mean OFF (dB)"),
+        pl.col("delta_db").round(2).alias("Δ (dB)"),
+        pl.col("U").round(1).alias("U"),
+        pl.col("p").alias("p-value"),
+        pl.col("effect_size_r").round(3).alias("Effect Size (r)"),
+    )
+
+    st.dataframe(df, use_container_width=True, hide_index=True)
+    st.caption(
+        f"Mann–Whitney U test — DBS ON vs OFF integrated PSD power — "
+        f"{participant_id}, Session: {session}"
+    )
+
+    # Grouped bar chart
+    fig = go.Figure()
+    channels = [r["Channel"] for r in rows]
+    means_on = [r["mean_on"] for r in rows]
+    means_off = [r["mean_off"] for r in rows]
+
+    fig.add_trace(go.Bar(
+        name="DBS ON",
+        x=channels,
+        y=means_on,
+        marker_color="#ff0035",
+    ))
+    fig.add_trace(go.Bar(
+        name="DBS OFF",
+        x=channels,
+        y=means_off,
+        marker_color="#59546c",
+    ))
+
+    # Add significance annotations
+    for i, r in enumerate(rows):
+        p = r.get("p", np.nan)
+        if np.isnan(p):
+            continue
+        if p < 0.001:
+            star = "***"
+        elif p < 0.01:
+            star = "**"
+        elif p < 0.05:
+            star = "*"
+        else:
+            continue
+        y_max = max(r["mean_on"], r["mean_off"])
+        fig.add_annotation(
+            x=channels[i],
+            y=y_max + 0.5,
+            text=star,
+            showarrow=False,
+            font=dict(size=14),
+        )
+
+    fig.update_layout(
+        barmode="group",
+        xaxis_title="Channel",
+        yaxis_title="Mean Integrated Power (dB)",
+        template="plotly_white",
+        showlegend=True,
+        margin=dict(l=60, r=40, t=30, b=60),
+    )
+    st.plotly_chart(fig, use_container_width=True)
+    st.caption(
+        f"Mean integrated PSD power per channel — "
+        f"* p<0.05, ** p<0.01, *** p<0.001"
+    )
 
 
 def render_average_psd_participant_level(channels, channel_type):
