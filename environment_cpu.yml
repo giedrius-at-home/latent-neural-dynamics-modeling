@@ -1,0 +1,33 @@
+name: neuro_cpu
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - pip
+  - numpy
+  - pandas
+  - polars
+  - scipy
+  - scikit-learn
+  - matplotlib
+  - seaborn
+  - plotly
+  - streamlit
+  - pyyaml
+  - statsmodels
+  - h5py
+  - jupyterlab
+  - mne
+  - pip:
+      - torch --index-url https://download.pytorch.org/whl/cpu
+      - torchvision --index-url https://download.pytorch.org/whl/cpu
+      - torchaudio --index-url https://download.pytorch.org/whl/cpu
+      - tensorflow-cpu==2.15.1
+      - plotly-resampler
+      - anywidget
+      - dpad
+      - sktime
+      - umap-learn
+      - pmdarima
+      - ray
