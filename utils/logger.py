@@ -10,7 +10,6 @@ class MarkdownFormatter(logging.Formatter):
     def format(self, record):
         message = super().format(record)
         lines = message.split("\n")
-        # Look for the separator line, which is typically something like "|---|---|"
         if len(lines) > 2 and all(
             part.startswith("---") or part == ""
             for part in lines[1].strip().split("|")
@@ -25,7 +24,6 @@ class _Tee:
     def __init__(self, original_stream, file_path: Path):
         self._orig = original_stream
         self._file_path = file_path
-        # Open in append, text mode, line buffered via buffering=1
         self._fh = open(self._file_path, mode="a", buffering=1, encoding="utf-8")
 
     def write(self, data):
@@ -94,7 +92,6 @@ class Logger:
         sys.stdout = self._stdout_tee
         sys.stderr = self._stderr_tee
 
-        # Announce where logs are located
         self.logger.info(f"Structured log file: {self.structured_log_file}")
         self.logger.info(f"Console mirror file: {self.console_log_file}")
 

@@ -180,6 +180,8 @@ def render_y_residual_plot(
     t_abs: np.ndarray,
     channel_name: str,
     chunk_margin: float = 0.0,
+    baseline_preds: Optional[np.ndarray] = None,
+    baseline_name: str = "Baseline",
 ):
     residuals = y_true_c - y_pred_c
 
@@ -190,11 +192,27 @@ def render_y_residual_plot(
             x=t_abs,
             y=residuals,
             mode="lines",
-            name="Residuals",
+            name="Model Residuals",
             line=dict(color=PALETTE.strawberry_red, width=1.2),
         )
     )
     rmse = np.sqrt(np.mean(residuals**2))
+
+    baseline_caption = ""
+    if baseline_preds is not None:
+        baseline_residuals = y_true_c - baseline_preds
+        fig.add_trace(
+            go.Scatter(
+                x=t_abs,
+                y=baseline_residuals,
+                mode="lines",
+                name=f"{baseline_name} Residuals",
+                line=dict(color=PALETTE.cool_steel, width=1.2, dash="dash"),
+                opacity=0.7,
+            )
+        )
+        base_rmse = np.sqrt(np.mean(baseline_residuals**2))
+        baseline_caption = f" | {baseline_name} RMSE={base_rmse:.3f} µV"
 
     if chunk_margin > 0:
         add_margin_visualization(fig, t_abs, chunk_margin)
@@ -207,7 +225,7 @@ def render_y_residual_plot(
         yaxis_title="Residual (µV)",
     )
     st.plotly_chart(fig, use_container_width=True)
-    st.caption(f"Residuals (Prediction Errors) — {channel_name} (RMSE={rmse:.3f} µV)")
+    st.caption(f"Residuals (Prediction Errors) — {channel_name} (RMSE={rmse:.3f} µV){baseline_caption}")
 
 
 def render_statistics_table(
@@ -788,6 +806,8 @@ def render_z_residual_plot(
     t_abs: np.ndarray,
     channel_name: str,
     chunk_margin: float = 0.0,
+    baseline_preds: Optional[np.ndarray] = None,
+    baseline_name: str = "Baseline",
 ):
     residuals = z_true_c - z_pred_c
 
@@ -798,11 +818,27 @@ def render_z_residual_plot(
             x=t_abs,
             y=residuals,
             mode="lines",
-            name="Residuals",
+            name="Model Residuals",
             line=dict(color=PALETTE.strawberry_red, width=1.2),
         )
     )
     rmse = np.sqrt(np.mean(residuals**2))
+
+    baseline_caption = ""
+    if baseline_preds is not None:
+        baseline_residuals = z_true_c - baseline_preds
+        fig.add_trace(
+            go.Scatter(
+                x=t_abs,
+                y=baseline_residuals,
+                mode="lines",
+                name=f"{baseline_name} Residuals",
+                line=dict(color=PALETTE.cool_steel, width=1.2, dash="dash"),
+                opacity=0.7,
+            )
+        )
+        base_rmse = np.sqrt(np.mean(baseline_residuals**2))
+        baseline_caption = f" | {baseline_name} RMSE={base_rmse:.3f}"
 
     if chunk_margin > 0:
         add_margin_visualization(fig, t_abs, chunk_margin)
@@ -815,7 +851,7 @@ def render_z_residual_plot(
         yaxis_title="Residual",
     )
     st.plotly_chart(fig, use_container_width=True)
-    st.caption(f"Residuals (Prediction Errors) — {channel_name} (RMSE={rmse:.3f})")
+    st.caption(f"Residuals (Prediction Errors) — {channel_name} (RMSE={rmse:.3f}){baseline_caption}")
 
 
 def render_z_statistics_table(
@@ -980,7 +1016,7 @@ def render_prediction_psd_analysis(y_true, y_pred, sampling_rate=60, channel_nam
     st.plotly_chart(fig, use_container_width=True)
 
 
-def render_predictions_tab(split_res: Dict[str, Any], trial_idx: int, cfg_path: Path):
+def render_predictions_tab(split_res: Dict[str, Any], trial_idx: int, cfg_path: Path, run_ts: str):
     Y_true = split_res["Y"]
     Yp = split_res["Yp"]
     Zp = split_res["Zp"]
@@ -1060,23 +1096,38 @@ def render_predictions_tab(split_res: Dict[str, Any], trial_idx: int, cfg_path: 
         load_precomputed_results,
         list_run_timestamps,
     )
+    import re
 
-    project_root = cfg_path.parent.parent
+    project_root = cfg_path
+    for p in cfg_path.parents:
+        if (p / "results").exists():
+            project_root = p
+            break
     results_root = project_root / "results"
     all_variants = list_variants(results_root)
-    arima_variants = [v for v in all_variants if v.startswith("autoarima_")]
+    
+    current_variant = cfg_path.stem
+
+    subject_match = re.search(r'(PDI\d+)_(?:S)?(\d+)', current_variant)
+    baseline_search_str = f"varma_{subject_match.group(1)}_S{subject_match.group(2)}" if subject_match else "varma"
+    
+    baseline_variants = [v for v in all_variants if baseline_search_str in v and v != current_variant]
 
     baseline_yp_c = None
     baseline_r = None
     baseline_info = None
+    selected_baseline_name = "Baseline"
 
-    if arima_variants:
-        st.markdown("#### ARIMA Baseline Comparison")
+    if baseline_variants:
+        st.markdown("#### Baseline Comparison")
+        
+        default_idx = 0
+        
         selected_baseline = st.selectbox(
-            "Select AutoARIMA baseline",
-            options=["None"] + arima_variants,
-            index=0,
-            key="baseline_arima_select",
+            "Select Baseline Model",
+            options=["None"] + baseline_variants,
+            index=default_idx + 1 if baseline_variants else 0,
+            key="pred_baseline_select",
         )
 
         if selected_baseline != "None":
@@ -1088,11 +1139,11 @@ def render_predictions_tab(split_res: Dict[str, Any], trial_idx: int, cfg_path: 
                     "Baseline run timestamp",
                     options=baseline_timestamps,
                     index=len(baseline_timestamps) - 1,
-                    key="baseline_ts_select",
+                    key="pred_baseline_ts_select",
                 )
 
                 # Load baseline results for same split
-                split_name = st.session_state.get("selected_split", "val")
+                split_name = st.session_state.get("pred_split", "val")
                 baseline_res = load_precomputed_results(
                     baseline_dir, baseline_ts, split_name
                 )
@@ -1118,6 +1169,9 @@ def render_predictions_tab(split_res: Dict[str, Any], trial_idx: int, cfg_path: 
                                 )[0, 1]
                             except:
                                 baseline_r = np.nan
+                                
+                    selected_baseline_name = str(selected_baseline)
+                    st.session_state["baseline_res_cache"] = baseline_res
 
                 # Load baseline metadata for info display
                 metadata_path = baseline_dir / f"model_{baseline_ts}_metadata.json"
@@ -1162,7 +1216,7 @@ def render_predictions_tab(split_res: Dict[str, Any], trial_idx: int, cfg_path: 
             go.Scatter(
                 x=t_abs,
                 y=baseline_yp_c,
-                name="ARIMA",
+                name=selected_baseline_name,
                 mode="lines",
                 line=dict(
                     color=PALETTE.cool_steel,
@@ -1182,7 +1236,7 @@ def render_predictions_tab(split_res: Dict[str, Any], trial_idx: int, cfg_path: 
 
     caption = f"Neural Signal Prediction: {selected_name} (Model r={r_str}"
     if baseline_yp_c is not None:
-        caption += f", ARIMA r={baseline_r_str})"
+        caption += f", VARMA baseline r={baseline_r_str})"
     else:
         caption += ")"
     st.caption(caption)
@@ -1201,7 +1255,15 @@ def render_predictions_tab(split_res: Dict[str, Any], trial_idx: int, cfg_path: 
     render_y_scatter_plot(y_true_c, y_pred_c, selected_name, r_ch)
 
     st.markdown("#### Residual Plot: Prediction Errors Over Time")
-    render_y_residual_plot(y_true_c, y_pred_c, t_abs, selected_name)
+    render_y_residual_plot(
+        y_true_c, 
+        y_pred_c, 
+        t_abs, 
+        selected_name, 
+        chunk_margin=chunk_margin,
+        baseline_preds=baseline_yp_c,
+        baseline_name=selected_baseline_name
+    )
 
     render_statistics_table(y_true_c, y_pred_c, r_ch, selected_name)
 
@@ -1279,6 +1341,26 @@ def render_predictions_tab(split_res: Dict[str, Any], trial_idx: int, cfg_path: 
                 z_p_transposed.squeeze() if nz_chan == 1 else z_p_transposed[:, z_c]
             )
 
+            baseline_zp_c = None
+            baseline_r_z = None
+            baseline_name_z = st.session_state.get("pred_baseline_select", "Baseline")
+            baseline_res_cache = st.session_state.get("baseline_res_cache")
+
+            if baseline_res_cache and trial_idx < len(baseline_res_cache.get("Zp", [])):
+                baseline_zp = baseline_res_cache["Zp"][trial_idx]
+                if baseline_zp is not None:
+                    baseline_zp = np.array(baseline_zp)
+                    baseline_zp = transpose_if_needed(baseline_zp, len(t_abs))
+                    n_baseline_chan_z = baseline_zp.shape[1] if baseline_zp.ndim == 2 else 1
+                    if z_c < n_baseline_chan_z:
+                        baseline_zp_c = baseline_zp.squeeze() if n_baseline_chan_z == 1 else baseline_zp[:, z_c]
+                        try:
+                            baseline_r_z = np.corrcoef(
+                                z_true_c.flatten(), baseline_zp_c.flatten()
+                            )[0, 1]
+                        except:
+                            baseline_r_z = np.nan
+
             Xp_trial = np.array(split_res.get("Xp", [])[trial_idx]) if split_res.get("Xp") and len(split_res["Xp"]) > trial_idx else None
             zp_1, zp_2, r_zp1, r_zp2 = None, None, None, None
             if Xp_trial is not None and B_z is not None and n1 > 0:
@@ -1297,7 +1379,14 @@ def render_predictions_tab(split_res: Dict[str, Any], trial_idx: int, cfg_path: 
             render_z_scatter_plot(z_true_c, z_pred_c, selected_z_name, r_z_ch)
 
             st.markdown("#### Residual Plot: Prediction Errors Over Time")
-            render_z_residual_plot(z_true_c, z_pred_c, t_abs, selected_z_name)
+            render_z_residual_plot(
+                z_true_c, 
+                z_pred_c, 
+                t_abs, 
+                selected_z_name, 
+                baseline_preds=baseline_zp_c,
+                baseline_name=baseline_name_z
+            )
 
             render_z_statistics_table(z_true_c, z_pred_c, r_z_ch, selected_z_name)
 

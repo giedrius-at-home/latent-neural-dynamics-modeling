@@ -46,6 +46,7 @@ def render_y_forecast_plot(
     channel_idx: int,
     channel_name: str,
     r_fore_ch: float,
+    baseline_yp_c: Optional[np.ndarray] = None,
 ):
     from dashboard.subtabs.helpers import rescale_to_reference
 
@@ -76,6 +77,10 @@ def render_y_forecast_plot(
         y_label="Amplitude (µV)",
         title="",
     )
+
+    baseline_y_fp_c_rescaled = None
+    if baseline_yp_c is not None:
+        baseline_y_fp_c_rescaled = rescale_to_reference(baseline_yp_c, y_ft_c)
 
     if Tpast > 0:
         fig.add_trace(
@@ -149,6 +154,7 @@ def render_z_forecast_plot(
     zp_2: Optional[np.ndarray] = None,
     r_zp1: Optional[float] = None,
     r_zp2: Optional[float] = None,
+    baseline_zp_c: Optional[np.ndarray] = None,
 ):
     from dashboard.subtabs.helpers import rescale_to_reference
 
@@ -182,6 +188,10 @@ def render_z_forecast_plot(
         y_label="Value",
         title="",
     )
+
+    baseline_z_fp_c_rescaled = None
+    if baseline_zp_c is not None:
+        baseline_z_fp_c_rescaled = rescale_to_reference(baseline_zp_c, z_ft_c)
 
     if z_concat is not None:
         z_concat = np.array(z_concat)
@@ -361,6 +371,82 @@ def render_forecasting_tab(
     Y_true: List,
     Yp: List,
 ):
+    from dashboard.subtabs.helpers import (
+        list_variants,
+        load_precomputed_results,
+        list_run_timestamps,
+    )
+    import re
+
+    project_root = cfg_path
+    for p in cfg_path.parents:
+        if (p / "results").exists():
+            project_root = p
+            break
+    results_root = project_root / "results"
+    all_variants = list_variants(results_root)
+    
+    current_variant = cfg_path.stem
+
+    subject_match = re.search(r'(PDI\d+)_(?:S)?(\d+)', current_variant)
+    baseline_search_str = f"varma_{subject_match.group(1)}_S{subject_match.group(2)}" if subject_match else "varma"
+    
+    baseline_variants = [v for v in all_variants if baseline_search_str in v and v != current_variant]
+
+    baseline_forecast_res = None
+    if baseline_variants:
+        st.markdown("#### Baseline Comparison")
+        selected_baseline = st.selectbox(
+            "Select Baseline Model",
+            options=["None"] + baseline_variants,
+            index=1 if baseline_variants else 0,
+            key="fore_baseline_select",
+        )
+
+        if selected_baseline != "None":
+            baseline_dir = results_root / selected_baseline
+            baseline_timestamps = list_run_timestamps(baseline_dir)
+
+            if baseline_timestamps:
+                baseline_ts = st.selectbox(
+                    "Baseline run timestamp",
+                    options=baseline_timestamps,
+                    index=len(baseline_timestamps) - 1,
+                    key="fore_baseline_ts_select",
+                )
+
+                split_name = st.session_state.get("pred_split", "val")
+                baseline_res = load_precomputed_results(
+                    baseline_dir, baseline_ts, split_name
+                )
+                if baseline_res:
+                    if "trial_forecasts" not in baseline_res:
+                        with st.spinner(f"Computing baseline forecast for trial {trial_idx}..."):
+                            y_trial = np.array(Y_true[trial_idx])
+                            z_trial = (
+                                np.array(baseline_res.get("Z", [None])[trial_idx])
+                                if baseline_res.get("Z") and baseline_res["Z"][trial_idx] is not None
+                                else None
+                            )
+                            chunk_margin = (
+                                baseline_res["chunk_margin"][trial_idx]
+                                if "chunk_margin" in baseline_res
+                                else None
+                            )
+
+                            b_cfg_path = project_root / "classification" / "setups" / f"{selected_baseline}.yaml"
+                            if not b_cfg_path.exists():
+                                b_cfg_path = project_root / "training" / "setups" / f"{selected_baseline}.yaml"
+                            if b_cfg_path.exists():
+                                baseline_forecast_res = compute_forecast_for_trial(
+                                    str(b_cfg_path),
+                                    baseline_ts,
+                                    y_trial,
+                                    z_trial,
+                                    chunk_margin,
+                                )
+                    else:
+                        baseline_forecast_res = baseline_res["trial_forecasts"].get(trial_idx)
 
     f_res = None
 
@@ -506,6 +592,16 @@ def render_forecasting_tab(
             ):
                 r_fore_ch = r_fore_list[c]
 
+            baseline_yp_c_f = None
+            if baseline_forecast_res and "Y_future_pred" in baseline_forecast_res:
+                by_fp = np.array(baseline_forecast_res["Y_future_pred"])
+                if by_fp.ndim == 1:
+                    baseline_yp_c_f = by_fp
+                elif by_fp.ndim == 2 and c < by_fp.shape[1]:
+                    baseline_yp_c_f = by_fp[:, c]
+                else:
+                    baseline_yp_c_f = by_fp.flatten()
+
             render_y_forecast_plot(
                 y_concat,
                 y_future_true,
@@ -515,6 +611,7 @@ def render_forecasting_tab(
                 c,
                 selected_name,
                 r_fore_ch,
+                baseline_yp_c=baseline_yp_c_f,
             )
 
             cfg = get_config(str(cfg_path))
@@ -599,9 +696,28 @@ def render_forecasting_tab(
                         ):
                             r_fore_z_ch = r_fore_list_z[z_c]
 
-                    if Xp_trial is not None and B_z is not None and n1 > 0:
-                        Xp_future = np.array(Xp_trial)
-                        zp_1_f, zp_2_f, r_zp1_f, r_zp2_f = _compute_zp_components(z_ft_c, Xp_future, B_z, d_z, n1, z_c)
+                    zp_1_f, zp_2_f, r_zp1_f, r_zp2_f = None, None, None, None
+                    try:
+                        n1 = getattr(get_config(str(cfg_path)).model, "n1", 0)
+                        if "Xp" in split_res and split_res["Xp"] is not None and "B_z" in split_res and split_res["B_z"] is not None and n1 > 0:
+                            Xp_trial = split_res["Xp"][trial_idx]
+                            B_z = split_res["B_z"]
+                            d_z = split_res.get("d_z")
+                            Xp_future = np.array(Xp_trial)[-m:] if Xp_trial is not None else None
+                            if Xp_future is not None and B_z is not None:
+                                zp_1_f, zp_2_f, r_zp1_f, r_zp2_f = _compute_zp_components(z_ft_c, Xp_future, B_z, d_z, n1, z_c)
+                    except Exception:
+                        pass
+
+                    baseline_zp_c_f = None
+                    if baseline_forecast_res and "Z_future_pred" in baseline_forecast_res:
+                        bz_fp = np.array(baseline_forecast_res["Z_future_pred"])
+                        if bz_fp.ndim == 1:
+                            baseline_zp_c_f = bz_fp
+                        elif bz_fp.ndim == 2 and z_c < bz_fp.shape[1]:
+                            baseline_zp_c_f = bz_fp[:, z_c]
+                        else:
+                            baseline_zp_c_f = bz_fp.flatten()
 
                     st.markdown("#### Time Series: True Future vs Forecast")
                     render_z_forecast_plot(
@@ -617,6 +733,7 @@ def render_forecasting_tab(
                         zp_2=zp_2_f,
                         r_zp1=r_zp1_f,
                         r_zp2=r_zp2_f,
+                        baseline_zp_c=baseline_zp_c_f,
                     )
 
                     st.markdown("#### PSD Analysis: True Future vs Forecast")

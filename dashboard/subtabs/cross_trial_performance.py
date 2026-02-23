@@ -12,7 +12,7 @@ from statsmodels.tsa.stattools import acf
 
 
 def render_cross_trial_performance_tab(
-    split_res: Dict[str, Any], sampling_freq: float = 80.0
+    split_res: Dict[str, Any], sampling_freq: float = 80.0, cfg_path: Any = None
 ):
     st.subheader("Performance Overview Across All Trials")
 
@@ -61,6 +61,68 @@ def render_cross_trial_performance_tab(
     if not neural_available and not behavioral_available:
         st.info("Could not format Pearson data for heatmaps.")
         return
+
+    baseline_r_y = None
+    baseline_r_z = None
+    baseline_yp = None
+    baseline_zp = None
+    baseline_name = "Baseline"
+
+    if cfg_path:
+        from dashboard.subtabs.helpers import list_variants, list_run_timestamps, load_precomputed_results
+        import pathlib
+        if isinstance(cfg_path, str):
+            cfg_path = pathlib.Path(cfg_path)
+        project_root = cfg_path
+        for p in cfg_path.parents:
+            if (p / "results").exists():
+                project_root = p
+                break
+        results_root = project_root / "results"
+        all_variants = list_variants(results_root)
+        
+        current_variant = cfg_path.stem
+
+        # Attempt to extract identifiers like PDI1_S2 from current variant
+        subject_match = re.search(r'(PDI\d+)_(?:S)?(\d+)', current_variant)
+        baseline_search_str = f"varma_{subject_match.group(1)}_S{subject_match.group(2)}" if subject_match else "varma"
+        
+        baseline_variants = [v for v in all_variants if baseline_search_str in v and v != current_variant]
+
+        if baseline_variants:
+            selected_baseline = st.selectbox(
+                "Select Baseline Model (Global)",
+                options=["None"] + baseline_variants,
+                index=1 if baseline_variants else 0,
+                key="global_baseline_select",
+            )
+            
+            if selected_baseline != "None":
+                baseline_dir = results_root / selected_baseline
+                baseline_timestamps = list_run_timestamps(baseline_dir)
+
+                if baseline_timestamps:
+                    baseline_ts = st.selectbox(
+                        "Baseline run timestamp",
+                        options=baseline_timestamps,
+                        index=len(baseline_timestamps) - 1,
+                        key="global_baseline_ts_select",
+                    )
+                    split_name = st.session_state.get("pred_split", "val")
+                    baseline_res = load_precomputed_results(
+                        baseline_dir, baseline_ts, split_name
+                    )
+
+                    if baseline_res:
+                        py_list = baseline_res.get("pearson_per_channel", [])
+                        pz_list = baseline_res.get("pearson_per_channel_Z", [])
+                        if py_list:
+                            baseline_r_y = np.array(py_list)
+                        if pz_list:
+                            baseline_r_z = np.array(pz_list)
+                        baseline_yp = baseline_res.get("Yp")
+                        baseline_zp = baseline_res.get("Zp")
+                        baseline_name = str(selected_baseline)
 
     sort_option = st.radio(
         "Sort trials by:",
@@ -114,7 +176,8 @@ def render_cross_trial_performance_tab(
         st.markdown("### Neural Prediction Performance (Pearson r)")
 
         render_normalized_kde_plot(
-            r_y_arr, y_chan_names, split_res.get("block", []), "", use_bands=True
+            r_y_arr, y_chan_names, split_res.get("block", []), "", use_bands=True,
+            baseline_r_arr=baseline_r_y, baseline_name=baseline_name
         )
 
         render_spectral_fvu_plot(
@@ -124,6 +187,8 @@ def render_cross_trial_performance_tab(
             "Neural Dynamics tracking (FVU)",
             sampling_freq=sampling_freq,
             use_bands=True,
+            baseline_pred=baseline_yp,
+            baseline_name=baseline_name
         )
 
         render_distribution_comparison_plot(
@@ -133,6 +198,8 @@ def render_cross_trial_performance_tab(
             split_res.get("block", []),
             "",
             use_bands=True,
+            baseline_pred=baseline_yp,
+            baseline_name=baseline_name
         )
 
         render_residual_acf_heatmap(
@@ -141,6 +208,8 @@ def render_cross_trial_performance_tab(
             y_chan_names,
             "Neural Residuals Autocorrelation (ACF)",
             use_bands=True,
+            baseline_pred=baseline_yp,
+            baseline_name=baseline_name
         )
 
         render_error_cdf_plot(
@@ -149,6 +218,8 @@ def render_cross_trial_performance_tab(
             y_chan_names,
             "Neural Absolute Error CDF",
             use_bands=True,
+            baseline_pred=baseline_yp,
+            baseline_name=baseline_name
         )
 
         render_residual_qq_plot(
@@ -160,7 +231,8 @@ def render_cross_trial_performance_tab(
         )
 
         render_raincloud_plot(
-            r_y_arr, y_chan_names, split_res.get("block", []), "", use_bands=True
+            r_y_arr, y_chan_names, split_res.get("block", []), "", use_bands=True,
+            baseline_r_arr=baseline_r_y, baseline_name=baseline_name
         )
 
         fig_y = create_heatmap(
@@ -172,7 +244,8 @@ def render_cross_trial_performance_tab(
         st.markdown("### Behavioral Prediction Performance (Pearson r)")
 
         render_normalized_kde_plot(
-            r_z_arr, z_chan_names, split_res.get("block", []), "", use_bands=False
+            r_z_arr, z_chan_names, split_res.get("block", []), "", use_bands=False,
+            baseline_r_arr=baseline_r_z, baseline_name=baseline_name
         )
 
         render_spectral_fvu_plot(
@@ -182,6 +255,8 @@ def render_cross_trial_performance_tab(
             "Behavioral Dynamics tracking (FVU)",
             sampling_freq=sampling_freq,
             use_bands=False,
+            baseline_pred=baseline_zp,
+            baseline_name=baseline_name
         )
 
         render_distribution_comparison_plot(
@@ -191,6 +266,8 @@ def render_cross_trial_performance_tab(
             split_res.get("block", []),
             "",
             use_bands=False,
+            baseline_pred=baseline_zp,
+            baseline_name=baseline_name
         )
 
         render_residual_acf_heatmap(
@@ -199,6 +276,8 @@ def render_cross_trial_performance_tab(
             z_chan_names,
             "Behavioral Residuals Autocorrelation (ACF)",
             use_bands=False,
+            baseline_pred=baseline_zp,
+            baseline_name=baseline_name
         )
 
         render_error_cdf_plot(
@@ -207,6 +286,8 @@ def render_cross_trial_performance_tab(
             z_chan_names,
             "Behavioral Absolute Error CDF",
             use_bands=False,
+            baseline_pred=baseline_zp,
+            baseline_name=baseline_name
         )
 
         render_residual_qq_plot(
@@ -218,7 +299,8 @@ def render_cross_trial_performance_tab(
         )
 
         render_raincloud_plot(
-            r_z_arr, z_chan_names, split_res.get("block", []), "", use_bands=False
+            r_z_arr, z_chan_names, split_res.get("block", []), "", use_bands=False,
+            baseline_r_arr=baseline_r_z, baseline_name=baseline_name
         )
 
         fig_z = create_heatmap(
@@ -233,6 +315,8 @@ def render_raincloud_plot(
     blocks: list,
     title: str,
     use_bands: bool = False,
+    baseline_r_arr: np.ndarray = None,
+    baseline_name: str = "Baseline",
 ):
     st.markdown(f"#### {title}")
 
@@ -282,6 +366,17 @@ def render_raincloud_plot(
                         "Channel": active_channel_names[c_idx],
                     }
                 )
+
+            if baseline_r_arr is not None and len(baseline_r_arr) > t_idx:
+                for c_idx in range(min(n_chans, baseline_r_arr.shape[1])):
+                    data_list.append(
+                        {
+                            "Block": block,
+                            "Pearson r": baseline_r_arr[t_idx, c_idx],
+                            "Group": f"{groups[c_idx]} ({baseline_name})",
+                            "Channel": active_channel_names[c_idx],
+                        }
+                    )
 
         df_plot = pd.DataFrame(data_list)
 
@@ -374,6 +469,8 @@ def render_normalized_kde_plot(
     blocks: list,
     title: str,
     use_bands: bool = False,
+    baseline_r_arr: np.ndarray = None,
+    baseline_name: str = "Baseline",
 ):
     if r_arr is None or len(channel_names) == 0:
         return
@@ -407,10 +504,20 @@ def render_normalized_kde_plot(
         mean = np.mean(blk_data)
         std = np.std(blk_data)
 
+        has_base = (
+            baseline_r_arr is not None
+            and baseline_r_arr.ndim == 2
+            and baseline_r_arr.shape[0] == r_arr.shape[0]
+        )
+
         if std > 1e-6:
             z_blk = (blk_data - mean) / std
+            if has_base:
+                z_base_blk = (baseline_r_arr[blk_mask, :] - mean) / std
         else:
             z_blk = blk_data - mean
+            if has_base:
+                z_base_blk = baseline_r_arr[blk_mask, :] - mean
 
         for t_sub_idx in range(z_blk.shape[0]):
             for c_idx in range(n_chans):
@@ -420,6 +527,13 @@ def render_normalized_kde_plot(
                         "Group": groups[c_idx],
                     }
                 )
+                if has_base and c_idx < baseline_r_arr.shape[1]:
+                    z_data_list.append(
+                        {
+                            "Pearson r (Z-score)": z_base_blk[t_sub_idx, c_idx],
+                            "Group": f"{groups[c_idx]} ({baseline_name})",
+                        }
+                    )
 
     df_z = pd.DataFrame(z_data_list)
 
@@ -447,6 +561,8 @@ def render_distribution_comparison_plot(
     blocks: list,
     title: str,
     use_bands: bool = False,
+    baseline_pred: list = None,
+    baseline_name: str = "Baseline",
 ):
     if not data_true or not data_pred or len(channel_names) == 0:
         return
@@ -495,23 +611,34 @@ def render_distribution_comparison_plot(
 
         pooled_true = []
         pooled_pred = []
+        pooled_base = []
 
         for blk in unique_blks:
             blk_indices = np.where(blocks_arr == blk)[0]
 
             blk_true_samples = []
             blk_pred_samples = []
+            blk_base_samples = []
 
             for t_idx in blk_indices:
                 t_true = np.array(data_true[t_idx])
                 t_pred = np.array(data_pred[t_idx])
+                t_base = np.array(baseline_pred[t_idx]) if baseline_pred and t_idx < len(baseline_pred) and baseline_pred[t_idx] is not None else None
 
                 if t_true.ndim == 2:
                     blk_true_samples.append(t_true[:, grp_indices])
                     blk_pred_samples.append(t_pred[:, grp_indices])
+                    if t_base is not None:
+                        valid_gi = [idx for idx in grp_indices if idx < t_base.shape[1]]
+                        if valid_gi:
+                            blk_base_samples.append(t_base[:, valid_gi])
                 else:
                     blk_true_samples.append(t_true[grp_indices])
                     blk_pred_samples.append(t_pred[grp_indices])
+                    if t_base is not None:
+                        valid_gi = [idx for idx in grp_indices if idx < len(t_base)]
+                        if valid_gi:
+                            blk_base_samples.append(t_base[valid_gi])
 
             if not blk_true_samples:
                 continue
@@ -522,6 +649,12 @@ def render_distribution_comparison_plot(
             blk_pred_flat = np.vstack(
                 [np.atleast_2d(s) if s.ndim == 1 else s for s in blk_pred_samples]
             )
+            
+            blk_base_flat = np.empty((0,))
+            if blk_base_samples:
+                blk_base_flat = np.vstack(
+                    [np.atleast_2d(s) if s.ndim == 1 else s for s in blk_base_samples]
+                )
 
             mean = np.mean(blk_true_flat)
             std = np.std(blk_true_flat)
@@ -529,31 +662,52 @@ def render_distribution_comparison_plot(
             if std > 1e-6:
                 pooled_true.append(((blk_true_flat - mean) / std).flatten())
                 pooled_pred.append(((blk_pred_flat - mean) / std).flatten())
+                if len(blk_base_flat) > 0:
+                    pooled_base.append(((blk_base_flat - mean) / std).flatten())
             else:
                 pooled_true.append((blk_true_flat - mean).flatten())
                 pooled_pred.append((blk_pred_flat - mean).flatten())
+                if len(blk_base_flat) > 0:
+                    pooled_base.append((blk_base_flat - mean).flatten())
 
         if not pooled_true:
             continue
 
         final_true = np.concatenate(pooled_true)
         final_pred = np.concatenate(pooled_pred)
+        final_base = np.concatenate(pooled_base) if pooled_base else np.array([])
 
         # KS Test per panel
         ks_stat, p_val = ks_2samp(final_true, final_pred)
+        ks_stat_base = 0
+        if len(final_base) > 0:
+            ks_stat_base, _ = ks_2samp(final_true, final_base)
 
         # Subsample for speed
         max_pts = 5000
         if len(final_true) > max_pts:
             idx = np.random.choice(len(final_true), max_pts, replace=False)
             t_kde_data = final_true[idx]
-            p_kde_data = final_pred[idx]
         else:
             t_kde_data = final_true
+
+        if len(final_pred) > max_pts:
+            idx = np.random.choice(len(final_pred), max_pts, replace=False)
+            p_kde_data = final_pred[idx]
+        else:
             p_kde_data = final_pred
+
+        b_kde_data = None
+        if len(final_base) > 0:
+            if len(final_base) > max_pts:
+                idx = np.random.choice(len(final_base), max_pts, replace=False)
+                b_kde_data = final_base[idx]
+            else:
+                b_kde_data = final_base
 
         kde_true = gaussian_kde(t_kde_data)(x_range)
         kde_pred = gaussian_kde(p_kde_data)(x_range)
+        kde_base = gaussian_kde(b_kde_data)(x_range) if b_kde_data is not None else None
 
         row = (i // n_cols) + 1
         col = (i % n_cols) + 1
@@ -590,13 +744,28 @@ def render_distribution_comparison_plot(
             col=col,
         )
 
+        if kde_base is not None:
+            fig.add_trace(
+                go.Scatter(
+                    x=x_range,
+                    y=kde_base,
+                    name=baseline_name,
+                    line=dict(color="#00E5FF", width=2, dash="dot"),
+                    showlegend=(i == 0),
+                    legendgroup="Baseline",
+                    hoverinfo="x+y",
+                ),
+                row=row,
+                col=col,
+            )
+
         # Add annotation for KS stat
         fig.add_annotation(
             x=0.95,
             y=0.95,
             xref=f"x{i+1}" if i > 0 else "x",
             yref=f"y{i+1}" if i > 0 else "y",
-            text=f"KS: {ks_stat:.2f}",
+            text=f"KS Data-Pred: {ks_stat:.2f}" + (f"<br>KS Data-Base: {ks_stat_base:.2f}" if len(final_base) > 0 else ""),
             showarrow=False,
             font=dict(size=10),
             align="right",
@@ -625,6 +794,8 @@ def render_spectral_fvu_plot(
     title: str,
     sampling_freq: float = 80.0,
     use_bands: bool = False,
+    baseline_pred: list = None,
+    baseline_name: str = "Baseline",
 ):
     if not data_true or not data_pred or len(channel_names) == 0:
         return
@@ -653,6 +824,7 @@ def render_spectral_fvu_plot(
     try:
         y_true_all = np.concatenate([np.atleast_2d(t) for t in data_true], axis=0)
         y_pred_all = np.concatenate([np.atleast_2d(t) for t in data_pred], axis=0)
+        y_base_all = np.concatenate([np.atleast_2d(t) for t in baseline_pred if t is not None], axis=0) if baseline_pred else None
     except:
         return
 
@@ -687,6 +859,22 @@ def render_spectral_fvu_plot(
         nperseg = min(len(true_grp), 256)
         f, P_true = welch(true_grp, fs=sampling_freq, nperseg=nperseg, axis=0)
         f, P_resid = welch(resid_grp, fs=sampling_freq, nperseg=nperseg, axis=0)
+        
+        P_base_resid = None
+        P_true_for_base = None
+        if y_base_all is not None:
+            n_base_chans = y_base_all.shape[1]
+            valid_grp_indices = [idx for idx in grp_indices if idx < n_base_chans]
+            if valid_grp_indices:
+                base_grp = y_base_all[:, valid_grp_indices]
+                # Use matching channels from true_grp as well
+                true_grp_matched = y_true_all[:, valid_grp_indices]
+                min_len = min(len(true_grp_matched), len(base_grp))
+                _P_true_m = true_grp_matched[:min_len]
+                _P_base = base_grp[:min_len]
+                f, P_base_resid = welch(_P_true_m - _P_base, fs=sampling_freq, nperseg=nperseg, axis=0)
+                # Compute P_true on the same matched channels for correct ratio
+                _, P_true_for_base = welch(_P_true_m, fs=sampling_freq, nperseg=nperseg, axis=0)
 
         # FVU Ratio per channel
         # P_true is (Freq, ChansInGroup)
@@ -695,6 +883,12 @@ def render_spectral_fvu_plot(
         # Stats across channels
         mean_ratio = np.mean(ratios, axis=1)
         sem_ratio = np.std(ratios, axis=1) / np.sqrt(max(1, ratios.shape[1]))
+        
+        mean_base_ratio, sem_base_ratio = None, None
+        if P_base_resid is not None and P_true_for_base is not None:
+            base_ratios = P_base_resid / (P_true_for_base + 1e-10)
+            mean_base_ratio = np.mean(base_ratios, axis=1)
+            sem_base_ratio = np.std(base_ratios, axis=1) / np.sqrt(max(1, base_ratios.shape[1]))
 
         row = (i // n_cols) + 1
         col = (i % n_cols) + 1
@@ -730,6 +924,21 @@ def render_spectral_fvu_plot(
             row=row,
             col=col,
         )
+
+        if mean_base_ratio is not None:
+            fig.add_trace(
+                go.Scatter(
+                    x=f,
+                    y=mean_base_ratio,
+                    line=dict(color="#00E5FF", width=2, dash="dash"),
+                    name=baseline_name,
+                    showlegend=(i == 0),
+                    legendgroup="Baseline",
+                    hoverinfo="x+y",
+                ),
+                row=row,
+                col=col,
+            )
 
         # Baseline at 1.0 (Random performance)
         fig.add_shape(
@@ -767,39 +976,59 @@ def render_residual_acf_heatmap(
     channel_names: list,
     title: str,
     use_bands: bool = False,
+    baseline_pred: list = None,
+    baseline_name: str = "Baseline",
 ):
     if not data_true or not data_pred or not channel_names:
         return
     try:
         y_true = np.concatenate([np.atleast_2d(t) for t in data_true], axis=0)
         y_pred = np.concatenate([np.atleast_2d(t) for t in data_pred], axis=0)
-        residuals = y_true - y_pred
-        nlags = 20
-        acf_matrix = np.zeros((len(channel_names), nlags + 1))
-        for c in range(len(channel_names)):
-            acf_matrix[c, :] = acf(residuals[:, c], nlags=nlags, fft=True)
+        y_base = np.concatenate([np.atleast_2d(t) for t in baseline_pred if t is not None], axis=0) if baseline_pred else None
 
+        residuals = y_true - y_pred
+        b_residuals = None
+        if y_base is not None:
+            # handle potential length AND channel mismatches
+            min_l = min(y_true.shape[0], y_base.shape[0])
+            min_c = min(y_true.shape[1], y_base.shape[1])
+            b_residuals = y_true[:min_l, :min_c] - y_base[:min_l, :min_c]
+
+        nlags = 20
+        n_chans = len(channel_names)
+        n_base_chans = y_base.shape[1] if y_base is not None else 0
+        n_rows_acf = n_chans + min(n_chans, n_base_chans) if y_base is not None else n_chans
+        acf_matrix = np.zeros((n_rows_acf, nlags + 1))
+
+        for c in range(n_chans):
+            acf_matrix[c, :] = acf(residuals[:, c], nlags=nlags, fft=True)
+            if b_residuals is not None and c < n_base_chans:
+                acf_matrix[n_chans + c, :] = acf(b_residuals[:, c], nlags=nlags, fft=True)
+
+        y_labels = []
         # Grouping for Y-axis
         if use_bands:
-            y_labels = []
             for name in channel_names:
                 parts = str(name).split("_")
                 y_labels.append(
-                    parts[2].capitalize()
-                    if len(parts) >= 3
-                    else parts[1].capitalize() if len(parts) >= 2 else "Unknown"
+                    parts[2].capitalize() if len(parts) >= 3 else parts[1].capitalize() if len(parts) >= 2 else "Unknown"
                 )
-            sort_idx = np.argsort(y_labels)
-            acf_matrix = acf_matrix[sort_idx, :]
-            y_labels = [y_labels[i] for i in sort_idx]
         else:
-            y_labels = channel_names
+            y_labels = channel_names.copy()
+
+        all_y_labels = y_labels.copy()
+        if y_base is not None:
+            all_y_labels.extend([f"{y_labels[c]} ({baseline_name})" for c in range(min(n_chans, n_base_chans))])
+
+        sort_idx = np.argsort(all_y_labels)
+        acf_matrix = acf_matrix[:len(all_y_labels)][sort_idx, :]
+        sorted_y_labels = [all_y_labels[i] for i in sort_idx]
 
         fig = go.Figure(
             data=go.Heatmap(
                 z=acf_matrix[:, 1:],  # Skip lag 0
                 x=list(range(1, nlags + 1)),
-                y=y_labels,
+                y=sorted_y_labels,
                 colorscale="RdBu",
                 zmid=0,
                 zmax=1,
@@ -809,8 +1038,8 @@ def render_residual_acf_heatmap(
         fig.update_layout(
             title=title,
             xaxis_title="Lag",
-            yaxis_title="Channels",
-            height=500,
+            yaxis_title="Channels" if y_base is None else "",
+            height=max(500, 20 * len(all_y_labels)),
             template="plotly_white",
         )
         st.plotly_chart(fig, use_container_width=True)
@@ -827,22 +1056,29 @@ def render_error_cdf_plot(
     channel_names: list,
     title: str,
     use_bands: bool = False,
+    baseline_pred: list = None,
+    baseline_name: str = "Baseline",
 ):
     if not data_true or not data_pred or not channel_names:
         return
     try:
         y_true = np.concatenate([np.atleast_2d(t) for t in data_true], axis=0)
         y_pred = np.concatenate([np.atleast_2d(t) for t in data_pred], axis=0)
+        y_base = np.concatenate([np.atleast_2d(t) for t in baseline_pred if t is not None], axis=0) if baseline_pred else None
+
         abs_err = np.abs(y_true - y_pred)
+        b_abs_err = None
+        if y_base is not None:
+            min_l = min(y_true.shape[0], y_base.shape[0])
+            min_c = min(y_true.shape[1], y_base.shape[1])
+            b_abs_err = np.abs(y_true[:min_l, :min_c] - y_base[:min_l, :min_c])
 
         groups = []
         if use_bands:
             for name in channel_names:
                 parts = str(name).split("_")
                 groups.append(
-                    parts[2].capitalize()
-                    if len(parts) >= 3
-                    else parts[1].capitalize() if len(parts) >= 2 else "Unknown"
+                    parts[2].capitalize() if len(parts) >= 3 else parts[1].capitalize() if len(parts) >= 2 else "Unknown"
                 )
         else:
             groups = channel_names
@@ -855,6 +1091,13 @@ def render_error_cdf_plot(
                 err_vals = np.random.choice(err_vals, 1000, replace=False)
             for v in err_vals:
                 df_list.append({"Abs Error": v, "Group": groups[c]})
+            
+            if b_abs_err is not None and c < b_abs_err.shape[1]:
+                b_err_vals = b_abs_err[:, c]
+                if len(b_err_vals) > 1000:
+                    b_err_vals = np.random.choice(b_err_vals, 1000, replace=False)
+                for v in b_err_vals:
+                    df_list.append({"Abs Error": v, "Group": f"{groups[c]} ({baseline_name})"})
 
         df = pd.DataFrame(df_list)
         fig = px.ecdf(
