@@ -181,7 +181,7 @@ def model_predictions_tab(project_root, results_root=None):
 
                 cfg = get_config(str(cfg_path))
                 fs = getattr(cfg.data, "sampling_frequency", 60.0)
-                render_cross_trial_performance_tab(split_res, sampling_freq=fs)
+                render_cross_trial_performance_tab(split_res, sampling_freq=fs, cfg_path=cfg_path)
 
             with lag_analysis_tab:
                 cfg = get_config(str(cfg_path))
@@ -189,7 +189,7 @@ def model_predictions_tab(project_root, results_root=None):
                 render_cross_correlation_analysis_tab(split_res, sampling_freq=fs)
 
             with predictions_subtab:
-                render_predictions_tab(split_res, trial_idx, cfg_path)
+                render_predictions_tab(split_res, trial_idx, cfg_path, run_ts)
 
             with forecasting_subtab:
                 render_forecasting_tab(

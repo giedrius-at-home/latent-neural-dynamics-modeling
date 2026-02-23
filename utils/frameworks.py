@@ -1223,30 +1223,27 @@ class VARMAOLSWrapper:
         self.config = config
         self.logger = get_logger()
 
-        # VARMA parameters
         self.p = getattr(config.model, "p", 20)
         self.q = getattr(config.model, "q", 1)
         self.long_ar_lags = getattr(config.model, "long_ar_lags", 30)
+        self.ridge_alpha = getattr(config.model, "ridge_alpha", 100.0)
 
-        # Forecast parameters (store for pickling survival)
         self.forecast_m = getattr(config.model.forecast, "m", 2.0)
         self.forecast_history = getattr(config.model.forecast, "history", 5.0)
         self.sampling_freq = getattr(config.data, "sampling_frequency", 80)
 
-        # Model state (populated during training)
-        self.beta_ols = None  # (n_features x K) OLS coefficients
-        self.n_channels_Y = None  # number of neural channels
-        self.n_channels_Z = None  # number of behavioral channels
-        self.K = None  # total channels (Y + Z)
+        self.beta_ols = None
+        self.n_channels_Y = None
+        self.n_channels_Z = None
+        self.K = None
         self.Y_mean = None
         self.Y_std = None
         self.Z_mean = None
         self.Z_std = None
-        self.mean_all = None  # (1 x K) joint mean
-        self.std_all = None  # (1 x K) joint std
+        self.mean_all = None
+        self.std_all = None
 
     def __getstate__(self):
-        """Exclude unpicklable logger and config from serialization."""
         state = self.__dict__.copy()
         state.pop("logger", None)
         state.pop("config", None)
@@ -1266,7 +1263,6 @@ class VARMAOLSWrapper:
         q = self.q
         long_ar_lags = self.long_ar_lags
 
-        # --- Concatenate all trials ---
         Y_concat = np.concatenate(Y, axis=0)
         self.n_channels_Y = Y_concat.shape[1] if Y_concat.ndim == 2 else 1
 
@@ -1311,12 +1307,10 @@ class VARMAOLSWrapper:
         self.long_var_coefs = long_results.coefs
         self.long_var_intercept = long_results.intercept
 
-        # --- Process each trial and collect design matrices ---
         all_X = []
         all_target = []
 
         for trial_idx in range(len(Y)):
-            # Z-score each trial
             y_trial = (Y[trial_idx] - self.Y_mean) / self.Y_std
 
             if Z is not None and trial_idx < len(Z):
@@ -1333,22 +1327,17 @@ class VARMAOLSWrapper:
                 )
                 continue
 
-            # --- STEP 1: Long VAR to get residual proxies ---
-            resid_proxy = self._get_long_var_residuals(data_trial)  # (T - long_ar_lags, K)
-            effective_data = data_trial[long_ar_lags:]  # align with residuals
+            resid_proxy = self._get_long_var_residuals(data_trial)
+            effective_data = data_trial[long_ar_lags:]
 
-            # --- STEP 2: Build design matrix ---
             offset = max(p, q)
-            target = effective_data[offset:]  # (T_eff - offset, K)
+            target = effective_data[offset:]
 
             X_list = []
-            # AR lags (past data)
             for i in range(1, p + 1):
                 lag_start = offset - i
                 lag_end = len(effective_data) - i
                 X_list.append(effective_data[lag_start:lag_end])
-
-            # MA lags (past residuals)
             for i in range(1, q + 1):
                 lag_start = offset - i
                 lag_end = len(resid_proxy) - i
@@ -1367,7 +1356,6 @@ class VARMAOLSWrapper:
         if not all_X:
             raise ValueError("No trials were long enough for VARMA-OLS fitting.")
 
-        # --- Concatenate across trials ---
         X_full = np.concatenate(all_X, axis=0)
         Y_full = np.concatenate(all_target, axis=0)
 
@@ -1375,8 +1363,14 @@ class VARMAOLSWrapper:
             f"Design matrix shape: {X_full.shape}, Target shape: {Y_full.shape}"
         )
 
-        # --- STEP 3: Solve via OLS ---
-        self.beta_ols = np.linalg.lstsq(X_full, Y_full, rcond=None)[0]
+        if self.ridge_alpha > 0.0:
+            from sklearn.linear_model import Ridge
+            self.logger.info(f"Solving via Ridge regression (alpha={self.ridge_alpha})...")
+            ridge = Ridge(alpha=self.ridge_alpha, fit_intercept=False)
+            ridge.fit(X_full, Y_full)
+            self.beta_ols = ridge.coef_.T
+        else:
+            self.beta_ols = np.linalg.lstsq(X_full, Y_full, rcond=None)[0]
 
         self.logger.info(
             f"VARMA-OLS training complete. "
@@ -1384,7 +1378,6 @@ class VARMAOLSWrapper:
             f"n_features={self.beta_ols.shape[0]}, K={self.beta_ols.shape[1]}"
         )
 
-        # Store joint normalization for convenience
         if self.Z_mean is not None:
             self.mean_all = np.concatenate([self.Y_mean, self.Z_mean], axis=1)
             self.std_all = np.concatenate([self.Y_std, self.Z_std], axis=1)
@@ -1441,11 +1434,9 @@ class VARMAOLSWrapper:
             )
             return np.zeros_like(data_zscored)
 
-        # Step 1: Get residual proxies via global Long VAR
         resid_proxy = self._get_long_var_residuals(data_zscored)
         effective_data = data_zscored[long_ar_lags:]
 
-        # Step 2: Build design matrix and predict
         offset = max(p, q)
         n_predict = len(effective_data) - offset
 
@@ -1462,11 +1453,17 @@ class VARMAOLSWrapper:
         X_matrix = np.concatenate(X_list, axis=1)
         X_matrix = sm.add_constant(X_matrix)
 
-        predictions_segment = X_matrix @ self.beta_ols  # (n_predict, K)
+        predictions_segment = X_matrix @ self.beta_ols
 
-        # Reconstruct full-length prediction array (pad with zeros at start)
         predictions = np.zeros_like(data_zscored)
         start_idx = long_ar_lags + offset
+        
+        # Naive warm-up: carry forward last known value
+        if start_idx > 0 and start_idx <= len(data_zscored):
+            predictions[0] = data_zscored[0]
+            for i in range(1, start_idx):
+                predictions[i] = data_zscored[i-1]
+                
         predictions[start_idx : start_idx + n_predict] = predictions_segment
 
         return predictions
@@ -1493,7 +1490,6 @@ class VARMAOLSWrapper:
 
             preds_zscored = self._predict_trial(data_zscored)
 
-            # Split back into Y and Z predictions
             Yp_zscored = preds_zscored[:, : self.n_channels_Y]
             Yp = Yp_zscored * self.Y_std + self.Y_mean
             all_Yp.append(Yp)
@@ -1547,7 +1543,6 @@ class VARMAOLSWrapper:
         q = self.q
         K = self.K
 
-        # Buffers for past values
         current_y = list(history_data[-p:])
         current_e = list(history_resid[-q:]) if q > 0 else []
 
@@ -1573,24 +1568,27 @@ class VARMAOLSWrapper:
 
             forecasts.append(y_next)
             current_y.append(y_next)
-            current_e.append(np.zeros(K))  # Future errors = 0
+            current_e.append(np.zeros(K)) 
 
         return np.array(forecasts)
 
     def forecast(
-        self, m: int, Y_past: Array2D
+        self, m: int, Y_past: Array2D, Z_past: Optional[Array2D] = None
     ) -> Tuple[Optional[Array2D], Array2D, None]:
         """
-        Forecast m steps ahead given past neural observations.
+        Forecast m steps ahead given past neural and behavioral observations.
         """
         from statsmodels.tsa.api import VAR
 
         Y_past_zscored = (Y_past - self.Y_mean) / self.Y_std
 
         if self.n_channels_Z > 0:
-            # Use zeros for Z in the history (we don't have ground truth Z)
-            z_placeholder = np.zeros((Y_past.shape[0], self.n_channels_Z))
-            data_zscored = np.concatenate([Y_past_zscored, z_placeholder], axis=1)
+            if Z_past is not None:
+                Z_past_zscored = (Z_past - self.Z_mean) / self.Z_std
+                data_zscored = np.concatenate([Y_past_zscored, Z_past_zscored], axis=1)
+            else:
+                z_placeholder = np.zeros((Y_past.shape[0], self.n_channels_Z))
+                data_zscored = np.concatenate([Y_past_zscored, z_placeholder], axis=1)
         else:
             data_zscored = Y_past_zscored
 
@@ -1606,10 +1604,8 @@ class VARMAOLSWrapper:
         resid_proxy = self._get_long_var_residuals(padded_data)
         effective_data = padded_data[long_ar_lags:]
 
-        # Forecast
         forecasts_zscored = self._forecast_from_history(effective_data, resid_proxy, m)
 
-        # Split back into Y and Z
         Yf_zscored = forecasts_zscored[:, : self.n_channels_Y]
         Yf = Yf_zscored * self.Y_std + self.Y_mean
 
@@ -1638,7 +1634,6 @@ class VARMAOLSWrapper:
             self.logger.info("Yp_val not provided, running prediction...")
             Zp_val, Yp_val, _ = self.predict(Y_list)
 
-        # Compute residual stats
         all_residuals = []
         for y_true, y_pred in zip(Y_list, Yp_val):
             if y_pred is not None:
@@ -1682,14 +1677,19 @@ class VARMAOLSWrapper:
                     f"history + m ({history} + {m} = {history + m}) must not exceed trial length T={T}"
                 )
 
-            Y_past = Y[:history]
-            Y_future_true = Y[history : history + m]
+            if margin is not None and isinstance(margin, (int, float)) and margin > 0:
+                history_end = int(margin * sampling_freq)
+            else:
+                history_end = history
+
+            Y_past = Y[:history_end]
+            Y_future_true = Y[history_end : history_end + m]
 
             Z = Z_list[idx] if Z_list is not None and idx < len(Z_list) else None
-            Z_future_true = Z[history : history + m] if Z is not None else None
-            Z_past = Z[:history] if Z is not None else None
+            Z_future_true = Z[history_end : history_end + m] if Z is not None else None
+            Z_past = Z[:history_end] if Z is not None else None
 
-            Zf, Yf, _ = self.forecast(m, Y_past)
+            Zf, Yf, _ = self.forecast(m, Y_past, Z_past=Z_past)
 
             Y_concat = np.concatenate([Y_past, Yf], axis=0)
             Z_concat = (
