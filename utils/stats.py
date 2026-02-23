@@ -72,6 +72,70 @@ def pearson_r_per_channel(
     return per_trial, overall_mean
 
 
+def fisher_z_transform(r_values: List[float]) -> Tuple[List[float], float]:
+    """Apply Fisher Z transform (arctanh) to correlation values.
+    Clips to [-0.9999, 0.9999] to avoid inf. Returns (z_values, z_mean)."""
+    valid = [r for r in r_values if r is not None and not np.isnan(r)]
+    if not valid:
+        return [], float("nan")
+    clipped = np.clip(valid, -0.9999, 0.9999)
+    z_values = np.arctanh(clipped)
+    return z_values.tolist(), float(np.mean(z_values))
+
+
+def aggregate_r_per_channel(
+    r_per_trial: List[Any],
+    channel_names: List[str],
+    apply_fisher_z: bool = False,
+) -> Tuple[Dict[str, float], float]:
+    """Aggregate per-trial per-channel Pearson R into per-channel means.
+
+    Args:
+        r_per_trial: Output of pearson_r_per_channel (list of lists or flat list).
+        channel_names: Channel names corresponding to columns.
+        apply_fisher_z: If True, apply Fisher Z transform before averaging.
+
+    Returns:
+        (per_channel_dict, overall_mean) where per_channel_dict maps
+        channel name to mean (or Fisher Z mean) across trials.
+    """
+    n_channels = len(channel_names)
+    per_channel = {}
+
+    if not r_per_trial or n_channels == 0:
+        return {}, float("nan")
+
+    if isinstance(r_per_trial[0], list):
+        # Per-trial per-channel: list of lists
+        for ch_idx in range(n_channels):
+            ch_vals = [
+                trial[ch_idx]
+                for trial in r_per_trial
+                if len(trial) > ch_idx
+                and trial[ch_idx] is not None
+                and not np.isnan(trial[ch_idx])
+            ]
+            if ch_vals:
+                if apply_fisher_z:
+                    _, z_mean = fisher_z_transform(ch_vals)
+                    per_channel[channel_names[ch_idx]] = z_mean
+                else:
+                    per_channel[channel_names[ch_idx]] = float(np.mean(ch_vals))
+    else:
+        # Single-trial: flat list
+        for ch_idx, r in enumerate(r_per_trial):
+            if ch_idx < n_channels and r is not None and not np.isnan(r):
+                if apply_fisher_z:
+                    _, z_mean = fisher_z_transform([r])
+                    per_channel[channel_names[ch_idx]] = z_mean
+                else:
+                    per_channel[channel_names[ch_idx]] = float(r)
+
+    all_vals = [v for v in per_channel.values() if not np.isnan(v)]
+    overall_mean = float(np.mean(all_vals)) if all_vals else float("nan")
+    return per_channel, overall_mean
+
+
 def compute_residual_statistics(
     y_true: np.ndarray, y_pred: np.ndarray
 ) -> Dict[str, Any]:

@@ -13,6 +13,7 @@ from dashboard.subtabs import (
     render_forecasting_tab,
     render_latent_states_tab,
     render_cross_correlation_analysis_tab,
+    render_data_hungriness_tab,
 )
 
 
@@ -21,6 +22,18 @@ def model_predictions_tab(project_root, results_root=None):
 
     RESULTS_ROOT = results_root if results_root else project_root / "results"
 
+    model_analysis_tab, data_hungriness_tab = st.tabs(
+        ["Model Analysis", "Data Hungriness"]
+    )
+
+    with data_hungriness_tab:
+        render_data_hungriness_tab(project_root, RESULTS_ROOT)
+
+    with model_analysis_tab:
+        _render_model_analysis(project_root, RESULTS_ROOT)
+
+
+def _render_model_analysis(project_root, RESULTS_ROOT):
     variants = list_variants(RESULTS_ROOT)
     if len(variants) == 0:
         st.info("No result variants found under results/.")
