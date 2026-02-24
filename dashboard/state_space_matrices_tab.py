@@ -101,20 +101,16 @@ def render_eigenvalue_plot(eig_analysis: Dict[str, Any], key: str):
 
 
 def render_eigenvalue_stats(eig_analysis: Dict[str, Any]):
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3 = st.columns(3)
 
     with col1:
         st.metric("Spectral Radius", f"{eig_analysis['spectral_radius']:.4f}")
 
     with col2:
-        stable_text = "Stable" if eig_analysis["stable"] else "Unstable"
-        st.metric("Stability", stable_text)
-
-    with col3:
         n_oscillatory = np.sum(eig_analysis["oscillatory_mask"])
         st.metric("Oscillatory Modes", n_oscillatory)
 
-    with col4:
+    with col3:
         if len(eig_analysis["oscillatory_freqs"]) > 0:
             dominant_freq = eig_analysis["oscillatory_freqs"][
                 np.argmax(eig_analysis["oscillatory_mags"])

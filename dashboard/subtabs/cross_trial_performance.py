@@ -11,6 +11,22 @@ from scipy.signal import welch
 from statsmodels.tsa.stattools import acf
 
 
+def _get_groups_map(channel_names: list, use_bands: bool) -> list[str]:
+    """Map each channel name to its display group (band name or raw channel name)."""
+    if not use_bands:
+        return list(channel_names)
+    groups = []
+    for name in channel_names:
+        parts = str(name).split("_")
+        if len(parts) >= 3:
+            groups.append(parts[2].capitalize())
+        elif len(parts) >= 2:
+            groups.append(parts[1].capitalize())
+        else:
+            groups.append("Unknown")
+    return groups
+
+
 def render_cross_trial_performance_tab(
     split_res: Dict[str, Any], sampling_freq: float = 80.0, cfg_path: Any = None
 ):
@@ -67,31 +83,28 @@ def render_cross_trial_performance_tab(
     baseline_yp = None
     baseline_zp = None
     baseline_name = "Baseline"
+    model_name = "Model"
 
     if cfg_path:
-        from dashboard.subtabs.helpers import list_variants, list_run_timestamps, load_precomputed_results
+        from dashboard.subtabs.helpers import (
+            list_variants, list_run_timestamps, load_precomputed_results,
+            variant_short_name, find_baseline_variants, get_project_root,
+        )
         import pathlib
         if isinstance(cfg_path, str):
             cfg_path = pathlib.Path(cfg_path)
-        project_root = cfg_path
-        for p in cfg_path.parents:
-            if (p / "results").exists():
-                project_root = p
-                break
+        project_root = get_project_root(cfg_path)
         results_root = project_root / "results"
         all_variants = list_variants(results_root)
         
         current_variant = cfg_path.stem
+        model_name = variant_short_name(current_variant)
 
-        # Attempt to extract identifiers like PDI1_S2 from current variant
-        subject_match = re.search(r'(PDI\d+)_(?:S)?(\d+)', current_variant)
-        baseline_search_str = f"varma_{subject_match.group(1)}_S{subject_match.group(2)}" if subject_match else "varma"
-        
-        baseline_variants = [v for v in all_variants if baseline_search_str in v and v != current_variant]
+        baseline_variants = find_baseline_variants(current_variant, all_variants)
 
         if baseline_variants:
             selected_baseline = st.selectbox(
-                "Select Baseline Model (Global)",
+                "Select Baseline Model",
                 options=["None"] + baseline_variants,
                 index=1 if baseline_variants else 0,
                 key="global_baseline_select",
@@ -122,7 +135,7 @@ def render_cross_trial_performance_tab(
                             baseline_r_z = np.array(pz_list)
                         baseline_yp = baseline_res.get("Yp")
                         baseline_zp = baseline_res.get("Zp")
-                        baseline_name = str(selected_baseline)
+                        baseline_name = variant_short_name(selected_baseline)
 
     sort_option = st.radio(
         "Sort trials by:",
@@ -188,7 +201,8 @@ def render_cross_trial_performance_tab(
             sampling_freq=sampling_freq,
             use_bands=True,
             baseline_pred=baseline_yp,
-            baseline_name=baseline_name
+            baseline_name=baseline_name,
+            model_name=model_name,
         )
 
         render_distribution_comparison_plot(
@@ -228,6 +242,9 @@ def render_cross_trial_performance_tab(
             y_chan_names,
             "Neural Residuals Normality (QQ Plot)",
             use_bands=True,
+            baseline_pred=baseline_yp,
+            baseline_name=baseline_name,
+            model_name=model_name,
         )
 
         render_raincloud_plot(
@@ -256,7 +273,8 @@ def render_cross_trial_performance_tab(
             sampling_freq=sampling_freq,
             use_bands=False,
             baseline_pred=baseline_zp,
-            baseline_name=baseline_name
+            baseline_name=baseline_name,
+            model_name=model_name,
         )
 
         render_distribution_comparison_plot(
@@ -296,6 +314,9 @@ def render_cross_trial_performance_tab(
             z_chan_names,
             "Behavioral Residuals Normality (QQ Plot)",
             use_bands=False,
+            baseline_pred=baseline_zp,
+            baseline_name=baseline_name,
+            model_name=model_name,
         )
 
         render_raincloud_plot(
@@ -335,19 +356,7 @@ def render_raincloud_plot(
         if len(active_channel_names) != n_chans:
             active_channel_names = [f"Ch{i}" for i in range(n_chans)]
 
-        groups = []
-        if use_bands:
-            for name in active_channel_names:
-                parts = str(name).split("_")
-                if len(parts) >= 3:
-                    found_band = parts[2].capitalize()
-                elif len(parts) >= 2:
-                    found_band = parts[1].capitalize()
-                else:
-                    found_band = "Unknown"
-                groups.append(found_band)
-        else:
-            groups = active_channel_names
+        groups = _get_groups_map(active_channel_names, use_bands)
 
         if not blocks or len(blocks) != n_trials:
             blocks_clean = ["All Data"] * n_trials
@@ -423,25 +432,6 @@ def render_raincloud_plot(
                 )
             )
 
-            fig.add_trace(
-                go.Violin(
-                    y=df_grp["Block"],
-                    x=df_grp["Pearson r"],
-                    name=grp,
-                    legendgroup=grp,
-                    showlegend=False,
-                    line_color=color,
-                    orientation="h",
-                    marker=dict(size=3, opacity=0.7),
-                    side="negative",
-                    points="all",
-                    jitter=0.5,
-                    pointpos=-1.5,
-                    fillcolor="rgba(0,0,0,0)",
-                    line=dict(width=0),
-                )
-            )
-
         unique_blocks_reversed = list(reversed(unique_blocks))
         fig.update_layout(
             title=title,
@@ -477,19 +467,7 @@ def render_normalized_kde_plot(
 
     n_trials, n_chans = r_arr.shape
 
-    groups = []
-    if use_bands:
-        for name in channel_names:
-            parts = str(name).split("_")
-            if len(parts) >= 3:
-                found_band = parts[2].capitalize()
-            elif len(parts) >= 2:
-                found_band = parts[1].capitalize()
-            else:
-                found_band = "Unknown"
-            groups.append(found_band)
-    else:
-        groups = channel_names
+    groups = _get_groups_map(channel_names, use_bands)
 
     blocks_arr = (
         np.array(blocks) if (blocks and len(blocks) == n_trials) else np.zeros(n_trials)
@@ -574,19 +552,7 @@ def render_distribution_comparison_plot(
     unique_blks = np.unique(blocks_arr)
 
     n_chans = len(channel_names)
-    groups_map = []
-    if use_bands:
-        for name in channel_names:
-            parts = str(name).split("_")
-            if len(parts) >= 3:
-                found_band = parts[2].capitalize()
-            elif len(parts) >= 2:
-                found_band = parts[1].capitalize()
-            else:
-                found_band = "Unknown"
-            groups_map.append(found_band)
-    else:
-        groups_map = channel_names
+    groups_map = _get_groups_map(channel_names, use_bands)
 
     unique_groups = sorted(list(set(groups_map)))
     n_groups = len(unique_groups)
@@ -606,6 +572,7 @@ def render_distribution_comparison_plot(
 
     x_range = np.linspace(-3.5, 4.5, 200)
 
+    _ks_captions = []  # Collect KS stats for caption below chart
     for i, grp in enumerate(unique_groups):
         grp_indices = [idx for idx, g in enumerate(groups_map) if g == grp]
 
@@ -759,17 +726,11 @@ def render_distribution_comparison_plot(
                 col=col,
             )
 
-        # Add annotation for KS stat
-        fig.add_annotation(
-            x=0.95,
-            y=0.95,
-            xref=f"x{i+1}" if i > 0 else "x",
-            yref=f"y{i+1}" if i > 0 else "y",
-            text=f"KS Data-Pred: {ks_stat:.2f}" + (f"<br>KS Data-Base: {ks_stat_base:.2f}" if len(final_base) > 0 else ""),
-            showarrow=False,
-            font=dict(size=10),
-            align="right",
-        )
+        # Collect KS stats for caption
+        ks_parts = [f"{grp}: Pred {ks_stat:.3f}"]
+        if len(final_base) > 0:
+            ks_parts[0] += f", Base {ks_stat_base:.3f}"
+        _ks_captions.append(ks_parts[0])
 
     fig.update_layout(
         title=f"Distribution Match by {'Band' if use_bands else 'Feature'}",
@@ -782,9 +743,8 @@ def render_distribution_comparison_plot(
     fig.update_yaxes(title_text="Density", col=1)
 
     st.plotly_chart(fig, use_container_width=True)
-    st.caption(
-        "Standardized value distributions compared per group (pooled across blocks)."
-    )
+    if _ks_captions:
+        st.caption("KS distance (Data↔Model) — " + " | ".join(_ks_captions))
 
 
 def render_spectral_fvu_plot(
@@ -796,25 +756,14 @@ def render_spectral_fvu_plot(
     use_bands: bool = False,
     baseline_pred: list = None,
     baseline_name: str = "Baseline",
+    model_name: str = "Model",
 ):
     if not data_true or not data_pred or len(channel_names) == 0:
         return
 
     # 1. Filter and identify groups
     n_chans = len(channel_names)
-    groups_map = []
-    if use_bands:
-        for name in channel_names:
-            parts = str(name).split("_")
-            if len(parts) >= 3:
-                found_band = parts[2].capitalize()
-            elif len(parts) >= 2:
-                found_band = parts[1].capitalize()
-            else:
-                found_band = "Unknown"
-            groups_map.append(found_band)
-    else:
-        groups_map = channel_names
+    groups_map = _get_groups_map(channel_names, use_bands)
 
     unique_groups = sorted(list(set(groups_map)))
     n_groups = len(unique_groups)
@@ -893,14 +842,15 @@ def render_spectral_fvu_plot(
         row = (i // n_cols) + 1
         col = (i % n_cols) + 1
 
-        # Plot Mean Line
+        # Plot Mean Line (model)
         fig.add_trace(
             go.Scatter(
                 x=f,
                 y=mean_ratio,
                 line=dict(color="black", width=2),
-                name=f"{grp} Mean",
-                showlegend=False,
+                name=model_name,
+                showlegend=(i == 0),
+                legendgroup="Model",
                 hoverinfo="x+y",
             ),
             row=row,
@@ -940,18 +890,20 @@ def render_spectral_fvu_plot(
                 col=col,
             )
 
-        # Baseline at 1.0 (Random performance)
-        fig.add_shape(
-            type="line",
-            line=dict(color="red", width=1, dash="dash"),
-            x0=0,
-            x1=max(f),
-            y0=1,
-            y1=1,
+        # Chance line at FVU=1 (model explains nothing)
+        fig.add_trace(
+            go.Scatter(
+                x=[0, max(f)],
+                y=[1, 1],
+                mode="lines",
+                line=dict(color="red", width=1, dash="dash"),
+                name="Chance (FVU=1)",
+                showlegend=(i == 0),
+                legendgroup="Chance",
+                hoverinfo="skip",
+            ),
             row=row,
             col=col,
-            xref=f"x{i+1}" if i > 0 else "x",
-            yref=f"y{i+1}" if i > 0 else "y",
         )
 
         # Zoom to interesting modulation frequencies (< 10Hz)
@@ -967,8 +919,6 @@ def render_spectral_fvu_plot(
     fig.update_yaxes(title_text="Unexplained Var. Ratio", col=1)
 
     st.plotly_chart(fig, use_container_width=True)
-    st.caption("Lower is better. 1.0 indicates model error matches signal power.")
-
 
 def render_residual_acf_heatmap(
     data_true: list,
@@ -1005,16 +955,7 @@ def render_residual_acf_heatmap(
             if b_residuals is not None and c < n_base_chans:
                 acf_matrix[n_chans + c, :] = acf(b_residuals[:, c], nlags=nlags, fft=True)
 
-        y_labels = []
-        # Grouping for Y-axis
-        if use_bands:
-            for name in channel_names:
-                parts = str(name).split("_")
-                y_labels.append(
-                    parts[2].capitalize() if len(parts) >= 3 else parts[1].capitalize() if len(parts) >= 2 else "Unknown"
-                )
-        else:
-            y_labels = channel_names.copy()
+        y_labels = _get_groups_map(channel_names, use_bands)
 
         all_y_labels = y_labels.copy()
         if y_base is not None:
@@ -1037,15 +978,12 @@ def render_residual_acf_heatmap(
         )
         fig.update_layout(
             title=title,
-            xaxis_title="Lag",
+            xaxis_title="Lag (timesteps)",
             yaxis_title="Channels" if y_base is None else "",
             height=max(500, 20 * len(all_y_labels)),
             template="plotly_white",
         )
         st.plotly_chart(fig, use_container_width=True)
-        st.caption(
-            "Bright colors at lags > 0 indicate temporal structures the model failed to capture."
-        )
     except Exception as e:
         st.error(f"ACF Error: {e}")
 
@@ -1059,6 +997,18 @@ def render_error_cdf_plot(
     baseline_pred: list = None,
     baseline_name: str = "Baseline",
 ):
+    """
+    Empirical CDF of absolute prediction errors per channel group.
+
+    Computation:
+      1. Concatenate all trials into (TotalSamples, Channels) arrays.
+      2. Compute per-sample absolute error: |y_true − y_pred|.
+      3. Group channels by frequency band (use_bands) or keep raw names.
+      4. Plot the empirical CDF via plotly express ``ecdf``.
+
+    Interpretation: a CDF curve shifted further left indicates smaller
+    errors and therefore a better-fitting model.
+    """
     if not data_true or not data_pred or not channel_names:
         return
     try:
@@ -1073,15 +1023,7 @@ def render_error_cdf_plot(
             min_c = min(y_true.shape[1], y_base.shape[1])
             b_abs_err = np.abs(y_true[:min_l, :min_c] - y_base[:min_l, :min_c])
 
-        groups = []
-        if use_bands:
-            for name in channel_names:
-                parts = str(name).split("_")
-                groups.append(
-                    parts[2].capitalize() if len(parts) >= 3 else parts[1].capitalize() if len(parts) >= 2 else "Unknown"
-                )
-        else:
-            groups = channel_names
+        groups = _get_groups_map(channel_names, use_bands)
 
         df_list = []
         for c in range(len(channel_names)):
@@ -1118,7 +1060,22 @@ def render_residual_qq_plot(
     channel_names: list,
     title: str,
     use_bands: bool = False,
+    baseline_pred: list = None,
+    baseline_name: str = "Baseline",
+    model_name: str = "Model",
 ):
+    """
+    QQ plot of standardised residuals against a normal distribution.
+
+    Computation:
+      1. Residuals = y_true − y_pred, pooled across trials per group.
+      2. Standardised to mean=0, std=1.
+      3. ``probplot`` computes theoretical vs sample quantiles.
+
+    Interpretation: points on the red dashed diagonal indicate
+    perfectly Gaussian residuals.  Heavy tails (deviations at the
+    ends) reveal the model struggles with extreme values / bursts.
+    """
     if not data_true or not data_pred or not channel_names:
         return
     try:
@@ -1126,56 +1083,86 @@ def render_residual_qq_plot(
         y_pred = np.concatenate([np.atleast_2d(t) for t in data_pred], axis=0)
         resids = y_true - y_pred
 
-        groups_map = []
-        if use_bands:
-            for name in channel_names:
-                parts = str(name).split("_")
-                groups_map.append(
-                    parts[2].capitalize()
-                    if len(parts) >= 3
-                    else parts[1].capitalize() if len(parts) >= 2 else "Unknown"
-                )
-        else:
-            groups_map = channel_names
+        y_base = None
+        if baseline_pred:
+            y_base = np.concatenate(
+                [np.atleast_2d(t) for t in baseline_pred if t is not None], axis=0
+            )
+
+        groups_map = _get_groups_map(channel_names, use_bands)
 
         unique_groups = sorted(list(set(groups_map)))
         n_cols = 3
         n_rows = (len(unique_groups) + n_cols - 1) // n_cols
         fig = make_subplots(rows=n_rows, cols=n_cols, subplot_titles=unique_groups)
 
+        _baseline_legend_shown = False
         for i, grp in enumerate(unique_groups):
             grp_idx = [idx for idx, g in enumerate(groups_map) if g == grp]
             grp_resids = resids[:, grp_idx].flatten()
-            # Standardize for QQ
             grp_resids = (grp_resids - np.mean(grp_resids)) / (
                 np.std(grp_resids) + 1e-8
             )
 
-            # Subsample
             if len(grp_resids) > 2000:
                 grp_resids = np.random.choice(grp_resids, 2000, replace=False)
 
             osm, osr = probplot(grp_resids, dist="norm")[0]
 
             row, col = (i // n_cols) + 1, (i % n_cols) + 1
+
+            # Model residuals
             fig.add_trace(
                 go.Scatter(
                     x=osm,
                     y=osr,
                     mode="markers",
                     marker=dict(size=3, color="black", opacity=0.5),
-                    showlegend=False,
+                    name=model_name,
+                    legendgroup="Model",
+                    showlegend=(i == 0),
                 ),
                 row=row,
                 col=col,
             )
+
+            # Baseline residuals
+            if y_base is not None:
+                valid_idx = [idx for idx in grp_idx if idx < y_base.shape[1]]
+                if valid_idx:
+                    min_len = min(y_true.shape[0], y_base.shape[0])
+                    base_resids = (y_true[:min_len, valid_idx] - y_base[:min_len, valid_idx]).flatten()
+                    base_resids = (base_resids - np.mean(base_resids)) / (
+                        np.std(base_resids) + 1e-8
+                    )
+                    if len(base_resids) > 2000:
+                        base_resids = np.random.choice(base_resids, 2000, replace=False)
+                    osm_b, osr_b = probplot(base_resids, dist="norm")[0]
+                    fig.add_trace(
+                        go.Scatter(
+                            x=osm_b,
+                            y=osr_b,
+                            mode="markers",
+                            marker=dict(size=3, color="#00E5FF", opacity=0.5),
+                            name=baseline_name,
+                            legendgroup="Baseline",
+                            showlegend=(not _baseline_legend_shown),
+                        ),
+                        row=row,
+                        col=col,
+                    )
+                    _baseline_legend_shown = True
+
+            # Reference diagonal
             fig.add_trace(
                 go.Scatter(
                     x=[-3, 3],
                     y=[-3, 3],
                     mode="lines",
                     line=dict(color="red", dash="dash"),
-                    showlegend=False,
+                    name="Normal",
+                    legendgroup="Normal",
+                    showlegend=(i == 0),
                 ),
                 row=row,
                 col=col,
@@ -1185,8 +1172,5 @@ def render_residual_qq_plot(
         fig.update_xaxes(title_text="Theoretical Quantiles")
         fig.update_yaxes(title_text="Sample Quantiles")
         st.plotly_chart(fig, use_container_width=True)
-        st.caption(
-            "A straight line indicates Gaussian residuals. Deviations at ends reveal model failure on bursts."
-        )
     except Exception as e:
         st.error(f"QQ Error: {e}")

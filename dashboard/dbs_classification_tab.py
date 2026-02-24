@@ -2,9 +2,11 @@ import streamlit as st
 import numpy as np
 import plotly.graph_objects as go
 from pathlib import Path
-from typing import Dict, Any, Optional, Callable
+from typing import Dict, Any, Optional, Callable, Tuple
 import pickle
 import pandas as pd
+import re
+import collections
 
 from utils.classification import (
     CLASSIFIERS,
@@ -21,14 +23,20 @@ from dashboard.subtabs.classification import (
     load_classification_results,
     create_line_plot_by_history,
     create_line_plot_by_future,
+    create_heatmap_figure,
     create_summary_table,
+)
+from dashboard.subtabs import (
+    load_precomputed_results,
+    list_variants,
+    list_run_timestamps,
+    config_for_variant,
 )
 
 
 def load_all_splits(
     variant_dir: Path, run_ts: str
 ) -> Dict[str, Optional[Dict[str, Any]]]:
-    from dashboard.subtabs import load_precomputed_results
 
     splits = {}
     for split_name in ["train", "val", "test"]:
@@ -43,9 +51,14 @@ def save_classification_results(results: Dict[str, Any], save_path: Path):
 
 
 def load_single_result(save_path: Path) -> Optional[Dict[str, Any]]:
+    # Simple load after MNE upgrade
     if save_path.exists():
         with open(save_path, "rb") as f:
-            return pickle.load(f)
+            try:
+                return pickle.load(f)
+            except (ImportError, AttributeError, ModuleNotFoundError) as e:
+                st.error(f"Failed to load result: {e}")
+                return None
     return None
 
 
@@ -58,6 +71,10 @@ def render_metrics_row(results: Dict[str, Any], prefix: str = ""):
         ("Recall", results.get("recall", 0)),
         ("F1", results.get("f1", 0)),
     ]
+    # Add Mean CV Score if available (top-level only)
+    if "best_cv_score" in results and "CV " in prefix:
+        metrics.insert(0, ("Mean CV Score", results["best_cv_score"]))
+
     for col, (name, val) in zip(cols, metrics):
         col.metric(f"{prefix}{name}", f"{val:.4f}")
 
@@ -93,11 +110,8 @@ def render_roc_curve(results: Dict[str, Any], key: str):
         go.Scatter(
             x=results["fpr"],
             y=results["tpr"],
-            mode="lines",
             name=f"ROC (AUC = {results['roc_auc']:.4f})",
-            line=dict(
-                color=PALETTE.twilight_indigo, width=PLOT_STYLE.line_width_normal
-            ),
+            line=dict(color=PALETTE.twilight_indigo, width=PLOT_STYLE.line_width_normal),
         )
     )
     fig.add_trace(
@@ -122,6 +136,41 @@ def render_roc_curve(results: Dict[str, Any], key: str):
         margin=dict(l=50, r=20, t=10, b=50),
     )
     st.plotly_chart(fig, use_container_width=True, key=f"roc_{key}")
+
+
+def render_results_view(results: Dict[str, Any], key: str):
+    if "best_params" in results:
+        st.markdown("#### Best Hyperparameters")
+        st.json(results["best_params"])
+
+    st.markdown("#### Cross-Validation Results")
+    render_metrics_row(results, "CV ")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        render_confusion_matrix(results["confusion_matrix"], f"cv_{key}")
+    with col2:
+        render_roc_curve(results, f"cv_{key}")
+
+    if "permutation_test" in results:
+        st.markdown("#### Permutation Test")
+        p_res = results["permutation_test"]
+        p_cols = st.columns(3)
+        p_cols[0].metric("Observed Score", f"{p_res['score']:.4f}")
+        p_cols[1].metric("p-value", f"{p_res['pvalue']:.4f}")
+        p_cols[2].metric("Permutations", f"{p_res.get('n_permutations', 'N/A')}")
+
+    if "test_results" in results:
+        st.markdown("---")
+        st.markdown("#### Test Set Results (Held Out)")
+        test_res = results["test_results"]
+        render_metrics_row(test_res, "Test ")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            render_confusion_matrix(test_res["confusion_matrix"], f"test_{key}")
+        with col2:
+            render_roc_curve(test_res, f"test_{key}")
 
 
 def render_fold_results(fold_results: list, key: str):
@@ -225,6 +274,7 @@ def render_classifier_section(
 
     if results:
         st.success("Precomputed results loaded")
+        render_results_view(results, key_base)
     else:
         st.warning(
             "No precomputed results found. Run the classification script first or click 'Compute Now' below."
@@ -253,46 +303,6 @@ def render_classifier_section(
                 results = cv_results
                 st.rerun()
 
-    if results:
-        if "best_params" in results:
-            st.markdown("#### Best Hyperparameters")
-            st.json(results["best_params"])
-            cols = st.columns(2)
-        st.markdown("#### Cross-Validation Results")
-        render_metrics_row(results, "CV ")
-
-        # if "fold_results" in results:
-        #     with st.expander("Fold Details", expanded=False):
-        #         render_fold_results(results["fold_results"], key_base)
-
-        col1, col2 = st.columns(2)
-        with col1:
-            render_confusion_matrix(results["confusion_matrix"], f"cv_{key_base}")
-        with col2:
-            render_roc_curve(results, f"cv_{key_base}")
-
-        if "permutation_test" in results:
-            st.markdown("#### Permutation Test")
-            p_res = results["permutation_test"]
-            p_cols = st.columns(3)
-            p_cols[0].metric("Observed Score", f"{p_res['score']:.4f}")
-            p_cols[1].metric("p-value", f"{p_res['pvalue']:.4f}")
-            p_cols[2].metric("Permutations", f"{p_res.get('n_permutations', 'N/A')}")
-
-        if "test_results" in results:
-            st.markdown("---")
-            st.markdown("#### Test Set Results (Held Out)")
-            test_res = results["test_results"]
-            render_metrics_row(test_res, "Test ")
-
-            col1, col2 = st.columns(2)
-            with col1:
-                render_confusion_matrix(
-                    test_res["confusion_matrix"], f"test_{key_base}"
-                )
-            with col2:
-                render_roc_curve(test_res, f"test_{key_base}")
-
 
 def render_classification_mode(
     variant_dir: Path,
@@ -308,7 +318,7 @@ def render_classification_mode(
         )
         return
 
-    # Look for results in main dir AND subdirs
+    # Always search recursively to find all possible results
     pattern = f"*_{mode}.pkl"
     result_files = list(results_dir.rglob(pattern))
 
@@ -318,123 +328,175 @@ def render_classification_mode(
         )
         return
 
-    # Group by (h, m) if applicable
-    import re
-
+    # Parse all files into a structured list
     hm_pattern = re.compile(r"h([\d.]+)_m([\d.]+)")
-
-    config_map = {}
+    file_records = []
+    
     for f in result_files:
+        filename = f.stem
+        parts = filename.split("_")
+        
+        # Extract feature source
+        suffixes = {"prediction", "forecast", "flipped"}
+        stop_idx = len(parts)
+        for i, p in enumerate(parts):
+            if p in suffixes:
+                stop_idx = i
+                break
+        feature_source = "_".join(parts[1:stop_idx])
+        
+        # Extract h and m
         match = hm_pattern.search(f.parent.name)
         if match:
             h, m = float(match.group(1)), float(match.group(2))
-            config_map[f"h={h}s, m={m}s"] = f
         else:
-            config_map["Standard (1.0s)"] = f
+            h, m = None, None  # Standard/Top-level
+            
+        file_records.append({
+            "file": f,
+            "feature": feature_source,
+            "h": h,
+            "m": m,
+            "clf": parts[0]
+        })
 
-    if len(config_map) > 1:
-        selected_cfg = st.selectbox(
-            f"Window Configuration (h, m) - {mode}",
-            options=list(config_map.keys()),
-            key=f"sel_{mode}_{run_ts}",
+    # Selectors
+    st.markdown("#### Filter Detailed Results")
+    
+    # Get unique values for selectors
+    all_feats = sorted(set(r["feature"] for r in file_records))
+    all_h = sorted(set(r["h"] for r in file_records if r["h"] is not None))
+    all_m = sorted(set(r["m"] for r in file_records if r["m"] is not None))
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        sel_feat = st.selectbox(
+            "Feature Source", 
+            options=all_feats, 
+            key=f"det_feat_{mode}_{run_ts}"
         )
-        display_files = [config_map[selected_cfg]]
+    
+    # Only show h/m selectors if we have labeled windows
+    if all_h or all_m:
+        with col2:
+            # Add "Standard" or "N/A" if there are files without h/m
+            h_options = all_h + (["Standard"] if any(r["h"] is None for r in file_records) else [])
+            sel_h = st.selectbox(
+                "History h (s)", 
+                options=h_options, 
+                key=f"det_h_{mode}_{run_ts}"
+            )
+        with col3:
+            m_options = all_m + (["Standard"] if any(r["m"] is None for r in file_records) else [])
+            sel_m = st.selectbox(
+                "Horizon m (s)", 
+                options=m_options, 
+                key=f"det_m_{mode}_{run_ts}"
+            )
     else:
-        display_files = result_files
+        sel_h, sel_m = "Standard", "Standard"
 
-    for result_file in sorted(display_files):
-        filename = result_file.stem
-        parts = filename.split("_")
+    # Filter records based on selection
+    def matches(r):
+        feat_match = r["feature"] == sel_feat
+        h_val = r["h"] if r["h"] is not None else "Standard"
+        m_val = r["m"] if r["m"] is not None else "Standard"
+        return feat_match and h_val == sel_h and m_val == sel_m
 
-        clf_name = parts[0]  # LDA
-        feature_source = parts[1]  # Xp, Yp, etc
+    matched_records = [r for r in file_records if matches(r)]
 
-        epoch_info = [p for p in parts if p.startswith("epoch")]
-        overlap_info = [p for p in parts if p.startswith("overlap")]
+    if not matched_records:
+        st.warning(f"No results match the selected filters.")
+        return
 
-        epoch_str = epoch_info[0] if epoch_info else "unknown"
-        overlap_str = overlap_info[0] if overlap_info else "unknown"
-
-        display_name = f"{clf_name} - {feature_source} features"
-        params_str = f"{epoch_str}, {overlap_str}"
-
+    for r in matched_records:
+        result_file = r["file"]
+        display_name = f"{r['clf']} - {r['feature']} features"
+        
         st.markdown(f"### {display_name}")
-        st.caption(f"Parameters: {params_str}")
+        if r["h"] is not None:
+            st.caption(f"Window: h={r['h']}s, m={r['m']}s")
 
         results = load_single_result(result_file)
-
         if results:
-            if "best_params" in results:
-                st.markdown("#### Best Hyperparameters")
-                st.json(results["best_params"])
-
-            st.markdown("#### Cross-Validation Results")
-            render_metrics_row(results, "CV ")
-
-            # if "fold_results" in results:
-            #     with st.expander("Fold Details", expanded=False):
-            #         render_fold_results(results["fold_results"], filename)
-
-            col1, col2 = st.columns(2)
-            with col1:
-                render_confusion_matrix(results["confusion_matrix"], f"cv_{filename}")
-            with col2:
-                render_roc_curve(results, f"cv_{filename}")
-
-            if "permutation_test" in results:
-                st.markdown("#### Permutation Test")
-                p_res = results["permutation_test"]
-                p_cols = st.columns(3)
-                p_cols[0].metric("Observed Score", f"{p_res['score']:.4f}")
-                p_cols[1].metric("p-value", f"{p_res['pvalue']:.4f}")
-                p_cols[2].metric(
-                    "Permutations", f"{p_res.get('n_permutations', 'N/A')}"
-                )
-
-            if "test_results" in results:
-                st.markdown("---")
-                st.markdown("#### Test Set Results (Held Out)")
-                test_res = results["test_results"]
-                render_metrics_row(test_res, "Test ")
-
-                col1, col2 = st.columns(2)
-                with col1:
-                    render_confusion_matrix(
-                        test_res["confusion_matrix"], f"test_{filename}"
-                    )
-                with col2:
-                    render_roc_curve(test_res, f"test_{filename}")
+            render_results_view(results, result_file.stem)
 
         st.markdown("---")
 
 
 def render_classification_from_predictions(variant_dir: Path, run_ts: str):
+    results_dir = variant_dir / run_ts / "classification"
+    if results_dir.exists():
+        all_results = load_classification_results(results_dir, mode="prediction")
+        # Show summary if we have multiple windows OR multiple features
+        n_configs = sum(len(res) for res in all_results.values())
+        if n_configs > 1 or len(all_results) > 1:
+            st.markdown("## Prediction Performance Summary")
+            render_classification_summary(all_results, f"pred_{run_ts}")
+            st.markdown("---")
+
     render_classification_mode(variant_dir, run_ts, mode="prediction")
+
+
+def render_classification_summary(all_results: Dict[str, Dict[Tuple[float, float], Dict[str, Any]]], key_prefix: str):
+    """DRY function to render line plots grouped by feature source."""
+    if not all_results:
+        return
+
+    # Check if any feature has test results
+    has_any_test = any(
+        any("test_results" in v for v in res.values()) 
+        for res in all_results.values()
+    )
+    
+    col_m1, col_m2 = st.columns([1, 2])
+    with col_m1:
+        metric = st.selectbox(
+            "Evaluation Metric",
+            options=["best_cv_score", "balanced_accuracy", "accuracy", "f1"],
+            index=0,
+            key=f"metric_{key_prefix}",
+            format_func=lambda x: {
+                "best_cv_score": "Mean CV Score (Best)",
+                "balanced_accuracy": "Full-Set Balanced Accuracy",
+                "accuracy": "Full-Set Accuracy",
+                "f1": "Full-Set F1 Score"
+            }.get(x, x)
+        )
+    
+    # Render a separate section for each feature source
+    for feature_source, feat_results in all_results.items():
+        st.markdown(f"### Feature Source: {feature_source}")
+        
+        # Pass a single-feature Dict to maintain plotting logic but isolate the section
+        single_feat_results = {feature_source: feat_results}
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.plotly_chart(
+                create_line_plot_by_history(single_feat_results, metric=metric),
+                use_container_width=True,
+                key=f"h_plot_{feature_source}_{key_prefix}",
+            )
+        with col2:
+            st.plotly_chart(
+                create_line_plot_by_future(single_feat_results, metric=metric),
+                use_container_width=True,
+                key=f"m_plot_{feature_source}_{key_prefix}",
+            )
+        st.markdown("---")
 
 
 def render_classification_from_forecasts(variant_dir: Path, run_ts: str):
     results_dir = variant_dir / run_ts / "classification"
     if results_dir.exists():
-        all_mode_results = load_classification_results(results_dir, mode="forecast")
-        if len(all_mode_results) > 1:
-            st.markdown("## Forecast Performance")
-            col1, col2 = st.columns(2)
-            with col1:
-                st.plotly_chart(
-                    create_line_plot_by_history(
-                        all_mode_results, metric="balanced_accuracy"
-                    ),
-                    use_container_width=True,
-                    key="h_fore",
-                )
-            with col2:
-                st.plotly_chart(
-                    create_line_plot_by_future(
-                        all_mode_results, metric="balanced_accuracy"
-                    ),
-                    use_container_width=True,
-                    key="m_fore",
-                )
+        all_results = load_classification_results(results_dir, mode="forecast")
+        # Show summary if we have multiple windows OR multiple features
+        n_configs = sum(len(res) for res in all_results.values())
+        if n_configs > 1 or len(all_results) > 1:
+            st.markdown("## Forecast Performance Summary")
+            render_classification_summary(all_results, f"forecast_{run_ts}")
             st.markdown("---")
 
     render_classification_mode(variant_dir, run_ts, mode="forecast")
@@ -444,8 +506,6 @@ def dbs_classification_tab(project_root, results_root=None):
     st.header("DBS ON/OFF Classification")
 
     RESULTS_ROOT = results_root if results_root else project_root / "results"
-
-    from dashboard.subtabs import list_variants, list_run_timestamps, config_for_variant
 
     variants = list_variants(RESULTS_ROOT)
     if len(variants) == 0:
@@ -472,8 +532,6 @@ def dbs_classification_tab(project_root, results_root=None):
     has_flipped_results = False
     hm_dirs = []
     if classification_dir.exists():
-        import re
-
         hm_pattern = re.compile(r"^h[\d.]+_m[\d.]+$")
         hm_dirs = [
             d
@@ -528,85 +586,31 @@ def dbs_classification_tab(project_root, results_root=None):
                 "Click 'Load/Refresh Flipped Results' to visualize the (h, m) history/forecast."
             )
         else:
-
-            valid_test_results = {
-                k: v for k, v in flipped_results.items() if "test_results" in v
-            }
-
-            if not valid_test_results:
-                st.warning(
-                    "No valid test results found. Note: m must be >= epoch_length (1.0s) to generate test samples."
-                )
-                plot_results = flipped_results
-                plot_metric = "best_cv_score"
-            else:
-                plot_results = valid_test_results
-                plot_metric = "balanced_accuracy"
-
-            st.markdown("### Flipped Performance")
-            col1, col2 = st.columns(2)
-            with col1:
-                st.plotly_chart(
-                    create_line_plot_by_history(plot_results, metric=plot_metric),
-                    use_container_width=True,
-                    key="sweep_h_flipped",
-                )
-            with col2:
-                st.plotly_chart(
-                    create_line_plot_by_future(plot_results, metric=plot_metric),
-                    use_container_width=True,
-                    key="sweep_m_flipped",
-                )
+            st.markdown("### Flipped Performance Summary")
+            render_classification_summary(flipped_results, f"flipped_{run_ts}")
 
             st.markdown("---")
             st.markdown("### Detailed Flipped Analysis")
 
-            h_values = sorted(set(k[0] for k in flipped_results.keys()))
-            m_values = sorted(set(k[1] for k in flipped_results.keys()))
+            # Collect unique h, m, and feature across all results
+            all_feats = sorted(flipped_results.keys())
+            h_values = sorted(set(k[0] for res in flipped_results.values() for k in res.keys()))
+            m_values = sorted(set(k[1] for res in flipped_results.values() for k in res.keys()))
 
-            col_sel1, col_sel2 = st.columns(2)
+            col_sel1, col_sel2, col_sel3 = st.columns(3)
             with col_sel1:
-                sel_h = st.selectbox(
-                    "Select History h (s)", options=h_values, key="flipped_sel_h"
-                )
+                sel_feat = st.selectbox("Select Feature Source", options=all_feats, key="flipped_sel_feat")
             with col_sel2:
-                sel_m = st.selectbox(
-                    "Select Forecast Horizon m (s)",
-                    options=m_values,
-                    key="flipped_sel_m",
-                )
+                sel_h = st.selectbox("Select History h (s)", options=h_values, key="flipped_sel_h")
+            with col_sel3:
+                sel_m = st.selectbox("Select Forecast Horizon m (s)", options=m_values, key="flipped_sel_m")
 
-            selected_res = flipped_results.get((sel_h, sel_m))
+            selected_res = flipped_results[sel_feat].get((sel_h, sel_m))
             if selected_res:
-                st.markdown(f"#### Results for h={sel_h}s, m={sel_m}s")
-
-                st.markdown("#### Cross-Validation Results")
-                render_metrics_row(selected_res, "CV ")
-
-                col1, col2 = st.columns(2)
-                with col1:
-                    render_confusion_matrix(
-                        selected_res["confusion_matrix"], f"cv_flipped_{sel_h}_{sel_m}"
-                    )
-                with col2:
-                    render_roc_curve(selected_res, f"cv_flipped_{sel_h}_{sel_m}")
-
-                if "test_results" in selected_res:
-                    st.markdown("---")
-                    st.markdown("#### Test Set Results (Held Out)")
-                    test_res = selected_res["test_results"]
-                    render_metrics_row(test_res, "Test ")
-
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        render_confusion_matrix(
-                            test_res["confusion_matrix"],
-                            f"test_flipped_{sel_h}_{sel_m}",
-                        )
-                    with col2:
-                        render_roc_curve(test_res, f"test_flipped_{sel_h}_{sel_m}")
+                st.markdown(f"#### Results for {sel_feat} - h={sel_h}s, m={sel_m}s")
+                render_results_view(selected_res, f"flipped_{sel_feat}_{sel_h}_{sel_m}")
             else:
-                st.warning(f"No results found for h={sel_h}s, m={sel_m}s")
+                st.warning(f"No results found for feature '{sel_feat}' with h={sel_h}s, m={sel_m}s")
     else:
         mode_tabs = st.tabs(["From Predictions", "From Forecasts"])
 

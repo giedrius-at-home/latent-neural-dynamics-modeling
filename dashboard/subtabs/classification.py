@@ -17,37 +17,54 @@ from dashboard.backbone import (
 
 
 def load_classification_results(
-    results_dir: Path, mode: str = "flipped"
-) -> Dict[Tuple[float, float], Dict[str, Any]]:
-    results = {}
-    pattern = re.compile(r"^h([\d.]+)_m([\d.]+)$")
+    results_dir: Path, mode: str = "forecast"
+) -> Dict[str, Dict[Tuple[float, float], Dict[str, Any]]]:
+    """
+    Loads all classification results, grouping them by FEATURE SOURCE.
+    Returns: { feature_source: { (h, m): result_dict } }
+    """
+    all_results = {}
+    hm_pattern = re.compile(r"^h([\d.]+)_m([\d.]+)$")
 
+    # Traverse h/m directories
     for d in results_dir.iterdir():
         if not d.is_dir():
             continue
-        match = pattern.match(d.name)
-        if not match:
+        
+        hm_match = hm_pattern.match(d.name)
+        if not hm_match:
             continue
 
-        h_val = float(match.group(1))
-        m_val = float(match.group(2))
+        h_val, m_val = float(hm_match.group(1)), float(hm_match.group(2))
 
-        # Look for LDA results for specific mode
-        pattern_str = f"LDA*_{mode}.pkl"
+        # Find pkl files for the given mode (prediction, forecast, flipped)
+        pattern_str = f"*_{mode}.pkl"
         pkl_files = list(d.glob(pattern_str))
-        if not pkl_files:
-            continue
+        
+        for pkl_file in pkl_files:
+            filename = pkl_file.stem
+            parts = filename.split("_")
+            
+            # Extract feature source: everything between LDA and mode/flipped
+            suffixes = {"prediction", "forecast", "flipped", "epoch", "overlap"}
+            feature_parts = []
+            for p in parts[1:]:
+                if any(p.startswith(s) for s in suffixes):
+                    break
+                feature_parts.append(p)
+            
+            feature_source = "_".join(feature_parts) if feature_parts else "Default"
+            
+            if feature_source not in all_results:
+                all_results[feature_source] = {}
+            
+            try:
+                with open(pkl_file, "rb") as f:
+                    all_results[feature_source][(h_val, m_val)] = pickle.load(f)
+            except Exception as e:
+                st.warning(f"Failed to load {pkl_file}: {e}")
 
-        try:
-            # Sort to be deterministic, pick first (usually only one matches)
-            pkl_files.sort()
-            with open(pkl_files[0], "rb") as f:
-                result = pickle.load(f)
-            results[(h_val, m_val)] = result
-        except Exception as e:
-            st.warning(f"Failed to load {pkl_files[0]}: {e}")
-
-    return results
+    return all_results
 
 
 def create_heatmap_figure(
@@ -158,177 +175,126 @@ def create_heatmap_figure(
 
 
 def create_line_plot_by_history(
-    results: Dict[Tuple[float, float], Dict[str, Any]],
+    all_results: Dict[str, Dict[Tuple[float, float], Dict[str, Any]]],
     metric: str = "balanced_accuracy",
 ) -> go.Figure:
     """
-    Create line plot showing accuracy vs history length, with separate lines for each m.
+    Create line plot showing accuracy vs history length.
+    Lines are added for each (feature_source, m) combination.
     """
-    if not results:
+    if not all_results:
         return go.Figure()
 
-    h_values = sorted(set(hm[0] for hm in results.keys()))
-    m_values = sorted(set(hm[1] for hm in results.keys()))
-
-    # Color scale for different m values
-    colors = px.colors.qualitative.Set2[: len(m_values)]
-
     fig = go.Figure()
+    
+    # Qualitative colors for different sources/windows
+    colors = px.colors.qualitative.Plotly
 
-    for i, m in enumerate(m_values):
-        y_vals = []
-        x_vals = []
-        for h in h_values:
-            if (h, m) in results:
-                res = results[(h, m)]
-                if "test_results" in res and metric in res["test_results"]:
-                    val = res["test_results"][metric]
-                elif metric in res:
-                    val = res[metric]
-                elif metric == "balanced_accuracy" and "best_cv_score" in res:
-                    val = res["best_cv_score"]
-                else:
+    color_idx = 0
+    for feature_source, results in all_results.items():
+        h_values = sorted(set(hm[0] for hm in results.keys()))
+        m_values = sorted(set(hm[1] for hm in results.keys()))
+
+        for m in m_values:
+            y_vals = []
+            x_vals = []
+            for h in h_values:
+                if (h, m) in results:
+                    res = results[(h, m)]
                     val = np.nan
-                y_vals.append(val)
-                x_vals.append(h)
+                    
+                    # 1. Try to find the metric in test_results first
+                    if "test_results" in res and metric in res["test_results"]:
+                        val = res["test_results"][metric]
+                    # 2. Otherwise use the requested key from the main dict
+                    elif metric in res:
+                        val = res[metric]
+                    
+                    y_vals.append(val)
+                    x_vals.append(h)
 
-        fig.add_trace(
-            go.Scatter(
-                x=x_vals,
-                y=y_vals,
-                mode="lines+markers",
-                name=f"m = {m:.1f}s",
-                line=dict(color=colors[i % len(colors)], width=2.5),
-                marker=dict(size=8),
-                hovertemplate=f"m={m:.1f}s<br>h=%{{x:.1f}}s<br>Accuracy=%{{y:.3f}}<extra></extra>",
+            name = f"{feature_source} (m={m:.1f}s)"
+            fig.add_trace(
+                go.Scatter(
+                    x=x_vals,
+                    y=y_vals,
+                    mode="lines+markers",
+                    name=name,
+                    line=dict(color=colors[color_idx % len(colors)], width=2.5),
+                    marker=dict(size=8),
+                    hovertemplate=f"Feature: {feature_source}<br>m={m:.1f}s<br>h=%{{x:.1f}}s<br>Acc=%{{y:.3f}}<extra></extra>",
+                )
             )
-        )
+            color_idx += 1
 
-    # Add chance level line
-    fig.add_hline(
-        y=0.5,
-        line_dash="dash",
-        line_color=PALETTE.cool_steel,
-        annotation_text="Chance",
-        annotation_position="bottom right",
-    )
+    fig.add_hline(y=0.5, line_dash="dash", line_color=PALETTE.cool_steel, annotation_text="Chance")
 
     fig.update_layout(
-        title=dict(
-            text="Classification Accuracy vs History Length",
-            x=0.5,
-            xanchor="center",
-            font=dict(size=PLOT_STYLE.title_size, family=PLOT_STYLE.font_family),
-        ),
-        xaxis=dict(
-            title=dict(
-                text="History h (seconds)",
-                font=dict(
-                    size=PLOT_STYLE.axis_label_size, family=PLOT_STYLE.font_family
-                ),
-            ),
-            tickfont=dict(size=PLOT_STYLE.tick_label_size),
-        ),
-        yaxis=dict(
-            title=dict(
-                text="Balanced Accuracy",
-                font=dict(
-                    size=PLOT_STYLE.axis_label_size, family=PLOT_STYLE.font_family
-                ),
-            ),
-            tickfont=dict(size=PLOT_STYLE.tick_label_size),
-            range=[0.4, 1.0],
-        ),
-        template="plotly_white",
-        font=dict(family=PLOT_STYLE.font_family, color=PALETTE.ink_black),
-        legend=dict(
-            title=dict(text="Forecast Horizon"),
-            font=dict(size=PLOT_STYLE.tick_label_size),
-        ),
+        title=dict(text="Accuracy vs History Length", x=0.5, xanchor="center", font=dict(size=PLOT_STYLE.title_size, family=PLOT_STYLE.font_family)),
+        xaxis=dict(title=dict(text="History h (seconds)", font=dict(size=PLOT_STYLE.axis_label_size, family=PLOT_STYLE.font_family)), tickfont=dict(size=PLOT_STYLE.tick_label_size)),
+        yaxis=dict(title=dict(text="Balanced Accuracy", font=dict(size=PLOT_STYLE.axis_label_size, family=PLOT_STYLE.font_family)), tickfont=dict(size=PLOT_STYLE.tick_label_size), range=[0.4, 1.0]),
+        template="plotly_white", font=dict(family=PLOT_STYLE.font_family, color=PALETTE.ink_black),
+        legend=dict(font=dict(size=PLOT_STYLE.tick_label_size)),
         margin=dict(l=60, r=60, t=80, b=60),
     )
-
     return fig
 
 
 def create_line_plot_by_future(
-    results: Dict[Tuple[float, float], Dict[str, Any]],
+    all_results: Dict[str, Dict[Tuple[float, float], Dict[str, Any]]],
     metric: str = "balanced_accuracy",
 ) -> go.Figure:
-    if not results:
+    if not all_results:
         return go.Figure()
 
-    h_values = sorted(set(hm[0] for hm in results.keys()))
-    m_values = sorted(set(hm[1] for hm in results.keys()))
-
-    colors = px.colors.qualitative.Set3[: len(h_values)]
     fig = go.Figure()
+    colors = px.colors.qualitative.Safe
 
-    for i, h in enumerate(h_values):
-        y_vals = []
-        x_vals = []
-        for m in m_values:
-            if (h, m) in results:
-                res = results[(h, m)]
-                if "test_results" in res and metric in res["test_results"]:
-                    val = res["test_results"][metric]
-                elif metric in res:
-                    val = res[metric]
-                elif metric == "balanced_accuracy" and "best_cv_score" in res:
-                    val = res["best_cv_score"]
-                else:
+    color_idx = 0
+    for feature_source, results in all_results.items():
+        h_values = sorted(set(hm[0] for hm in results.keys()))
+        m_values = sorted(set(hm[1] for hm in results.keys()))
+
+        for h in h_values:
+            y_vals = []
+            x_vals = []
+            for m in m_values:
+                if (h, m) in results:
+                    res = results[(h, m)]
                     val = np.nan
-                y_vals.append(val)
-                x_vals.append(m)
+                    
+                    # 1. Try to find the metric in test_results first
+                    if "test_results" in res and metric in res["test_results"]:
+                        val = res["test_results"][metric]
+                    # 2. Otherwise use the requested key from the main dict
+                    elif metric in res:
+                        val = res[metric]
+                        
+                    y_vals.append(val)
+                    x_vals.append(m)
 
-        fig.add_trace(
-            go.Scatter(
-                x=x_vals,
-                y=y_vals,
-                mode="lines+markers",
-                name=f"h = {h:.1f}s",
-                line=dict(color=colors[i % len(colors)], width=2.5),
-                marker=dict(size=8),
-                hovertemplate=f"h={h:.1f}s<br>m=%{{x:.1f}}s<br>Accuracy=%{{y:.3f}}<extra></extra>",
+            name = f"{feature_source} (h={h:.1f}s)"
+            fig.add_trace(
+                go.Scatter(
+                    x=x_vals,
+                    y=y_vals,
+                    mode="lines+markers",
+                    name=name,
+                    line=dict(color=colors[color_idx % len(colors)], width=2.5),
+                    marker=dict(size=8),
+                    hovertemplate=f"Feature: {feature_source}<br>h={h:.1f}s<br>m=%{{x:.1f}}s<br>Acc=%{{y:.3f}}<extra></extra>",
+                )
             )
-        )
+            color_idx += 1
 
-    fig.add_hline(
-        y=0.5, line_dash="dash", line_color=PALETTE.cool_steel, annotation_text="Chance"
-    )
+    fig.add_hline(y=0.5, line_dash="dash", line_color=PALETTE.cool_steel, annotation_text="Chance")
 
     fig.update_layout(
-        title=dict(
-            text="Classification Accuracy vs Forecast Horizon",
-            x=0.5,
-            xanchor="center",
-            font=dict(size=PLOT_STYLE.title_size, family=PLOT_STYLE.font_family),
-        ),
-        xaxis=dict(
-            title=dict(
-                text="Forecast Horizon m (seconds)",
-                font=dict(
-                    size=PLOT_STYLE.axis_label_size, family=PLOT_STYLE.font_family
-                ),
-            ),
-            tickfont=dict(size=PLOT_STYLE.tick_label_size),
-        ),
-        yaxis=dict(
-            title=dict(
-                text="Balanced Accuracy",
-                font=dict(
-                    size=PLOT_STYLE.axis_label_size, family=PLOT_STYLE.font_family
-                ),
-            ),
-            tickfont=dict(size=PLOT_STYLE.tick_label_size),
-            range=[0.4, 1.0],
-        ),
-        template="plotly_white",
-        font=dict(family=PLOT_STYLE.font_family, color=PALETTE.ink_black),
-        legend=dict(
-            title=dict(text="History Length"),
-            font=dict(size=PLOT_STYLE.tick_label_size),
-        ),
+        title=dict(text="Accuracy vs Forecast Horizon", x=0.5, xanchor="center", font=dict(size=PLOT_STYLE.title_size, family=PLOT_STYLE.font_family)),
+        xaxis=dict(title=dict(text="Forecast Horizon m (seconds)", font=dict(size=PLOT_STYLE.axis_label_size, family=PLOT_STYLE.font_family)), tickfont=dict(size=PLOT_STYLE.tick_label_size)),
+        yaxis=dict(title=dict(text="Balanced Accuracy", font=dict(size=PLOT_STYLE.axis_label_size, family=PLOT_STYLE.font_family)), tickfont=dict(size=PLOT_STYLE.tick_label_size), range=[0.4, 1.0]),
+        template="plotly_white", font=dict(family=PLOT_STYLE.font_family, color=PALETTE.ink_black),
+        legend=dict(font=dict(size=PLOT_STYLE.tick_label_size)),
         margin=dict(l=60, r=60, t=80, b=60),
     )
     return fig

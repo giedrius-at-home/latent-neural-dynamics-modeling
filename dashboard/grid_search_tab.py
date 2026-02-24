@@ -35,6 +35,10 @@ def grid_search_tab(project_root: Path, results_root=None):
 
     RESULTS_ROOT = results_root if results_root else project_root / "results"
 
+    if not RESULTS_ROOT.exists() or not RESULTS_ROOT.is_dir():
+        st.info(f"Results directory `{RESULTS_ROOT}` not found.")
+        return
+
     # Find all grid search result groups that have some parquet data
     all_groups = sorted(
         [

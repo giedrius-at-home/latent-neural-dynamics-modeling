@@ -5,9 +5,44 @@ import polars as pl
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 import re
-
 from training.components.tester import Tester
 from utils.polars import get_scalar_value, convert_series_to_list
+
+def variant_short_name(variant: str) -> str:
+    """Extract model type label from variant name, e.g. 'psid_PDI1_S2' -> 'PSID'."""
+    return str(variant).split("_")[0].upper()
+
+
+def find_baseline_variants(current_variant: str, all_variants: List[str]) -> List[str]:
+    """Find baseline (VARMA) variants matching the same subject/session."""
+    subject_match = re.search(r'(PDI\d+)_(?:S)?(\d+)', current_variant)
+    baseline_search_str = (
+        f"varma_{subject_match.group(1)}_S{subject_match.group(2)}"
+        if subject_match
+        else "varma"
+    )
+    return [v for v in all_variants if baseline_search_str in v and v != current_variant]
+
+
+def get_project_root(cfg_path: Path) -> Path:
+    """Walk up from cfg_path to find the project root (parent of 'results/')."""
+    for p in cfg_path.parents:
+        if (p / "results").exists():
+            return p
+    return cfg_path
+
+
+def find_config_path(project_root: Path, variant_name: str) -> Optional[Path]:
+    """Recursively search for a variant's YAML config file under training/setups/ and classification/setups/."""
+    for setup_dir in ["training/setups", "classification/setups"]:
+        base = project_root / setup_dir
+        if base.exists():
+            matches = list(base.rglob(f"{variant_name}.yaml"))
+            if matches:
+                return matches[0]
+    return None
+
+
 
 
 def list_variants(results_root: Path) -> List[str]:
