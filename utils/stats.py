@@ -119,10 +119,18 @@ def aggregate_per_channel(
                 if apply_fisher_z:
                     z_vals, z_mean = fisher_z_transform(ch_vals)
                     per_channel_mean[channel_names[ch_idx]] = z_mean
-                    per_channel_se[channel_names[ch_idx]] = float(np.std(z_vals) / np.sqrt(len(z_vals))) if len(z_vals) > 0 else 0.0
+                    per_channel_se[channel_names[ch_idx]] = (
+                        float(np.std(z_vals) / np.sqrt(len(z_vals)))
+                        if len(z_vals) > 0
+                        else 0.0
+                    )
                 else:
                     per_channel_mean[channel_names[ch_idx]] = float(np.mean(ch_vals))
-                    per_channel_se[channel_names[ch_idx]] = float(np.std(ch_vals) / np.sqrt(len(ch_vals))) if len(ch_vals) > 0 else 0.0
+                    per_channel_se[channel_names[ch_idx]] = (
+                        float(np.std(ch_vals) / np.sqrt(len(ch_vals)))
+                        if len(ch_vals) > 0
+                        else 0.0
+                    )
     else:
         # Single-trial: flat list (SE is 0 for a single trial)
         for ch_idx, r in enumerate(metric_per_trial):
@@ -136,8 +144,10 @@ def aggregate_per_channel(
 
     all_means = [v for v in per_channel_mean.values() if not np.isnan(v)]
     overall_mean = float(np.mean(all_means)) if all_means else float("nan")
-    overall_se = float(np.std(all_means) / np.sqrt(len(all_means))) if all_means else 0.0
-    
+    overall_se = (
+        float(np.std(all_means) / np.sqrt(len(all_means))) if all_means else 0.0
+    )
+
     return per_channel_mean, overall_mean, per_channel_se, overall_se
 
 
@@ -146,7 +156,7 @@ def rmse_per_channel(
     y_pred: Union[np.ndarray, List[np.ndarray]],
 ) -> Tuple[List[Any], float]:
     """Calculate RMSE per channel, averaging across time, per trial."""
-    
+
     trials_true: List[np.ndarray]
     trials_pred: List[np.ndarray]
 
@@ -155,7 +165,10 @@ def rmse_per_channel(
         trials_pred = y_pred
     elif isinstance(y_true, np.ndarray) and isinstance(y_pred, np.ndarray):
         if y_true.ndim == 2 and y_pred.ndim == 2:
-            rmse_list = [float(np.sqrt(np.mean((y_true[:, c] - y_pred[:, c])**2))) for c in range(y_true.shape[1])]
+            rmse_list = [
+                float(np.sqrt(np.mean((y_true[:, c] - y_pred[:, c]) ** 2)))
+                for c in range(y_true.shape[1])
+            ]
             valid = [r for r in rmse_list if not np.isnan(r)]
             r_mean = float(np.mean(valid)) if len(valid) > 0 else np.nan
             return rmse_list, r_mean
@@ -172,26 +185,25 @@ def rmse_per_channel(
     per_trial: List[List[float]] = []
     all_valid: List[float] = []
     n_trials = min(len(trials_true), len(trials_pred))
-    
+
     for i in range(n_trials):
         yt = trials_true[i]
         yp = trials_pred[i]
-        
+
         if yt.shape != yp.shape:
-             raise ValueError("y_true and y_pred must have the same shape")
-             
+            raise ValueError("y_true and y_pred must have the same shape")
+
         # Calculate RMSE per channel for this trial
         rmse_list = []
         for c in range(yt.shape[1]):
-            rmse = float(np.sqrt(np.mean((yt[:, c] - yp[:, c])**2)))
+            rmse = float(np.sqrt(np.mean((yt[:, c] - yp[:, c]) ** 2)))
             rmse_list.append(rmse)
-            
+
         per_trial.append(rmse_list)
         all_valid.extend([r for r in rmse_list if not np.isnan(r)])
 
     overall_mean = float(np.mean(all_valid)) if len(all_valid) > 0 else np.nan
     return per_trial, overall_mean
-
 
 
 def compute_residual_statistics(

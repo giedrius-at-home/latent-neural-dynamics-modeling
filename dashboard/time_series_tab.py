@@ -974,14 +974,14 @@ def render_raw_alignment_tab(trial_data, block_data, lfp_channels, ecog_channels
 
     beh_raw_dict = {}
     beh_interp_dict = {}
-    
+
     for var in ["x", "y"]:
         b_r = np.array(trial_data[var][0]).astype(float)
         beh_raw_dict[var] = b_r
         beh_interp_dict[var] = interpolate_to_grid(b_r, time_raw, time_master)
 
     st.markdown("### Alignment Analysis")
-    
+
     min_t = float(time_master[0])
     max_t = float(time_master[-1])
     window_start = min_t
@@ -1008,9 +1008,9 @@ def render_raw_alignment_tab(trial_data, block_data, lfp_channels, ecog_channels
     valid_trials = []
 
     global_residuals = []
-    
+
     selected_beh = "x"
-    
+
     for tr in trials:
         tr_data = block_data.filter(pl.col("trial") == tr)
         if tr_data.is_empty():

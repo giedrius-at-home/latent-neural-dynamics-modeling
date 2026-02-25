@@ -60,10 +60,26 @@ def _create_feature_plot(
 
     # Use a color cycle
     colors = [
-        "#636EFA", "#EF553B", "#00CC96", "#AB63FA", "#FFA15A",
-        "#19D3F3", "#FF6692", "#B6E880", "#FF97FF", "#FECB52",
-        "#1F77B4", "#FF7F0E", "#2CA02C", "#D62728", "#9467BD",
-        "#8C564B", "#E377C2", "#7F7F7F", "#BCBD22", "#17BECF",
+        "#636EFA",
+        "#EF553B",
+        "#00CC96",
+        "#AB63FA",
+        "#FFA15A",
+        "#19D3F3",
+        "#FF6692",
+        "#B6E880",
+        "#FF97FF",
+        "#FECB52",
+        "#1F77B4",
+        "#FF7F0E",
+        "#2CA02C",
+        "#D62728",
+        "#9467BD",
+        "#8C564B",
+        "#E377C2",
+        "#7F7F7F",
+        "#BCBD22",
+        "#17BECF",
     ]
 
     for ch_idx, channel in enumerate(sorted(all_channels)):
@@ -100,46 +116,50 @@ def _create_feature_plot(
         y_vals = [float(np.mean(pct_to_vals[p])) for p in sorted_pcts]
         # For pooling SEs from different models, we'll just take the mean of SEs as an approximation
         se_vals = [float(np.mean(pct_to_ses[p])) for p in sorted_pcts]
-        
+
         y_upper = [y + se for y, se in zip(y_vals, se_vals)]
         y_lower = [y - se for y, se in zip(y_vals, se_vals)]
 
         color = colors[ch_idx % len(colors)]
-        
+
         # Add main line
-        fig.add_trace(go.Scatter(
-            x=x_vals,
-            y=y_vals,
-            mode="lines",
-            name=channel,
-            line=dict(color=color, width=2),
-            hovertemplate=(
-                f"<b>{channel}</b><br>"
-                "Time: %{x}s<br>"
-                "Value: %{customdata[0]:.4f} ± %{customdata[1]:.4f}<extra></extra>"
-            ),
-            customdata=list(zip(y_vals, se_vals)),
-            legendgroup=channel,
-        ))
-        
+        fig.add_trace(
+            go.Scatter(
+                x=x_vals,
+                y=y_vals,
+                mode="lines",
+                name=channel,
+                line=dict(color=color, width=2),
+                hovertemplate=(
+                    f"<b>{channel}</b><br>"
+                    "Time: %{x}s<br>"
+                    "Value: %{customdata[0]:.4f} ± %{customdata[1]:.4f}<extra></extra>"
+                ),
+                customdata=list(zip(y_vals, se_vals)),
+                legendgroup=channel,
+            )
+        )
+
         # Add error envelope (transparent)
         # Convert hex color to rgba for transparency
         if color.startswith("#"):
-            r, g, b = tuple(int(color[i:i+2], 16) for i in (1, 3, 5))
+            r, g, b = tuple(int(color[i : i + 2], 16) for i in (1, 3, 5))
             fillcolor = f"rgba({r},{g},{b},0.2)"
         else:
             fillcolor = "rgba(100,100,100,0.2)"
-            
-        fig.add_trace(go.Scatter(
-            x=x_vals + x_vals[::-1],
-            y=y_upper + y_lower[::-1],
-            fill='toself',
-            fillcolor=fillcolor,
-            line=dict(color='rgba(255,255,255,0)'),
-            hoverinfo="skip",
-            showlegend=False,
-            legendgroup=channel,
-        ))
+
+        fig.add_trace(
+            go.Scatter(
+                x=x_vals + x_vals[::-1],
+                y=y_upper + y_lower[::-1],
+                fill="toself",
+                fillcolor=fillcolor,
+                line=dict(color="rgba(255,255,255,0)"),
+                hoverinfo="skip",
+                showlegend=False,
+                legendgroup=channel,
+            )
+        )
 
     fig.update_layout(
         title=title,
@@ -200,7 +220,10 @@ def render_data_hungriness_tab(project_root, results_root=None):
                 st.info("No neural Pearson R data available.")
         with col2:
             behavioral_r_fig = _create_feature_plot(
-                models_data, "behavioral", "fisher_z", f"Behavioral Features — {ps_name}"
+                models_data,
+                "behavioral",
+                "fisher_z",
+                f"Behavioral Features — {ps_name}",
             )
             if behavioral_r_fig:
                 st.plotly_chart(behavioral_r_fig, use_container_width=True)
@@ -226,5 +249,5 @@ def render_data_hungriness_tab(project_root, results_root=None):
                 st.plotly_chart(behavioral_rmse_fig, use_container_width=True)
             else:
                 st.info("No behavioral RMSE data available.")
-        
+
         st.markdown("---")

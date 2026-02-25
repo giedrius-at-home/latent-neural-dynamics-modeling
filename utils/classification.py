@@ -350,7 +350,7 @@ def prepare_epoched_data(
     y_arr = np.array(y_all)
 
     base_fs = feature_source.replace("_with_dbs", "")
-    
+
     if base_fs == "Xp_1":
         if n1 is None:
             raise ValueError("n1 must be provided for Xp_1 feature source")

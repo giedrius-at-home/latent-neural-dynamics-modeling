@@ -1300,7 +1300,9 @@ class VARMAOLSWrapper:
 
         data_concat_zscored = (data_concat - mean_concat) / std_concat
 
-        self.logger.info(f"Training single Long-VAR on all trials concatenated (T={data_concat.shape[0]})")
+        self.logger.info(
+            f"Training single Long-VAR on all trials concatenated (T={data_concat.shape[0]})"
+        )
         df_concat = pd.DataFrame(data_concat_zscored)
         long_model = VAR(df_concat)
         long_results = long_model.fit(maxlags=long_ar_lags)
@@ -1365,7 +1367,10 @@ class VARMAOLSWrapper:
 
         if self.ridge_alpha > 0.0:
             from sklearn.linear_model import Ridge
-            self.logger.info(f"Solving via Ridge regression (alpha={self.ridge_alpha})...")
+
+            self.logger.info(
+                f"Solving via Ridge regression (alpha={self.ridge_alpha})..."
+            )
             ridge = Ridge(alpha=self.ridge_alpha, fit_intercept=False)
             ridge.fit(X_full, Y_full)
             self.beta_ols = ridge.coef_.T
@@ -1389,6 +1394,7 @@ class VARMAOLSWrapper:
 
     def load_from_file(self, model_path: str):
         import pickle
+
         with open(model_path, "rb") as f:
             obj = pickle.load(f)
         self.__dict__.update(obj.__dict__)
@@ -1400,11 +1406,11 @@ class VARMAOLSWrapper:
         T, K = data_zscored.shape
         if T <= L:
             return np.zeros((0, K))
-        
+
         preds = np.tile(self.long_var_intercept, (T - L, 1))
         for i in range(1, L + 1):
-            preds += data_zscored[L-i : T-i] @ self.long_var_coefs[i-1].T
-            
+            preds += data_zscored[L - i : T - i] @ self.long_var_coefs[i - 1].T
+
         residuals = data_zscored[L:] - preds
         return residuals
 
@@ -1457,13 +1463,13 @@ class VARMAOLSWrapper:
 
         predictions = np.zeros_like(data_zscored)
         start_idx = long_ar_lags + offset
-        
+
         # Naive warm-up: carry forward last known value
         if start_idx > 0 and start_idx <= len(data_zscored):
             predictions[0] = data_zscored[0]
             for i in range(1, start_idx):
-                predictions[i] = data_zscored[i-1]
-                
+                predictions[i] = data_zscored[i - 1]
+
         predictions[start_idx : start_idx + n_predict] = predictions_segment
 
         return predictions
@@ -1568,7 +1574,7 @@ class VARMAOLSWrapper:
 
             forecasts.append(y_next)
             current_y.append(y_next)
-            current_e.append(np.zeros(K)) 
+            current_e.append(np.zeros(K))
 
         return np.array(forecasts)
 

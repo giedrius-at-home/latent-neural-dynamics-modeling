@@ -112,7 +112,9 @@ def render_roc_curve(results: Dict[str, Any], key: str):
             x=results["fpr"],
             y=results["tpr"],
             name=f"ROC (AUC = {results['roc_auc']:.4f})",
-            line=dict(color=PALETTE.twilight_indigo, width=PLOT_STYLE.line_width_normal),
+            line=dict(
+                color=PALETTE.twilight_indigo, width=PLOT_STYLE.line_width_normal
+            ),
         )
     )
     fig.add_trace(
@@ -333,11 +335,11 @@ def render_classification_mode(
     # Parse all files into a structured list
     hm_pattern = re.compile(r"h([\d.]+)_m([\d.]+)")
     file_records = []
-    
+
     for f in result_files:
         filename = f.stem
         parts = filename.split("_")
-        
+
         # Extract feature source
         suffixes = {"prediction", "forecast", "flipped"}
         stop_idx = len(parts)
@@ -346,54 +348,48 @@ def render_classification_mode(
                 stop_idx = i
                 break
         feature_source = "_".join(parts[1:stop_idx])
-        
+
         # Extract h and m
         match = hm_pattern.search(f.parent.name)
         if match:
             h, m = float(match.group(1)), float(match.group(2))
         else:
             h, m = None, None  # Standard/Top-level
-            
-        file_records.append({
-            "file": f,
-            "feature": feature_source,
-            "h": h,
-            "m": m,
-            "clf": parts[0]
-        })
+
+        file_records.append(
+            {"file": f, "feature": feature_source, "h": h, "m": m, "clf": parts[0]}
+        )
 
     # Selectors
     st.markdown("#### Filter Detailed Results")
-    
+
     # Get unique values for selectors
     all_feats = sorted(set(r["feature"] for r in file_records))
     all_h = sorted(set(r["h"] for r in file_records if r["h"] is not None))
     all_m = sorted(set(r["m"] for r in file_records if r["m"] is not None))
-    
+
     col1, col2, col3 = st.columns(3)
     with col1:
         sel_feat = st.selectbox(
-            "Feature Source", 
-            options=all_feats, 
-            key=f"det_feat_{mode}_{run_ts}"
+            "Feature Source", options=all_feats, key=f"det_feat_{mode}_{run_ts}"
         )
-    
+
     # Only show h/m selectors if we have labeled windows
     if all_h or all_m:
         with col2:
             # Add "Standard" or "N/A" if there are files without h/m
-            h_options = all_h + (["Standard"] if any(r["h"] is None for r in file_records) else [])
+            h_options = all_h + (
+                ["Standard"] if any(r["h"] is None for r in file_records) else []
+            )
             sel_h = st.selectbox(
-                "History h (s)", 
-                options=h_options, 
-                key=f"det_h_{mode}_{run_ts}"
+                "History h (s)", options=h_options, key=f"det_h_{mode}_{run_ts}"
             )
         with col3:
-            m_options = all_m + (["Standard"] if any(r["m"] is None for r in file_records) else [])
+            m_options = all_m + (
+                ["Standard"] if any(r["m"] is None for r in file_records) else []
+            )
             sel_m = st.selectbox(
-                "Horizon m (s)", 
-                options=m_options, 
-                key=f"det_m_{mode}_{run_ts}"
+                "Horizon m (s)", options=m_options, key=f"det_m_{mode}_{run_ts}"
             )
     else:
         sel_h, sel_m = "Standard", "Standard"
@@ -414,7 +410,7 @@ def render_classification_mode(
     for r in matched_records:
         result_file = r["file"]
         display_name = f"{r['clf']} - {r['feature']} features"
-        
+
         st.markdown(f"### {display_name}")
         if r["h"] is not None:
             st.caption(f"Window: h={r['h']}s, m={r['m']}s")
@@ -422,15 +418,20 @@ def render_classification_mode(
         results = load_single_result(result_file)
         if results:
             if eval_target == "history_label":
-                pred_file = result_file.parent / result_file.name.replace("_forecast", "_prediction")
+                pred_file = result_file.parent / result_file.name.replace(
+                    "_forecast", "_prediction"
+                )
                 if pred_file.exists():
                     pred_res = load_single_result(pred_file)
                     if pred_res:
                         if reeval_against_history(results, pred_res):
                             n = len(pred_res["y_pred"])
-                            st.info(f"Evaluating {n} forecast samples against historical predictions.")
+                            st.info(
+                                f"Evaluating {n} forecast samples against historical predictions."
+                            )
                             # Also recompute confusion matrix and drop ROC data
                             from sklearn.metrics import confusion_matrix
+
                             results["confusion_matrix"] = confusion_matrix(
                                 pred_res["y_pred"], results["y_pred"], labels=[0, 1]
                             )
@@ -438,9 +439,13 @@ def render_classification_mode(
                             results.pop("fpr", None)
                             results.pop("tpr", None)
                         else:
-                            st.error("Sample size mismatch between history and forecast predictions.")
+                            st.error(
+                                "Sample size mismatch between history and forecast predictions."
+                            )
                     else:
-                        st.warning("Could not load history predictions for this configuration.")
+                        st.warning(
+                            "Could not load history predictions for this configuration."
+                        )
                 else:
                     st.warning(f"Matching prediction file not found: {pred_file.name}")
 
@@ -463,17 +468,18 @@ def render_classification_from_predictions(variant_dir: Path, run_ts: str):
     render_classification_mode(variant_dir, run_ts, mode="prediction")
 
 
-def render_classification_summary(all_results: Dict[str, Dict[Tuple[float, float], Dict[str, Any]]], key_prefix: str):
+def render_classification_summary(
+    all_results: Dict[str, Dict[Tuple[float, float], Dict[str, Any]]], key_prefix: str
+):
     """DRY function to render line plots grouped by feature source."""
     if not all_results:
         return
 
     # Check if any feature has test results
     has_any_test = any(
-        any("test_results" in v for v in res.values()) 
-        for res in all_results.values()
+        any("test_results" in v for v in res.values()) for res in all_results.values()
     )
-    
+
     col_m1, col_m2 = st.columns([1, 2])
     with col_m1:
         metric = st.selectbox(
@@ -485,17 +491,17 @@ def render_classification_summary(all_results: Dict[str, Dict[Tuple[float, float
                 "best_cv_score": "Mean CV Score (Best)",
                 "balanced_accuracy": "Full-Set Balanced Accuracy",
                 "accuracy": "Full-Set Accuracy",
-                "f1": "Full-Set F1 Score"
-            }.get(x, x)
+                "f1": "Full-Set F1 Score",
+            }.get(x, x),
         )
-    
+
     # Render a separate section for each feature source
     for feature_source, feat_results in all_results.items():
         st.markdown(f"### Feature Source: {feature_source}")
-        
+
         # Pass a single-feature Dict to maintain plotting logic but isolate the section
         single_feat_results = {feature_source: feat_results}
-        
+
         col1, col2 = st.columns(2)
         with col1:
             st.plotly_chart(
@@ -517,14 +523,20 @@ def render_classification_from_forecasts(variant_dir: Path, run_ts: str):
     eval_target = st.radio(
         "Evaluate Forecast Against:",
         options=["dbs_stim", "history_label"],
-        format_func=lambda x: "True Label (dbs_stim)" if x == "dbs_stim" else "Historical Prediction (history_label)",
+        format_func=lambda x: (
+            "True Label (dbs_stim)"
+            if x == "dbs_stim"
+            else "Historical Prediction (history_label)"
+        ),
         horizontal=True,
-        key=f"eval_target_forecast_{run_ts}"
+        key=f"eval_target_forecast_{run_ts}",
     )
-    
+
     results_dir = variant_dir / run_ts / "classification"
     if results_dir.exists():
-        all_results = load_classification_results(results_dir, mode="forecast", eval_target=eval_target)
+        all_results = load_classification_results(
+            results_dir, mode="forecast", eval_target=eval_target
+        )
         # Show summary if we have multiple windows OR multiple features
         n_configs = sum(len(res) for res in all_results.values())
         if n_configs > 1 or len(all_results) > 1:
@@ -532,7 +544,9 @@ def render_classification_from_forecasts(variant_dir: Path, run_ts: str):
             render_classification_summary(all_results, f"forecast_{run_ts}")
             st.markdown("---")
 
-    render_classification_mode(variant_dir, run_ts, mode="forecast", eval_target=eval_target)
+    render_classification_mode(
+        variant_dir, run_ts, mode="forecast", eval_target=eval_target
+    )
 
 
 def dbs_classification_tab(project_root, results_root=None):
@@ -627,23 +641,37 @@ def dbs_classification_tab(project_root, results_root=None):
 
             # Collect unique h, m, and feature across all results
             all_feats = sorted(flipped_results.keys())
-            h_values = sorted(set(k[0] for res in flipped_results.values() for k in res.keys()))
-            m_values = sorted(set(k[1] for res in flipped_results.values() for k in res.keys()))
+            h_values = sorted(
+                set(k[0] for res in flipped_results.values() for k in res.keys())
+            )
+            m_values = sorted(
+                set(k[1] for res in flipped_results.values() for k in res.keys())
+            )
 
             col_sel1, col_sel2, col_sel3 = st.columns(3)
             with col_sel1:
-                sel_feat = st.selectbox("Select Feature Source", options=all_feats, key="flipped_sel_feat")
+                sel_feat = st.selectbox(
+                    "Select Feature Source", options=all_feats, key="flipped_sel_feat"
+                )
             with col_sel2:
-                sel_h = st.selectbox("Select History h (s)", options=h_values, key="flipped_sel_h")
+                sel_h = st.selectbox(
+                    "Select History h (s)", options=h_values, key="flipped_sel_h"
+                )
             with col_sel3:
-                sel_m = st.selectbox("Select Forecast Horizon m (s)", options=m_values, key="flipped_sel_m")
+                sel_m = st.selectbox(
+                    "Select Forecast Horizon m (s)",
+                    options=m_values,
+                    key="flipped_sel_m",
+                )
 
             selected_res = flipped_results[sel_feat].get((sel_h, sel_m))
             if selected_res:
                 st.markdown(f"#### Results for {sel_feat} - h={sel_h}s, m={sel_m}s")
                 render_results_view(selected_res, f"flipped_{sel_feat}_{sel_h}_{sel_m}")
             else:
-                st.warning(f"No results found for feature '{sel_feat}' with h={sel_h}s, m={sel_m}s")
+                st.warning(
+                    f"No results found for feature '{sel_feat}' with h={sel_h}s, m={sel_m}s"
+                )
     else:
         mode_tabs = st.tabs(["From Predictions", "From Forecasts"])
 

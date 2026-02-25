@@ -183,18 +183,22 @@ def render_psd_statistical_comparison(freqs, psd_data, participant_id, session):
     means_on = [r["mean_on"] for r in rows]
     means_off = [r["mean_off"] for r in rows]
 
-    fig.add_trace(go.Bar(
-        name="DBS ON",
-        x=channels,
-        y=means_on,
-        marker_color="#ff0035",
-    ))
-    fig.add_trace(go.Bar(
-        name="DBS OFF",
-        x=channels,
-        y=means_off,
-        marker_color="#59546c",
-    ))
+    fig.add_trace(
+        go.Bar(
+            name="DBS ON",
+            x=channels,
+            y=means_on,
+            marker_color="#ff0035",
+        )
+    )
+    fig.add_trace(
+        go.Bar(
+            name="DBS OFF",
+            x=channels,
+            y=means_off,
+            marker_color="#59546c",
+        )
+    )
 
     # Add significance annotations
     for i, r in enumerate(rows):
@@ -228,8 +232,7 @@ def render_psd_statistical_comparison(freqs, psd_data, participant_id, session):
     )
     st.plotly_chart(fig, use_container_width=True)
     st.caption(
-        f"Mean integrated PSD power per channel — "
-        f"* p<0.05, ** p<0.01, *** p<0.001"
+        f"Mean integrated PSD power per channel — " f"* p<0.05, ** p<0.01, *** p<0.001"
     )
 
 

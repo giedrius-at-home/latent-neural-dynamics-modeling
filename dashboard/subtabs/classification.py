@@ -25,9 +25,7 @@ def resolve_metric(res: Dict[str, Any], metric: str) -> float:
     return float("nan")
 
 
-def reeval_against_history(
-    res: Dict[str, Any], pred_res: Dict[str, Any]
-) -> bool:
+def reeval_against_history(res: Dict[str, Any], pred_res: Dict[str, Any]) -> bool:
     """
     Re-evaluate forecast results against historical predictions.
     Modifies `res` in-place. Returns True on success, False on failure.
@@ -58,30 +56,36 @@ def reeval_against_history(
     return True
 
 
-def _apply_line_plot_layout(
-    fig: go.Figure, title: str, xaxis_title: str
-) -> None:
+def _apply_line_plot_layout(fig: go.Figure, title: str, xaxis_title: str) -> None:
     """Apply shared layout to accuracy-vs-parameter line plots."""
     fig.add_hline(
-        y=0.5, line_dash="dash", line_color=PALETTE.cool_steel,
+        y=0.5,
+        line_dash="dash",
+        line_color=PALETTE.cool_steel,
         annotation_text="Chance",
     )
     fig.update_layout(
         title=dict(
-            text=title, x=0.5, xanchor="center",
+            text=title,
+            x=0.5,
+            xanchor="center",
             font=dict(size=PLOT_STYLE.title_size, family=PLOT_STYLE.font_family),
         ),
         xaxis=dict(
             title=dict(
                 text=xaxis_title,
-                font=dict(size=PLOT_STYLE.axis_label_size, family=PLOT_STYLE.font_family),
+                font=dict(
+                    size=PLOT_STYLE.axis_label_size, family=PLOT_STYLE.font_family
+                ),
             ),
             tickfont=dict(size=PLOT_STYLE.tick_label_size),
         ),
         yaxis=dict(
             title=dict(
                 text="Balanced Accuracy",
-                font=dict(size=PLOT_STYLE.axis_label_size, family=PLOT_STYLE.font_family),
+                font=dict(
+                    size=PLOT_STYLE.axis_label_size, family=PLOT_STYLE.font_family
+                ),
             ),
             tickfont=dict(size=PLOT_STYLE.tick_label_size),
             range=[0.4, 1.0],
@@ -107,7 +111,7 @@ def load_classification_results(
     for d in results_dir.iterdir():
         if not d.is_dir():
             continue
-        
+
         hm_match = hm_pattern.match(d.name)
         if not hm_match:
             continue
@@ -117,11 +121,11 @@ def load_classification_results(
         # Find pkl files for the given mode (prediction, forecast, flipped)
         pattern_str = f"*_{mode}.pkl"
         pkl_files = list(d.glob(pattern_str))
-        
+
         for pkl_file in pkl_files:
             filename = pkl_file.stem
             parts = filename.split("_")
-            
+
             # Extract feature source: everything between LDA and mode/flipped
             suffixes = {"prediction", "forecast", "flipped", "epoch", "overlap"}
             feature_parts = []
@@ -129,26 +133,30 @@ def load_classification_results(
                 if any(p.startswith(s) for s in suffixes):
                     break
                 feature_parts.append(p)
-            
+
             feature_source = "_".join(feature_parts) if feature_parts else "Default"
-            
+
             if feature_source not in all_results:
                 all_results[feature_source] = {}
-            
+
             try:
                 with open(pkl_file, "rb") as f:
                     res = pickle.load(f)
-                    
+
                 if eval_target == "history_label" and mode == "forecast":
-                    pred_file = pkl_file.parent / pkl_file.name.replace("_forecast", "_prediction")
+                    pred_file = pkl_file.parent / pkl_file.name.replace(
+                        "_forecast", "_prediction"
+                    )
                     if pred_file.exists():
                         try:
                             with open(pred_file, "rb") as fp:
                                 pred_res = pickle.load(fp)
                             reeval_against_history(res, pred_res)
                         except Exception as e:
-                            st.warning(f"Failed to load history prediction for {pkl_file.name}: {e}")
-                            
+                            st.warning(
+                                f"Failed to load history prediction for {pkl_file.name}: {e}"
+                            )
+
                 all_results[feature_source][(h_val, m_val)] = res
             except Exception as e:
                 st.warning(f"Failed to load {pkl_file}: {e}")
@@ -269,7 +277,7 @@ def create_line_plot_by_history(
         return go.Figure()
 
     fig = go.Figure()
-    
+
     # Qualitative colors for different sources/windows
     colors = px.colors.qualitative.Plotly
 
@@ -341,7 +349,9 @@ def create_line_plot_by_future(
             )
             color_idx += 1
 
-    _apply_line_plot_layout(fig, "Accuracy vs Forecast Horizon", "Forecast Horizon m (seconds)")
+    _apply_line_plot_layout(
+        fig, "Accuracy vs Forecast Horizon", "Forecast Horizon m (seconds)"
+    )
     return fig
 
 

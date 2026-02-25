@@ -87,16 +87,21 @@ def render_cross_trial_performance_tab(
 
     if cfg_path:
         from dashboard.subtabs.helpers import (
-            list_variants, list_run_timestamps, load_precomputed_results,
-            variant_short_name, find_baseline_variants, get_project_root,
+            list_variants,
+            list_run_timestamps,
+            load_precomputed_results,
+            variant_short_name,
+            find_baseline_variants,
+            get_project_root,
         )
         import pathlib
+
         if isinstance(cfg_path, str):
             cfg_path = pathlib.Path(cfg_path)
         project_root = get_project_root(cfg_path)
         results_root = project_root / "results"
         all_variants = list_variants(results_root)
-        
+
         current_variant = cfg_path.stem
         model_name = variant_short_name(current_variant)
 
@@ -109,7 +114,7 @@ def render_cross_trial_performance_tab(
                 index=1 if baseline_variants else 0,
                 key="global_baseline_select",
             )
-            
+
             if selected_baseline != "None":
                 baseline_dir = results_root / selected_baseline
                 baseline_timestamps = list_run_timestamps(baseline_dir)
@@ -189,8 +194,13 @@ def render_cross_trial_performance_tab(
         st.markdown("### Neural Prediction Performance (Pearson r)")
 
         render_normalized_kde_plot(
-            r_y_arr, y_chan_names, split_res.get("block", []), "", use_bands=True,
-            baseline_r_arr=baseline_r_y, baseline_name=baseline_name
+            r_y_arr,
+            y_chan_names,
+            split_res.get("block", []),
+            "",
+            use_bands=True,
+            baseline_r_arr=baseline_r_y,
+            baseline_name=baseline_name,
         )
 
         render_spectral_fvu_plot(
@@ -213,7 +223,7 @@ def render_cross_trial_performance_tab(
             "",
             use_bands=True,
             baseline_pred=baseline_yp,
-            baseline_name=baseline_name
+            baseline_name=baseline_name,
         )
 
         render_residual_acf_heatmap(
@@ -223,7 +233,7 @@ def render_cross_trial_performance_tab(
             "Neural Residuals Autocorrelation (ACF)",
             use_bands=True,
             baseline_pred=baseline_yp,
-            baseline_name=baseline_name
+            baseline_name=baseline_name,
         )
 
         render_error_cdf_plot(
@@ -233,7 +243,7 @@ def render_cross_trial_performance_tab(
             "Neural Absolute Error CDF",
             use_bands=True,
             baseline_pred=baseline_yp,
-            baseline_name=baseline_name
+            baseline_name=baseline_name,
         )
 
         render_residual_qq_plot(
@@ -248,8 +258,13 @@ def render_cross_trial_performance_tab(
         )
 
         render_raincloud_plot(
-            r_y_arr, y_chan_names, split_res.get("block", []), "", use_bands=True,
-            baseline_r_arr=baseline_r_y, baseline_name=baseline_name
+            r_y_arr,
+            y_chan_names,
+            split_res.get("block", []),
+            "",
+            use_bands=True,
+            baseline_r_arr=baseline_r_y,
+            baseline_name=baseline_name,
         )
 
         fig_y = create_heatmap(
@@ -261,8 +276,13 @@ def render_cross_trial_performance_tab(
         st.markdown("### Behavioral Prediction Performance (Pearson r)")
 
         render_normalized_kde_plot(
-            r_z_arr, z_chan_names, split_res.get("block", []), "", use_bands=False,
-            baseline_r_arr=baseline_r_z, baseline_name=baseline_name
+            r_z_arr,
+            z_chan_names,
+            split_res.get("block", []),
+            "",
+            use_bands=False,
+            baseline_r_arr=baseline_r_z,
+            baseline_name=baseline_name,
         )
 
         render_spectral_fvu_plot(
@@ -285,7 +305,7 @@ def render_cross_trial_performance_tab(
             "",
             use_bands=False,
             baseline_pred=baseline_zp,
-            baseline_name=baseline_name
+            baseline_name=baseline_name,
         )
 
         render_residual_acf_heatmap(
@@ -295,7 +315,7 @@ def render_cross_trial_performance_tab(
             "Behavioral Residuals Autocorrelation (ACF)",
             use_bands=False,
             baseline_pred=baseline_zp,
-            baseline_name=baseline_name
+            baseline_name=baseline_name,
         )
 
         render_error_cdf_plot(
@@ -305,7 +325,7 @@ def render_cross_trial_performance_tab(
             "Behavioral Absolute Error CDF",
             use_bands=False,
             baseline_pred=baseline_zp,
-            baseline_name=baseline_name
+            baseline_name=baseline_name,
         )
 
         render_residual_qq_plot(
@@ -320,8 +340,13 @@ def render_cross_trial_performance_tab(
         )
 
         render_raincloud_plot(
-            r_z_arr, z_chan_names, split_res.get("block", []), "", use_bands=False,
-            baseline_r_arr=baseline_r_z, baseline_name=baseline_name
+            r_z_arr,
+            z_chan_names,
+            split_res.get("block", []),
+            "",
+            use_bands=False,
+            baseline_r_arr=baseline_r_z,
+            baseline_name=baseline_name,
         )
 
         fig_z = create_heatmap(
@@ -590,7 +615,13 @@ def render_distribution_comparison_plot(
             for t_idx in blk_indices:
                 t_true = np.array(data_true[t_idx])
                 t_pred = np.array(data_pred[t_idx])
-                t_base = np.array(baseline_pred[t_idx]) if baseline_pred and t_idx < len(baseline_pred) and baseline_pred[t_idx] is not None else None
+                t_base = (
+                    np.array(baseline_pred[t_idx])
+                    if baseline_pred
+                    and t_idx < len(baseline_pred)
+                    and baseline_pred[t_idx] is not None
+                    else None
+                )
 
                 if t_true.ndim == 2:
                     blk_true_samples.append(t_true[:, grp_indices])
@@ -616,7 +647,7 @@ def render_distribution_comparison_plot(
             blk_pred_flat = np.vstack(
                 [np.atleast_2d(s) if s.ndim == 1 else s for s in blk_pred_samples]
             )
-            
+
             blk_base_flat = np.empty((0,))
             if blk_base_samples:
                 blk_base_flat = np.vstack(
@@ -773,7 +804,13 @@ def render_spectral_fvu_plot(
     try:
         y_true_all = np.concatenate([np.atleast_2d(t) for t in data_true], axis=0)
         y_pred_all = np.concatenate([np.atleast_2d(t) for t in data_pred], axis=0)
-        y_base_all = np.concatenate([np.atleast_2d(t) for t in baseline_pred if t is not None], axis=0) if baseline_pred else None
+        y_base_all = (
+            np.concatenate(
+                [np.atleast_2d(t) for t in baseline_pred if t is not None], axis=0
+            )
+            if baseline_pred
+            else None
+        )
     except:
         return
 
@@ -808,7 +845,7 @@ def render_spectral_fvu_plot(
         nperseg = min(len(true_grp), 256)
         f, P_true = welch(true_grp, fs=sampling_freq, nperseg=nperseg, axis=0)
         f, P_resid = welch(resid_grp, fs=sampling_freq, nperseg=nperseg, axis=0)
-        
+
         P_base_resid = None
         P_true_for_base = None
         if y_base_all is not None:
@@ -821,9 +858,13 @@ def render_spectral_fvu_plot(
                 min_len = min(len(true_grp_matched), len(base_grp))
                 _P_true_m = true_grp_matched[:min_len]
                 _P_base = base_grp[:min_len]
-                f, P_base_resid = welch(_P_true_m - _P_base, fs=sampling_freq, nperseg=nperseg, axis=0)
+                f, P_base_resid = welch(
+                    _P_true_m - _P_base, fs=sampling_freq, nperseg=nperseg, axis=0
+                )
                 # Compute P_true on the same matched channels for correct ratio
-                _, P_true_for_base = welch(_P_true_m, fs=sampling_freq, nperseg=nperseg, axis=0)
+                _, P_true_for_base = welch(
+                    _P_true_m, fs=sampling_freq, nperseg=nperseg, axis=0
+                )
 
         # FVU Ratio per channel
         # P_true is (Freq, ChansInGroup)
@@ -832,12 +873,14 @@ def render_spectral_fvu_plot(
         # Stats across channels
         mean_ratio = np.mean(ratios, axis=1)
         sem_ratio = np.std(ratios, axis=1) / np.sqrt(max(1, ratios.shape[1]))
-        
+
         mean_base_ratio, sem_base_ratio = None, None
         if P_base_resid is not None and P_true_for_base is not None:
             base_ratios = P_base_resid / (P_true_for_base + 1e-10)
             mean_base_ratio = np.mean(base_ratios, axis=1)
-            sem_base_ratio = np.std(base_ratios, axis=1) / np.sqrt(max(1, base_ratios.shape[1]))
+            sem_base_ratio = np.std(base_ratios, axis=1) / np.sqrt(
+                max(1, base_ratios.shape[1])
+            )
 
         row = (i // n_cols) + 1
         col = (i % n_cols) + 1
@@ -920,6 +963,7 @@ def render_spectral_fvu_plot(
 
     st.plotly_chart(fig, use_container_width=True)
 
+
 def render_residual_acf_heatmap(
     data_true: list,
     data_pred: list,
@@ -934,7 +978,13 @@ def render_residual_acf_heatmap(
     try:
         y_true = np.concatenate([np.atleast_2d(t) for t in data_true], axis=0)
         y_pred = np.concatenate([np.atleast_2d(t) for t in data_pred], axis=0)
-        y_base = np.concatenate([np.atleast_2d(t) for t in baseline_pred if t is not None], axis=0) if baseline_pred else None
+        y_base = (
+            np.concatenate(
+                [np.atleast_2d(t) for t in baseline_pred if t is not None], axis=0
+            )
+            if baseline_pred
+            else None
+        )
 
         residuals = y_true - y_pred
         b_residuals = None
@@ -947,22 +997,31 @@ def render_residual_acf_heatmap(
         nlags = 20
         n_chans = len(channel_names)
         n_base_chans = y_base.shape[1] if y_base is not None else 0
-        n_rows_acf = n_chans + min(n_chans, n_base_chans) if y_base is not None else n_chans
+        n_rows_acf = (
+            n_chans + min(n_chans, n_base_chans) if y_base is not None else n_chans
+        )
         acf_matrix = np.zeros((n_rows_acf, nlags + 1))
 
         for c in range(n_chans):
             acf_matrix[c, :] = acf(residuals[:, c], nlags=nlags, fft=True)
             if b_residuals is not None and c < n_base_chans:
-                acf_matrix[n_chans + c, :] = acf(b_residuals[:, c], nlags=nlags, fft=True)
+                acf_matrix[n_chans + c, :] = acf(
+                    b_residuals[:, c], nlags=nlags, fft=True
+                )
 
         y_labels = _get_groups_map(channel_names, use_bands)
 
         all_y_labels = y_labels.copy()
         if y_base is not None:
-            all_y_labels.extend([f"{y_labels[c]} ({baseline_name})" for c in range(min(n_chans, n_base_chans))])
+            all_y_labels.extend(
+                [
+                    f"{y_labels[c]} ({baseline_name})"
+                    for c in range(min(n_chans, n_base_chans))
+                ]
+            )
 
         sort_idx = np.argsort(all_y_labels)
-        acf_matrix = acf_matrix[:len(all_y_labels)][sort_idx, :]
+        acf_matrix = acf_matrix[: len(all_y_labels)][sort_idx, :]
         sorted_y_labels = [all_y_labels[i] for i in sort_idx]
 
         fig = go.Figure(
@@ -1014,7 +1073,13 @@ def render_error_cdf_plot(
     try:
         y_true = np.concatenate([np.atleast_2d(t) for t in data_true], axis=0)
         y_pred = np.concatenate([np.atleast_2d(t) for t in data_pred], axis=0)
-        y_base = np.concatenate([np.atleast_2d(t) for t in baseline_pred if t is not None], axis=0) if baseline_pred else None
+        y_base = (
+            np.concatenate(
+                [np.atleast_2d(t) for t in baseline_pred if t is not None], axis=0
+            )
+            if baseline_pred
+            else None
+        )
 
         abs_err = np.abs(y_true - y_pred)
         b_abs_err = None
@@ -1033,13 +1098,15 @@ def render_error_cdf_plot(
                 err_vals = np.random.choice(err_vals, 1000, replace=False)
             for v in err_vals:
                 df_list.append({"Abs Error": v, "Group": groups[c]})
-            
+
             if b_abs_err is not None and c < b_abs_err.shape[1]:
                 b_err_vals = b_abs_err[:, c]
                 if len(b_err_vals) > 1000:
                     b_err_vals = np.random.choice(b_err_vals, 1000, replace=False)
                 for v in b_err_vals:
-                    df_list.append({"Abs Error": v, "Group": f"{groups[c]} ({baseline_name})"})
+                    df_list.append(
+                        {"Abs Error": v, "Group": f"{groups[c]} ({baseline_name})"}
+                    )
 
         df = pd.DataFrame(df_list)
         fig = px.ecdf(
@@ -1131,7 +1198,9 @@ def render_residual_qq_plot(
                 valid_idx = [idx for idx in grp_idx if idx < y_base.shape[1]]
                 if valid_idx:
                     min_len = min(y_true.shape[0], y_base.shape[0])
-                    base_resids = (y_true[:min_len, valid_idx] - y_base[:min_len, valid_idx]).flatten()
+                    base_resids = (
+                        y_true[:min_len, valid_idx] - y_base[:min_len, valid_idx]
+                    ).flatten()
                     base_resids = (base_resids - np.mean(base_resids)) / (
                         np.std(base_resids) + 1e-8
                     )

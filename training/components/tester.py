@@ -469,7 +469,9 @@ class Tester:
     def compute_and_save_stats(self):
 
         if self.framework_type not in ("psid", "dpad"):
-            self.logger.info("compute_and_save_stats is only supported for PSID and DPAD models.")
+            self.logger.info(
+                "compute_and_save_stats is only supported for PSID and DPAD models."
+            )
             return
 
         def create_dataset(group, name, data):

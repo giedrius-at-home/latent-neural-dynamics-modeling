@@ -129,7 +129,9 @@ def render_y_forecast_plot(
 
     if baseline_y_fp_c_rescaled is not None:
         if Tpast > 0:
-            baseline_fp_plot = np.concatenate(([last_hist_val], baseline_y_fp_c_rescaled))
+            baseline_fp_plot = np.concatenate(
+                ([last_hist_val], baseline_y_fp_c_rescaled)
+            )
         else:
             baseline_fp_plot = baseline_y_fp_c_rescaled
         fig.add_trace(
@@ -139,7 +141,9 @@ def render_y_forecast_plot(
                 name=f"{baseline_name} (rescaled)",
                 mode="lines",
                 line=dict(
-                    color=BASELINE_COLOR, width=PLOT_STYLE.line_width_normal, dash="dash"
+                    color=BASELINE_COLOR,
+                    width=PLOT_STYLE.line_width_normal,
+                    dash="dash",
                 ),
             )
         )
@@ -268,17 +272,21 @@ def render_z_forecast_plot(
 
     if baseline_z_fp_c_rescaled is not None:
         if Tpast > 0 and z_concat is not None and len(z_concat_c) >= Tpast:
-            baseline_fp_plot = np.concatenate(([z_concat_c[Tpast - 1]], baseline_z_fp_c_rescaled))
+            baseline_fp_plot = np.concatenate(
+                ([z_concat_c[Tpast - 1]], baseline_z_fp_c_rescaled)
+            )
         else:
             baseline_fp_plot = baseline_z_fp_c_rescaled
         fig.add_trace(
             go.Scatter(
-                x=t_future_plot[:len(baseline_fp_plot)],
+                x=t_future_plot[: len(baseline_fp_plot)],
                 y=baseline_fp_plot,
                 name=f"{baseline_name} (rescaled)",
                 mode="lines",
                 line=dict(
-                    color=BASELINE_COLOR, width=PLOT_STYLE.line_width_normal, dash="dash"
+                    color=BASELINE_COLOR,
+                    width=PLOT_STYLE.line_width_normal,
+                    dash="dash",
                 ),
             )
         )
@@ -287,11 +295,19 @@ def render_z_forecast_plot(
         zp_1_rescaled = rescale_to_reference(zp_1, z_ft_c)
         fig.add_trace(
             go.Scatter(
-                x=t_future_plot[-len(zp_1_rescaled):] if Tpast == 0 else t_future_plot[1:],
+                x=(
+                    t_future_plot[-len(zp_1_rescaled) :]
+                    if Tpast == 0
+                    else t_future_plot[1:]
+                ),
                 y=zp_1_rescaled,
                 name=f"Zp_1 (beh) r={r_zp1:.3f}",
                 mode="lines",
-                line=dict(color=PALETTE.twilight_indigo, width=PLOT_STYLE.line_width_normal, dash="dashdot"),
+                line=dict(
+                    color=PALETTE.twilight_indigo,
+                    width=PLOT_STYLE.line_width_normal,
+                    dash="dashdot",
+                ),
             )
         )
 
@@ -299,11 +315,19 @@ def render_z_forecast_plot(
         zp_2_rescaled = rescale_to_reference(zp_2, z_ft_c)
         fig.add_trace(
             go.Scatter(
-                x=t_future_plot[-len(zp_2_rescaled):] if Tpast == 0 else t_future_plot[1:],
+                x=(
+                    t_future_plot[-len(zp_2_rescaled) :]
+                    if Tpast == 0
+                    else t_future_plot[1:]
+                ),
                 y=zp_2_rescaled,
                 name=f"Zp_2 (non-beh) r={r_zp2:.3f}",
                 mode="lines",
-                line=dict(color=PALETTE.strawberry_red, width=PLOT_STYLE.line_width_normal, dash="dot"),
+                line=dict(
+                    color=PALETTE.strawberry_red,
+                    width=PLOT_STYLE.line_width_normal,
+                    dash="dot",
+                ),
             )
         )
 
@@ -321,9 +345,15 @@ def render_z_forecast_plot(
     r_str = f"{r_fore_z_ch:.3f}" if not np.isnan(r_fore_z_ch) else "N/A"
     caption_parts = [f"Behavioral Forecast: {channel_name} (Pearson r={r_str})"]
     if baseline_z_fp_c_rescaled is not None:
-        baseline_r_str = f"{baseline_r:.3f}" if baseline_r is not None and not np.isnan(baseline_r) else "N/A"
+        baseline_r_str = (
+            f"{baseline_r:.3f}"
+            if baseline_r is not None and not np.isnan(baseline_r)
+            else "N/A"
+        )
         caption_parts.append(f"{baseline_name} r={baseline_r_str}")
-    caption_parts.append("*Forecast rescaled to match Z_true mean/std for visualization*")
+    caption_parts.append(
+        "*Forecast rescaled to match Z_true mean/std for visualization*"
+    )
     st.caption(" | ".join(caption_parts))
 
 
@@ -427,7 +457,7 @@ def render_forecasting_tab(
     project_root = get_project_root(cfg_path)
     results_root = project_root / "results"
     all_variants = list_variants(results_root)
-    
+
     current_variant = cfg_path.stem
 
     baseline_variants = find_baseline_variants(current_variant, all_variants)
@@ -462,17 +492,22 @@ def render_forecasting_tab(
                 )
                 if baseline_res:
                     if "trial_forecasts" not in baseline_res:
-                        with st.spinner(f"Computing baseline forecast for trial {trial_idx}..."):
+                        with st.spinner(
+                            f"Computing baseline forecast for trial {trial_idx}..."
+                        ):
                             # Use baseline's own Y data (may have different channels than main model)
                             baseline_Y = baseline_res.get("Y", [])
                             y_trial = (
                                 np.array(baseline_Y[trial_idx])
-                                if baseline_Y and trial_idx < len(baseline_Y) and baseline_Y[trial_idx] is not None
+                                if baseline_Y
+                                and trial_idx < len(baseline_Y)
+                                and baseline_Y[trial_idx] is not None
                                 else np.array(Y_true[trial_idx])
                             )
                             z_trial = (
                                 np.array(baseline_res.get("Z", [None])[trial_idx])
-                                if baseline_res.get("Z") and baseline_res["Z"][trial_idx] is not None
+                                if baseline_res.get("Z")
+                                and baseline_res["Z"][trial_idx] is not None
                                 else None
                             )
                             chunk_margin = (
@@ -481,7 +516,9 @@ def render_forecasting_tab(
                                 else None
                             )
 
-                            b_cfg_path = find_config_path(project_root, selected_baseline)
+                            b_cfg_path = find_config_path(
+                                project_root, selected_baseline
+                            )
                             if b_cfg_path is not None:
                                 try:
                                     baseline_forecast_res = compute_forecast_for_trial(
@@ -492,9 +529,13 @@ def render_forecasting_tab(
                                         chunk_margin,
                                     )
                                 except Exception as e:
-                                    st.warning(f"Baseline forecast computation failed: {e}")
+                                    st.warning(
+                                        f"Baseline forecast computation failed: {e}"
+                                    )
                     else:
-                        baseline_forecast_res = baseline_res["trial_forecasts"].get(trial_idx)
+                        baseline_forecast_res = baseline_res["trial_forecasts"].get(
+                            trial_idx
+                        )
                     selected_baseline_name = variant_short_name(selected_baseline)
 
     f_res = None
@@ -691,14 +732,21 @@ def render_forecasting_tab(
 
             st.markdown("#### PSD Analysis: True Future vs Forecast")
             render_prediction_psd_analysis(
-                y_true_ch, y_pred_ch, sampling_rate=fs, channel_name=selected_name,
-                baseline_preds=baseline_yp_c_f, baseline_name=selected_baseline_name,
+                y_true_ch,
+                y_pred_ch,
+                sampling_rate=fs,
+                channel_name=selected_name,
+                baseline_preds=baseline_yp_c_f,
+                baseline_name=selected_baseline_name,
                 model_name=model_label,
             )
 
             st.markdown("#### Scatter Plot: True Future vs Forecast")
             render_y_scatter_plot(
-                y_true_ch, y_pred_ch, selected_name, r_fore_ch,
+                y_true_ch,
+                y_pred_ch,
+                selected_name,
+                r_fore_ch,
                 baseline_preds=baseline_yp_c_f,
                 baseline_name=selected_baseline_name,
                 model_name=model_label,
@@ -706,7 +754,10 @@ def render_forecasting_tab(
 
             st.markdown("#### Residual Plot: Prediction Errors Over Time")
             render_y_residual_plot(
-                y_true_ch, y_pred_ch, t_future, selected_name,
+                y_true_ch,
+                y_pred_ch,
+                t_future,
+                selected_name,
                 baseline_preds=baseline_yp_c_f,
                 baseline_name=selected_baseline_name,
             )
@@ -718,7 +769,9 @@ def render_forecasting_tab(
                 "Residual Diagnostics & Normality Tests (Forecast)", expanded=False
             ):
                 render_residual_diagnostics(
-                    y_true_ch, y_pred_ch, selected_name,
+                    y_true_ch,
+                    y_pred_ch,
+                    selected_name,
                     baseline_preds=baseline_yp_c_f,
                     baseline_name=selected_baseline_name,
                     model_name=model_label,
@@ -756,8 +809,16 @@ def render_forecasting_tab(
                     z_c = z_channel_options.index(selected_z_name) if nz_chan > 1 else 0
 
                     # Extract selected channel data for use in downstream plots
-                    z_ft_c = z_future_true.squeeze() if nz_chan == 1 else z_future_true[:, z_c]
-                    z_fp_c = z_future_pred.squeeze() if nz_chan == 1 else z_future_pred[:, z_c]
+                    z_ft_c = (
+                        z_future_true.squeeze()
+                        if nz_chan == 1
+                        else z_future_true[:, z_c]
+                    )
+                    z_fp_c = (
+                        z_future_pred.squeeze()
+                        if nz_chan == 1
+                        else z_future_pred[:, z_c]
+                    )
 
                     r_fore_z_ch = np.nan
                     if r_fore_list_z is not None:
@@ -770,19 +831,36 @@ def render_forecasting_tab(
                     zp_1_f, zp_2_f, r_zp1_f, r_zp2_f = None, None, None, None
                     try:
                         n1 = getattr(get_config(str(cfg_path)).model, "n1", 0)
-                        if "Xp" in split_res and split_res["Xp"] is not None and "B_z" in split_res and split_res["B_z"] is not None and n1 > 0:
+                        if (
+                            "Xp" in split_res
+                            and split_res["Xp"] is not None
+                            and "B_z" in split_res
+                            and split_res["B_z"] is not None
+                            and n1 > 0
+                        ):
                             Xp_trial = split_res["Xp"][trial_idx]
                             B_z = split_res["B_z"]
                             d_z = split_res.get("d_z")
-                            Xp_future = np.array(Xp_trial)[-m:] if Xp_trial is not None else None
+                            Xp_future = (
+                                np.array(Xp_trial)[-m:]
+                                if Xp_trial is not None
+                                else None
+                            )
                             if Xp_future is not None and B_z is not None:
-                                zp_1_f, zp_2_f, r_zp1_f, r_zp2_f = _compute_zp_components(z_ft_c, Xp_future, B_z, d_z, n1, z_c)
+                                zp_1_f, zp_2_f, r_zp1_f, r_zp2_f = (
+                                    _compute_zp_components(
+                                        z_ft_c, Xp_future, B_z, d_z, n1, z_c
+                                    )
+                                )
                     except Exception:
                         pass
 
                     baseline_zp_c_f = None
                     baseline_r_z_f = None
-                    if baseline_forecast_res and "Z_future_pred" in baseline_forecast_res:
+                    if (
+                        baseline_forecast_res
+                        and "Z_future_pred" in baseline_forecast_res
+                    ):
                         bz_fp = np.array(baseline_forecast_res["Z_future_pred"])
                         if bz_fp.ndim == 1:
                             baseline_zp_c_f = bz_fp
@@ -792,7 +870,9 @@ def render_forecasting_tab(
                             baseline_zp_c_f = bz_fp.flatten()
                         if baseline_zp_c_f is not None:
                             try:
-                                baseline_r_z_f = np.corrcoef(z_ft_c.flatten(), baseline_zp_c_f.flatten())[0, 1]
+                                baseline_r_z_f = np.corrcoef(
+                                    z_ft_c.flatten(), baseline_zp_c_f.flatten()
+                                )[0, 1]
                             except Exception:
                                 baseline_r_z_f = np.nan
 
@@ -818,18 +898,25 @@ def render_forecasting_tab(
 
                     # Compute t_future_z for downstream plots
                     Tpast_z = max(0, len(t_abs_margined) - m)
-                    t_future_z = t_abs_margined[Tpast_z:Tpast_z + len(z_ft_c)]
+                    t_future_z = t_abs_margined[Tpast_z : Tpast_z + len(z_ft_c)]
 
                     st.markdown("#### PSD Analysis: True Future vs Forecast")
                     render_prediction_psd_analysis(
-                        z_ft_c, z_fp_c, sampling_rate=fs, channel_name=selected_z_name,
-                        baseline_preds=baseline_zp_c_f, baseline_name=selected_baseline_name,
+                        z_ft_c,
+                        z_fp_c,
+                        sampling_rate=fs,
+                        channel_name=selected_z_name,
+                        baseline_preds=baseline_zp_c_f,
+                        baseline_name=selected_baseline_name,
                         model_name=model_label,
                     )
 
                     st.markdown("#### Scatter Plot: True Future vs Forecast")
                     render_z_scatter_plot(
-                        z_ft_c, z_fp_c, selected_z_name, r_fore_z_ch,
+                        z_ft_c,
+                        z_fp_c,
+                        selected_z_name,
+                        r_fore_z_ch,
                         baseline_preds=baseline_zp_c_f,
                         baseline_name=selected_baseline_name,
                         model_name=model_label,
@@ -837,13 +924,19 @@ def render_forecasting_tab(
 
                     st.markdown("#### Residual Plot: Prediction Errors Over Time")
                     render_z_residual_plot(
-                        z_ft_c, z_fp_c, t_future_z, selected_z_name,
+                        z_ft_c,
+                        z_fp_c,
+                        t_future_z,
+                        selected_z_name,
                         baseline_preds=baseline_zp_c_f,
                         baseline_name=selected_baseline_name,
                     )
 
                     render_z_statistics_table(
-                        z_ft_c, z_fp_c, r_fore_z_ch, selected_z_name,
+                        z_ft_c,
+                        z_fp_c,
+                        r_fore_z_ch,
+                        selected_z_name,
                         baseline_preds=baseline_zp_c_f,
                         baseline_r=baseline_r_z_f,
                         baseline_name=selected_baseline_name,
@@ -856,7 +949,9 @@ def render_forecasting_tab(
                         expanded=False,
                     ):
                         render_residual_diagnostics(
-                            z_ft_c, z_fp_c, selected_z_name,
+                            z_ft_c,
+                            z_fp_c,
+                            selected_z_name,
                             baseline_preds=baseline_zp_c_f,
                             baseline_name=selected_baseline_name,
                             model_name=model_label,

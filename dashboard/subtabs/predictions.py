@@ -16,7 +16,11 @@ from dashboard.backbone import (
     add_margin_visualization,
     add_caption_below,
 )
-from dashboard.subtabs.helpers import get_trial_time_axis, transpose_if_needed, rescale_to_reference
+from dashboard.subtabs.helpers import (
+    get_trial_time_axis,
+    transpose_if_needed,
+    rescale_to_reference,
+)
 
 BASELINE_COLOR = "#00E5FF"
 from utils.stats import (
@@ -179,7 +183,7 @@ def render_y_scatter_plot(
         f"{model_name} OLS: y={slope:.4f}x+{intercept:.4f}, R²={r_squared:.4f}, p={p_value:.2e}"
     )
     if baseline_preds is not None:
-        r_sq_b = r_value_b ** 2
+        r_sq_b = r_value_b**2
         caption_parts.append(
             f"{baseline_name} OLS: y={slope_b:.4f}x+{intercept_b:.4f}, R²={r_sq_b:.4f}, p={p_value_b:.2e}"
         )
@@ -237,7 +241,9 @@ def render_y_residual_plot(
         yaxis_title="Residual (µV)",
     )
     st.plotly_chart(fig, use_container_width=True)
-    st.caption(f"Residuals (Prediction Errors) — {channel_name} (RMSE={rmse:.3f} µV){baseline_caption}")
+    st.caption(
+        f"Residuals (Prediction Errors) — {channel_name} (RMSE={rmse:.3f} µV){baseline_caption}"
+    )
 
 
 def render_statistics_table(
@@ -355,7 +361,9 @@ def render_residual_diagnostics(
 
         if baseline_preds is not None:
             base_resids = y_true - baseline_preds
-            base_resids_std = (base_resids - np.mean(base_resids)) / (np.std(base_resids) + 1e-12)
+            base_resids_std = (base_resids - np.mean(base_resids)) / (
+                np.std(base_resids) + 1e-12
+            )
             base_tq, base_sq = qq_plot_data(base_resids_std)
             if len(base_tq) > 0:
                 fig_qq.add_trace(
@@ -412,7 +420,9 @@ def render_residual_diagnostics(
 
         if baseline_preds is not None:
             base_resids = y_true - baseline_preds
-            base_resids_std = (base_resids - np.mean(base_resids)) / (np.std(base_resids) + 1e-12)
+            base_resids_std = (base_resids - np.mean(base_resids)) / (
+                np.std(base_resids) + 1e-12
+            )
             base_tcdf, base_ecdf = probability_plot_data(base_resids_std)
             if len(base_tcdf) > 0:
                 fig_prob.add_trace(
@@ -807,7 +817,11 @@ def render_z_scatter_plot(
     model_name: str = "Model",
 ):
     z_pred_c_rescaled = rescale_to_reference(z_pred_c, z_true_c)
-    baseline_rescaled = rescale_to_reference(baseline_preds, z_true_c) if baseline_preds is not None else None
+    baseline_rescaled = (
+        rescale_to_reference(baseline_preds, z_true_c)
+        if baseline_preds is not None
+        else None
+    )
 
     fig = go.Figure()
 
@@ -893,33 +907,48 @@ def render_z_scatter_plot(
         f"{model_name} OLS: y={slope:.4f}x+{intercept:.4f}, R²={r_squared:.4f}, p={p_value:.2e}"
     )
     if baseline_rescaled is not None:
-        r_sq_b = r_value_b ** 2
+        r_sq_b = r_value_b**2
         caption_parts.append(
             f"{baseline_name} OLS: y={slope_b:.4f}x+{intercept_b:.4f}, R²={r_sq_b:.4f}, p={p_value_b:.2e}"
         )
     st.caption(" | ".join(caption_parts))
 
 
-def _compute_zp_components(z_true_c: np.ndarray, xp: np.ndarray, B_z: np.ndarray, d_z: np.ndarray, n1: int, channel_idx: int) -> tuple:
+def _compute_zp_components(
+    z_true_c: np.ndarray,
+    xp: np.ndarray,
+    B_z: np.ndarray,
+    d_z: np.ndarray,
+    n1: int,
+    channel_idx: int,
+) -> tuple:
     if xp is None or B_z is None or n1 <= 0 or xp.shape[1] < n1:
         return None, None, np.nan, np.nan
-        
+
     xp_1 = xp[:, :n1]
     xp_2 = xp[:, n1:]
-    
+
     B_z_1 = B_z[channel_idx, :n1]
     B_z_2 = B_z[channel_idx, n1:]
-    
-    zp_1 = (xp_1 @ B_z_1)
+
+    zp_1 = xp_1 @ B_z_1
     if d_z is not None and len(d_z) > channel_idx:
         zp_1 += d_z[channel_idx]
-        
-    zp_2 = (xp_2 @ B_z_2) 
+
+    zp_2 = xp_2 @ B_z_2
     # Do not add d_z to zp_2 to avoid double counting the bias
-    
-    r_zp1 = np.corrcoef(z_true_c.flatten(), zp_1.flatten())[0, 1] if len(z_true_c) > 1 and len(zp_1) > 1 else np.nan
-    r_zp2 = np.corrcoef(z_true_c.flatten(), zp_2.flatten())[0, 1] if len(z_true_c) > 1 and len(zp_2) > 1 else np.nan
-    
+
+    r_zp1 = (
+        np.corrcoef(z_true_c.flatten(), zp_1.flatten())[0, 1]
+        if len(z_true_c) > 1 and len(zp_1) > 1
+        else np.nan
+    )
+    r_zp2 = (
+        np.corrcoef(z_true_c.flatten(), zp_2.flatten())[0, 1]
+        if len(z_true_c) > 1 and len(zp_2) > 1
+        else np.nan
+    )
+
     return zp_1, zp_2, r_zp1, r_zp2
 
 
@@ -974,7 +1003,9 @@ def render_z_residual_plot(
         yaxis_title="Residual",
     )
     st.plotly_chart(fig, use_container_width=True)
-    st.caption(f"Residuals (Prediction Errors) — {channel_name} (RMSE={rmse:.3f}){baseline_caption}")
+    st.caption(
+        f"Residuals (Prediction Errors) — {channel_name} (RMSE={rmse:.3f}){baseline_caption}"
+    )
 
 
 def render_z_statistics_table(
@@ -1100,7 +1131,11 @@ def render_z_prediction_plot(
                 y=zp_1_rescaled,
                 name=f"Zp_1 (beh) r={r_zp1:.3f}",
                 mode="lines",
-                line=dict(color=PALETTE.twilight_indigo, width=PLOT_STYLE.line_width_normal, dash="dashdot"),
+                line=dict(
+                    color=PALETTE.twilight_indigo,
+                    width=PLOT_STYLE.line_width_normal,
+                    dash="dashdot",
+                ),
             )
         )
 
@@ -1112,7 +1147,11 @@ def render_z_prediction_plot(
                 y=zp_2_rescaled,
                 name=f"Zp_2 (non-beh) r={r_zp2:.3f}",
                 mode="lines",
-                line=dict(color=PALETTE.strawberry_red, width=PLOT_STYLE.line_width_normal, dash="dot"),
+                line=dict(
+                    color=PALETTE.strawberry_red,
+                    width=PLOT_STYLE.line_width_normal,
+                    dash="dot",
+                ),
             )
         )
 
@@ -1124,7 +1163,11 @@ def render_z_prediction_plot(
                 y=baseline_rescaled,
                 name=f"{baseline_name} (rescaled)",
                 mode="lines",
-                line=dict(color=BASELINE_COLOR, width=PLOT_STYLE.line_width_normal, dash="dash"),
+                line=dict(
+                    color=BASELINE_COLOR,
+                    width=PLOT_STYLE.line_width_normal,
+                    dash="dash",
+                ),
             )
         )
 
@@ -1133,18 +1176,30 @@ def render_z_prediction_plot(
 
     st.plotly_chart(fig, use_container_width=True)
     r_str = f"{r_ch:.3f}" if not np.isnan(r_ch) else "N/A"
-    
+
     caption_parts = [f"Behavioral Prediction: {channel_name} (Pearson r={r_str})"]
     if baseline_preds is not None:
-        baseline_r_str = f"{baseline_r:.3f}" if baseline_r is not None and not np.isnan(baseline_r) else "N/A"
+        baseline_r_str = (
+            f"{baseline_r:.3f}"
+            if baseline_r is not None and not np.isnan(baseline_r)
+            else "N/A"
+        )
         caption_parts.append(f"{baseline_name} r={baseline_r_str}")
-    caption_parts.append("*Predictions rescaled to match Z_true mean/std for visualization*")
+    caption_parts.append(
+        "*Predictions rescaled to match Z_true mean/std for visualization*"
+    )
     st.caption(" | ".join(caption_parts))
 
 
-def render_prediction_psd_analysis(y_true, y_pred, sampling_rate=60, channel_name="",
-                                    baseline_preds=None, baseline_name="Baseline",
-                                    model_name="Model"):
+def render_prediction_psd_analysis(
+    y_true,
+    y_pred,
+    sampling_rate=60,
+    channel_name="",
+    baseline_preds=None,
+    baseline_name="Baseline",
+    model_name="Model",
+):
     if y_true is None or y_pred is None:
         return
 
@@ -1196,7 +1251,9 @@ def render_prediction_psd_analysis(y_true, y_pred, sampling_rate=60, channel_nam
                 name=f"{baseline_name} PSD",
                 mode="lines",
                 line=dict(
-                    color=BASELINE_COLOR, width=PLOT_STYLE.line_width_normal, dash="dash"
+                    color=BASELINE_COLOR,
+                    width=PLOT_STYLE.line_width_normal,
+                    dash="dash",
                 ),
             )
         )
@@ -1204,7 +1261,9 @@ def render_prediction_psd_analysis(y_true, y_pred, sampling_rate=60, channel_nam
     st.plotly_chart(fig, use_container_width=True)
 
 
-def render_predictions_tab(split_res: Dict[str, Any], trial_idx: int, cfg_path: Path, run_ts: str):
+def render_predictions_tab(
+    split_res: Dict[str, Any], trial_idx: int, cfg_path: Path, run_ts: str
+):
     Y_true = split_res["Y"]
     Yp = split_res["Yp"]
     Zp = split_res["Zp"]
@@ -1280,14 +1339,18 @@ def render_predictions_tab(split_res: Dict[str, Any], trial_idx: int, cfg_path: 
             pass
 
     from dashboard.subtabs.helpers import (
-        list_variants, load_precomputed_results, list_run_timestamps,
-        variant_short_name, find_baseline_variants, get_project_root,
+        list_variants,
+        load_precomputed_results,
+        list_run_timestamps,
+        variant_short_name,
+        find_baseline_variants,
+        get_project_root,
     )
 
     project_root = get_project_root(cfg_path)
     results_root = project_root / "results"
     all_variants = list_variants(results_root)
-    
+
     current_variant = cfg_path.stem
 
     baseline_variants = find_baseline_variants(current_variant, all_variants)
@@ -1300,9 +1363,9 @@ def render_predictions_tab(split_res: Dict[str, Any], trial_idx: int, cfg_path: 
 
     if baseline_variants:
         st.markdown("#### Baseline Comparison")
-        
+
         default_idx = 0
-        
+
         selected_baseline = st.selectbox(
             "Select Baseline Model",
             options=["None"] + baseline_variants,
@@ -1349,7 +1412,7 @@ def render_predictions_tab(split_res: Dict[str, Any], trial_idx: int, cfg_path: 
                                 )[0, 1]
                             except:
                                 baseline_r = np.nan
-                                
+
                     selected_baseline_name = variant_short_name(selected_baseline)
                     st.session_state["baseline_res_cache"] = baseline_res
 
@@ -1428,14 +1491,21 @@ def render_predictions_tab(split_res: Dict[str, Any], trial_idx: int, cfg_path: 
 
     st.markdown("#### PSD Analysis: True vs Predicted")
     render_prediction_psd_analysis(
-        y_true_c, y_pred_c, sampling_rate=fs, channel_name=selected_name,
-        baseline_preds=baseline_yp_c, baseline_name=selected_baseline_name,
+        y_true_c,
+        y_pred_c,
+        sampling_rate=fs,
+        channel_name=selected_name,
+        baseline_preds=baseline_yp_c,
+        baseline_name=selected_baseline_name,
         model_name=model_label,
     )
 
     st.markdown("#### Scatter Plot: True vs Predicted")
     render_y_scatter_plot(
-        y_true_c, y_pred_c, selected_name, r_ch,
+        y_true_c,
+        y_pred_c,
+        selected_name,
+        r_ch,
         baseline_preds=baseline_yp_c,
         baseline_name=selected_baseline_name,
         model_name=model_label,
@@ -1443,13 +1513,13 @@ def render_predictions_tab(split_res: Dict[str, Any], trial_idx: int, cfg_path: 
 
     st.markdown("#### Residual Plot: Prediction Errors Over Time")
     render_y_residual_plot(
-        y_true_c, 
-        y_pred_c, 
-        t_abs, 
-        selected_name, 
+        y_true_c,
+        y_pred_c,
+        t_abs,
+        selected_name,
         chunk_margin=chunk_margin,
         baseline_preds=baseline_yp_c,
-        baseline_name=selected_baseline_name
+        baseline_name=selected_baseline_name,
     )
 
     render_statistics_table(y_true_c, y_pred_c, r_ch, selected_name)
@@ -1457,7 +1527,9 @@ def render_predictions_tab(split_res: Dict[str, Any], trial_idx: int, cfg_path: 
     st.markdown("---")
     with st.expander("Residual Diagnostics & Normality Tests", expanded=False):
         render_residual_diagnostics(
-            y_true_c, y_pred_c, selected_name,
+            y_true_c,
+            y_pred_c,
+            selected_name,
             baseline_preds=baseline_yp_c,
             baseline_name=selected_baseline_name,
             model_name=model_label,
@@ -1473,13 +1545,13 @@ def render_predictions_tab(split_res: Dict[str, Any], trial_idx: int, cfg_path: 
             st.info("Model configuration not available in session state")
 
     Z_true = split_res.get("Z")
-    
+
     tester = Tester.from_config_file(str(cfg_path), run_timestamp=run_ts)
     tester._load_model_for_run()
     idSys = getattr(tester.framework.model, "idSys", None)
     B_z = getattr(idSys, "B_z", None) if idSys else None
     d_z = getattr(idSys, "d_z", None) if idSys else None
-    
+
     cfg = get_config(str(cfg_path))
     n1 = getattr(cfg.model, "n1", 0)
 
@@ -1543,9 +1615,15 @@ def render_predictions_tab(split_res: Dict[str, Any], trial_idx: int, cfg_path: 
                 if baseline_zp is not None:
                     baseline_zp = np.array(baseline_zp)
                     baseline_zp = transpose_if_needed(baseline_zp, len(t_abs))
-                    n_baseline_chan_z = baseline_zp.shape[1] if baseline_zp.ndim == 2 else 1
+                    n_baseline_chan_z = (
+                        baseline_zp.shape[1] if baseline_zp.ndim == 2 else 1
+                    )
                     if z_c < n_baseline_chan_z:
-                        baseline_zp_c = baseline_zp.squeeze() if n_baseline_chan_z == 1 else baseline_zp[:, z_c]
+                        baseline_zp_c = (
+                            baseline_zp.squeeze()
+                            if n_baseline_chan_z == 1
+                            else baseline_zp[:, z_c]
+                        )
                         try:
                             baseline_r_z = np.corrcoef(
                                 z_true_c.flatten(), baseline_zp_c.flatten()
@@ -1553,30 +1631,52 @@ def render_predictions_tab(split_res: Dict[str, Any], trial_idx: int, cfg_path: 
                         except:
                             baseline_r_z = np.nan
 
-            Xp_trial = np.array(split_res.get("Xp", [])[trial_idx]) if split_res.get("Xp") and len(split_res["Xp"]) > trial_idx else None
+            Xp_trial = (
+                np.array(split_res.get("Xp", [])[trial_idx])
+                if split_res.get("Xp") and len(split_res["Xp"]) > trial_idx
+                else None
+            )
             zp_1, zp_2, r_zp1, r_zp2 = None, None, None, None
             if Xp_trial is not None and B_z is not None and n1 > 0:
                 Xp_transposed = transpose_if_needed(Xp_trial, len(t_abs))
-                zp_1, zp_2, r_zp1, r_zp2 = _compute_zp_components(z_true_c, Xp_transposed, B_z, d_z, n1, z_c)
+                zp_1, zp_2, r_zp1, r_zp2 = _compute_zp_components(
+                    z_true_c, Xp_transposed, B_z, d_z, n1, z_c
+                )
 
             st.markdown("#### Time Series: Z_true vs Z_pred")
             render_z_prediction_plot(
-                z_t, z_p, t_abs, z_c, selected_z_name, r_z_ch,
-                zp_1=zp_1, zp_2=zp_2, r_zp1=r_zp1, r_zp2=r_zp2,
-                baseline_preds=baseline_zp_c, baseline_name=baseline_name_z,
+                z_t,
+                z_p,
+                t_abs,
+                z_c,
+                selected_z_name,
+                r_z_ch,
+                zp_1=zp_1,
+                zp_2=zp_2,
+                r_zp1=r_zp1,
+                r_zp2=r_zp2,
+                baseline_preds=baseline_zp_c,
+                baseline_name=baseline_name_z,
                 baseline_r=baseline_r_z,
             )
 
             st.markdown("#### PSD Analysis: Z_true vs Z_pred")
             render_prediction_psd_analysis(
-                z_true_c, z_pred_c, sampling_rate=fs, channel_name=selected_z_name,
-                baseline_preds=baseline_zp_c, baseline_name=baseline_name_z,
+                z_true_c,
+                z_pred_c,
+                sampling_rate=fs,
+                channel_name=selected_z_name,
+                baseline_preds=baseline_zp_c,
+                baseline_name=baseline_name_z,
                 model_name=model_label,
             )
 
             st.markdown("#### Scatter Plot: True vs Predicted")
             render_z_scatter_plot(
-                z_true_c, z_pred_c, selected_z_name, r_z_ch,
+                z_true_c,
+                z_pred_c,
+                selected_z_name,
+                r_z_ch,
                 baseline_preds=baseline_zp_c,
                 baseline_name=baseline_name_z,
                 model_name=model_label,
@@ -1584,16 +1684,19 @@ def render_predictions_tab(split_res: Dict[str, Any], trial_idx: int, cfg_path: 
 
             st.markdown("#### Residual Plot: Prediction Errors Over Time")
             render_z_residual_plot(
-                z_true_c, 
-                z_pred_c, 
-                t_abs, 
-                selected_z_name, 
+                z_true_c,
+                z_pred_c,
+                t_abs,
+                selected_z_name,
                 baseline_preds=baseline_zp_c,
-                baseline_name=baseline_name_z
+                baseline_name=baseline_name_z,
             )
 
             render_z_statistics_table(
-                z_true_c, z_pred_c, r_z_ch, selected_z_name,
+                z_true_c,
+                z_pred_c,
+                r_z_ch,
+                selected_z_name,
                 baseline_preds=baseline_zp_c,
                 baseline_r=baseline_r_z,
                 baseline_name=baseline_name_z,
@@ -1606,7 +1709,9 @@ def render_predictions_tab(split_res: Dict[str, Any], trial_idx: int, cfg_path: 
                     "Comprehensive diagnostics to verify that residuals follow a Gaussian distribution."
                 )
                 render_residual_diagnostics(
-                    z_true_c, z_pred_c, selected_z_name,
+                    z_true_c,
+                    z_pred_c,
+                    selected_z_name,
                     baseline_preds=baseline_zp_c,
                     baseline_name=baseline_name_z,
                     model_name=model_label,
@@ -1620,7 +1725,9 @@ def render_predictions_tab(split_res: Dict[str, Any], trial_idx: int, cfg_path: 
                 if baseline_zp_c is not None:
                     base_detrended = baseline_zp_c - np.mean(baseline_zp_c)
                 render_residual_diagnostics(
-                    z_true_zero, z_pred_detrended, f"{selected_z_name} (detrended)",
+                    z_true_zero,
+                    z_pred_detrended,
+                    f"{selected_z_name} (detrended)",
                     baseline_preds=base_detrended,
                     baseline_name=baseline_name_z,
                     model_name=model_label,

@@ -194,7 +194,9 @@ def _render_model_analysis(project_root, RESULTS_ROOT):
 
                 cfg = get_config(str(cfg_path))
                 fs = getattr(cfg.data, "sampling_frequency", 60.0)
-                render_cross_trial_performance_tab(split_res, sampling_freq=fs, cfg_path=cfg_path)
+                render_cross_trial_performance_tab(
+                    split_res, sampling_freq=fs, cfg_path=cfg_path
+                )
 
             with lag_analysis_tab:
                 cfg = get_config(str(cfg_path))

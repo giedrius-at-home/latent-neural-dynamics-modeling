@@ -58,6 +58,7 @@ def _epoch_kwargs(config, feature_source):
 # Core computation
 # ---------------------------------------------------------------------------
 
+
 def compute_classification_for_config(
     logger,
     config,
@@ -79,15 +80,21 @@ def compute_classification_for_config(
         X_train, y_train, groups_train, _ = prepare_epoched_data(
             [trials],
             **common,
-            A_on=A_on, A_off=A_off, A_both=A_both,
-            h=h, m=m,
+            A_on=A_on,
+            A_off=A_off,
+            A_both=A_both,
+            h=h,
+            m=m,
         )
         X_test, y_test, _, _ = prepare_epoched_data(
             [trials],
             **common,
             target_future=True,
-            A_on=A_on, A_off=A_off, A_both=A_both,
-            h=h, m=m,
+            A_on=A_on,
+            A_off=A_off,
+            A_both=A_both,
+            h=h,
+            m=m,
         )
     else:
         from dashboard.dbs_classification_tab import load_all_splits
@@ -99,11 +106,19 @@ def compute_classification_for_config(
         test_list = [splits.get("test")] if splits.get("test") is not None else []
 
         X_train, y_train, groups_train, _ = prepare_epoched_data(
-            trainval_list, **common, mode=mode, h=h, m=m,
+            trainval_list,
+            **common,
+            mode=mode,
+            h=h,
+            m=m,
         )
         X_test, y_test, _, _ = (
             prepare_epoched_data(
-                test_list, **common, mode=mode, h=h, m=m,
+                test_list,
+                **common,
+                mode=mode,
+                h=h,
+                m=m,
             )
             if test_list
             else (None, None, None, None)
@@ -259,10 +274,14 @@ def verify_test_results(logger, project_root, config):
     if not test_dir.exists():
         from training.components.tester import Tester
 
-        setup_paths = list((project_root / "training" / "setups").rglob(f"{config.run.variant}.yaml"))
+        setup_paths = list(
+            (project_root / "training" / "setups").rglob(f"{config.run.variant}.yaml")
+        )
         if not setup_paths:
-            raise FileNotFoundError(f"Could not find training config for {config.run.variant}")
-        
+            raise FileNotFoundError(
+                f"Could not find training config for {config.run.variant}"
+            )
+
         tester = Tester(
             get_config(str(setup_paths[0])),
             run_timestamp=config.run.run_ts,
