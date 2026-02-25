@@ -25,6 +25,7 @@ from dashboard.subtabs.classification import (
     create_line_plot_by_future,
     create_heatmap_figure,
     create_summary_table,
+    reeval_against_history,
 )
 from dashboard.subtabs import (
     load_precomputed_results,
@@ -80,13 +81,14 @@ def render_metrics_row(results: Dict[str, Any], prefix: str = ""):
 
 
 def render_confusion_matrix(cm: np.ndarray, key: str):
+    labels = ["OFF", "ON"]
     fig = go.Figure(
         data=go.Heatmap(
-            z=cm[::-1, ::-1],
-            x=["ON", "OFF"],
-            y=["ON", "OFF"],
+            z=cm,
+            x=labels,
+            y=labels,
             colorscale="Burg",
-            text=cm[::-1, ::-1],
+            text=cm,
             texttemplate="%{text}",
             textfont={"size": 20},
             showscale=True,
@@ -95,7 +97,6 @@ def render_confusion_matrix(cm: np.ndarray, key: str):
     fig.update_layout(
         xaxis_title="Predicted",
         yaxis_title="True",
-        yaxis=dict(autorange="reversed"),
         height=350,
         template="plotly_white",
         font=dict(family=PLOT_STYLE.font_family),
@@ -421,35 +422,23 @@ def render_classification_mode(
         results = load_single_result(result_file)
         if results:
             if eval_target == "history_label":
-                # Need to load the corresponding prediction file to get history_labels
                 pred_file = result_file.parent / result_file.name.replace("_forecast", "_prediction")
                 if pred_file.exists():
                     pred_res = load_single_result(pred_file)
-                    if pred_res and "y_pred" in pred_res:
-                        history_preds = pred_res["y_pred"]
-                        if len(history_preds) == len(results["y_pred"]):
-                            st.info(f"Evaluating {len(history_preds)} forecast samples against historical predictions.")
-                            
-                            from sklearn.metrics import accuracy_score, balanced_accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
-                            y_true = history_preds
-                            y_pred = results["y_pred"]
-                            # Recalculate basic metrics
-                            results["accuracy"] = accuracy_score(y_true, y_pred)
-                            results["balanced_accuracy"] = balanced_accuracy_score(y_true, y_pred)
-                            results["precision"] = precision_score(y_true, y_pred, zero_division=0)
-                            results["recall"] = recall_score(y_true, y_pred, zero_division=0)
-                            results["f1"] = f1_score(y_true, y_pred, zero_division=0)
-                            results["confusion_matrix"] = confusion_matrix(y_true, y_pred, labels=[0, 1])
-                            
-                            # Clean up properties that don't apply when evaluating against prediction
-                            if "test_results" in results:
-                                del results["test_results"]
-                            if "roc_auc" in results:
-                                del results["roc_auc"]
-                                del results["fpr"]
-                                del results["tpr"]
+                    if pred_res:
+                        if reeval_against_history(results, pred_res):
+                            n = len(pred_res["y_pred"])
+                            st.info(f"Evaluating {n} forecast samples against historical predictions.")
+                            # Also recompute confusion matrix and drop ROC data
+                            from sklearn.metrics import confusion_matrix
+                            results["confusion_matrix"] = confusion_matrix(
+                                pred_res["y_pred"], results["y_pred"], labels=[0, 1]
+                            )
+                            results.pop("roc_auc", None)
+                            results.pop("fpr", None)
+                            results.pop("tpr", None)
                         else:
-                            st.error(f"Sample size mismatch: History has {len(history_preds)} predictions, Forecast has {len(results['y_pred'])}.")
+                            st.error("Sample size mismatch between history and forecast predictions.")
                     else:
                         st.warning("Could not load history predictions for this configuration.")
                 else:

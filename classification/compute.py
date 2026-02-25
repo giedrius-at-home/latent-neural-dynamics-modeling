@@ -25,27 +25,46 @@ def _get_first(val):
     return val
 
 
+def _ensure_list(val, default):
+    """Normalise a scalar-or-list config value into a list."""
+    if val is None:
+        val = default
+    return val if isinstance(val, list) else [val]
+
+
 def _get_model_path(project_root, variant_cfg):
     v = _get_first(variant_cfg)
     return project_root / "results" / v.variant / f"model_{v.run_ts}.pkl"
 
 
-def load_all_splits(
-    variant_dir: Path, run_ts: str
-) -> Dict[str, Optional[Dict[str, Any]]]:
-    from dashboard.subtabs import load_precomputed_results
+def get_dynamics(project_root, variant_cfg):
+    with open(_get_model_path(project_root, variant_cfg), "rb") as f:
+        return pickle.load(f).A
 
-    splits = {}
-    for split_name in ["train", "val", "test"]:
-        splits[split_name] = load_precomputed_results(variant_dir, run_ts, split_name)
-    return splits
 
+def _epoch_kwargs(config, feature_source):
+    """Build the kwargs shared by every `prepare_epoched_data` call."""
+    return dict(
+        feature_source=feature_source,
+        epoch_length_sec=config.classification.epoch_length,
+        overlap=config.classification.epoch_overlap,
+        fs=config.classification.sampling_freq,
+        n1=config.classification.get("n1"),
+        nx=config.classification.get("nx"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Core computation
+# ---------------------------------------------------------------------------
 
 def compute_classification_for_config(
     logger,
     config,
     mode: str,
     feature_source: str,
+    h: Optional[float] = None,
+    m: Optional[float] = None,
     variant_dir=None,
     run_ts=None,
     A_on=None,
@@ -54,38 +73,25 @@ def compute_classification_for_config(
     trials=None,
 ):
     flipped = config.classification.get("flipped", False)
+    common = _epoch_kwargs(config, feature_source)
 
     if flipped:
         X_train, y_train, groups_train, _ = prepare_epoched_data(
             [trials],
-            feature_source=feature_source,
-            epoch_length_sec=config.classification.epoch_length,
-            overlap=config.classification.epoch_overlap,
-            fs=config.classification.sampling_freq,
-            A_on=A_on,
-            A_off=A_off,
-            A_both=A_both,
-            h=config.classification.get("h"),
-            m=config.classification.get("m"),
-            n1=config.classification.get("n1"),
-            nx=config.classification.get("nx"),
+            **common,
+            A_on=A_on, A_off=A_off, A_both=A_both,
+            h=h, m=m,
         )
         X_test, y_test, _, _ = prepare_epoched_data(
             [trials],
-            feature_source=feature_source,
-            epoch_length_sec=config.classification.epoch_length,
-            overlap=config.classification.epoch_overlap,
-            fs=config.classification.sampling_freq,
+            **common,
             target_future=True,
-            A_on=A_on,
-            A_off=A_off,
-            A_both=A_both,
-            h=config.classification.get("h"),
-            m=config.classification.get("m"),
-            n1=config.classification.get("n1"),
-            nx=config.classification.get("nx"),
+            A_on=A_on, A_off=A_off, A_both=A_both,
+            h=h, m=m,
         )
     else:
+        from dashboard.dbs_classification_tab import load_all_splits
+
         splits = load_all_splits(variant_dir, run_ts)
         trainval_list = [
             r for r in [splits.get("train"), splits.get("val")] if r is not None
@@ -93,29 +99,11 @@ def compute_classification_for_config(
         test_list = [splits.get("test")] if splits.get("test") is not None else []
 
         X_train, y_train, groups_train, _ = prepare_epoched_data(
-            trainval_list,
-            feature_source=feature_source,
-            epoch_length_sec=config.classification.epoch_length,
-            overlap=config.classification.epoch_overlap,
-            fs=config.classification.sampling_freq,
-            mode=mode,
-            m=config.classification.get("m"),
-            h=config.classification.get("h"),
-            n1=config.classification.get("n1"),
-            nx=config.classification.get("nx"),
+            trainval_list, **common, mode=mode, h=h, m=m,
         )
         X_test, y_test, _, _ = (
             prepare_epoched_data(
-                test_list,
-                feature_source=feature_source,
-                epoch_length_sec=config.classification.epoch_length,
-                overlap=config.classification.epoch_overlap,
-                fs=config.classification.sampling_freq,
-                mode=mode,
-                m=config.classification.get("m"),
-                h=config.classification.get("h"),
-                n1=config.classification.get("n1"),
-                nx=config.classification.get("nx"),
+                test_list, **common, mode=mode, h=h, m=m,
             )
             if test_list
             else (None, None, None, None)
@@ -139,23 +127,18 @@ def compute_classification_for_config(
         )
 
         if flipped:
-            h_val = config.classification.get("h", 1.0)
-            m_val = config.classification.get("m", 1.0)
+            h_val = h if h is not None else 1.0
+            m_val = m if m is not None else 1.0
             save_dir = (
                 Path(config.results.results_dir)
                 / f"{run_ts}/classification/h{h_val}_m{m_val}"
             )
         else:
-            # For non-flipped, Results dir is specific to the "both" variant being analyzed
-            # results.results_dir for flipped is usually name: variant_dbs_both_flipped
-            # whereas run.variant is variant_dbs_both
             results_dir = (
                 Path(config.results.project_root) / "results" / config.run.variant
             )
-            h_val = config.classification.get("h")
-            m_val = config.classification.get("m")
-            if h_val is not None or m_val is not None:
-                save_dir = results_dir / f"{run_ts}/classification/h{h_val}_m{m_val}"
+            if h is not None or m is not None:
+                save_dir = results_dir / f"{run_ts}/classification/h{h}_m{m}"
             else:
                 save_dir = results_dir / f"{run_ts}/classification"
         save_dir.mkdir(parents=True, exist_ok=True)
@@ -220,31 +203,23 @@ def compute(config):
                 trials["trial"].append(trial_idx)
                 trial_idx += 1
 
-        h_values = config.classification.get("h", [1.0])
-        m_values = config.classification.get("m", [1.0])
-
-        if not isinstance(h_values, list):
-            h_values = [h_values]
-        if not isinstance(m_values, list):
-            m_values = [m_values]
+        h_values = _ensure_list(config.classification.get("h"), [1.0])
+        m_values = _ensure_list(config.classification.get("m"), [1.0])
 
         run_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         logger.info(f"Flipped classification run timestamp: {run_ts}")
 
-        all_results = []
         for h_val in h_values:
             for m_val in m_values:
                 logger.info(f"Running flipped suite with h={h_val}s, m={m_val}s")
 
-                config.classification.h = h_val
-                config.classification.m = m_val
-
-                # Flipped Classification (uses A_on/A_off dynamics)
                 compute_classification_for_config(
                     logger,
                     config,
                     "flipped",
                     config.classification.get("prediction_feature_source", "Xp"),
+                    h=h_val,
+                    m=m_val,
                     run_ts=run_ts,
                     A_on=A_on,
                     A_off=A_off,
@@ -253,18 +228,11 @@ def compute(config):
                 )
     else:
         verify_test_results(logger, project_root, config)
-        h_values = config.classification.get("h", [None])
-        m_values = config.classification.get("m", [None])
-
-        if not isinstance(h_values, list):
-            h_values = [h_values]
-        if not isinstance(m_values, list):
-            m_values = [m_values]
+        h_values = _ensure_list(config.classification.get("h"), [None])
+        m_values = _ensure_list(config.classification.get("m"), [None])
 
         for h_val in h_values:
             for m_val in m_values:
-                config.classification.h = h_val
-                config.classification.m = m_val
                 for mode in ["prediction", "forecast"]:
                     logger.info(
                         f"Running {mode} classification with h={h_val}s, m={m_val}s"
@@ -274,14 +242,11 @@ def compute(config):
                         config,
                         mode,
                         config.classification.get(f"{mode}_feature_source", "Xp"),
+                        h=h_val,
+                        m=m_val,
                         variant_dir=project_root / "results" / config.run.variant,
                         run_ts=config.run.run_ts,
                     )
-
-
-def get_dynamics(project_root, variant_cfg):
-    with open(_get_model_path(project_root, variant_cfg), "rb") as f:
-        return pickle.load(f).A
 
 
 def verify_test_results(logger, project_root, config):

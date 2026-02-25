@@ -16,6 +16,83 @@ from dashboard.backbone import (
 )
 
 
+def resolve_metric(res: Dict[str, Any], metric: str) -> float:
+    """Resolve a metric value from a result dict, checking test_results first."""
+    if "test_results" in res and metric in res["test_results"]:
+        return res["test_results"][metric]
+    if metric in res:
+        return res[metric]
+    return float("nan")
+
+
+def reeval_against_history(
+    res: Dict[str, Any], pred_res: Dict[str, Any]
+) -> bool:
+    """
+    Re-evaluate forecast results against historical predictions.
+    Modifies `res` in-place. Returns True on success, False on failure.
+    """
+    if "y_pred" not in pred_res or "y_pred" not in res:
+        return False
+    history_preds = pred_res["y_pred"]
+    y_pred = res["y_pred"]
+    if len(history_preds) != len(y_pred):
+        return False
+
+    from sklearn.metrics import (
+        accuracy_score,
+        balanced_accuracy_score,
+        precision_score,
+        recall_score,
+        f1_score,
+    )
+
+    y_true = history_preds
+    res["accuracy"] = accuracy_score(y_true, y_pred)
+    res["balanced_accuracy"] = balanced_accuracy_score(y_true, y_pred)
+    res["precision"] = precision_score(y_true, y_pred, zero_division=0)
+    res["recall"] = recall_score(y_true, y_pred, zero_division=0)
+    res["f1"] = f1_score(y_true, y_pred, zero_division=0)
+    res["best_cv_score"] = res["balanced_accuracy"]
+    res.pop("test_results", None)
+    return True
+
+
+def _apply_line_plot_layout(
+    fig: go.Figure, title: str, xaxis_title: str
+) -> None:
+    """Apply shared layout to accuracy-vs-parameter line plots."""
+    fig.add_hline(
+        y=0.5, line_dash="dash", line_color=PALETTE.cool_steel,
+        annotation_text="Chance",
+    )
+    fig.update_layout(
+        title=dict(
+            text=title, x=0.5, xanchor="center",
+            font=dict(size=PLOT_STYLE.title_size, family=PLOT_STYLE.font_family),
+        ),
+        xaxis=dict(
+            title=dict(
+                text=xaxis_title,
+                font=dict(size=PLOT_STYLE.axis_label_size, family=PLOT_STYLE.font_family),
+            ),
+            tickfont=dict(size=PLOT_STYLE.tick_label_size),
+        ),
+        yaxis=dict(
+            title=dict(
+                text="Balanced Accuracy",
+                font=dict(size=PLOT_STYLE.axis_label_size, family=PLOT_STYLE.font_family),
+            ),
+            tickfont=dict(size=PLOT_STYLE.tick_label_size),
+            range=[0.4, 1.0],
+        ),
+        template="plotly_white",
+        font=dict(family=PLOT_STYLE.font_family, color=PALETTE.ink_black),
+        legend=dict(font=dict(size=PLOT_STYLE.tick_label_size)),
+        margin=dict(l=60, r=60, t=80, b=60),
+    )
+
+
 def load_classification_results(
     results_dir: Path, mode: str = "forecast", eval_target: str = "dbs_stim"
 ) -> Dict[str, Dict[Tuple[float, float], Dict[str, Any]]]:
@@ -68,24 +145,7 @@ def load_classification_results(
                         try:
                             with open(pred_file, "rb") as fp:
                                 pred_res = pickle.load(fp)
-                            if "y_pred" in pred_res and "y_pred" in res:
-                                history_preds = pred_res["y_pred"]
-                                y_pred = res["y_pred"]
-                                
-                                if len(history_preds) == len(y_pred):
-                                    from sklearn.metrics import accuracy_score, balanced_accuracy_score, precision_score, recall_score, f1_score
-                                    y_true = history_preds
-                                    
-                                    # Overwrite metrics
-                                    res["accuracy"] = accuracy_score(y_true, y_pred)
-                                    res["balanced_accuracy"] = balanced_accuracy_score(y_true, y_pred)
-                                    res["precision"] = precision_score(y_true, y_pred, zero_division=0)
-                                    res["recall"] = recall_score(y_true, y_pred, zero_division=0)
-                                    res["f1"] = f1_score(y_true, y_pred, zero_division=0)
-                                    res["best_cv_score"] = res["balanced_accuracy"] # For summary plots which prefer best_cv_score
-                                    
-                                    if "test_results" in res:
-                                        del res["test_results"]
+                            reeval_against_history(res, pred_res)
                         except Exception as e:
                             st.warning(f"Failed to load history prediction for {pkl_file.name}: {e}")
                             
@@ -118,13 +178,7 @@ def create_heatmap_figure(
         h_idx = h_values.index(h)
         m_idx = m_values.index(m)
 
-        # Get the metric value (prefer test results if available)
-        if "test_results" in res and metric in res["test_results"]:
-            z_matrix[m_idx, h_idx] = res["test_results"][metric]
-        elif metric in res:
-            z_matrix[m_idx, h_idx] = res[metric]
-        elif metric == "balanced_accuracy" and "best_cv_score" in res:
-            z_matrix[m_idx, h_idx] = res["best_cv_score"]
+        z_matrix[m_idx, h_idx] = resolve_metric(res, metric)
 
     # Find best cell
     best_idx = np.nanargmax(z_matrix)
@@ -229,17 +283,7 @@ def create_line_plot_by_history(
             x_vals = []
             for h in h_values:
                 if (h, m) in results:
-                    res = results[(h, m)]
-                    val = np.nan
-                    
-                    # 1. Try to find the metric in test_results first
-                    if "test_results" in res and metric in res["test_results"]:
-                        val = res["test_results"][metric]
-                    # 2. Otherwise use the requested key from the main dict
-                    elif metric in res:
-                        val = res[metric]
-                    
-                    y_vals.append(val)
+                    y_vals.append(resolve_metric(results[(h, m)], metric))
                     x_vals.append(h)
 
             name = f"{feature_source} (m={m:.1f}s)"
@@ -256,16 +300,7 @@ def create_line_plot_by_history(
             )
             color_idx += 1
 
-    fig.add_hline(y=0.5, line_dash="dash", line_color=PALETTE.cool_steel, annotation_text="Chance")
-
-    fig.update_layout(
-        title=dict(text="Accuracy vs History Length", x=0.5, xanchor="center", font=dict(size=PLOT_STYLE.title_size, family=PLOT_STYLE.font_family)),
-        xaxis=dict(title=dict(text="History h (seconds)", font=dict(size=PLOT_STYLE.axis_label_size, family=PLOT_STYLE.font_family)), tickfont=dict(size=PLOT_STYLE.tick_label_size)),
-        yaxis=dict(title=dict(text="Balanced Accuracy", font=dict(size=PLOT_STYLE.axis_label_size, family=PLOT_STYLE.font_family)), tickfont=dict(size=PLOT_STYLE.tick_label_size), range=[0.4, 1.0]),
-        template="plotly_white", font=dict(family=PLOT_STYLE.font_family, color=PALETTE.ink_black),
-        legend=dict(font=dict(size=PLOT_STYLE.tick_label_size)),
-        margin=dict(l=60, r=60, t=80, b=60),
-    )
+    _apply_line_plot_layout(fig, "Accuracy vs History Length", "History h (seconds)")
     return fig
 
 
@@ -289,17 +324,7 @@ def create_line_plot_by_future(
             x_vals = []
             for m in m_values:
                 if (h, m) in results:
-                    res = results[(h, m)]
-                    val = np.nan
-                    
-                    # 1. Try to find the metric in test_results first
-                    if "test_results" in res and metric in res["test_results"]:
-                        val = res["test_results"][metric]
-                    # 2. Otherwise use the requested key from the main dict
-                    elif metric in res:
-                        val = res[metric]
-                        
-                    y_vals.append(val)
+                    y_vals.append(resolve_metric(results[(h, m)], metric))
                     x_vals.append(m)
 
             name = f"{feature_source} (h={h:.1f}s)"
@@ -316,16 +341,7 @@ def create_line_plot_by_future(
             )
             color_idx += 1
 
-    fig.add_hline(y=0.5, line_dash="dash", line_color=PALETTE.cool_steel, annotation_text="Chance")
-
-    fig.update_layout(
-        title=dict(text="Accuracy vs Forecast Horizon", x=0.5, xanchor="center", font=dict(size=PLOT_STYLE.title_size, family=PLOT_STYLE.font_family)),
-        xaxis=dict(title=dict(text="Forecast Horizon m (seconds)", font=dict(size=PLOT_STYLE.axis_label_size, family=PLOT_STYLE.font_family)), tickfont=dict(size=PLOT_STYLE.tick_label_size)),
-        yaxis=dict(title=dict(text="Balanced Accuracy", font=dict(size=PLOT_STYLE.axis_label_size, family=PLOT_STYLE.font_family)), tickfont=dict(size=PLOT_STYLE.tick_label_size), range=[0.4, 1.0]),
-        template="plotly_white", font=dict(family=PLOT_STYLE.font_family, color=PALETTE.ink_black),
-        legend=dict(font=dict(size=PLOT_STYLE.tick_label_size)),
-        margin=dict(l=60, r=60, t=80, b=60),
-    )
+    _apply_line_plot_layout(fig, "Accuracy vs Forecast Horizon", "Forecast Horizon m (seconds)")
     return fig
 
 
@@ -466,71 +482,3 @@ def create_summary_table(
         rows.append(row)
 
     return rows
-
-
-def render_classification_tab(variant_dir: Path):
-
-    st.markdown("## Classification Results on Different History and Forecast Windows")
-
-    # Load results
-    results = load_classification_results(variant_dir)
-
-    if not results:
-        st.warning(f"No classification results found in {variant_dir}")
-        st.info("Run classification with h and m parameters to generate results.")
-        return
-
-    # Find best configuration
-    best_hm = max(results.keys(), key=lambda hm: results[hm].get("best_cv_score", 0))
-    best_h, best_m = best_hm
-    best_acc = results[best_hm].get("best_cv_score", 0)
-
-    # Metric selector
-    col1, col2 = st.columns([1, 3])
-    with col1:
-        metric = st.selectbox(
-            "Metric",
-            ["best_cv_score", "balanced_accuracy", "accuracy", "f1"],
-            format_func=lambda x: {
-                "best_cv_score": "CV Balanced Accuracy",
-                "balanced_accuracy": "Train Balanced Accuracy",
-                "accuracy": "Train Accuracy",
-                "f1": "F1 Score",
-            }.get(x, x),
-        )
-
-    st.markdown("### Heatmap")
-    fig_heatmap = create_heatmap_figure(results, metric=metric)
-    st.plotly_chart(fig_heatmap, use_container_width=True)
-
-    st.markdown("### Performance by History Length")
-    fig_lines = create_line_plot_by_history(results, metric=metric)
-    st.plotly_chart(fig_lines, use_container_width=True)
-
-    st.markdown("### Best Configuration Timeline")
-    fig_timeline = create_timeline_visualization(best_h, best_m, best_acc)
-    st.plotly_chart(fig_timeline, use_container_width=True)
-
-    st.info(
-        f"""
-    **Optimal Configuration:**
-    - Use **{best_h:.1f} seconds** of history before the decision point
-    - Predict **{best_m:.1f} seconds** into the future
-    - Achieves **{best_acc:.1%}** balanced accuracy
-    """
-    )
-
-    # st.markdown("### Detailed Results Table")
-    # import pandas as pd
-    # table_data = create_summary_table(results)
-    # df = pd.DataFrame(table_data)
-
-    # st.dataframe(
-    #     df.style.format({
-    #         "CV Score": "{:.3f}",
-    #         "Balanced Acc": "{:.3f}",
-    #         "Test Acc": "{:.3f}",
-    #         "p-value": "{:.4f}",
-    #     }).background_gradient(subset=["CV Score"], cmap="RdYlGn", vmin=0.5, vmax=1.0),
-    #     use_container_width=True,
-    # )
