@@ -17,7 +17,7 @@ from dashboard.backbone import (
 
 
 def load_classification_results(
-    results_dir: Path, mode: str = "forecast"
+    results_dir: Path, mode: str = "forecast", eval_target: str = "dbs_stim"
 ) -> Dict[str, Dict[Tuple[float, float], Dict[str, Any]]]:
     """
     Loads all classification results, grouping them by FEATURE SOURCE.
@@ -60,7 +60,36 @@ def load_classification_results(
             
             try:
                 with open(pkl_file, "rb") as f:
-                    all_results[feature_source][(h_val, m_val)] = pickle.load(f)
+                    res = pickle.load(f)
+                    
+                if eval_target == "history_label" and mode == "forecast":
+                    pred_file = pkl_file.parent / pkl_file.name.replace("_forecast", "_prediction")
+                    if pred_file.exists():
+                        try:
+                            with open(pred_file, "rb") as fp:
+                                pred_res = pickle.load(fp)
+                            if "y_pred" in pred_res and "y_pred" in res:
+                                history_preds = pred_res["y_pred"]
+                                y_pred = res["y_pred"]
+                                
+                                if len(history_preds) == len(y_pred):
+                                    from sklearn.metrics import accuracy_score, balanced_accuracy_score, precision_score, recall_score, f1_score
+                                    y_true = history_preds
+                                    
+                                    # Overwrite metrics
+                                    res["accuracy"] = accuracy_score(y_true, y_pred)
+                                    res["balanced_accuracy"] = balanced_accuracy_score(y_true, y_pred)
+                                    res["precision"] = precision_score(y_true, y_pred, zero_division=0)
+                                    res["recall"] = recall_score(y_true, y_pred, zero_division=0)
+                                    res["f1"] = f1_score(y_true, y_pred, zero_division=0)
+                                    res["best_cv_score"] = res["balanced_accuracy"] # For summary plots which prefer best_cv_score
+                                    
+                                    if "test_results" in res:
+                                        del res["test_results"]
+                        except Exception as e:
+                            st.warning(f"Failed to load history prediction for {pkl_file.name}: {e}")
+                            
+                all_results[feature_source][(h_val, m_val)] = res
             except Exception as e:
                 st.warning(f"Failed to load {pkl_file}: {e}")
 

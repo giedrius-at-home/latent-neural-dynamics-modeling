@@ -308,6 +308,7 @@ def render_classification_mode(
     variant_dir: Path,
     run_ts: str,
     mode: str,
+    eval_target: str = "dbs_stim",
 ):
 
     results_dir = variant_dir / run_ts / "classification"
@@ -369,7 +370,6 @@ def render_classification_mode(
     all_m = sorted(set(r["m"] for r in file_records if r["m"] is not None))
     
     col1, col2, col3 = st.columns(3)
-    
     with col1:
         sel_feat = st.selectbox(
             "Feature Source", 
@@ -420,6 +420,41 @@ def render_classification_mode(
 
         results = load_single_result(result_file)
         if results:
+            if eval_target == "history_label":
+                # Need to load the corresponding prediction file to get history_labels
+                pred_file = result_file.parent / result_file.name.replace("_forecast", "_prediction")
+                if pred_file.exists():
+                    pred_res = load_single_result(pred_file)
+                    if pred_res and "y_pred" in pred_res:
+                        history_preds = pred_res["y_pred"]
+                        if len(history_preds) == len(results["y_pred"]):
+                            st.info(f"Evaluating {len(history_preds)} forecast samples against historical predictions.")
+                            
+                            from sklearn.metrics import accuracy_score, balanced_accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
+                            y_true = history_preds
+                            y_pred = results["y_pred"]
+                            # Recalculate basic metrics
+                            results["accuracy"] = accuracy_score(y_true, y_pred)
+                            results["balanced_accuracy"] = balanced_accuracy_score(y_true, y_pred)
+                            results["precision"] = precision_score(y_true, y_pred, zero_division=0)
+                            results["recall"] = recall_score(y_true, y_pred, zero_division=0)
+                            results["f1"] = f1_score(y_true, y_pred, zero_division=0)
+                            results["confusion_matrix"] = confusion_matrix(y_true, y_pred, labels=[0, 1])
+                            
+                            # Clean up properties that don't apply when evaluating against prediction
+                            if "test_results" in results:
+                                del results["test_results"]
+                            if "roc_auc" in results:
+                                del results["roc_auc"]
+                                del results["fpr"]
+                                del results["tpr"]
+                        else:
+                            st.error(f"Sample size mismatch: History has {len(history_preds)} predictions, Forecast has {len(results['y_pred'])}.")
+                    else:
+                        st.warning("Could not load history predictions for this configuration.")
+                else:
+                    st.warning(f"Matching prediction file not found: {pred_file.name}")
+
             render_results_view(results, result_file.stem)
 
         st.markdown("---")
@@ -489,9 +524,18 @@ def render_classification_summary(all_results: Dict[str, Dict[Tuple[float, float
 
 
 def render_classification_from_forecasts(variant_dir: Path, run_ts: str):
+    st.markdown("### Forecast Evaluation Settings")
+    eval_target = st.radio(
+        "Evaluate Forecast Against:",
+        options=["dbs_stim", "history_label"],
+        format_func=lambda x: "True Label (dbs_stim)" if x == "dbs_stim" else "Historical Prediction (history_label)",
+        horizontal=True,
+        key=f"eval_target_forecast_{run_ts}"
+    )
+    
     results_dir = variant_dir / run_ts / "classification"
     if results_dir.exists():
-        all_results = load_classification_results(results_dir, mode="forecast")
+        all_results = load_classification_results(results_dir, mode="forecast", eval_target=eval_target)
         # Show summary if we have multiple windows OR multiple features
         n_configs = sum(len(res) for res in all_results.values())
         if n_configs > 1 or len(all_results) > 1:
@@ -499,7 +543,7 @@ def render_classification_from_forecasts(variant_dir: Path, run_ts: str):
             render_classification_summary(all_results, f"forecast_{run_ts}")
             st.markdown("---")
 
-    render_classification_mode(variant_dir, run_ts, mode="forecast")
+    render_classification_mode(variant_dir, run_ts, mode="forecast", eval_target=eval_target)
 
 
 def dbs_classification_tab(project_root, results_root=None):
