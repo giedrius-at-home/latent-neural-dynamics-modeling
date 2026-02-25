@@ -83,57 +83,115 @@ def fisher_z_transform(r_values: List[float]) -> Tuple[List[float], float]:
     return z_values.tolist(), float(np.mean(z_values))
 
 
-def aggregate_r_per_channel(
-    r_per_trial: List[Any],
+def aggregate_per_channel(
+    metric_per_trial: List[Any],
     channel_names: List[str],
     apply_fisher_z: bool = False,
-) -> Tuple[Dict[str, float], float]:
-    """Aggregate per-trial per-channel Pearson R into per-channel means.
+) -> Tuple[Dict[str, float], float, Dict[str, float], float]:
+    """Aggregate per-trial per-channel metrics into per-channel means and standard errors.
 
     Args:
-        r_per_trial: Output of pearson_r_per_channel (list of lists or flat list).
+        metric_per_trial: Output like pearson_r_per_channel (list of lists or flat list).
         channel_names: Channel names corresponding to columns.
         apply_fisher_z: If True, apply Fisher Z transform before averaging.
 
     Returns:
-        (per_channel_dict, overall_mean) where per_channel_dict maps
-        channel name to mean (or Fisher Z mean) across trials.
+        (mean_dict, overall_mean, se_dict, overall_se)
     """
     n_channels = len(channel_names)
-    per_channel = {}
+    per_channel_mean = {}
+    per_channel_se = {}
 
-    if not r_per_trial or n_channels == 0:
-        return {}, float("nan")
+    if not metric_per_trial or n_channels == 0:
+        return {}, float("nan"), {}, float("nan")
 
-    if isinstance(r_per_trial[0], list):
+    if isinstance(metric_per_trial[0], list):
         # Per-trial per-channel: list of lists
         for ch_idx in range(n_channels):
             ch_vals = [
                 trial[ch_idx]
-                for trial in r_per_trial
+                for trial in metric_per_trial
                 if len(trial) > ch_idx
                 and trial[ch_idx] is not None
                 and not np.isnan(trial[ch_idx])
             ]
             if ch_vals:
                 if apply_fisher_z:
-                    _, z_mean = fisher_z_transform(ch_vals)
-                    per_channel[channel_names[ch_idx]] = z_mean
+                    z_vals, z_mean = fisher_z_transform(ch_vals)
+                    per_channel_mean[channel_names[ch_idx]] = z_mean
+                    per_channel_se[channel_names[ch_idx]] = float(np.std(z_vals) / np.sqrt(len(z_vals))) if len(z_vals) > 0 else 0.0
                 else:
-                    per_channel[channel_names[ch_idx]] = float(np.mean(ch_vals))
+                    per_channel_mean[channel_names[ch_idx]] = float(np.mean(ch_vals))
+                    per_channel_se[channel_names[ch_idx]] = float(np.std(ch_vals) / np.sqrt(len(ch_vals))) if len(ch_vals) > 0 else 0.0
     else:
-        # Single-trial: flat list
-        for ch_idx, r in enumerate(r_per_trial):
+        # Single-trial: flat list (SE is 0 for a single trial)
+        for ch_idx, r in enumerate(metric_per_trial):
             if ch_idx < n_channels and r is not None and not np.isnan(r):
                 if apply_fisher_z:
                     _, z_mean = fisher_z_transform([r])
-                    per_channel[channel_names[ch_idx]] = z_mean
+                    per_channel_mean[channel_names[ch_idx]] = z_mean
                 else:
-                    per_channel[channel_names[ch_idx]] = float(r)
+                    per_channel_mean[channel_names[ch_idx]] = float(r)
+                per_channel_se[channel_names[ch_idx]] = 0.0
 
-    all_vals = [v for v in per_channel.values() if not np.isnan(v)]
-    overall_mean = float(np.mean(all_vals)) if all_vals else float("nan")
-    return per_channel, overall_mean
+    all_means = [v for v in per_channel_mean.values() if not np.isnan(v)]
+    overall_mean = float(np.mean(all_means)) if all_means else float("nan")
+    overall_se = float(np.std(all_means) / np.sqrt(len(all_means))) if all_means else 0.0
+    
+    return per_channel_mean, overall_mean, per_channel_se, overall_se
+
+
+def rmse_per_channel(
+    y_true: Union[np.ndarray, List[np.ndarray]],
+    y_pred: Union[np.ndarray, List[np.ndarray]],
+) -> Tuple[List[Any], float]:
+    """Calculate RMSE per channel, averaging across time, per trial."""
+    
+    trials_true: List[np.ndarray]
+    trials_pred: List[np.ndarray]
+
+    if isinstance(y_true, list) and isinstance(y_pred, list):
+        trials_true = y_true
+        trials_pred = y_pred
+    elif isinstance(y_true, np.ndarray) and isinstance(y_pred, np.ndarray):
+        if y_true.ndim == 2 and y_pred.ndim == 2:
+            rmse_list = [float(np.sqrt(np.mean((y_true[:, c] - y_pred[:, c])**2))) for c in range(y_true.shape[1])]
+            valid = [r for r in rmse_list if not np.isnan(r)]
+            r_mean = float(np.mean(valid)) if len(valid) > 0 else np.nan
+            return rmse_list, r_mean
+        elif y_true.ndim == 3 and y_pred.ndim == 3:
+            trials_true = [y_true[i] for i in range(y_true.shape[0])]
+            trials_pred = [y_pred[i] for i in range(y_pred.shape[0])]
+        else:
+            raise ValueError("Unsupported input shapes for rmse_per_channel.")
+    else:
+        raise ValueError(
+            "y_true and y_pred types must match (both list or both ndarray)."
+        )
+
+    per_trial: List[List[float]] = []
+    all_valid: List[float] = []
+    n_trials = min(len(trials_true), len(trials_pred))
+    
+    for i in range(n_trials):
+        yt = trials_true[i]
+        yp = trials_pred[i]
+        
+        if yt.shape != yp.shape:
+             raise ValueError("y_true and y_pred must have the same shape")
+             
+        # Calculate RMSE per channel for this trial
+        rmse_list = []
+        for c in range(yt.shape[1]):
+            rmse = float(np.sqrt(np.mean((yt[:, c] - yp[:, c])**2)))
+            rmse_list.append(rmse)
+            
+        per_trial.append(rmse_list)
+        all_valid.extend([r for r in rmse_list if not np.isnan(r)])
+
+    overall_mean = float(np.mean(all_valid)) if len(all_valid) > 0 else np.nan
+    return per_trial, overall_mean
+
 
 
 def compute_residual_statistics(
