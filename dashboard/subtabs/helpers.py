@@ -94,9 +94,14 @@ def check_precomputed_results(variant_dir: Path, run_ts: str) -> Dict[str, bool]
 
     for split in ["train", "val", "test"]:
         pickle_path = run_dir / f"{split}_results.pkl"
-        parquet_path = variant_dir / f"{split}_results_{run_ts}"
-
-        available[split] = pickle_path.exists() or parquet_path.exists()
+        legacy_parquet_path = variant_dir / f"{split}_results_{run_ts}"
+        new_parquet_path = variant_dir / split / f"test_results_{run_ts}.parquet"
+ 
+        available[split] = (
+            pickle_path.exists()
+            or legacy_parquet_path.exists()
+            or new_parquet_path.exists()
+        )
 
     return available
 
@@ -117,8 +122,14 @@ def load_precomputed_results(
         except Exception as e:
             print(f"Warning: Could not load pickle cache: {e}")
 
-    results_path = variant_dir / f"{split}_results_{run_ts}"
-    if not results_path.exists():
+    legacy_parquet_path = variant_dir / f"{split}_results_{run_ts}"
+    new_parquet_path = variant_dir / split / f"test_results_{run_ts}.parquet"
+ 
+    if new_parquet_path.exists():
+        results_path = new_parquet_path
+    elif legacy_parquet_path.exists():
+        results_path = legacy_parquet_path
+    else:
         return None
 
     try:

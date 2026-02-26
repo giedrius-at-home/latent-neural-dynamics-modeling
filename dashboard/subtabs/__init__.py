@@ -25,7 +25,7 @@ from dashboard.subtabs.classification import (
     create_heatmap_figure,
     create_summary_table,
     resolve_metric,
-    reeval_against_history,
+    reevaluate_against_history,
 )
 from dashboard.subtabs.data_hungriness import render_data_hungriness_tab
 
@@ -52,6 +52,6 @@ __all__ = [
     "create_heatmap_figure",
     "create_summary_table",
     "resolve_metric",
-    "reeval_against_history",
+    "reevaluate_against_history",
     "render_data_hungriness_tab",
 ]

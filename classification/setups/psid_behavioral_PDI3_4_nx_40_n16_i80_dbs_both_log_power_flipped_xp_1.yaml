@@ -1,45 +1,36 @@
-name: psid_behavioral_PDI3_4_nx_40_n16_i80_dbs_both_log_power_flipped_xp_1
+name: psid_behavioral_PDI3_4_nx_40_n16_i80_dbs_both_xp_1_log_power_flipped
+
 run:
-  dbs_on:
-    variant: psid_behavioral_PDI3_4_nx_40_n16_i80_dbs_on_log_power
-    run_ts: '20260221_185008'
-  dbs_off:
-    variant: psid_behavioral_PDI3_4_nx_40_n16_i80_dbs_off_log_power
-    run_ts: '20260221_184050'
-  dbs_both:
-    variant: psid_behavioral_PDI3_4_nx_40_n16_i80_dbs_both_log_power
-    run_ts: '20260221_182830'
+  dbs_on: 
+    variant: "psid_behavioral_PDI3_4_nx_40_n16_i80_dbs_on_log_power"
+    run_ts: "20260221_185008"
+  dbs_off: 
+    variant: "psid_behavioral_PDI3_4_nx_40_n16_i80_dbs_off_log_power"
+    run_ts: "20260221_184050"
+  dbs_both: 
+    variant: "psid_behavioral_PDI3_4_nx_40_n16_i80_dbs_both_log_power"
+    run_ts: "20260221_182830"
+
 classification:
   flipped: true
   n_splits: 2
-  epoch_length: 1.0
-  epoch_overlap: 0.5
-  sampling_freq: 60
-  h:
-  - 0.5
-  - 1.5
-  - 2.5
-  - 3.5
-  - 4.5
-  m:
-  - 0.5
-  - 1.0
-  - 2.0
+  epoch_length: 0.5     
+  epoch_overlap: 0.25 
+  sampling_freq: 80
+  h: [0.5, 1.5, 2.5, 3.5, 4.5]   
+  m: [0.5, 1.0, 2.0]
   n1: 16
-  nx: 40
+  nx: 40         
   prediction_feature_source: Xp_1
   forecast_feature_source: Xp_1
   permutation_test: false
   n_permutations: 0
   param_grid:
     LDA:
-      classifier__solver:
-      - lsqr
-      - svd
-      - eigen
-      classifier__shrinkage:
-      - auto
+      classifier__solver: ["lsqr", "svd", "eigen"]
+      classifier__shrinkage: ["auto"]
+
 results:
-  project_root: /home/bobby/repos/latent-neural-dynamics-modeling
-  results_dir: '{results.project_root}/results/{name}'
-  log_dir: '{results.project_root}/logs/classification'
+  project_root: "/home/giedriusmirklys/repos/latent-neural-dynamics-modeling"
+  results_dir: "{results.project_root}/results/{name}"
+  log_dir: "{results.project_root}/logs/classification"

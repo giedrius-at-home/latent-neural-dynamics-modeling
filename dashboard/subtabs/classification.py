@@ -25,7 +25,7 @@ def resolve_metric(res: Dict[str, Any], metric: str) -> float:
     return float("nan")
 
 
-def reeval_against_history(res: Dict[str, Any], pred_res: Dict[str, Any]) -> bool:
+def reevaluate_against_history(res: Dict[str, Any], pred_res: Dict[str, Any]) -> bool:
     """
     Re-evaluate forecast results against historical predictions.
     Modifies `res` in-place. Returns True on success, False on failure.
@@ -151,7 +151,7 @@ def load_classification_results(
                         try:
                             with open(pred_file, "rb") as fp:
                                 pred_res = pickle.load(fp)
-                            reeval_against_history(res, pred_res)
+                            reevaluate_against_history(res, pred_res)
                         except Exception as e:
                             st.warning(
                                 f"Failed to load history prediction for {pkl_file.name}: {e}"

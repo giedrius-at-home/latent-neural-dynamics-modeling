@@ -31,20 +31,17 @@ import mne
 from mne.decoding import CSP
 
 
-CLASSIFIERS = ["LDA"]
-
 __all__ = [
-    "CLASSIFIERS",
     "ChronoGroupsSplit",
     "prepare_epoched_data",
     "run_grid_search_cv",
     "run_permutation_test",
     "evaluate_on_test_set",
-    "get_classifier",
     "create_pipeline",
     "Pipeline",
     "StandardScaler",
-    "run_full_classification_analysis",
+    "prepare_ground_truth_eval_data",
+    "run_classification_pipeline",
 ]
 
 
@@ -133,85 +130,106 @@ def epoch_trial(
     return epochs
 
 
+def scope_features(
+    X: np.ndarray,
+    y: np.ndarray,
+    feature_source: str,
+    n1: Optional[int],
+    nx: Optional[int],
+) -> np.ndarray:
+    if feature_source == "Xp_1":
+        return X[:, :, :n1]
+
+    if feature_source == "Xp_2":
+        return X[:, :, n1:nx]
+
+    if feature_source == "Xp_with_dbs":
+        time_pts = X.shape[1]
+        dbs_state = np.ones((len(y), time_pts, 1)) * y[:, None, None]
+        return np.concatenate([X, dbs_state], axis=-1)
+
+    return X
+
+
+def _generate_flipped_latents(
+    trial_observations: np.ndarray,
+    model_on: Any,
+    model_off: Any,
+    params: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    results = []
+    epoch_len, overlap = params["epoch_len"], params["overlap"]
+    forecast_samples = params["forecast_samples"]
+    group_id, trial_idx = params["group_id"], params["trial_idx"]
+    history_samples = params["history_samples"]
+
+    step = int(history_samples * (1 - overlap))
+    T_obs = trial_observations.shape[0]
+
+    for start in range(0, T_obs - history_samples + 1, step):
+        y_past = trial_observations[start : start + history_samples]
+        _, _, x_on = model_on.forecast(forecast_samples, y_past)
+        _, _, x_off = model_off.forecast(forecast_samples, y_past)
+
+        for label, x_traj, dtype in [
+            (1, x_on, "flipped_on"),
+            (0, x_off, "flipped_off"),
+        ]:
+            sim_epochs = epoch_trial(np.array(x_traj), epoch_len, overlap)
+            for ep in sim_epochs:
+                results.append(
+                    {
+                        "X": ep,
+                        "y": label,
+                        "group": group_id,
+                        "meta": {
+                            "type": dtype,
+                            "trial_idx": trial_idx,
+                            "start": start,
+                            "participant_id": params.get("participant_id"),
+                            "session": params.get("session"),
+                            "block": params.get("block"),
+                            "trial": params.get("trial"),
+                        },
+                    }
+                )
+    return results
+
+
 def prepare_epoched_data(
-    split_results: List[Dict[str, Any]],
+    trials: List[Dict[str, Any]],
     feature_source: str = "Xp",
-    epoch_length_sec: float = 1.0,
-    overlap: float = 0.5,
-    fs: float = 60,
+    epoch_length_sec: float = 0.5,
+    overlap: float = 0.25,
+    fs: float = 80,
     mode: str = "prediction",
-    m: Optional[float] = None,
-    h: Optional[float] = None,
-    A_on: Optional[np.ndarray] = None,
-    A_off: Optional[np.ndarray] = None,
-    A_both: Optional[np.ndarray] = None,
+    forecast_horizon: Optional[float] = None,
+    history_horizon: Optional[float] = None,
+    model_on: Optional[Any] = None,
+    model_off: Optional[Any] = None,
+    model_both: Optional[Any] = None,
     target_future: bool = False,
     n1: Optional[int] = None,
     nx: Optional[int] = None,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, List[Dict[str, Any]]]:
-    # Determine window length for classification
-    current_epoch_length_sec = epoch_length_sec
-    if m is not None and (mode in ["forecast", "flipped"] or target_future):
-        current_epoch_length_sec = m
-    elif h is not None and mode == "prediction":
-        current_epoch_length_sec = h
 
-    epoch_length = int(current_epoch_length_sec * fs)
-    horizon = int(m * fs) if m else epoch_length
-    history_length = int(h * fs) if h else epoch_length
+    epoch_len = int(epoch_length_sec * fs)
+    forecast_samples = int(forecast_horizon * fs)
+    history_samples = int(history_horizon * fs)
 
-    X_all = []
-    y_all = []
-    groups_all = []
-    meta_all = []
+    X_all, y_all, groups_all, meta_all = [], [], [], []
+    block_id_map, current_block_id = {}, 0
 
-    block_id_map = {}
-    current_block_id = 0
+    for trial_set in trials:
+        observations = trial_set.get("Y", [])
 
-    for split_res in split_results:
-        if mode == "forecast":
-            base_fs = feature_source.replace("_with_dbs", "")
-            if base_fs == "Yp":
-                data_key = "Y_future_pred"
-            elif base_fs in ["Xp", "Xp_1", "Xp_2", "dbs"]:
-                data_key = "X_future_pred"
-            else:
-                data_key = "Y_future_pred"
-            data_list = split_res.get(data_key, [])
-        else:
-            base_fs = feature_source.replace("_with_dbs", "")
-            if base_fs in ["Xp", "Xp_1", "Xp_2", "dbs"]:
-                data_list = split_res.get("Xp", [])
-            elif base_fs == "Yp":
-                data_list = split_res.get("Yp", [])
-            elif base_fs == "Y":
-                data_list = split_res.get("Y", [])
-            elif base_fs == "Both":
-                xp_list = split_res.get("Xp", [])
-                yp_list = split_res.get("Yp", [])
-                data_list = []
-                for xp, yp in zip(xp_list, yp_list):
-                    xp_arr = np.array(xp)
-                    yp_arr = np.array(yp)
-                    if xp_arr.shape[0] < xp_arr.shape[1]:
-                        xp_arr = xp_arr.T
-                    if yp_arr.shape[0] < yp_arr.shape[1]:
-                        yp_arr = yp_arr.T
-                    data_list.append(np.concatenate([xp_arr, yp_arr], axis=1))
-            else:
-                data_list = split_res.get(feature_source, [])
+        data_key = "X_future_pred" if mode == "forecast" else "Xp"
+        latent_states = trial_set[data_key]
 
-        stim_list = split_res.get("stim", [])
-        participant_list = split_res.get("participant_id", [])
-        session_list = split_res.get("session", [])
-        block_list = split_res.get("block", [])
-        trial_list = split_res.get("trial", [])
-
-        for trial_idx, trial_data in enumerate(data_list):
-
-            stim = stim_list[trial_idx] if trial_idx < len(stim_list) else None
-            session = session_list[trial_idx] if trial_idx < len(session_list) else 0
-            block = block_list[trial_idx] if trial_idx < len(block_list) else 0
+        for trial_idx, trial_latents in enumerate(latent_states):
+            stim = trial_set["stim"][trial_idx]
+            session = trial_set["session"][trial_idx]
+            block = trial_set["block"][trial_idx]
 
             block_key = (session, block, stim)
             if block_key not in block_id_map:
@@ -219,88 +237,57 @@ def prepare_epoched_data(
                 current_block_id += 1
             group_id = block_id_map[block_key]
 
-            trial_data = np.array(trial_data)
-            if trial_data.ndim == 1:
-                trial_data = trial_data.reshape(-1, 1)
-            if trial_data.shape[0] < trial_data.shape[1]:
-                trial_data = trial_data.T
+            trial_latents = np.array(trial_latents)
+            if trial_latents.ndim == 1:
+                trial_latents = trial_latents.reshape(-1, 1)
+            if trial_latents.shape[0] < trial_latents.shape[1]:
+                trial_latents = trial_latents.T
 
-            if A_on is not None and A_off is not None:
-                if A_both is None:
-                    raise ValueError("A_both is required for flipped classification")
+            if model_on is not None and model_off is not None and target_future:
+                if model_both is None:
+                    raise ValueError(
+                        "model_both is required for flipped classification"
+                    )
 
-                T_trial = trial_data.shape[0]
+                trial_obs = np.array(observations[trial_idx])
+                if trial_obs.ndim == 1:
+                    trial_obs = trial_obs.reshape(-1, 1)
+                if trial_obs.shape[0] < trial_obs.shape[1]:
+                    trial_obs = trial_obs.T
 
-                if not target_future:
-                    step = int(epoch_length * (1 - overlap))
-                    for start in range(0, T_trial - epoch_length + 1, step):
-                        epoch = trial_data[start : start + epoch_length]
-                        X_all.append(epoch)
-                        y_all.append(1 if stim == "on" else 0)
-                        groups_all.append(group_id)
-                        meta_all.append(
-                            {
-                                "type": "real_xp",
-                                "trial_idx": trial_idx,
-                                "start": start,
-                            }
-                        )
-                else:
-                    step = int(history_length * (1 - overlap))
-                    for start in range(0, T_trial - history_length + 1, step):
-                        history = trial_data[start : start + history_length]
-                        x_seed = history[-1]
-
-                        win_on, win_off = [], []
-                        curr_on, curr_off = x_seed.copy(), x_seed.copy()
-                        for _ in range(horizon):
-                            curr_on = A_on @ curr_on
-                            curr_off = A_off @ curr_off
-                            win_on.append(curr_on.copy())
-                            win_off.append(curr_off.copy())
-
-                        forecast_on = np.array(win_on)
-                        forecast_off = np.array(win_off)
-
-                        epochs_on = epoch_trial(forecast_on, epoch_length, overlap)
-                        epochs_off = epoch_trial(forecast_off, epoch_length, overlap)
-
-                        for epoch in epochs_on:
-                            X_all.append(epoch)
-                            y_all.append(1)
-                            groups_all.append(group_id)
-                            meta_all.append(
-                                {
-                                    "type": "forecast_on",
-                                    "trial_idx": trial_idx,
-                                    "start": start,
-                                }
-                            )
-
-                        for epoch in epochs_off:
-                            X_all.append(epoch)
-                            y_all.append(0)
-                            groups_all.append(group_id)
-                            meta_all.append(
-                                {
-                                    "type": "forecast_off",
-                                    "trial_idx": trial_idx,
-                                    "start": start,
-                                }
-                            )
+                params = {
+                    "epoch_len": epoch_len,
+                    "overlap": overlap,
+                    "forecast_samples": forecast_samples,
+                    "history_samples": history_samples,
+                    "group_id": group_id,
+                    "trial_idx": trial_idx,
+                    "participant_id": trial_set["participant_id"][trial_idx],
+                    "session": session,
+                    "block": block,
+                    "trial": trial_set["trial"][trial_idx],
+                }
+                batch = _generate_flipped_latents(
+                    trial_obs, model_on, model_off, params
+                )
+                for item in batch:
+                    X_all.append(item["X"])
+                    y_all.append(item["y"])
+                    groups_all.append(item["group"])
+                    meta_all.append(item["meta"])
                 continue
 
             if target_future:
-                if trial_data.shape[0] < epoch_length + horizon:
+                if trial_latents.shape[0] < epoch_len + forecast_samples:
                     continue
-                step = int(epoch_length * (1 - overlap))
+                step = int(epoch_len * (1 - overlap))
                 for start in range(
-                    0, trial_data.shape[0] - epoch_length - horizon + 1, step
+                    0, trial_latents.shape[0] - epoch_len - forecast_samples + 1, step
                 ):
-                    X_future = trial_data[
-                        start + epoch_length : start + epoch_length + horizon
+                    X_fut = trial_latents[
+                        start + epoch_len : start + epoch_len + forecast_samples
                     ]
-                    for sample in X_future:
+                    for sample in X_fut:
                         X_all.append(sample.reshape(1, -1))
                         y_all.append(1 if stim == "on" else 0)
                         groups_all.append(group_id)
@@ -313,77 +300,48 @@ def prepare_epoched_data(
                         )
                 continue
 
-            if m is not None and mode == "forecast":
-                trial_data = trial_data[:horizon]
-                if trial_data.shape[0] < epoch_length:
-                    continue
+            if forecast_horizon is not None and mode == "forecast":
+                trial_latents = trial_latents[:forecast_samples]
 
-            epochs = epoch_trial(trial_data, epoch_length, overlap)
-            label = 1 if stim == "on" else 0
+            if trial_latents.shape[0] < epoch_len:
+                continue
 
-            for epoch_idx, epoch in enumerate(epochs):
-                X_all.append(epoch)
-                y_all.append(label)
+            epochs = epoch_trial(trial_latents, epoch_len, overlap)
+            for ep_idx, ep in enumerate(epochs):
+                X_all.append(ep)
+                y_all.append(1 if stim == "on" else 0)
                 groups_all.append(group_id)
-
                 meta = {
-                    "participant_id": (
-                        participant_list[trial_idx]
-                        if trial_idx < len(participant_list)
-                        else None
-                    ),
+                    "participant_id": trial_set["participant_id"][trial_idx],
                     "session": session,
                     "block": block,
-                    "trial": (
-                        trial_list[trial_idx] if trial_idx < len(trial_list) else None
-                    ),
-                    "epoch_idx": epoch_idx,
-                    "split_idx": len(meta_all),
+                    "trial": trial_set["trial"][trial_idx],
+                    "epoch_idx": ep_idx,
                     "group_id": group_id,
                 }
+                if model_on is not None:
+                    meta["type"] = "real_xp"
                 meta_all.append(meta)
 
-    if len(X_all) == 0:
+    if not X_all:
         return None, None, None, None
 
-    X_arr = np.array(X_all)
-    y_arr = np.array(y_all)
-
-    base_fs = feature_source.replace("_with_dbs", "")
-
-    if base_fs == "Xp_1":
-        if n1 is None:
-            raise ValueError("n1 must be provided for Xp_1 feature source")
-        X_arr = X_arr[:, :, :n1]
-    elif base_fs == "Xp_2":
-        if n1 is None or nx is None:
-            raise ValueError("n1 and nx must be provided for Xp_2 feature source")
-        X_arr = X_arr[:, :, n1:nx]
-    elif base_fs == "dbs":
-        time_steps = X_arr.shape[1]
-        X_arr = np.ones((len(y_arr), time_steps, 1)) * y_arr[:, None, None]
-
-    if "_with_dbs" in feature_source:
-        time_steps = X_arr.shape[1]
-        dbs_arr = np.ones((len(y_arr), time_steps, 1)) * y_arr[:, None, None]
-        X_arr = np.concatenate([X_arr, dbs_arr], axis=-1)
+    X_arr, y_arr = np.array(X_all), np.array(y_all)
+    X_arr = scope_features(X_arr, y_arr, feature_source, n1, nx)
 
     return X_arr, y_arr, np.array(groups_all), meta_all
 
 
-def prepare_true_eval_data(
+def prepare_ground_truth_eval_data(
     trials: List[Dict[str, Any]],
-    h_sec: float,
-    m_sec: float,
+    history_horizon: float,
+    forecast_horizon: float,
     fs: float,
     window_step_sec: float = 1.0,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, List[Dict[str, Any]]]:
-    """
-    Prepares true history/future segments for evaluating dual models.
-    Returns samples that are not epoched but represent the 'future' windows to be classified.
-    """
-    h_samples = int(h_sec * fs)
-    m_samples = int(m_sec * fs)
+    
+    h_samples = int(history_horizon * fs)
+    m_samples = int(forecast_horizon * fs)
     window_step = int(window_step_sec * fs)
 
     X_all, y_all, groups_all, meta_all = [], [], [], []
@@ -396,7 +354,7 @@ def prepare_true_eval_data(
         T = Xp.shape[0]
         stim = trial["stim"]
 
-        block_key = (trial.get("session", 0), trial.get("block", 0), stim)
+        block_key = (trial["session"], trial["block"], stim)
         if block_key not in block_id_map:
             block_id_map[block_key] = current_block_id
             current_block_id += 1
@@ -423,60 +381,32 @@ def prepare_true_eval_data(
     return np.array(X_all), np.array(y_all), np.array(groups_all), meta_all
 
 
-def get_classifier(clf_name: str, params: Optional[Dict[str, Any]] = None):
-    params = params or {}
-    if clf_name == "Logistic Regression":
-        return LogisticRegression(**params, max_iter=5000, random_state=42)
-    else:
-        return LinearDiscriminantAnalysis(**params)
+def reorder_dims_for_mne(X: np.ndarray) -> np.ndarray:
+    return np.transpose(X, (0, 2, 1))
 
 
-def get_param_grid(clf_name: str) -> Dict[str, List]:
-    if clf_name == "LDA":
-        clf_params = {
-            "classifier__solver": ["lsqr"],
-            "classifier__shrinkage": ["auto", 0.1, 0.5],  # auto uses Ledoit-Wolf
-        }
-    else:
-        clf_params = {}
-
-    return clf_params
-
-
-def _transpose_for_csp(X):
-    if X.ndim == 3:
-        return np.transpose(X, (0, 2, 1))
-    return X
-
-
-def create_pipeline(
-    clf_name: str, fs: float = 60, feature_source: str = "Xp"
-) -> Pipeline:
+def create_pipeline(fs: float = 80, feature_source: str = "Xp") -> Pipeline:
     steps = [
-        ("transpose", FunctionTransformer(_transpose_for_csp)),
+        ("transpose", FunctionTransformer(reorder_dims_for_mne)),
         ("csp", CSP(n_components=4, reg="ledoit_wolf", log=True)),
         ("scaler", StandardScaler()),
-        ("classifier", get_classifier(clf_name)),
+        ("classifier", LinearDiscriminantAnalysis()),
     ]
     return Pipeline(steps)
 
 
 def run_grid_search_cv(
-    clf_name: str,
     X: np.ndarray,
     y: np.ndarray,
     groups: np.ndarray,
     n_splits: int = 5,
-    fs: float = 60,
+    fs: float = 80,
     param_grid: Optional[Dict[str, Any]] = None,
     feature_source: str = "Xp",
     allow_mixed_label_groups: bool = False,
 ) -> Tuple[Dict[str, Any], float, Dict[str, Any]]:
-    from sklearn.base import clone
 
-    pipeline = create_pipeline(clf_name, fs=fs, feature_source=feature_source)
-    if param_grid is None:
-        param_grid = get_param_grid(clf_name)
+    pipeline = create_pipeline(fs=fs, feature_source=feature_source)
 
     chrono_cv = ChronoGroupsSplit(
         warn_if_blocks_ignored=True, allow_mixed_label_groups=allow_mixed_label_groups
@@ -663,8 +593,7 @@ def evaluate_on_test_set(
     }
 
 
-def run_full_classification_analysis(
-    clf_name: str,
+def run_classification_pipeline(
     X_train: np.ndarray,
     y_train: np.ndarray,
     groups_train: np.ndarray,
@@ -674,15 +603,15 @@ def run_full_classification_analysis(
     logger: Any,
     feature_source: str = "Xp",
 ) -> Dict[str, Any]:
+    clf_name = "LDA"
     n_splits = config.classification.n_splits
     sampling_freq = config.classification.sampling_freq
-    param_grid = config.classification.get("param_grid", {}).get(clf_name)
+    param_grid = config.classification.get("param_grid", {}).get("LDA")
     permutation_test = config.classification.get("permutation_test", False)
     n_permutations = config.classification.get("n_permutations", 100)
     flipped = config.classification.get("flipped", False)
 
     best_params, best_score, results = run_grid_search_cv(
-        clf_name,
         X_train,
         y_train,
         groups_train,

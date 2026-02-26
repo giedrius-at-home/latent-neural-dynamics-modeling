@@ -9,7 +9,6 @@ import re
 import collections
 
 from utils.classification import (
-    CLASSIFIERS,
     prepare_epoched_data,
     run_grid_search_cv,
     evaluate_on_test_set,
@@ -25,7 +24,7 @@ from dashboard.subtabs.classification import (
     create_line_plot_by_future,
     create_heatmap_figure,
     create_summary_table,
-    reeval_against_history,
+    reevaluate_against_history,
 )
 from dashboard.subtabs import (
     load_precomputed_results,
@@ -45,7 +44,7 @@ def load_all_splits(
     return splits
 
 
-def save_classification_results(results: Dict[str, Any], save_path: Path):
+def save_classification_results(results: Dict[str, Any], save_path: Path) -> None:
     save_path.parent.mkdir(parents=True, exist_ok=True)
     with open(save_path, "wb") as f:
         pickle.dump(results, f)
@@ -63,7 +62,7 @@ def load_single_result(save_path: Path) -> Optional[Dict[str, Any]]:
     return None
 
 
-def render_metrics_row(results: Dict[str, Any], prefix: str = ""):
+def render_metrics_row(results: Dict[str, Any], prefix: str = "") -> None:
     cols = st.columns(5)
     metrics = [
         ("Accuracy", results.get("accuracy", 0)),
@@ -80,7 +79,7 @@ def render_metrics_row(results: Dict[str, Any], prefix: str = ""):
         col.metric(f"{prefix}{name}", f"{val:.4f}")
 
 
-def render_confusion_matrix(cm: np.ndarray, key: str):
+def render_confusion_matrix(cm: np.ndarray, key: str) -> None:
     labels = ["OFF", "ON"]
     fig = go.Figure(
         data=go.Heatmap(
@@ -105,7 +104,7 @@ def render_confusion_matrix(cm: np.ndarray, key: str):
     st.plotly_chart(fig, use_container_width=True, key=f"cm_{key}")
 
 
-def render_roc_curve(results: Dict[str, Any], key: str):
+def render_roc_curve(results: Dict[str, Any], key: str) -> None:
     fig = go.Figure()
     fig.add_trace(
         go.Scatter(
@@ -141,7 +140,7 @@ def render_roc_curve(results: Dict[str, Any], key: str):
     st.plotly_chart(fig, use_container_width=True, key=f"roc_{key}")
 
 
-def render_results_view(results: Dict[str, Any], key: str):
+def render_results_view(results: Dict[str, Any], key: str) -> None:
     if "best_params" in results:
         st.markdown("#### Best Hyperparameters")
         st.json(results["best_params"])
@@ -176,7 +175,7 @@ def render_results_view(results: Dict[str, Any], key: str):
             render_roc_curve(test_res, f"test_{key}")
 
 
-def render_fold_results(fold_results: list, key: str):
+def render_fold_results(fold_results: list, key: str) -> None:
     st.markdown("#### Per-Fold Results (Chronological)")
 
     df = pd.DataFrame(fold_results)
@@ -256,7 +255,7 @@ def render_classifier_section(
     n_splits: int,
     mode: str = "prediction",
     forecast_horizon_sec: Optional[float] = None,
-):
+) -> None:
     key_base = f"{clf_name}_{feature_source}_{mode}_{epoch_params}".replace(
         " ", "_"
     ).replace(".", "p")
@@ -279,40 +278,15 @@ def render_classifier_section(
         st.success("Precomputed results loaded")
         render_results_view(results, key_base)
     else:
-        st.warning(
-            "No precomputed results found. Run the classification script first or click 'Compute Now' below."
-        )
-
-    with st.expander("Recompute Classification", expanded=False):
-        st.markdown(
-            "**Note:** This will recompute the classification. Use the standalone script for batch processing."
-        )
-        if st.button(f"Compute Now", key=f"gs_{key_base}"):
-            with st.spinner("Running grid search with ChronoGroupsSplit CV..."):
-                best_params, best_score, cv_results = run_grid_search_cv(
-                    clf_name, X_trainval, y_trainval, groups_trainval, n_splits
-                )
-
-                if X_test is not None and y_test is not None and len(y_test) > 0:
-                    best_pipeline = cv_results.get("best_pipeline")
-                    if best_pipeline is not None:
-                        test_results = evaluate_on_test_set(
-                            best_pipeline, X_test, y_test
-                        )
-                        cv_results["test_results"] = test_results
-
-                save_classification_results(cv_results, cache_path)
-                st.session_state[f"results_{key_base}"] = cv_results
-                results = cv_results
-                st.rerun()
+        st.warning("No precomputed results found. Run the classification script first.")
 
 
-def render_classification_mode(
+def render_classification_results(
     variant_dir: Path,
     run_ts: str,
     mode: str,
     eval_target: str = "dbs_stim",
-):
+) -> None:
 
     results_dir = variant_dir / run_ts / "classification"
 
@@ -424,7 +398,7 @@ def render_classification_mode(
                 if pred_file.exists():
                     pred_res = load_single_result(pred_file)
                     if pred_res:
-                        if reeval_against_history(results, pred_res):
+                        if reevaluate_against_history(results, pred_res):
                             n = len(pred_res["y_pred"])
                             st.info(
                                 f"Evaluating {n} forecast samples against historical predictions."
@@ -454,7 +428,7 @@ def render_classification_mode(
         st.markdown("---")
 
 
-def render_classification_from_predictions(variant_dir: Path, run_ts: str):
+def render_classification_from_predictions(variant_dir: Path, run_ts: str) -> None:
     results_dir = variant_dir / run_ts / "classification"
     if results_dir.exists():
         all_results = load_classification_results(results_dir, mode="prediction")
@@ -465,12 +439,12 @@ def render_classification_from_predictions(variant_dir: Path, run_ts: str):
             render_classification_summary(all_results, f"pred_{run_ts}")
             st.markdown("---")
 
-    render_classification_mode(variant_dir, run_ts, mode="prediction")
+    render_classification_results(variant_dir, run_ts, mode="prediction")
 
 
 def render_classification_summary(
     all_results: Dict[str, Dict[Tuple[float, float], Dict[str, Any]]], key_prefix: str
-):
+) -> None:
     """DRY function to render line plots grouped by feature source."""
     if not all_results:
         return
@@ -518,7 +492,7 @@ def render_classification_summary(
         st.markdown("---")
 
 
-def render_classification_from_forecasts(variant_dir: Path, run_ts: str):
+def render_classification_from_forecasts(variant_dir: Path, run_ts: str) -> None:
     st.markdown("### Forecast Evaluation Settings")
     eval_target = st.radio(
         "Evaluate Forecast Against:",
@@ -544,12 +518,14 @@ def render_classification_from_forecasts(variant_dir: Path, run_ts: str):
             render_classification_summary(all_results, f"forecast_{run_ts}")
             st.markdown("---")
 
-    render_classification_mode(
+    render_classification_results(
         variant_dir, run_ts, mode="forecast", eval_target=eval_target
     )
 
 
-def dbs_classification_tab(project_root, results_root=None):
+def dbs_classification_tab(
+    project_root: Path, results_root: Optional[Path] = None
+) -> None:
     st.header("DBS ON/OFF Classification")
 
     RESULTS_ROOT = results_root if results_root else project_root / "results"

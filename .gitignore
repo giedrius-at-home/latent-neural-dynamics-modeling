@@ -221,3 +221,5 @@ PSID/
 *.toml
 
 report/
+
+.agents/
