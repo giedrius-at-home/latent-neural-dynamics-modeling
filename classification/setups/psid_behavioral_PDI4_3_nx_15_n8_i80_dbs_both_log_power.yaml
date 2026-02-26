@@ -14,8 +14,8 @@ classification:
   nx: 15
   prediction_feature_source: Xp 
   forecast_feature_source: Xp 
-  permutation_test: true
-  n_permutations: 100
+  permutation_test: false
+  n_permutations: 0
   param_grid:
     LDA:
       classifier__solver: ["lsqr", "svd", "eigen"]

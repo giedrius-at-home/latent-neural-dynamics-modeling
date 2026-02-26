@@ -420,7 +420,7 @@ def run_grid_search_cv(
         param_grid,
         cv=splits,
         scoring="balanced_accuracy",
-        n_jobs=-1,
+        n_jobs=2,
         verbose=1,
         return_train_score=True,
         error_score=0.0,
@@ -522,7 +522,7 @@ def run_permutation_test(
         )
 
     obs_scores = cross_val_score(
-        pipeline, X, y, cv=cv, groups=groups, scoring=scoring, n_jobs=-1
+        pipeline, X, y, cv=cv, groups=groups, scoring=scoring, n_jobs=2
     )
     obs_mean_score = np.mean(obs_scores)
 
@@ -546,7 +546,7 @@ def run_permutation_test(
         )
         return np.mean(p_scores)
 
-    n_parallel = min(8, max(1, joblib.cpu_count() // 2))
+    n_parallel = 2
     permutation_scores = np.array(
         joblib.Parallel(n_jobs=n_parallel)(
             joblib.delayed(run_one_permutation)(i) for i in range(n_permutations)
