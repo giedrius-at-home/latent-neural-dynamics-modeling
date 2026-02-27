@@ -30,6 +30,17 @@ from dashboard.subtabs.predictions import (
     BASELINE_COLOR,
 )
 from utils.stats import (
+from dashboard.backbone import render_styled_table
+from dashboard.subtabs.helpers import (
+    list_variants,
+    load_precomputed_results,
+    list_run_timestamps,
+    variant_short_name,
+    find_baseline_variants,
+    get_project_root,
+    find_config_path,
+)
+from dashboard.subtabs.helpers import rescale_to_reference
     compute_power_spectrum,
     find_dominant_frequencies,
     spectral_correlation,
@@ -51,7 +62,6 @@ def render_y_forecast_plot(
     baseline_name: str = "Baseline",
     model_name: str = "Model",
 ):
-    from dashboard.subtabs.helpers import rescale_to_reference
 
     n_chan = y_concat.shape[1] if y_concat.ndim == 2 else 1
     y_concat_c = y_concat.squeeze() if n_chan == 1 else y_concat[:, channel_idx]
@@ -183,7 +193,6 @@ def render_z_forecast_plot(
     model_name: str = "Model",
     baseline_r: Optional[float] = None,
 ):
-    from dashboard.subtabs.helpers import rescale_to_reference
 
     nz_chan = z_future_true.shape[1] if z_future_true.ndim == 2 else 1
 
@@ -444,15 +453,6 @@ def render_forecasting_tab(
     Y_true: List,
     Yp: List,
 ):
-    from dashboard.subtabs.helpers import (
-        list_variants,
-        load_precomputed_results,
-        list_run_timestamps,
-        variant_short_name,
-        find_baseline_variants,
-        get_project_root,
-        find_config_path,
-    )
 
     project_root = get_project_root(cfg_path)
     results_root = project_root / "results"
@@ -988,10 +988,10 @@ def render_forecasting_tab(
                                 for i in range(x_future_pred.shape[1])
                             ]
                             df_latents = pd.DataFrame(x_future_pred, columns=cols_x)
-                            st.dataframe(
-                                df_latents.style.format("{:.4f}"),
-                                use_container_width=True,
-                            )
+                            df_latents_styled = df_latents.copy()
+                            for col in df_latents_styled.columns:
+                                df_latents_styled[col] = df_latents_styled[col].apply(lambda x: f"{x:.4f}")
+                            render_styled_table(df_latents_styled, key="tbl_fore_latents")
 
                         st.markdown("---")
                         st.subheader("Latent States Forecast Frequency Analysis")

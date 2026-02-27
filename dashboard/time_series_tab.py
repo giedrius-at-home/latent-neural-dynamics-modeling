@@ -35,6 +35,13 @@ from utils.data_loader import (
 )
 from dashboard.utils import get_channel_lists, get_trial_metadata
 from dashboard.backbone import (
+from utils.data_loader import (
+    load_participant_session_data,
+    DATA_PATH,
+)
+from utils.data_loader import load_participant_session_data
+from utils.sync import interpolate_to_grid
+import plotly.graph_objects as go
     format_title,
     format_trial_metadata,
     update_fig_title,
@@ -430,7 +437,6 @@ def render_neural_behavioral_correlation(trial_data, lfp_channels, ecog_channels
 
         correlations.sort(key=lambda x: abs(x[1]), reverse=True)
 
-        import plotly.graph_objects as go
 
         channels = [c[0] for c in correlations]
         r_values = [c[1] for c in correlations]
@@ -625,7 +631,6 @@ def render_session_level_tab(neural_channels):
     with st.spinner(f"Loading session data for {participant_id}..."):
         for s_id in sessions:
             try:
-                from utils.data_loader import load_participant_session_data
 
                 cols_to_load = [target_channel, "stim"]
                 df = load_participant_session_data(
@@ -752,10 +757,6 @@ def render_session_level_tab(neural_channels):
         with st.spinner("Analyzing neural-behavioral synchrony..."):
             for s_id in sessions:
                 try:
-                    from utils.data_loader import (
-                        load_participant_session_data,
-                        DATA_PATH,
-                    )
 
                     p_partition = f"participant_id={participant_id}"
                     s_partition = f"session={s_id}"
@@ -924,7 +925,6 @@ def render_session_level_tab(neural_channels):
 
 
 def render_raw_alignment_tab(trial_data, block_data, lfp_channels, ecog_channels):
-    from utils.sync import interpolate_to_grid
 
     st.markdown("### Raw Data Alignment & Interpolation Analysis")
 

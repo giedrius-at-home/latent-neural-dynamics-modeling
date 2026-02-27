@@ -3,6 +3,8 @@ import polars as pl
 import plotly.graph_objects as go
 import plotly.express as px
 import streamlit as st
+from plotly.subplots import make_subplots
+from utils.data_loader import load_participant_session_data
 from dashboard.backbone import (
     create_base_time_series_figure,
     PLOT_STYLE,
@@ -774,7 +776,6 @@ def plot_session_average_speed(
     speed_type: str = "combined",
     time_col: str = "motion_time",
 ) -> go.Figure:
-    from utils.data_loader import load_participant_session_data
 
     participant_id = st.session_state.get("participant_id")
     session = st.session_state.get("session")
@@ -827,7 +828,7 @@ def plot_session_average_speed(
                 fillcolor="rgba(255, 0, 53, 0.2)",
                 line=dict(color="rgba(255,255,255,0)"),
                 showlegend=True,
-                name="DBS ON ± 1σ",
+                name="DBS ON $\\pm 1\\sigma$",
             )
         )
 
@@ -861,7 +862,7 @@ def plot_session_average_speed(
                     fillcolor="rgba(89, 84, 108, 0.2)",
                     line=dict(color="rgba(255,255,255,0)"),
                     showlegend=True,
-                    name="DBS OFF ± 1σ",
+                    name="DBS OFF $\\pm 1\\sigma$",
                 )
             )
 
@@ -1028,7 +1029,6 @@ def plot_signal_alignment(
     correlation: np.ndarray,
     lag_seconds: float,
 ) -> go.Figure:
-    from plotly.subplots import make_subplots
 
     fig = make_subplots(
         rows=2,
@@ -1176,7 +1176,6 @@ def plot_raw_alignment(
     behavioral_var: str,
     chunk_margin: float,
 ) -> go.Figure:
-    from plotly.subplots import make_subplots
 
     fig = make_subplots(specs=[[{"secondary_y": True}]])
 
@@ -1277,7 +1276,6 @@ def plot_raw_alignment(
     behavioral_var: str,
     chunk_margin: float,
 ) -> go.Figure:
-    from plotly.subplots import make_subplots
 
     fig = make_subplots(specs=[[{"secondary_y": True}]])
 
@@ -1378,7 +1376,6 @@ def plot_micro_alignment(
     window_start: float,
     window_end: float,
 ) -> go.Figure:
-    from plotly.subplots import make_subplots
 
     fig = make_subplots(specs=[[{"secondary_y": True}]])
 
