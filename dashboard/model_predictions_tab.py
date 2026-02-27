@@ -3,6 +3,7 @@ from pathlib import Path
 
 from utils.config import get_config
 from dashboard.subtabs import (
+from dashboard.subtabs import render_cross_trial_performance_tab
     list_variants,
     list_run_timestamps,
     config_for_variant,
@@ -190,7 +191,6 @@ def _render_model_analysis(project_root, RESULTS_ROOT):
             st.session_state["run_timestamp"] = run_ts
 
             with performance_tab:
-                from dashboard.subtabs import render_cross_trial_performance_tab
 
                 cfg = get_config(str(cfg_path))
                 fs = getattr(cfg.data, "sampling_frequency", 60.0)

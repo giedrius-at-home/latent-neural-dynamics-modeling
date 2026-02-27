@@ -1,6 +1,8 @@
 from utils.classes import DotDict
 import plotly.graph_objects as go
 import numpy as np
+from textwrap import wrap
+import streamlit as st
 
 PALETTE = DotDict(
     {
@@ -69,7 +71,6 @@ PARTICIPANT_COLORS = DotDict(
 
 
 def format_title(parts: list[str], max_line_length: int = 60) -> str:
-    from textwrap import wrap
 
     title = " ".join(parts)
     return "<br>".join(wrap(title, width=max_line_length))
@@ -119,7 +120,7 @@ def add_relative_time_axis(fig, time_abs, onset_time):
     time_abs = np.asarray(time_abs, dtype=float)
     rel_offset = float(onset_time) if onset_time is not None else float(time_abs.min())
 
-    n_ticks = 5
+    n_ticks = 10
     tickvals = np.linspace(time_abs.min(), time_abs.max(), n_ticks)
 
     rel_ticktext = [f"{(tv - rel_offset):.1f}" for tv in tickvals]
@@ -133,6 +134,8 @@ def add_relative_time_axis(fig, time_abs, onset_time):
         title_text="Time (s)",
         title_font=dict(size=PLOT_STYLE.axis_label_size, family=PLOT_STYLE.font_family),
         tickfont=dict(size=PLOT_STYLE.tick_label_size),
+        showgrid=True,
+        gridcolor="rgba(200, 200, 200, 0.4)",
     )
 
     fig.update_layout(
@@ -178,7 +181,7 @@ def create_base_time_series_figure(
     time_abs = np.asarray(time_abs, dtype=float)
     rel_offset = float(onset_time) if onset_time is not None else float(time_abs.min())
 
-    n_ticks = 5
+    n_ticks = 10
     tickvals = np.linspace(time_abs.min(), time_abs.max(), n_ticks)
 
     rel_ticktext = [f"{(tv - rel_offset):.1f}" for tv in tickvals]
@@ -206,6 +209,8 @@ def create_base_time_series_figure(
             ),
             tickfont=dict(size=PLOT_STYLE.tick_label_size),
             range=[float(time_abs.min()), float(time_abs.max())],
+            showgrid=True,
+            gridcolor="rgba(200, 200, 200, 0.4)",
         ),
         xaxis2=dict(
             overlaying="x",
@@ -225,6 +230,8 @@ def create_base_time_series_figure(
                 ),
             ),
             tickfont=dict(size=PLOT_STYLE.tick_label_size),
+            showgrid=True,
+            gridcolor="rgba(200, 200, 200, 0.4)",
         ),
         template="plotly_white",
         font=dict(
@@ -343,6 +350,8 @@ def create_base_psd_heatmap_figure(
                 ),
             ),
             tickfont=dict(size=PLOT_STYLE.tick_label_size),
+            showgrid=True,
+            gridcolor="rgba(200, 200, 200, 0.4)",
         ),
         yaxis=dict(
             title=dict(
@@ -352,6 +361,8 @@ def create_base_psd_heatmap_figure(
                 ),
             ),
             tickfont=dict(size=PLOT_STYLE.tick_label_size),
+            showgrid=True,
+            gridcolor="rgba(200, 200, 200, 0.4)",
         ),
         template="plotly_white",
         font=dict(
@@ -379,6 +390,8 @@ def create_base_psd_line_figure(
                 ),
             ),
             tickfont=dict(size=PLOT_STYLE.tick_label_size),
+            showgrid=True,
+            gridcolor="rgba(200, 200, 200, 0.4)",
         ),
         yaxis=dict(
             title=dict(
@@ -388,6 +401,8 @@ def create_base_psd_line_figure(
                 ),
             ),
             tickfont=dict(size=PLOT_STYLE.tick_label_size),
+            showgrid=True,
+            gridcolor="rgba(200, 200, 200, 0.4)",
         ),
         template="plotly_white",
         font=dict(
@@ -403,3 +418,42 @@ def create_base_psd_line_figure(
     )
 
     return fig
+
+
+def render_styled_table(df, key: str = None) -> None:
+    """Render a DataFrame as a beautifully styled Plotly table matching the dashboard scheme."""
+    
+    headerColor = PALETTE.twilight_indigo
+    rowEvenColor = 'white'
+    rowOddColor = 'rgba(240, 240, 245, 0.5)'
+    
+    # Repeat colors enough times for all rows
+    row_colors = []
+    for i in range(len(df)):
+        row_colors.append(rowEvenColor if i % 2 == 0 else rowOddColor)
+        
+    fig = go.Figure(data=[go.Table(
+        header=dict(
+            values=list(df.columns),
+            line_color='rgba(200, 200, 200, 0.5)',
+            fill_color=headerColor,
+            align=['left'] + ['center'] * (len(df.columns) - 1),
+            font=dict(color='white', size=14, family=PLOT_STYLE.font_family),
+            height=35
+        ),
+        cells=dict(
+            values=[df[col] for col in df.columns],
+            line_color='rgba(200, 200, 200, 0.5)',
+            fill_color=[row_colors * len(df.columns)],
+            align=['left'] + ['center'] * (len(df.columns) - 1),
+            font=dict(color=PALETTE.ink_black, size=13, family=PLOT_STYLE.font_family),
+            height=30
+        ))
+    ])
+    
+    fig.update_layout(
+        margin=dict(l=0, r=0, t=0, b=0),
+        height=min(600, max(150, len(df) * 30 + 50))
+    )
+    
+    st.plotly_chart(fig, use_container_width=True, key=key)

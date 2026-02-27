@@ -12,6 +12,14 @@ from utils.plots import (
 from utils.stats import compute_psd_dbs_stats
 from dashboard.utils import get_channel_lists, get_trial_metadata
 from dashboard.backbone import format_trial_metadata, update_fig_title
+from dashboard.backbone import PARTICIPANT_COLORS, PLOT_COLOR, LINE_STYLE
+from dashboard.backbone import PARTICIPANT_COLORS, PLOT_STYLE
+from dashboard.backbone import render_styled_table
+from utils.data_loader import get_all_participants, load_participant_data
+from utils.data_loader import load_participant_data
+from utils.data_loader import load_participant_session_data
+from utils.plots import _create_base_figure
+import polars as pl
 
 
 def compute_per_trial_psd_means(df, channel):
@@ -89,7 +97,6 @@ def render_average_psd_session_level(channels, channel_type):
     if not channels:
         return
 
-    from utils.data_loader import load_participant_session_data
 
     participant_id = st.session_state.get("participant_id")
     session = st.session_state.get("session")
@@ -157,7 +164,6 @@ def render_psd_statistical_comparison(freqs, psd_data, participant_id, session):
     if not rows:
         return
 
-    import polars as pl
 
     df = pl.DataFrame(rows).select(
         "Channel",
@@ -165,13 +171,13 @@ def render_psd_statistical_comparison(freqs, psd_data, participant_id, session):
         pl.col("n_off").alias("N (OFF)"),
         pl.col("mean_on").round(2).alias("Mean ON (dB)"),
         pl.col("mean_off").round(2).alias("Mean OFF (dB)"),
-        pl.col("delta_db").round(2).alias("Δ (dB)"),
+        pl.col("delta_db").round(2).alias("$\\Delta$ (dB)"),
         pl.col("U").round(1).alias("U"),
         pl.col("p").alias("p-value"),
         pl.col("effect_size_r").round(3).alias("Effect Size (r)"),
     )
 
-    st.dataframe(df, use_container_width=True, hide_index=True)
+    render_styled_table(df.to_pandas(), key="tbl_psd_stats")
     st.caption(
         f"Mann–Whitney U test — DBS ON vs OFF integrated PSD power — "
         f"{participant_id}, Session: {session}"
@@ -240,8 +246,6 @@ def render_average_psd_participant_level(channels, channel_type):
     if not channels:
         return
 
-    from utils.data_loader import load_participant_data
-    from dashboard.backbone import PARTICIPANT_COLORS, PLOT_STYLE
 
     participant_id = st.session_state.get("participant_id")
     selected_dataset = st.session_state.get("selected_dataset")
@@ -532,9 +536,6 @@ def render_multi_participant_psd_analysis(channels, channel_type):
 
     st.markdown("### Multi-Participant PSD Comparison (All Participants)")
 
-    from utils.data_loader import get_all_participants, load_participant_data
-    from dashboard.backbone import PARTICIPANT_COLORS, PLOT_COLOR, LINE_STYLE
-    from utils.plots import _create_base_figure
 
     selected_dataset = st.session_state.get("selected_dataset")
     participants = get_all_participants(selected_dataset)

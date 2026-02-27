@@ -19,7 +19,7 @@ def plot_acceleration_time_series(
     fig = create_base_time_series_figure(
         time_abs=time_data,
         onset_time=onset_time,
-        y_label="Acceleration (pixels/s²)",
+        y_label="Acceleration (pixels/s$^2$)",
         title="",
     )
 

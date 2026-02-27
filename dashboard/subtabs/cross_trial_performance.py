@@ -9,6 +9,16 @@ import re
 from scipy.stats import ks_2samp, gaussian_kde, zscore, probplot
 from scipy.signal import welch
 from statsmodels.tsa.stattools import acf
+from dashboard.subtabs.helpers import (
+    list_variants,
+    list_run_timestamps,
+    load_precomputed_results,
+    variant_short_name,
+    find_baseline_variants,
+    get_project_root,
+)
+import pathlib
+import re
 
 
 def _get_groups_map(channel_names: list, use_bands: bool) -> list[str]:
@@ -86,15 +96,6 @@ def render_cross_trial_performance_tab(
     model_name = "Model"
 
     if cfg_path:
-        from dashboard.subtabs.helpers import (
-            list_variants,
-            list_run_timestamps,
-            load_precomputed_results,
-            variant_short_name,
-            find_baseline_variants,
-            get_project_root,
-        )
-        import pathlib
 
         if isinstance(cfg_path, str):
             cfg_path = pathlib.Path(cfg_path)
@@ -414,7 +415,6 @@ def render_raincloud_plot(
 
         df_plot = pd.DataFrame(data_list)
 
-        import re
 
         def get_block_num(s):
             match = re.search(r"\d+", s)

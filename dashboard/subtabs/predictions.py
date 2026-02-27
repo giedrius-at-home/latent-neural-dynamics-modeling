@@ -24,6 +24,17 @@ from dashboard.subtabs.helpers import (
 
 BASELINE_COLOR = "#00E5FF"
 from utils.stats import (
+from dashboard.backbone import create_base_psd_line_figure
+from dashboard.backbone import render_styled_table
+from dashboard.subtabs.helpers import (
+    list_variants,
+    load_precomputed_results,
+    list_run_timestamps,
+    variant_short_name,
+    find_baseline_variants,
+    get_project_root,
+)
+from utils.config import get_config
     compute_residual_statistics,
     qq_plot_data,
     normality_tests,
@@ -683,11 +694,10 @@ def render_system_eigenvalues(idSys):
                     "Phase (rad)": np.angle(ev_brain),
                 }
             )
-            st.dataframe(
-                df_brain.style.format("{:.4f}"),
-                hide_index=True,
-                use_container_width=True,
-            )
+            df_brain_styled = df_brain.copy()
+            for col in df_brain_styled.columns:
+                df_brain_styled[col] = df_brain_styled[col].apply(lambda x: f"{x:.4f}")
+            render_styled_table(df_brain_styled, key="tbl_ev_brain")
             max_eig_b = np.max(np.abs(ev_brain))
             st.info(
                 f"**Spectral Radius:** {max_eig_b:.4f} ({'Stable' if max_eig_b < 1.0 else 'Unstable'})"
@@ -703,11 +713,10 @@ def render_system_eigenvalues(idSys):
                     "Phase (rad)": np.angle(ev_noise),
                 }
             )
-            st.dataframe(
-                df_noise.style.format("{:.4f}"),
-                hide_index=True,
-                use_container_width=True,
-            )
+            df_noise_styled = df_noise.copy()
+            for col in df_noise_styled.columns:
+                df_noise_styled[col] = df_noise_styled[col].apply(lambda x: f"{x:.4f}")
+            render_styled_table(df_noise_styled, key="tbl_ev_noise")
             max_eig_n = np.max(np.abs(ev_noise))
             st.info(
                 f"**Noise Spectral Radius:** {max_eig_n:.4f} ({'Stable' if max_eig_n < 1.0 else 'Unstable'})"
@@ -904,12 +913,12 @@ def render_z_scatter_plot(
 
     caption_parts = [f"True vs Predicted — {channel_name} (Pearson r={r_ch:.3f})"]
     caption_parts.append(
-        f"{model_name} OLS: y={slope:.4f}x+{intercept:.4f}, R²={r_squared:.4f}, p={p_value:.2e}"
+        f"{model_name} OLS: y={slope:.4f}x+{intercept:.4f}, $R^2$={r_squared:.4f}, p={p_value:.2e}"
     )
     if baseline_rescaled is not None:
         r_sq_b = r_value_b**2
         caption_parts.append(
-            f"{baseline_name} OLS: y={slope_b:.4f}x+{intercept_b:.4f}, R²={r_sq_b:.4f}, p={p_value_b:.2e}"
+            f"{baseline_name} OLS: y={slope_b:.4f}x+{intercept_b:.4f}, $R^2$={r_sq_b:.4f}, p={p_value_b:.2e}"
         )
     st.caption(" | ".join(caption_parts))
 
@@ -1041,7 +1050,7 @@ def render_z_statistics_table(
         with c1:
             st.metric("Pearson r", f"{r_ch:.4f}")
         with c2:
-            st.metric("R²", f"{r_squared:.4f}")
+            st.metric("$R^2$", f"{r_squared:.4f}")
         with c3:
             st.metric("RMSE", f"{rmse:.3f}")
         with c4:
@@ -1052,7 +1061,7 @@ def render_z_statistics_table(
         with c1b:
             st.metric("Pearson r", f"{base_r:.4f}" if not np.isnan(base_r) else "N/A")
         with c2b:
-            st.metric("R²", f"{base_r_squared:.4f}")
+            st.metric("$R^2$", f"{base_r_squared:.4f}")
         with c3b:
             st.metric("RMSE", f"{base_rmse:.3f}")
         with c4b:
@@ -1062,7 +1071,7 @@ def render_z_statistics_table(
         with col1:
             st.metric("Pearson r", f"{r_ch:.4f}")
         with col2:
-            st.metric("R²", f"{r_squared:.4f}")
+            st.metric("$R^2$", f"{r_squared:.4f}")
         with col3:
             st.metric("RMSE", f"{rmse:.3f}")
         with col4:
@@ -1203,7 +1212,6 @@ def render_prediction_psd_analysis(
     if y_true is None or y_pred is None:
         return
 
-    from dashboard.backbone import create_base_psd_line_figure
 
     freqs_t, psd_t = compute_power_spectrum(y_true, sampling_rate)
     freqs_p, psd_p = compute_power_spectrum(y_pred, sampling_rate)
@@ -1338,14 +1346,6 @@ def render_predictions_tab(
         except Exception:
             pass
 
-    from dashboard.subtabs.helpers import (
-        list_variants,
-        load_precomputed_results,
-        list_run_timestamps,
-        variant_short_name,
-        find_baseline_variants,
-        get_project_root,
-    )
 
     project_root = get_project_root(cfg_path)
     results_root = project_root / "results"
@@ -1484,7 +1484,6 @@ def render_predictions_tab(
         caption += ")"
     st.caption(caption)
 
-    from utils.config import get_config
 
     cfg = get_config(str(cfg_path))
     fs = getattr(cfg.data, "sampling_frequency", 60)

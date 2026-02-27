@@ -8,6 +8,13 @@ import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
 
+from sklearn.metrics import (
+    accuracy_score,
+    balanced_accuracy_score,
+    precision_score,
+    recall_score,
+    f1_score,
+)
 from dashboard.backbone import (
     PALETTE,
     PLOT_COLOR,
@@ -37,13 +44,6 @@ def reevaluate_against_history(res: Dict[str, Any], pred_res: Dict[str, Any]) ->
     if len(history_preds) != len(y_pred):
         return False
 
-    from sklearn.metrics import (
-        accuracy_score,
-        balanced_accuracy_score,
-        precision_score,
-        recall_score,
-        f1_score,
-    )
 
     y_true = history_preds
     res["accuracy"] = accuracy_score(y_true, y_pred)
@@ -56,7 +56,7 @@ def reevaluate_against_history(res: Dict[str, Any], pred_res: Dict[str, Any]) ->
     return True
 
 
-def _apply_line_plot_layout(fig: go.Figure, title: str, xaxis_title: str) -> None:
+def _apply_line_plot_layout(fig: go.Figure, xaxis_title: str) -> None:
     """Apply shared layout to accuracy-vs-parameter line plots."""
     fig.add_hline(
         y=0.5,
@@ -65,12 +65,6 @@ def _apply_line_plot_layout(fig: go.Figure, title: str, xaxis_title: str) -> Non
         annotation_text="Chance",
     )
     fig.update_layout(
-        title=dict(
-            text=title,
-            x=0.5,
-            xanchor="center",
-            font=dict(size=PLOT_STYLE.title_size, family=PLOT_STYLE.font_family),
-        ),
         xaxis=dict(
             title=dict(
                 text=xaxis_title,
@@ -93,7 +87,7 @@ def _apply_line_plot_layout(fig: go.Figure, title: str, xaxis_title: str) -> Non
         template="plotly_white",
         font=dict(family=PLOT_STYLE.font_family, color=PALETTE.ink_black),
         legend=dict(font=dict(size=PLOT_STYLE.tick_label_size)),
-        margin=dict(l=60, r=60, t=80, b=60),
+        margin=dict(l=60, r=60, t=20, b=60),
     )
 
 
@@ -233,12 +227,6 @@ def create_heatmap_figure(
     )
 
     fig.update_layout(
-        title=dict(
-            text=f"{title}<br><sup>Best: h={best_h:.1f}s, m={best_m:.1f}s (acc={best_val:.3f})</sup>",
-            x=0.5,
-            xanchor="center",
-            font=dict(size=PLOT_STYLE.title_size, family=PLOT_STYLE.font_family),
-        ),
         xaxis=dict(
             title=dict(
                 text="History h (seconds)",
@@ -259,7 +247,7 @@ def create_heatmap_figure(
         ),
         template="plotly_white",
         font=dict(family=PLOT_STYLE.font_family, color=PALETTE.ink_black),
-        margin=dict(l=60, r=100, t=100, b=60),
+        margin=dict(l=60, r=100, t=20, b=60),
     )
 
     return fig
@@ -308,7 +296,7 @@ def create_line_plot_by_history(
             )
             color_idx += 1
 
-    _apply_line_plot_layout(fig, "Accuracy vs History Length", "History h (seconds)")
+    _apply_line_plot_layout(fig, "History h (seconds)")
     return fig
 
 
@@ -350,7 +338,7 @@ def create_line_plot_by_future(
             color_idx += 1
 
     _apply_line_plot_layout(
-        fig, "Accuracy vs Forecast Horizon", "Forecast Horizon m (seconds)"
+        fig, "Forecast Horizon m (seconds)"
     )
     return fig
 
@@ -430,12 +418,6 @@ def create_timeline_visualization(
     )
 
     fig.update_layout(
-        title=dict(
-            text=f"Optimal Classification Window (Accuracy: {best_accuracy:.1%})",
-            x=0.5,
-            xanchor="center",
-            font=dict(size=PLOT_STYLE.title_size, family=PLOT_STYLE.font_family),
-        ),
         xaxis=dict(
             title=dict(
                 text="Time (seconds)",
@@ -464,7 +446,7 @@ def create_timeline_visualization(
             x=0.5,
         ),
         height=250,
-        margin=dict(l=60, r=60, t=100, b=60),
+        margin=dict(l=60, r=60, t=20, b=60),
     )
 
     return fig

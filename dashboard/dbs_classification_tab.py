@@ -27,6 +27,8 @@ from dashboard.subtabs.classification import (
     reevaluate_against_history,
 )
 from dashboard.subtabs import (
+from dashboard.backbone import render_styled_table
+from sklearn.metrics import confusion_matrix
     load_precomputed_results,
     list_variants,
     list_run_timestamps,
@@ -80,13 +82,13 @@ def render_metrics_row(results: Dict[str, Any], prefix: str = "") -> None:
 
 
 def render_confusion_matrix(cm: np.ndarray, key: str) -> None:
-    labels = ["OFF", "ON"]
+    labels = ["DBS OFF", "DBS ON"]
     fig = go.Figure(
         data=go.Heatmap(
             z=cm,
             x=labels,
             y=labels,
-            colorscale="Burg",
+            colorscale="Blues",
             text=cm,
             texttemplate="%{text}",
             textfont={"size": 20},
@@ -94,14 +96,15 @@ def render_confusion_matrix(cm: np.ndarray, key: str) -> None:
         )
     )
     fig.update_layout(
-        xaxis_title="Predicted",
-        yaxis_title="True",
-        height=350,
+        xaxis_title="Predicted Class",
+        yaxis_title="True Class",
+        height=400,
         template="plotly_white",
         font=dict(family=PLOT_STYLE.font_family),
-        margin=dict(l=40, r=40, t=10, b=40),
+        margin=dict(l=40, r=40, t=20, b=40),
     )
     st.plotly_chart(fig, use_container_width=True, key=f"cm_{key}")
+    st.caption("Confusion Matrix")
 
 
 def render_roc_curve(results: Dict[str, Any], key: str) -> None:
@@ -130,14 +133,17 @@ def render_roc_curve(results: Dict[str, Any], key: str) -> None:
         )
     )
     fig.update_layout(
-        xaxis_title="FP Rate",
-        yaxis_title="TP Rate",
-        height=350,
+        xaxis_title="False Positive Rate (FPR)",
+        yaxis_title="True Positive Rate (TPR)",
+        xaxis=dict(range=[0, 1], scaleanchor="y", scaleratio=1),
+        yaxis=dict(range=[0, 1]),
+        height=400,
         template="plotly_white",
         font=dict(family=PLOT_STYLE.font_family),
-        margin=dict(l=50, r=20, t=10, b=50),
+        margin=dict(l=50, r=20, t=20, b=50),
     )
     st.plotly_chart(fig, use_container_width=True, key=f"roc_{key}")
+    st.caption("Receiver Operating Characteristic (ROC)")
 
 
 def render_results_view(results: Dict[str, Any], key: str) -> None:
@@ -211,7 +217,7 @@ def render_fold_results(fold_results: list, key: str) -> None:
         "Bal Acc",
     ]
 
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
+    render_styled_table(display_df, key=f"tbl_fold_perf_{key}")
 
     fig = go.Figure()
     fig.add_trace(
@@ -231,15 +237,22 @@ def render_fold_results(fold_results: list, key: str) -> None:
         )
     )
     fig.update_layout(
-        title="Per-Fold Performance",
         xaxis_title="Fold",
         yaxis_title="Score",
-        height=300,
+        height=350,
         template="plotly_white",
         font=dict(family=PLOT_STYLE.font_family),
-        margin=dict(l=50, r=20, t=30, b=50),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="center",
+            x=0.5,
+        ),
+        margin=dict(l=50, r=20, t=20, b=50),
     )
     st.plotly_chart(fig, use_container_width=True, key=f"fold_perf_{key}")
+    st.caption("Cross-Validation Performance Across Folds")
 
 
 def render_classifier_section(
@@ -404,7 +417,6 @@ def render_classification_results(
                                 f"Evaluating {n} forecast samples against historical predictions."
                             )
                             # Also recompute confusion matrix and drop ROC data
-                            from sklearn.metrics import confusion_matrix
 
                             results["confusion_matrix"] = confusion_matrix(
                                 pred_res["y_pred"], results["y_pred"], labels=[0, 1]
@@ -483,12 +495,14 @@ def render_classification_summary(
                 use_container_width=True,
                 key=f"h_plot_{feature_source}_{key_prefix}",
             )
+            st.caption("Accuracy vs History Length")
         with col2:
             st.plotly_chart(
                 create_line_plot_by_future(single_feat_results, metric=metric),
                 use_container_width=True,
                 key=f"m_plot_{feature_source}_{key_prefix}",
             )
+            st.caption("Accuracy vs Forecast Horizon")
         st.markdown("---")
 
 
