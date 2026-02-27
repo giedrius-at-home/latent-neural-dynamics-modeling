@@ -219,3 +219,7 @@ CEBRA/
 PSID/
 
 *.toml
+
+report/
+
+.agents/

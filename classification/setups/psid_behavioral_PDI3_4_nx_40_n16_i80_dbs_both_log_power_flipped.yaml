@@ -1,4 +1,4 @@
-name: psid_behavioral_PDI3_4_nx_40_n16_i80_dbs_both_log_power_flipped
+name: psid_behavioral_PDI3_4_nx_40_n16_i80_dbs_both_xp_log_power_flipped
 
 run:
   dbs_on: 
@@ -14,11 +14,13 @@ run:
 classification:
   flipped: true
   n_splits: 2
-  epoch_length: 1.0     
-  epoch_overlap: 0.5 
-  sampling_freq: 60
+  epoch_length: 0.5     
+  epoch_overlap: 0.25 
+  sampling_freq: 80
   h: [0.5, 1.5, 2.5, 3.5, 4.5]   
-  m: [0.5, 1.0, 2.0]         
+  m: [0.5, 1.0, 2.0]
+  n1: 16
+  nx: 40         
   prediction_feature_source: Xp
   forecast_feature_source: Xp
   permutation_test: false

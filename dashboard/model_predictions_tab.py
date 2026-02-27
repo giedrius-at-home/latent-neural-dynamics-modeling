@@ -3,6 +3,7 @@ from pathlib import Path
 
 from utils.config import get_config
 from dashboard.subtabs import (
+from dashboard.subtabs import render_cross_trial_performance_tab
     list_variants,
     list_run_timestamps,
     config_for_variant,
@@ -13,6 +14,7 @@ from dashboard.subtabs import (
     render_forecasting_tab,
     render_latent_states_tab,
     render_cross_correlation_analysis_tab,
+    render_data_hungriness_tab,
 )
 
 
@@ -21,6 +23,18 @@ def model_predictions_tab(project_root, results_root=None):
 
     RESULTS_ROOT = results_root if results_root else project_root / "results"
 
+    model_analysis_tab, data_hungriness_tab = st.tabs(
+        ["Model Analysis", "Data Hungriness"]
+    )
+
+    with data_hungriness_tab:
+        render_data_hungriness_tab(project_root, RESULTS_ROOT)
+
+    with model_analysis_tab:
+        _render_model_analysis(project_root, RESULTS_ROOT)
+
+
+def _render_model_analysis(project_root, RESULTS_ROOT):
     variants = list_variants(RESULTS_ROOT)
     if len(variants) == 0:
         st.info("No result variants found under results/.")
@@ -177,11 +191,12 @@ def model_predictions_tab(project_root, results_root=None):
             st.session_state["run_timestamp"] = run_ts
 
             with performance_tab:
-                from dashboard.subtabs import render_cross_trial_performance_tab
 
                 cfg = get_config(str(cfg_path))
                 fs = getattr(cfg.data, "sampling_frequency", 60.0)
-                render_cross_trial_performance_tab(split_res, sampling_freq=fs, cfg_path=cfg_path)
+                render_cross_trial_performance_tab(
+                    split_res, sampling_freq=fs, cfg_path=cfg_path
+                )
 
             with lag_analysis_tab:
                 cfg = get_config(str(cfg_path))

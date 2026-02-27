@@ -1,303 +1,205 @@
 import pickle
 import argparse
-from pathlib import Path
-from typing import Dict, Any, Optional, List
-from datetime import datetime
-import numpy as np
 import sys
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+from datetime import datetime
+
+import numpy as np
 import polars as pl
 from tqdm import tqdm
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from dashboard.dbs_classification_tab import load_all_splits
+from training.components.tester import Tester
 from utils.classification import (
-    CLASSIFIERS,
     prepare_epoched_data,
-    run_full_classification_analysis,
+    run_classification_pipeline,
 )
 from utils.logger import setup_logger, get_logger
 from utils.config import get_config
 
 
-def _get_first(val):
-    if isinstance(val, list):
-        return val[0]
-    return val
+def _get_model_path(project_root: Path, variant_cfg: Any) -> Path:
+    return (
+        project_root
+        / "results"
+        / variant_cfg.variant
+        / f"model_{variant_cfg.run_ts}.pkl"
+    )
 
 
-def _get_model_path(project_root, variant_cfg):
-    v = _get_first(variant_cfg)
-    return project_root / "results" / v.variant / f"model_{v.run_ts}.pkl"
+def load_psid_model(project_root: Path, variant_cfg: Any) -> Any:
+    with open(_get_model_path(project_root, variant_cfg), "rb") as f:
+        return pickle.load(f)
 
 
-def load_all_splits(
-    variant_dir: Path, run_ts: str
-) -> Dict[str, Optional[Dict[str, Any]]]:
-    from dashboard.subtabs import load_precomputed_results
-
-    splits = {}
-    for split_name in ["train", "val", "test"]:
-        splits[split_name] = load_precomputed_results(variant_dir, run_ts, split_name)
-    return splits
-
-
-def compute_classification_for_config(
-    logger,
-    config,
+def run_classification(
+    logger: Any,
+    config: Any,
     mode: str,
     feature_source: str,
-    variant_dir=None,
-    run_ts=None,
-    A_on=None,
-    A_off=None,
-    A_both=None,
-    trials=None,
-):
+    history_horizon: Optional[float] = None,
+    forecast_horizon: Optional[float] = None,
+    variant_dir: Optional[Path] = None,
+    run_ts: Optional[str] = None,
+    model_on: Optional[Any] = None,
+    model_off: Optional[Any] = None,
+    model_both: Optional[Any] = None,
+) -> None:
     flipped = config.classification.get("flipped", False)
+    based_config = dict(
+        feature_source=feature_source,
+        epoch_length_sec=config.classification.epoch_length,
+        overlap=config.classification.epoch_overlap,
+        fs=config.classification.sampling_freq,
+        n1=config.classification.get("n1"),
+        nx=config.classification.get("nx"),
+    )
+
+    if variant_dir:
+        load_variant_dir = variant_dir
+        model_run_ts = run_ts  # Assumes if variant_dir is provided, run_ts (if provided) might be relevant
+    elif flipped:
+        load_variant_dir = (
+            Path(config.results.project_root) / "results" / config.run.dbs_both.variant
+        )
+        model_run_ts = config.run.dbs_both.run_ts
+    else:
+        load_variant_dir = (
+            Path(config.results.project_root) / "results" / config.run.variant
+        )
+        model_run_ts = config.run.run_ts
+ 
+    splits = load_all_splits(load_variant_dir, model_run_ts)
+    trainval_trials = [splits.get("train"), splits.get("val")]
+    test_trials = [splits.get("test")]
 
     if flipped:
         X_train, y_train, groups_train, _ = prepare_epoched_data(
-            [trials],
-            feature_source=feature_source,
-            epoch_length_sec=config.classification.epoch_length,
-            overlap=config.classification.epoch_overlap,
-            fs=config.classification.sampling_freq,
-            A_on=A_on,
-            A_off=A_off,
-            A_both=A_both,
-            h=config.classification.get("h"),
-            m=config.classification.get("m"),
-            n1=config.classification.get("n1"),
-            nx=config.classification.get("nx"),
+            trainval_trials,
+            **based_config,
+            model_on=model_on,
+            model_off=model_off,
+            model_both=model_both,
+            history_horizon=history_horizon,
+            forecast_horizon=forecast_horizon,
         )
         X_test, y_test, _, _ = prepare_epoched_data(
-            [trials],
-            feature_source=feature_source,
-            epoch_length_sec=config.classification.epoch_length,
-            overlap=config.classification.epoch_overlap,
-            fs=config.classification.sampling_freq,
+            test_trials,
+            **based_config,
             target_future=True,
-            A_on=A_on,
-            A_off=A_off,
-            A_both=A_both,
-            h=config.classification.get("h"),
-            m=config.classification.get("m"),
-            n1=config.classification.get("n1"),
-            nx=config.classification.get("nx"),
+            model_on=model_on,
+            model_off=model_off,
+            model_both=model_both,
+            history_horizon=history_horizon,
+            forecast_horizon=forecast_horizon,
         )
     else:
-        splits = load_all_splits(variant_dir, run_ts)
-        trainval_list = [
-            r for r in [splits.get("train"), splits.get("val")] if r is not None
-        ]
-        test_list = [splits.get("test")] if splits.get("test") is not None else []
-
         X_train, y_train, groups_train, _ = prepare_epoched_data(
-            trainval_list,
-            feature_source=feature_source,
-            epoch_length_sec=config.classification.epoch_length,
-            overlap=config.classification.epoch_overlap,
-            fs=config.classification.sampling_freq,
+            trainval_trials,
+            **based_config,
             mode=mode,
-            m=config.classification.get("m"),
-            h=config.classification.get("h"),
-            n1=config.classification.get("n1"),
-            nx=config.classification.get("nx"),
+            history_horizon=history_horizon,
+            forecast_horizon=forecast_horizon,
         )
-        X_test, y_test, _, _ = (
-            prepare_epoched_data(
-                test_list,
-                feature_source=feature_source,
-                epoch_length_sec=config.classification.epoch_length,
-                overlap=config.classification.epoch_overlap,
-                fs=config.classification.sampling_freq,
-                mode=mode,
-                m=config.classification.get("m"),
-                h=config.classification.get("h"),
-                n1=config.classification.get("n1"),
-                nx=config.classification.get("nx"),
-            )
-            if test_list
-            else (None, None, None, None)
+        X_test, y_test, _, _ = prepare_epoched_data(
+            test_trials,
+            **based_config,
+            mode=mode,
+            history_horizon=history_horizon,
+            forecast_horizon=forecast_horizon,
         )
 
-    if X_train is None:
-        logger.warning(f"No samples for {mode}/{feature_source}. Skipping.")
-        return
+    results = run_classification_pipeline(
+        X_train,
+        y_train,
+        groups_train,
+        X_test,
+        y_test,
+        config,
+        logger,
+        feature_source=feature_source,
+    )
 
-    for clf_name in CLASSIFIERS:
-        results = run_full_classification_analysis(
-            clf_name,
-            X_train,
-            y_train,
-            groups_train,
-            X_test,
-            y_test,
-            config,
-            logger,
-            feature_source=feature_source,
-        )
+    results_base = variant_dir if variant_dir else Path(config.results.results_dir)
+    save_dir = results_base / run_ts / "classification"
+    save_dir = save_dir / f"h{history_horizon}_m{forecast_horizon}"
+    save_dir.mkdir(parents=True, exist_ok=True)
 
-        if flipped:
-            h_val = config.classification.get("h", 1.0)
-            m_val = config.classification.get("m", 1.0)
-            save_dir = (
-                Path(config.results.results_dir)
-                / f"{run_ts}/classification/h{h_val}_m{m_val}"
-            )
-        else:
-            # For non-flipped, Results dir is specific to the "both" variant being analyzed
-            # results.results_dir for flipped is usually name: variant_dbs_both_flipped
-            # whereas run.variant is variant_dbs_both
-            results_dir = (
-                Path(config.results.project_root) / "results" / config.run.variant
-            )
-            h_val = config.classification.get("h")
-            m_val = config.classification.get("m")
-            if h_val is not None or m_val is not None:
-                save_dir = results_dir / f"{run_ts}/classification/h{h_val}_m{m_val}"
-            else:
-                save_dir = results_dir / f"{run_ts}/classification"
-        save_dir.mkdir(parents=True, exist_ok=True)
-
-        with open(save_dir / f"{clf_name}_{feature_source}_{mode}.pkl", "wb") as f:
-            pickle.dump(results, f)
+    with open(save_dir / f"LDA_{feature_source}_{mode}.pkl", "wb") as f:
+        pickle.dump(results, f)
 
 
-def compute(config):
+def run_all_classifications(config: Any) -> None:
     logger = get_logger()
     project_root = Path(config.results.project_root)
     flipped = config.classification.get("flipped", False)
 
     if flipped:
-        A_on = get_dynamics(project_root, config.run.dbs_on)
-        A_off = get_dynamics(project_root, config.run.dbs_off)
-        A_both = (
-            get_dynamics(project_root, config.run.dbs_both)
-            if hasattr(config.run, "dbs_both")
-            else None
-        )
+        mode = "flipped"
+        model_on = load_psid_model(project_root, config.run.dbs_on)
+        model_off = load_psid_model(project_root, config.run.dbs_off)
+        model_both = load_psid_model(project_root, config.run.dbs_both)
 
-        variants_to_load = []
-        if hasattr(config.run, "dbs_both"):
-            variants_to_load.append(config.run.dbs_both)
-        else:
-            if hasattr(config.run, "dbs_on"):
-                variants_to_load.append(config.run.dbs_on)
-            if hasattr(config.run, "dbs_off"):
-                variants_to_load.append(config.run.dbs_off)
-
-        trials = {
-            "Xp": [],
-            "stim": [],
-            "session": [],
-            "block": [],
-            "participant_id": [],
-            "trial": [],
-        }
-        trial_idx = 0
-        for variant_cfg in variants_to_load:
-            v_cfg = _get_first(variant_cfg)
-            results_root = project_root / "results" / v_cfg.variant
-
-            train_dir = results_root / f"train_results_{v_cfg.run_ts}"
-            val_dir = results_root / f"val_results_{v_cfg.run_ts}"
-
-            logger.info(f"Loading Source Data from: {v_cfg.variant}")
-            result_files = sorted(
-                list(train_dir.rglob("0.parquet")) + list(val_dir.rglob("0.parquet"))
-            )
-            for f in tqdm(result_files, desc="Trials", leave=False):
-                df = pl.read_parquet(f)
-                xp_arr = np.array(df["Xp"].to_list()).squeeze()
-                if xp_arr.ndim == 2 and xp_arr.shape[0] < xp_arr.shape[1]:
-                    xp_arr = xp_arr.T
-                trials["Xp"].append(xp_arr)
-                trials["stim"].append(df["stim"][0])
-                trials["session"].append(0)
-                trials["block"].append(trial_idx)
-                trials["participant_id"].append("p0")
-                trials["trial"].append(trial_idx)
-                trial_idx += 1
-
-        h_values = config.classification.get("h", [1.0])
-        m_values = config.classification.get("m", [1.0])
-
-        if not isinstance(h_values, list):
-            h_values = [h_values]
-        if not isinstance(m_values, list):
-            m_values = [m_values]
-
+        history_horizons = config.classification.get("h")
+        forecast_horizons = config.classification.get("m")
+ 
         run_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         logger.info(f"Flipped classification run timestamp: {run_ts}")
-
-        all_results = []
-        for h_val in h_values:
-            for m_val in m_values:
-                logger.info(f"Running flipped suite with h={h_val}s, m={m_val}s")
-
-                config.classification.h = h_val
-                config.classification.m = m_val
-
-                # Flipped Classification (uses A_on/A_off dynamics)
-                compute_classification_for_config(
+ 
+        for hh in history_horizons:
+            for fh in forecast_horizons:
+                logger.info(f"Running flipped suite with h={hh}s, m={fh}s")
+                run_classification(
                     logger,
                     config,
-                    "flipped",
+                    mode,
                     config.classification.get("prediction_feature_source", "Xp"),
+                    history_horizon=hh,
+                    forecast_horizon=fh,
                     run_ts=run_ts,
-                    A_on=A_on,
-                    A_off=A_off,
-                    A_both=A_both,
-                    trials=trials,
+                    model_on=model_on,
+                    model_off=model_off,
+                    model_both=model_both,
                 )
     else:
         verify_test_results(logger, project_root, config)
-        h_values = config.classification.get("h", [None])
-        m_values = config.classification.get("m", [None])
-
-        if not isinstance(h_values, list):
-            h_values = [h_values]
-        if not isinstance(m_values, list):
-            m_values = [m_values]
-
-        for h_val in h_values:
-            for m_val in m_values:
-                config.classification.h = h_val
-                config.classification.m = m_val
+        history_horizons = config.classification.get("h")
+        forecast_horizons = config.classification.get("m")
+ 
+        for hh in history_horizons:
+            for fh in forecast_horizons:
                 for mode in ["prediction", "forecast"]:
                     logger.info(
-                        f"Running {mode} classification with h={h_val}s, m={m_val}s"
+                        f"Running {mode} classification with h={hh}s, m={fh}s"
                     )
-                    compute_classification_for_config(
+                    run_classification(
                         logger,
                         config,
                         mode,
                         config.classification.get(f"{mode}_feature_source", "Xp"),
+                        history_horizon=hh,
+                        forecast_horizon=fh,
                         variant_dir=project_root / "results" / config.run.variant,
                         run_ts=config.run.run_ts,
                     )
 
 
-def get_dynamics(project_root, variant_cfg):
-    with open(_get_model_path(project_root, variant_cfg), "rb") as f:
-        return pickle.load(f).A
+def verify_test_results(logger: Any, project_root: Path, config: Any) -> None:
+    save_ts = config.run.run_ts
+    variant_results_dir = project_root / "results" / config.run.variant
+    test_results_path = variant_results_dir / "test" / f"test_results_{save_ts}.parquet"
 
-
-def verify_test_results(logger, project_root, config):
-    test_dir = (
-        project_root
-        / "results"
-        / config.run.variant
-        / f"test_results_{config.run.run_ts}"
-    )
-    if not test_dir.exists():
-        from training.components.tester import Tester
-
-        setup_paths = list((project_root / "training" / "setups").rglob(f"{config.run.variant}.yaml"))
+    if not test_results_path.exists():
+        setup_paths = list(
+            (project_root / "training" / "setups").rglob(f"{config.run.variant}.yaml")
+        )
         if not setup_paths:
-            raise FileNotFoundError(f"Could not find training config for {config.run.variant}")
-        
+            raise FileNotFoundError(
+                f"Could not find training setup for variant: {config.run.variant}"
+            )
         tester = Tester(
             get_config(str(setup_paths[0])),
             run_timestamp=config.run.run_ts,
@@ -306,13 +208,13 @@ def verify_test_results(logger, project_root, config):
         tester.save_results()
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="Unified DBS Classification")
     parser.add_argument("--config", type=str, required=True)
     args = parser.parse_args()
     config = get_config(args.config)
     setup_logger(config.results.log_dir, name=__file__)
-    compute(config)
+    run_all_classifications(config)
 
 
 if __name__ == "__main__":

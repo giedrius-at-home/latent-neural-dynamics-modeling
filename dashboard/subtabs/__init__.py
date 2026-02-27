@@ -19,8 +19,15 @@ from dashboard.subtabs.cross_correlation_analysis import (
     render_cross_correlation_analysis_tab,
 )
 from dashboard.subtabs.classification import (
-    render_classification_tab,
+    load_classification_results,
+    create_line_plot_by_history,
+    create_line_plot_by_future,
+    create_heatmap_figure,
+    create_summary_table,
+    resolve_metric,
+    reevaluate_against_history,
 )
+from dashboard.subtabs.data_hungriness import render_data_hungriness_tab
 
 __all__ = [
     "list_variants",
@@ -39,5 +46,12 @@ __all__ = [
     "render_forecasting_tab",
     "render_latent_states_tab",
     "render_cross_correlation_analysis_tab",
-    "render_classification_tab",
+    "load_classification_results",
+    "create_line_plot_by_history",
+    "create_line_plot_by_future",
+    "create_heatmap_figure",
+    "create_summary_table",
+    "resolve_metric",
+    "reevaluate_against_history",
+    "render_data_hungriness_tab",
 ]

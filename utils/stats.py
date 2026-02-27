@@ -72,6 +72,140 @@ def pearson_r_per_channel(
     return per_trial, overall_mean
 
 
+def fisher_z_transform(r_values: List[float]) -> Tuple[List[float], float]:
+    """Apply Fisher Z transform (arctanh) to correlation values.
+    Clips to [-0.9999, 0.9999] to avoid inf. Returns (z_values, z_mean)."""
+    valid = [r for r in r_values if r is not None and not np.isnan(r)]
+    if not valid:
+        return [], float("nan")
+    clipped = np.clip(valid, -0.9999, 0.9999)
+    z_values = np.arctanh(clipped)
+    return z_values.tolist(), float(np.mean(z_values))
+
+
+def aggregate_per_channel(
+    metric_per_trial: List[Any],
+    channel_names: List[str],
+    apply_fisher_z: bool = False,
+) -> Tuple[Dict[str, float], float, Dict[str, float], float]:
+    """Aggregate per-trial per-channel metrics into per-channel means and standard errors.
+
+    Args:
+        metric_per_trial: Output like pearson_r_per_channel (list of lists or flat list).
+        channel_names: Channel names corresponding to columns.
+        apply_fisher_z: If True, apply Fisher Z transform before averaging.
+
+    Returns:
+        (mean_dict, overall_mean, se_dict, overall_se)
+    """
+    n_channels = len(channel_names)
+    per_channel_mean = {}
+    per_channel_se = {}
+
+    if not metric_per_trial or n_channels == 0:
+        return {}, float("nan"), {}, float("nan")
+
+    if isinstance(metric_per_trial[0], list):
+        # Per-trial per-channel: list of lists
+        for ch_idx in range(n_channels):
+            ch_vals = [
+                trial[ch_idx]
+                for trial in metric_per_trial
+                if len(trial) > ch_idx
+                and trial[ch_idx] is not None
+                and not np.isnan(trial[ch_idx])
+            ]
+            if ch_vals:
+                if apply_fisher_z:
+                    z_vals, z_mean = fisher_z_transform(ch_vals)
+                    per_channel_mean[channel_names[ch_idx]] = z_mean
+                    per_channel_se[channel_names[ch_idx]] = (
+                        float(np.std(z_vals) / np.sqrt(len(z_vals)))
+                        if len(z_vals) > 0
+                        else 0.0
+                    )
+                else:
+                    per_channel_mean[channel_names[ch_idx]] = float(np.mean(ch_vals))
+                    per_channel_se[channel_names[ch_idx]] = (
+                        float(np.std(ch_vals) / np.sqrt(len(ch_vals)))
+                        if len(ch_vals) > 0
+                        else 0.0
+                    )
+    else:
+        # Single-trial: flat list (SE is 0 for a single trial)
+        for ch_idx, r in enumerate(metric_per_trial):
+            if ch_idx < n_channels and r is not None and not np.isnan(r):
+                if apply_fisher_z:
+                    _, z_mean = fisher_z_transform([r])
+                    per_channel_mean[channel_names[ch_idx]] = z_mean
+                else:
+                    per_channel_mean[channel_names[ch_idx]] = float(r)
+                per_channel_se[channel_names[ch_idx]] = 0.0
+
+    all_means = [v for v in per_channel_mean.values() if not np.isnan(v)]
+    overall_mean = float(np.mean(all_means)) if all_means else float("nan")
+    overall_se = (
+        float(np.std(all_means) / np.sqrt(len(all_means))) if all_means else 0.0
+    )
+
+    return per_channel_mean, overall_mean, per_channel_se, overall_se
+
+
+def rmse_per_channel(
+    y_true: Union[np.ndarray, List[np.ndarray]],
+    y_pred: Union[np.ndarray, List[np.ndarray]],
+) -> Tuple[List[Any], float]:
+    """Calculate RMSE per channel, averaging across time, per trial."""
+
+    trials_true: List[np.ndarray]
+    trials_pred: List[np.ndarray]
+
+    if isinstance(y_true, list) and isinstance(y_pred, list):
+        trials_true = y_true
+        trials_pred = y_pred
+    elif isinstance(y_true, np.ndarray) and isinstance(y_pred, np.ndarray):
+        if y_true.ndim == 2 and y_pred.ndim == 2:
+            rmse_list = [
+                float(np.sqrt(np.mean((y_true[:, c] - y_pred[:, c]) ** 2)))
+                for c in range(y_true.shape[1])
+            ]
+            valid = [r for r in rmse_list if not np.isnan(r)]
+            r_mean = float(np.mean(valid)) if len(valid) > 0 else np.nan
+            return rmse_list, r_mean
+        elif y_true.ndim == 3 and y_pred.ndim == 3:
+            trials_true = [y_true[i] for i in range(y_true.shape[0])]
+            trials_pred = [y_pred[i] for i in range(y_pred.shape[0])]
+        else:
+            raise ValueError("Unsupported input shapes for rmse_per_channel.")
+    else:
+        raise ValueError(
+            "y_true and y_pred types must match (both list or both ndarray)."
+        )
+
+    per_trial: List[List[float]] = []
+    all_valid: List[float] = []
+    n_trials = min(len(trials_true), len(trials_pred))
+
+    for i in range(n_trials):
+        yt = trials_true[i]
+        yp = trials_pred[i]
+
+        if yt.shape != yp.shape:
+            raise ValueError("y_true and y_pred must have the same shape")
+
+        # Calculate RMSE per channel for this trial
+        rmse_list = []
+        for c in range(yt.shape[1]):
+            rmse = float(np.sqrt(np.mean((yt[:, c] - yp[:, c]) ** 2)))
+            rmse_list.append(rmse)
+
+        per_trial.append(rmse_list)
+        all_valid.extend([r for r in rmse_list if not np.isnan(r)])
+
+    overall_mean = float(np.mean(all_valid)) if len(all_valid) > 0 else np.nan
+    return per_trial, overall_mean
+
+
 def compute_residual_statistics(
     y_true: np.ndarray, y_pred: np.ndarray
 ) -> Dict[str, Any]:
@@ -328,6 +462,57 @@ def compare_band_power(
         }
 
     return results
+
+
+def compute_psd_dbs_stats(
+    freqs: np.ndarray,
+    psds_on: np.ndarray,
+    psds_off: np.ndarray,
+) -> Dict[str, Any]:
+    """
+    Compare DBS ON vs OFF PSD using Mann-Whitney U test.
+
+    Each row of psds_on / psds_off is the mean PSD spectrum of one trial.
+    The test compares the distribution of total-band power (integrated over
+    the full frequency axis) between the two conditions.
+
+    Returns dict with test results including U, p-value, effect size (rank-biserial r),
+    and per-condition mean/std of total power (in dB).
+    """
+    if psds_on.ndim == 1:
+        psds_on = psds_on[np.newaxis, :]
+    if psds_off.ndim == 1:
+        psds_off = psds_off[np.newaxis, :]
+
+    # Integrate PSD over frequency axis per trial → scalar power per trial
+    power_on = np.trapz(psds_on, freqs, axis=1)
+    power_off = np.trapz(psds_off, freqs, axis=1)
+
+    # Convert to dB scale
+    power_on_db = 10 * np.log10(np.maximum(power_on, 1e-20)) + 120
+    power_off_db = 10 * np.log10(np.maximum(power_off, 1e-20)) + 120
+
+    n_on, n_off = len(power_on_db), len(power_off_db)
+
+    result = {
+        "n_on": n_on,
+        "n_off": n_off,
+        "mean_on": float(np.mean(power_on_db)),
+        "mean_off": float(np.mean(power_off_db)),
+        "std_on": float(np.std(power_on_db)),
+        "std_off": float(np.std(power_off_db)),
+        "delta_db": float(np.mean(power_on_db) - np.mean(power_off_db)),
+    }
+
+    if n_on >= 2 and n_off >= 2:
+        U, p = stats.mannwhitneyu(power_on_db, power_off_db, alternative="two-sided")
+        # Rank-biserial correlation as effect size
+        r = 1 - (2 * U) / (n_on * n_off)
+        result.update({"U": float(U), "p": float(p), "effect_size_r": float(r)})
+    else:
+        result.update({"U": np.nan, "p": np.nan, "effect_size_r": np.nan})
+
+    return result
 
 
 def compute_cross_correlation(

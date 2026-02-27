@@ -8,6 +8,13 @@ import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
 
+from sklearn.metrics import (
+    accuracy_score,
+    balanced_accuracy_score,
+    precision_score,
+    recall_score,
+    f1_score,
+)
 from dashboard.backbone import (
     PALETTE,
     PLOT_COLOR,
@@ -16,38 +23,139 @@ from dashboard.backbone import (
 )
 
 
-def load_classification_results(
-    results_dir: Path, mode: str = "flipped"
-) -> Dict[Tuple[float, float], Dict[str, Any]]:
-    results = {}
-    pattern = re.compile(r"^h([\d.]+)_m([\d.]+)$")
+def resolve_metric(res: Dict[str, Any], metric: str) -> float:
+    """Resolve a metric value from a result dict, checking test_results first."""
+    if "test_results" in res and metric in res["test_results"]:
+        return res["test_results"][metric]
+    if metric in res:
+        return res[metric]
+    return float("nan")
 
+
+def reevaluate_against_history(res: Dict[str, Any], pred_res: Dict[str, Any]) -> bool:
+    """
+    Re-evaluate forecast results against historical predictions.
+    Modifies `res` in-place. Returns True on success, False on failure.
+    """
+    if "y_pred" not in pred_res or "y_pred" not in res:
+        return False
+    history_preds = pred_res["y_pred"]
+    y_pred = res["y_pred"]
+    if len(history_preds) != len(y_pred):
+        return False
+
+
+    y_true = history_preds
+    res["accuracy"] = accuracy_score(y_true, y_pred)
+    res["balanced_accuracy"] = balanced_accuracy_score(y_true, y_pred)
+    res["precision"] = precision_score(y_true, y_pred, zero_division=0)
+    res["recall"] = recall_score(y_true, y_pred, zero_division=0)
+    res["f1"] = f1_score(y_true, y_pred, zero_division=0)
+    res["best_cv_score"] = res["balanced_accuracy"]
+    res.pop("test_results", None)
+    return True
+
+
+def _apply_line_plot_layout(fig: go.Figure, xaxis_title: str) -> None:
+    """Apply shared layout to accuracy-vs-parameter line plots."""
+    fig.add_hline(
+        y=0.5,
+        line_dash="dash",
+        line_color=PALETTE.cool_steel,
+        annotation_text="Chance",
+    )
+    fig.update_layout(
+        xaxis=dict(
+            title=dict(
+                text=xaxis_title,
+                font=dict(
+                    size=PLOT_STYLE.axis_label_size, family=PLOT_STYLE.font_family
+                ),
+            ),
+            tickfont=dict(size=PLOT_STYLE.tick_label_size),
+        ),
+        yaxis=dict(
+            title=dict(
+                text="Balanced Accuracy",
+                font=dict(
+                    size=PLOT_STYLE.axis_label_size, family=PLOT_STYLE.font_family
+                ),
+            ),
+            tickfont=dict(size=PLOT_STYLE.tick_label_size),
+            range=[0.4, 1.0],
+        ),
+        template="plotly_white",
+        font=dict(family=PLOT_STYLE.font_family, color=PALETTE.ink_black),
+        legend=dict(font=dict(size=PLOT_STYLE.tick_label_size)),
+        margin=dict(l=60, r=60, t=20, b=60),
+    )
+
+
+def load_classification_results(
+    results_dir: Path, mode: str = "forecast", eval_target: str = "dbs_stim"
+) -> Dict[str, Dict[Tuple[float, float], Dict[str, Any]]]:
+    """
+    Loads all classification results, grouping them by FEATURE SOURCE.
+    Returns: { feature_source: { (h, m): result_dict } }
+    """
+    all_results = {}
+    hm_pattern = re.compile(r"^h([\d.]+)_m([\d.]+)$")
+
+    # Traverse h/m directories
     for d in results_dir.iterdir():
         if not d.is_dir():
             continue
-        match = pattern.match(d.name)
-        if not match:
+
+        hm_match = hm_pattern.match(d.name)
+        if not hm_match:
             continue
 
-        h_val = float(match.group(1))
-        m_val = float(match.group(2))
+        h_val, m_val = float(hm_match.group(1)), float(hm_match.group(2))
 
-        # Look for LDA results for specific mode
-        pattern_str = f"LDA*_{mode}.pkl"
+        # Find pkl files for the given mode (prediction, forecast, flipped)
+        pattern_str = f"*_{mode}.pkl"
         pkl_files = list(d.glob(pattern_str))
-        if not pkl_files:
-            continue
 
-        try:
-            # Sort to be deterministic, pick first (usually only one matches)
-            pkl_files.sort()
-            with open(pkl_files[0], "rb") as f:
-                result = pickle.load(f)
-            results[(h_val, m_val)] = result
-        except Exception as e:
-            st.warning(f"Failed to load {pkl_files[0]}: {e}")
+        for pkl_file in pkl_files:
+            filename = pkl_file.stem
+            parts = filename.split("_")
 
-    return results
+            # Extract feature source: everything between LDA and mode/flipped
+            suffixes = {"prediction", "forecast", "flipped", "epoch", "overlap"}
+            feature_parts = []
+            for p in parts[1:]:
+                if any(p.startswith(s) for s in suffixes):
+                    break
+                feature_parts.append(p)
+
+            feature_source = "_".join(feature_parts) if feature_parts else "Default"
+
+            if feature_source not in all_results:
+                all_results[feature_source] = {}
+
+            try:
+                with open(pkl_file, "rb") as f:
+                    res = pickle.load(f)
+
+                if eval_target == "history_label" and mode == "forecast":
+                    pred_file = pkl_file.parent / pkl_file.name.replace(
+                        "_forecast", "_prediction"
+                    )
+                    if pred_file.exists():
+                        try:
+                            with open(pred_file, "rb") as fp:
+                                pred_res = pickle.load(fp)
+                            reevaluate_against_history(res, pred_res)
+                        except Exception as e:
+                            st.warning(
+                                f"Failed to load history prediction for {pkl_file.name}: {e}"
+                            )
+
+                all_results[feature_source][(h_val, m_val)] = res
+            except Exception as e:
+                st.warning(f"Failed to load {pkl_file}: {e}")
+
+    return all_results
 
 
 def create_heatmap_figure(
@@ -72,13 +180,7 @@ def create_heatmap_figure(
         h_idx = h_values.index(h)
         m_idx = m_values.index(m)
 
-        # Get the metric value (prefer test results if available)
-        if "test_results" in res and metric in res["test_results"]:
-            z_matrix[m_idx, h_idx] = res["test_results"][metric]
-        elif metric in res:
-            z_matrix[m_idx, h_idx] = res[metric]
-        elif metric == "balanced_accuracy" and "best_cv_score" in res:
-            z_matrix[m_idx, h_idx] = res["best_cv_score"]
+        z_matrix[m_idx, h_idx] = resolve_metric(res, metric)
 
     # Find best cell
     best_idx = np.nanargmax(z_matrix)
@@ -125,12 +227,6 @@ def create_heatmap_figure(
     )
 
     fig.update_layout(
-        title=dict(
-            text=f"{title}<br><sup>Best: h={best_h:.1f}s, m={best_m:.1f}s (acc={best_val:.3f})</sup>",
-            x=0.5,
-            xanchor="center",
-            font=dict(size=PLOT_STYLE.title_size, family=PLOT_STYLE.font_family),
-        ),
         xaxis=dict(
             title=dict(
                 text="History h (seconds)",
@@ -151,185 +247,98 @@ def create_heatmap_figure(
         ),
         template="plotly_white",
         font=dict(family=PLOT_STYLE.font_family, color=PALETTE.ink_black),
-        margin=dict(l=60, r=100, t=100, b=60),
+        margin=dict(l=60, r=100, t=20, b=60),
     )
 
     return fig
 
 
 def create_line_plot_by_history(
-    results: Dict[Tuple[float, float], Dict[str, Any]],
+    all_results: Dict[str, Dict[Tuple[float, float], Dict[str, Any]]],
     metric: str = "balanced_accuracy",
 ) -> go.Figure:
     """
-    Create line plot showing accuracy vs history length, with separate lines for each m.
+    Create line plot showing accuracy vs history length.
+    Lines are added for each (feature_source, m) combination.
     """
-    if not results:
+    if not all_results:
         return go.Figure()
-
-    h_values = sorted(set(hm[0] for hm in results.keys()))
-    m_values = sorted(set(hm[1] for hm in results.keys()))
-
-    # Color scale for different m values
-    colors = px.colors.qualitative.Set2[: len(m_values)]
 
     fig = go.Figure()
 
-    for i, m in enumerate(m_values):
-        y_vals = []
-        x_vals = []
-        for h in h_values:
-            if (h, m) in results:
-                res = results[(h, m)]
-                if "test_results" in res and metric in res["test_results"]:
-                    val = res["test_results"][metric]
-                elif metric in res:
-                    val = res[metric]
-                elif metric == "balanced_accuracy" and "best_cv_score" in res:
-                    val = res["best_cv_score"]
-                else:
-                    val = np.nan
-                y_vals.append(val)
-                x_vals.append(h)
+    # Qualitative colors for different sources/windows
+    colors = px.colors.qualitative.Plotly
 
-        fig.add_trace(
-            go.Scatter(
-                x=x_vals,
-                y=y_vals,
-                mode="lines+markers",
-                name=f"m = {m:.1f}s",
-                line=dict(color=colors[i % len(colors)], width=2.5),
-                marker=dict(size=8),
-                hovertemplate=f"m={m:.1f}s<br>h=%{{x:.1f}}s<br>Accuracy=%{{y:.3f}}<extra></extra>",
+    color_idx = 0
+    for feature_source, results in all_results.items():
+        h_values = sorted(set(hm[0] for hm in results.keys()))
+        m_values = sorted(set(hm[1] for hm in results.keys()))
+
+        for m in m_values:
+            y_vals = []
+            x_vals = []
+            for h in h_values:
+                if (h, m) in results:
+                    y_vals.append(resolve_metric(results[(h, m)], metric))
+                    x_vals.append(h)
+
+            name = f"{feature_source} (m={m:.1f}s)"
+            fig.add_trace(
+                go.Scatter(
+                    x=x_vals,
+                    y=y_vals,
+                    mode="lines+markers",
+                    name=name,
+                    line=dict(color=colors[color_idx % len(colors)], width=2.5),
+                    marker=dict(size=8),
+                    hovertemplate=f"Feature: {feature_source}<br>m={m:.1f}s<br>h=%{{x:.1f}}s<br>Acc=%{{y:.3f}}<extra></extra>",
+                )
             )
-        )
+            color_idx += 1
 
-    # Add chance level line
-    fig.add_hline(
-        y=0.5,
-        line_dash="dash",
-        line_color=PALETTE.cool_steel,
-        annotation_text="Chance",
-        annotation_position="bottom right",
-    )
-
-    fig.update_layout(
-        title=dict(
-            text="Classification Accuracy vs History Length",
-            x=0.5,
-            xanchor="center",
-            font=dict(size=PLOT_STYLE.title_size, family=PLOT_STYLE.font_family),
-        ),
-        xaxis=dict(
-            title=dict(
-                text="History h (seconds)",
-                font=dict(
-                    size=PLOT_STYLE.axis_label_size, family=PLOT_STYLE.font_family
-                ),
-            ),
-            tickfont=dict(size=PLOT_STYLE.tick_label_size),
-        ),
-        yaxis=dict(
-            title=dict(
-                text="Balanced Accuracy",
-                font=dict(
-                    size=PLOT_STYLE.axis_label_size, family=PLOT_STYLE.font_family
-                ),
-            ),
-            tickfont=dict(size=PLOT_STYLE.tick_label_size),
-            range=[0.4, 1.0],
-        ),
-        template="plotly_white",
-        font=dict(family=PLOT_STYLE.font_family, color=PALETTE.ink_black),
-        legend=dict(
-            title=dict(text="Forecast Horizon"),
-            font=dict(size=PLOT_STYLE.tick_label_size),
-        ),
-        margin=dict(l=60, r=60, t=80, b=60),
-    )
-
+    _apply_line_plot_layout(fig, "History h (seconds)")
     return fig
 
 
 def create_line_plot_by_future(
-    results: Dict[Tuple[float, float], Dict[str, Any]],
+    all_results: Dict[str, Dict[Tuple[float, float], Dict[str, Any]]],
     metric: str = "balanced_accuracy",
 ) -> go.Figure:
-    if not results:
+    if not all_results:
         return go.Figure()
 
-    h_values = sorted(set(hm[0] for hm in results.keys()))
-    m_values = sorted(set(hm[1] for hm in results.keys()))
-
-    colors = px.colors.qualitative.Set3[: len(h_values)]
     fig = go.Figure()
+    colors = px.colors.qualitative.Safe
 
-    for i, h in enumerate(h_values):
-        y_vals = []
-        x_vals = []
-        for m in m_values:
-            if (h, m) in results:
-                res = results[(h, m)]
-                if "test_results" in res and metric in res["test_results"]:
-                    val = res["test_results"][metric]
-                elif metric in res:
-                    val = res[metric]
-                elif metric == "balanced_accuracy" and "best_cv_score" in res:
-                    val = res["best_cv_score"]
-                else:
-                    val = np.nan
-                y_vals.append(val)
-                x_vals.append(m)
+    color_idx = 0
+    for feature_source, results in all_results.items():
+        h_values = sorted(set(hm[0] for hm in results.keys()))
+        m_values = sorted(set(hm[1] for hm in results.keys()))
 
-        fig.add_trace(
-            go.Scatter(
-                x=x_vals,
-                y=y_vals,
-                mode="lines+markers",
-                name=f"h = {h:.1f}s",
-                line=dict(color=colors[i % len(colors)], width=2.5),
-                marker=dict(size=8),
-                hovertemplate=f"h={h:.1f}s<br>m=%{{x:.1f}}s<br>Accuracy=%{{y:.3f}}<extra></extra>",
+        for h in h_values:
+            y_vals = []
+            x_vals = []
+            for m in m_values:
+                if (h, m) in results:
+                    y_vals.append(resolve_metric(results[(h, m)], metric))
+                    x_vals.append(m)
+
+            name = f"{feature_source} (h={h:.1f}s)"
+            fig.add_trace(
+                go.Scatter(
+                    x=x_vals,
+                    y=y_vals,
+                    mode="lines+markers",
+                    name=name,
+                    line=dict(color=colors[color_idx % len(colors)], width=2.5),
+                    marker=dict(size=8),
+                    hovertemplate=f"Feature: {feature_source}<br>h={h:.1f}s<br>m=%{{x:.1f}}s<br>Acc=%{{y:.3f}}<extra></extra>",
+                )
             )
-        )
+            color_idx += 1
 
-    fig.add_hline(
-        y=0.5, line_dash="dash", line_color=PALETTE.cool_steel, annotation_text="Chance"
-    )
-
-    fig.update_layout(
-        title=dict(
-            text="Classification Accuracy vs Forecast Horizon",
-            x=0.5,
-            xanchor="center",
-            font=dict(size=PLOT_STYLE.title_size, family=PLOT_STYLE.font_family),
-        ),
-        xaxis=dict(
-            title=dict(
-                text="Forecast Horizon m (seconds)",
-                font=dict(
-                    size=PLOT_STYLE.axis_label_size, family=PLOT_STYLE.font_family
-                ),
-            ),
-            tickfont=dict(size=PLOT_STYLE.tick_label_size),
-        ),
-        yaxis=dict(
-            title=dict(
-                text="Balanced Accuracy",
-                font=dict(
-                    size=PLOT_STYLE.axis_label_size, family=PLOT_STYLE.font_family
-                ),
-            ),
-            tickfont=dict(size=PLOT_STYLE.tick_label_size),
-            range=[0.4, 1.0],
-        ),
-        template="plotly_white",
-        font=dict(family=PLOT_STYLE.font_family, color=PALETTE.ink_black),
-        legend=dict(
-            title=dict(text="History Length"),
-            font=dict(size=PLOT_STYLE.tick_label_size),
-        ),
-        margin=dict(l=60, r=60, t=80, b=60),
+    _apply_line_plot_layout(
+        fig, "Forecast Horizon m (seconds)"
     )
     return fig
 
@@ -409,12 +418,6 @@ def create_timeline_visualization(
     )
 
     fig.update_layout(
-        title=dict(
-            text=f"Optimal Classification Window (Accuracy: {best_accuracy:.1%})",
-            x=0.5,
-            xanchor="center",
-            font=dict(size=PLOT_STYLE.title_size, family=PLOT_STYLE.font_family),
-        ),
         xaxis=dict(
             title=dict(
                 text="Time (seconds)",
@@ -443,7 +446,7 @@ def create_timeline_visualization(
             x=0.5,
         ),
         height=250,
-        margin=dict(l=60, r=60, t=100, b=60),
+        margin=dict(l=60, r=60, t=20, b=60),
     )
 
     return fig
@@ -471,71 +474,3 @@ def create_summary_table(
         rows.append(row)
 
     return rows
-
-
-def render_classification_tab(variant_dir: Path):
-
-    st.markdown("## Classification Results on Different History and Forecast Windows")
-
-    # Load results
-    results = load_classification_results(variant_dir)
-
-    if not results:
-        st.warning(f"No classification results found in {variant_dir}")
-        st.info("Run classification with h and m parameters to generate results.")
-        return
-
-    # Find best configuration
-    best_hm = max(results.keys(), key=lambda hm: results[hm].get("best_cv_score", 0))
-    best_h, best_m = best_hm
-    best_acc = results[best_hm].get("best_cv_score", 0)
-
-    # Metric selector
-    col1, col2 = st.columns([1, 3])
-    with col1:
-        metric = st.selectbox(
-            "Metric",
-            ["best_cv_score", "balanced_accuracy", "accuracy", "f1"],
-            format_func=lambda x: {
-                "best_cv_score": "CV Balanced Accuracy",
-                "balanced_accuracy": "Train Balanced Accuracy",
-                "accuracy": "Train Accuracy",
-                "f1": "F1 Score",
-            }.get(x, x),
-        )
-
-    st.markdown("### Heatmap")
-    fig_heatmap = create_heatmap_figure(results, metric=metric)
-    st.plotly_chart(fig_heatmap, use_container_width=True)
-
-    st.markdown("### Performance by History Length")
-    fig_lines = create_line_plot_by_history(results, metric=metric)
-    st.plotly_chart(fig_lines, use_container_width=True)
-
-    st.markdown("### Best Configuration Timeline")
-    fig_timeline = create_timeline_visualization(best_h, best_m, best_acc)
-    st.plotly_chart(fig_timeline, use_container_width=True)
-
-    st.info(
-        f"""
-    **Optimal Configuration:**
-    - Use **{best_h:.1f} seconds** of history before the decision point
-    - Predict **{best_m:.1f} seconds** into the future
-    - Achieves **{best_acc:.1%}** balanced accuracy
-    """
-    )
-
-    # st.markdown("### Detailed Results Table")
-    # import pandas as pd
-    # table_data = create_summary_table(results)
-    # df = pd.DataFrame(table_data)
-
-    # st.dataframe(
-    #     df.style.format({
-    #         "CV Score": "{:.3f}",
-    #         "Balanced Acc": "{:.3f}",
-    #         "Test Acc": "{:.3f}",
-    #         "p-value": "{:.4f}",
-    #     }).background_gradient(subset=["CV Score"], cmap="RdYlGn", vmin=0.5, vmax=1.0),
-    #     use_container_width=True,
-    # )

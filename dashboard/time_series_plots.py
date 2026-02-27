@@ -3,6 +3,8 @@ import polars as pl
 import plotly.graph_objects as go
 import plotly.express as px
 import streamlit as st
+from plotly.subplots import make_subplots
+from utils.data_loader import load_participant_session_data
 from dashboard.backbone import (
     create_base_time_series_figure,
     PLOT_STYLE,
@@ -774,7 +776,6 @@ def plot_session_average_speed(
     speed_type: str = "combined",
     time_col: str = "motion_time",
 ) -> go.Figure:
-    from utils.data_loader import load_participant_session_data
 
     participant_id = st.session_state.get("participant_id")
     session = st.session_state.get("session")
@@ -827,7 +828,7 @@ def plot_session_average_speed(
                 fillcolor="rgba(255, 0, 53, 0.2)",
                 line=dict(color="rgba(255,255,255,0)"),
                 showlegend=True,
-                name="DBS ON ± 1σ",
+                name="DBS ON $\\pm 1\\sigma$",
             )
         )
 
@@ -861,7 +862,7 @@ def plot_session_average_speed(
                     fillcolor="rgba(89, 84, 108, 0.2)",
                     line=dict(color="rgba(255,255,255,0)"),
                     showlegend=True,
-                    name="DBS OFF ± 1σ",
+                    name="DBS OFF $\\pm 1\\sigma$",
                 )
             )
 
@@ -1028,7 +1029,6 @@ def plot_signal_alignment(
     correlation: np.ndarray,
     lag_seconds: float,
 ) -> go.Figure:
-    from plotly.subplots import make_subplots
 
     fig = make_subplots(
         rows=2,
@@ -1176,7 +1176,6 @@ def plot_raw_alignment(
     behavioral_var: str,
     chunk_margin: float,
 ) -> go.Figure:
-    from plotly.subplots import make_subplots
 
     fig = make_subplots(specs=[[{"secondary_y": True}]])
 
@@ -1277,7 +1276,6 @@ def plot_raw_alignment(
     behavioral_var: str,
     chunk_margin: float,
 ) -> go.Figure:
-    from plotly.subplots import make_subplots
 
     fig = make_subplots(specs=[[{"secondary_y": True}]])
 
@@ -1378,26 +1376,33 @@ def plot_micro_alignment(
     window_start: float,
     window_end: float,
 ) -> go.Figure:
-    from plotly.subplots import make_subplots
-    
+
     fig = make_subplots(specs=[[{"secondary_y": True}]])
-    
+
     mask_master = (time_master >= window_start) & (time_master <= window_end)
     mask_raw = (time_raw >= window_start) & (time_raw <= window_end)
     mask_interp = (time_interp >= window_start) & (time_interp <= window_end)
-    
+
     t_m = time_master[mask_master]
     t_i = time_interp[mask_interp]
     t_r = time_raw[mask_raw]
-    
+
     if len(t_m) > 0:
         for t in t_m:
-            fig.add_vline(x=t, line_dash="dot", line_color="rgba(150, 150, 150, 0.3)", line_width=1, layer="below")
-        
+            fig.add_vline(
+                x=t,
+                line_dash="dot",
+                line_color="rgba(150, 150, 150, 0.3)",
+                line_width=1,
+                layer="below",
+            )
+
     if neural_data is not None and neural_channel:
-        neural_norm = (neural_data - np.nanmean(neural_data)) / (np.nanstd(neural_data) + 1e-10)
+        neural_norm = (neural_data - np.nanmean(neural_data)) / (
+            np.nanstd(neural_data) + 1e-10
+        )
         n_m = neural_norm[mask_master]
-        
+
         fig.add_trace(
             go.Scatter(
                 x=t_m,
@@ -1409,14 +1414,14 @@ def plot_micro_alignment(
             ),
             secondary_y=False,
         )
-        
+
     colors_raw = {"x": PALETTE.vintage_grape, "y": PALETTE.cool_steel}
     colors_interp = {"x": PALETTE.strawberry_red, "y": PALETTE.ink_black}
-    
+
     for var in beh_raw_dict.keys():
         b_r = beh_raw_dict[var][mask_raw]
         b_i = beh_interp_dict[var][mask_interp]
-        
+
         fig.add_trace(
             go.Scatter(
                 x=t_i,
@@ -1427,7 +1432,7 @@ def plot_micro_alignment(
             ),
             secondary_y=True,
         )
-        
+
         fig.add_trace(
             go.Scatter(
                 x=t_r,
@@ -1438,7 +1443,7 @@ def plot_micro_alignment(
             ),
             secondary_y=True,
         )
-        
+
     if len(beh_raw_dict) > 0:
         min_vals = []
         max_vals = []
@@ -1447,42 +1452,59 @@ def plot_micro_alignment(
             if len(b_r) > 0:
                 min_vals.append(np.nanmin(b_r))
                 max_vals.append(np.nanmax(b_r))
-        
+
         if min_vals:
             min_y = min(min_vals)
             rng_y = max(max_vals) - min_y
-            if rng_y == 0: rng_y = 1
-            
+            if rng_y == 0:
+                rng_y = 1
+
             rug_raw_y = np.full_like(t_r, min_y - rng_y * 0.1)
             rug_grid_y = np.full_like(t_m, min_y - rng_y * 0.15)
-            
+
             fig.add_trace(
                 go.Scatter(
-                    x=t_r, y=rug_raw_y, mode="markers",
+                    x=t_r,
+                    y=rug_raw_y,
+                    mode="markers",
                     name="Rug: Raw Time",
-                    marker=dict(symbol="line-ns-open", size=6, color=PALETTE.vintage_grape),
-                    showlegend=False, opacity=0.6,
+                    marker=dict(
+                        symbol="line-ns-open", size=6, color=PALETTE.vintage_grape
+                    ),
+                    showlegend=False,
+                    opacity=0.6,
                 ),
-                secondary_y=True
+                secondary_y=True,
             )
             fig.add_trace(
                 go.Scatter(
-                    x=t_m, y=rug_grid_y, mode="markers",
+                    x=t_m,
+                    y=rug_grid_y,
+                    mode="markers",
                     name="Rug: Grid Time",
-                    marker=dict(symbol="line-ns-open", size=6, color=PALETTE.twilight_indigo),
-                    showlegend=False, opacity=0.6,
+                    marker=dict(
+                        symbol="line-ns-open", size=6, color=PALETTE.twilight_indigo
+                    ),
+                    showlegend=False,
+                    opacity=0.6,
                 ),
-                secondary_y=True
+                secondary_y=True,
             )
-        
+
     fig.update_layout(
         title="",
         template="plotly_white",
         hovermode="x unified",
         margin=dict(l=60, r=60, t=10, b=40),
-        legend=dict(yanchor="top", y=0.99, xanchor="right", x=0.99, bgcolor="rgba(255,255,255,0.7)"),
+        legend=dict(
+            yanchor="top",
+            y=0.99,
+            xanchor="right",
+            x=0.99,
+            bgcolor="rgba(255,255,255,0.7)",
+        ),
     )
-    
+
     if len(t_m) > 0:
         ticks = np.linspace(t_m[0], t_m[-1], min(10, len(t_m)))
         ticktexts = [f"{t:.2f}s<br>{(t - t_m[0])*1000:.0f}ms" for t in ticks]
@@ -1497,5 +1519,5 @@ def plot_micro_alignment(
     if neural_data is not None and neural_channel:
         fig.update_yaxes(title_text=f"{neural_channel} Normalized", secondary_y=False)
     fig.update_yaxes(title_text="Behavioral Coordinates (x, y)", secondary_y=True)
-    
+
     return fig

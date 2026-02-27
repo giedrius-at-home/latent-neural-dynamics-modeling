@@ -1,9 +1,9 @@
-name: psid_behavioral_PDI2_2_nx_25_n8_i80_dbs_both_log_power_flipped
+name: psid_behavioral_PDI2_2_nx_25_n8_i80_dbs_both_xp_log_power_flipped
 
 run:
   dbs_on: 
     variant: "psid_behavioral_PDI2_2_nx_25_n8_i80_dbs_on_log_power"
-    run_ts: "20260222_100250"
+    run_ts: "MISSING"
   dbs_off: 
     variant: "psid_behavioral_PDI2_2_nx_25_n8_i80_dbs_off_log_power"
     run_ts: "20260221_183752"
@@ -14,11 +14,13 @@ run:
 classification:
   flipped: true
   n_splits: 2
-  epoch_length: 1.0     
-  epoch_overlap: 0.5 
-  sampling_freq: 60
+  epoch_length: 0.5     
+  epoch_overlap: 0.25 
+  sampling_freq: 80
   h: [0.5, 1.5, 2.5, 3.5, 4.5]   
-  m: [0.5, 1.0, 2.0]         
+  m: [0.5, 1.0, 2.0]
+  n1: 8
+  nx: 25         
   prediction_feature_source: Xp
   forecast_feature_source: Xp
   permutation_test: false

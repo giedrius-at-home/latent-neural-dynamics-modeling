@@ -5,7 +5,8 @@ import plotly.express as px
 from pathlib import Path
 from typing import Dict, Any, Optional
 import pandas as pd
-
+from dashboard.backbone import render_styled_table
+from dashboard.subtabs import list_variants, list_run_timestamps
 from utils.matrix_extraction import (
     load_model_matrices,
     analyze_eigenvalues,
@@ -74,7 +75,7 @@ def render_eigenvalue_plot(eig_analysis: Dict[str, Any], key: str):
                 line=dict(color="black", width=1),
             ),
             text=[
-                f"λ={ev:.3f}<br>|λ|={mag:.3f}"
+                f"$\\lambda$={ev:.3f}<br>|$\\lambda$|={mag:.3f}"
                 for ev, mag in zip(eigenvalues, magnitudes)
             ],
             hovertemplate="%{text}<extra></extra>",
@@ -101,20 +102,16 @@ def render_eigenvalue_plot(eig_analysis: Dict[str, Any], key: str):
 
 
 def render_eigenvalue_stats(eig_analysis: Dict[str, Any]):
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3 = st.columns(3)
 
     with col1:
         st.metric("Spectral Radius", f"{eig_analysis['spectral_radius']:.4f}")
 
     with col2:
-        stable_text = "Stable" if eig_analysis["stable"] else "Unstable"
-        st.metric("Stability", stable_text)
-
-    with col3:
         n_oscillatory = np.sum(eig_analysis["oscillatory_mask"])
         st.metric("Oscillatory Modes", n_oscillatory)
 
-    with col4:
+    with col3:
         if len(eig_analysis["oscillatory_freqs"]) > 0:
             dominant_freq = eig_analysis["oscillatory_freqs"][
                 np.argmax(eig_analysis["oscillatory_mags"])
@@ -148,7 +145,7 @@ def render_frequency_decay_table(eig_analysis: Dict[str, Any]):
     df = pd.DataFrame(data)
     df = df.sort_values("Magnitude", ascending=False)
 
-    st.dataframe(df, width="stretch", hide_index=True)
+    render_styled_table(df, key="tbl_osc_modes")
 
 
 def render_matrix_comparison(
@@ -206,7 +203,6 @@ def state_space_matrices_tab(project_root, results_root=None):
 
     RESULTS_ROOT = results_root if results_root else project_root / "results"
 
-    from dashboard.subtabs import list_variants, list_run_timestamps
 
     variants = list_variants(RESULTS_ROOT)
     if len(variants) == 0:
@@ -260,7 +256,7 @@ def state_space_matrices_tab(project_root, results_root=None):
         )
 
     df_info = pd.DataFrame(matrix_info)
-    st.dataframe(df_info, width="stretch", hide_index=True)
+    render_styled_table(df_info, key="tbl_matrix_info")
 
     st.markdown("---")
     st.subheader("Matrix Visualizations")
