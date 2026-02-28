@@ -29,7 +29,6 @@ from dashboard.subtabs.predictions import (
     render_z_statistics_table,
     BASELINE_COLOR,
 )
-from utils.stats import (
 from dashboard.backbone import render_styled_table
 from dashboard.subtabs.helpers import (
     list_variants,
@@ -39,8 +38,9 @@ from dashboard.subtabs.helpers import (
     find_baseline_variants,
     get_project_root,
     find_config_path,
+    rescale_to_reference,
 )
-from dashboard.subtabs.helpers import rescale_to_reference
+from utils.stats import (
     compute_power_spectrum,
     find_dominant_frequencies,
     spectral_correlation,

@@ -27,23 +27,16 @@ from dashboard.subtabs.classification import (
     reevaluate_against_history,
 )
 from dashboard.subtabs import (
-from dashboard.backbone import render_styled_table
-from sklearn.metrics import confusion_matrix
-    load_precomputed_results,
     list_variants,
     list_run_timestamps,
     config_for_variant,
 )
-
-
-def load_all_splits(
-    variant_dir: Path, run_ts: str
-) -> Dict[str, Optional[Dict[str, Any]]]:
-
-    splits = {}
-    for split_name in ["train", "val", "test"]:
-        splits[split_name] = load_precomputed_results(variant_dir, run_ts, split_name)
-    return splits
+from dashboard.backbone import render_styled_table
+from sklearn.metrics import confusion_matrix
+from utils.classification import (
+    load_all_splits,
+    load_precomputed_results,
+)
 
 
 def save_classification_results(results: Dict[str, Any], save_path: Path) -> None:
@@ -541,12 +534,11 @@ def dbs_classification_tab(
     project_root: Path, results_root: Optional[Path] = None
 ) -> None:
     st.header("DBS ON/OFF Classification")
-
-    RESULTS_ROOT = results_root if results_root else project_root / "results"
+    RESULTS_ROOT = (results_root / "classification") if results_root else (project_root / "results" / "classification")
 
     variants = list_variants(RESULTS_ROOT)
     if len(variants) == 0:
-        st.info("No result variants found under results/.")
+        st.info("No result variants found under results/classification/.")
         return
 
     variant = st.selectbox("Model variant", options=variants, key="class_variant")
@@ -564,7 +556,7 @@ def dbs_classification_tab(
         st.error(f"Config not found for variant '{variant}'.")
         return
 
-    classification_dir = variant_dir / run_ts / "classification"
+    classification_dir = variant_dir / run_ts
 
     has_flipped_results = False
     hm_dirs = []

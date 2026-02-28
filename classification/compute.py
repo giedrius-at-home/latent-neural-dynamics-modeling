@@ -11,10 +11,10 @@ from tqdm import tqdm
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from dashboard.dbs_classification_tab import load_all_splits
-from training.components.tester import Tester
 from utils.classification import (
+    load_all_splits,
     prepare_epoched_data,
+
     run_classification_pipeline,
 )
 from utils.logger import setup_logger, get_logger
@@ -123,9 +123,8 @@ def run_classification(
         feature_source=feature_source,
     )
 
-    results_base = variant_dir if variant_dir else Path(config.results.results_dir)
-    save_dir = results_base / run_ts / "classification"
-    save_dir = save_dir / f"h{history_horizon}_m{forecast_horizon}"
+    results_base = Path(config.results.results_dir)
+    save_dir = results_base / run_ts / f"h{history_horizon}_m{forecast_horizon}"
     save_dir.mkdir(parents=True, exist_ok=True)
 
     with open(save_dir / f"LDA_{feature_source}_{mode}.pkl", "wb") as f:

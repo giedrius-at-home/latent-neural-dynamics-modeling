@@ -35,18 +35,16 @@ from utils.data_loader import (
 )
 from dashboard.utils import get_channel_lists, get_trial_metadata
 from dashboard.backbone import (
-from utils.data_loader import (
-    load_participant_session_data,
-    DATA_PATH,
-)
-from utils.data_loader import load_participant_session_data
-from utils.sync import interpolate_to_grid
-import plotly.graph_objects as go
     format_title,
     format_trial_metadata,
     update_fig_title,
     PLOT_STYLE,
 )
+from utils.data_loader import (
+    load_participant_session_data,
+    DATA_PATH,
+)
+from utils.sync import interpolate_to_grid
 
 
 def prepare_motion_data(trial_data):

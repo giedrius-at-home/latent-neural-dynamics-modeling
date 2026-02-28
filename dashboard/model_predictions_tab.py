@@ -3,7 +3,7 @@ from pathlib import Path
 
 from utils.config import get_config
 from dashboard.subtabs import (
-from dashboard.subtabs import render_cross_trial_performance_tab
+    render_cross_trial_performance_tab,
     list_variants,
     list_run_timestamps,
     config_for_variant,

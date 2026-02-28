@@ -1,4 +1,4 @@
-name: psid_behavioral_PDI4_2_nx20_n4_i80_dbs_both_flipped
+name: psid_behavioral_PDI4_2_nx20_n4_i80_dbs_both_flipped_xp_with_dbs
 
 run:
   dbs_on: 

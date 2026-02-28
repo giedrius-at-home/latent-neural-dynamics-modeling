@@ -14,8 +14,8 @@ from dashboard.backbone import (
     add_margin_visualization,
 )
 from utils.config import get_config
-from utils.stats import (
 from scipy.signal import stft
+from utils.stats import (
     compute_power_spectrum,
     find_dominant_frequencies,
     spectral_correlation,

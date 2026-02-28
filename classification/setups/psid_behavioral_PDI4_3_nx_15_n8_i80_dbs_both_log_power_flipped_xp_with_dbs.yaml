@@ -1,4 +1,4 @@
-name: psid_behavioral_PDI4_3_nx_15_n8_i80_dbs_both_xp_with_dbs_log_power_flipped
+name: psid_behavioral_PDI4_3_nx_15_n8_i80_dbs_both_log_power_flipped_xp_with_dbs
 
 run:
   dbs_on: 
@@ -32,5 +32,5 @@ classification:
 
 results:
   project_root: "/home/bobby/repos/latent-neural-dynamics-modeling"
-  results_dir: "{results.project_root}/results/{name}"
+  results_dir: "{results.project_root}/results/classification/{name}"
   log_dir: "{results.project_root}/logs/classification"

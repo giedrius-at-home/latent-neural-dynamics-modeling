@@ -1,0 +1,46 @@
+model:
+  name: "varma_PDI3_S2_dbs_off_log_power"
+  p: 20
+  q: 1
+  long_ar_lags: 30
+  time_first: true
+  fast: false
+  reuse_splits: true
+  forecast:
+    m: 2
+    history: 5
+
+data:
+  root: "resampled_recordings/participants_at_80Hz_scaled_1e6_log"
+  participant: "PDI3"
+  session: "2"
+  blocks: "all"
+  channels:
+    neural_input: [
+      "ECOG_1_beta_log_power",
+      "ECOG_2_beta_log_power",
+      "ECOG_3_beta_log_power",
+      "ECOG_4_beta_log_power"
+    ]
+    output_type: "behavioral"
+    output: [
+      "tracing_velocity_y",
+      "tracing_velocity_magnitude",
+      "tracing_acceleration_x"
+    ]
+    input_lag: null
+  split:
+    within_session_split: true
+    train: 0.6
+    val: 0.2
+    test: 0.2
+    min_train_epochs: 50
+  batch_size: 32
+  sampling_frequency: 80
+  dbs_condition: "off"
+  jitter: 0
+
+results:
+  save_dir: "results/{model.name}"
+  log_dir: "{results.save_dir}/logs"
+  checkpoint_dir: "checkpoints"

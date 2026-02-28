@@ -23,5 +23,5 @@ classification:
 
 results:
   project_root: "/home/bobby/repos/latent-neural-dynamics-modeling"
-  results_dir: "{results.project_root}/results/{run.variant}"
+  results_dir: "{results.project_root}/results/classification/{run.variant}"
   log_dir: "{results.project_root}/logs/classification"

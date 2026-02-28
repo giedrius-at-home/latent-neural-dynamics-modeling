@@ -1,4 +1,4 @@
-name: psid_behavioral_PDI2_2_nx_25_n8_i80_dbs_both_xp_log_power_flipped
+name: psid_behavioral_PDI2_2_nx_25_n8_i80_dbs_both_log_power_flipped
 
 run:
   dbs_on: 
