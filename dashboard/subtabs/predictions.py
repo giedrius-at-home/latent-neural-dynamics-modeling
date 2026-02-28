@@ -24,8 +24,19 @@ from dashboard.subtabs.helpers import (
 
 BASELINE_COLOR = "#00E5FF"
 from utils.stats import (
-from dashboard.backbone import create_base_psd_line_figure
-from dashboard.backbone import render_styled_table
+    compute_residual_statistics,
+    qq_plot_data,
+    normality_tests,
+    probability_plot_data,
+    whiteness_test,
+    compute_power_spectrum,
+    find_dominant_frequencies,
+    spectral_correlation,
+)
+from dashboard.backbone import (
+    create_base_psd_line_figure,
+    render_styled_table,
+)
 from dashboard.subtabs.helpers import (
     list_variants,
     load_precomputed_results,
@@ -35,16 +46,6 @@ from dashboard.subtabs.helpers import (
     get_project_root,
 )
 from utils.config import get_config
-    compute_residual_statistics,
-    qq_plot_data,
-    normality_tests,
-    probability_plot_data,
-    probability_plot_data,
-    whiteness_test,
-    compute_power_spectrum,
-    find_dominant_frequencies,
-    spectral_correlation,
-)
 
 
 def render_y_prediction_plot(

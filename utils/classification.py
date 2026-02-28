@@ -30,6 +30,11 @@ import joblib
 import mne
 from mne.decoding import CSP
 
+import pickle
+import polars as pl
+from pathlib import Path
+from utils.polars import get_scalar_value, convert_series_to_list
+
 
 __all__ = [
     "ChronoGroupsSplit",
@@ -42,6 +47,8 @@ __all__ = [
     "StandardScaler",
     "prepare_ground_truth_eval_data",
     "run_classification_pipeline",
+    "load_precomputed_results",
+    "load_all_splits",
 ]
 
 
@@ -384,6 +391,7 @@ def prepare_ground_truth_eval_data(
 def reorder_dims_for_mne(X: np.ndarray) -> np.ndarray:
     return np.transpose(X, (0, 2, 1))
 
+_transpose_for_csp = reorder_dims_for_mne
 
 def create_pipeline(fs: float = 80, feature_source: str = "Xp") -> Pipeline:
     steps = [
@@ -648,3 +656,195 @@ def run_classification_pipeline(
         }
 
     return results
+
+def load_precomputed_results(
+    variant_dir: Path, run_ts: str, split: str
+) -> Optional[Dict[str, Any]]:
+
+    run_dir = variant_dir / run_ts
+    pickle_path = run_dir / f"{split}_results.pkl"
+
+    if pickle_path.exists():
+        try:
+            with open(pickle_path, "rb") as f:
+                results = pickle.load(f)
+            print(f"Loaded cached {split} results from {pickle_path}")
+            return results
+        except Exception as e:
+            print(f"Warning: Could not load pickle cache: {e}")
+
+    legacy_parquet_path = variant_dir / f"{split}_results_{run_ts}"
+    new_parquet_path = variant_dir / split / f"test_results_{run_ts}.parquet"
+ 
+    if new_parquet_path.exists():
+        results_path = new_parquet_path
+    elif legacy_parquet_path.exists():
+        results_path = legacy_parquet_path
+    else:
+        return None
+
+    try:
+        df = pl.read_parquet(results_path)
+        n_trials = len(df)
+        cols = df.columns
+
+        pearson_overall = get_scalar_value(df, "pearson_overall_mean")
+        if pearson_overall is None:
+            pearson_overall = get_scalar_value(df, "metric_pearson_r_mean")
+        if pearson_overall is None:
+            pearson_overall = np.nan
+
+        pearson_overall_z = get_scalar_value(df, "pearson_overall_mean_Z")
+        if pearson_overall_z is None:
+            pearson_overall_z = get_scalar_value(df, "metric_pearson_r_mean_Z")
+        if pearson_overall_z is None:
+            pearson_overall_z = np.nan
+
+        results = {
+            "Y": convert_series_to_list(df["Y"].to_list()),
+            "Yp": convert_series_to_list(df["Yp"].to_list()),
+            "Z": convert_series_to_list(df["Z"].to_list()) if "Z" in cols else None,
+            "Zp": (
+                convert_series_to_list(df["Zp"].to_list())
+                if "Zp" in cols
+                else [None] * n_trials
+            ),
+            "Xp": (
+                convert_series_to_list(df["Xp"].to_list())
+                if "Xp" in cols
+                else [None] * n_trials
+            ),
+            "pearson_per_channel": (
+                convert_series_to_list(df["pearson_per_channel"].to_list())
+                if "pearson_per_channel" in cols
+                else (
+                    convert_series_to_list(df["pearsonr_per_channel"].to_list())
+                    if "pearsonr_per_channel" in cols
+                    else [[np.nan]] * n_trials
+                )
+            ),
+            "pearson_mean": (
+                df["pearson_mean"].to_list()
+                if "pearson_mean" in cols
+                else (
+                    df["pearsonr_mean"].to_list()
+                    if "pearsonr_mean" in cols
+                    else [np.nan] * n_trials
+                )
+            ),
+            "pearson_overall_mean": pearson_overall,
+            "pearson_per_channel_Z": (
+                convert_series_to_list(df["pearsonr_per_channel_Z"].to_list())
+                if "pearsonr_per_channel_Z" in cols
+                else (
+                    convert_series_to_list(df["pearson_per_channel_Z"].to_list())
+                    if "pearson_per_channel_Z" in cols
+                    else None
+                )
+            ),
+            "pearson_mean_Z": (
+                df["pearson_mean_Z"].to_list()
+                if "pearson_mean_Z" in cols
+                else (
+                    df["pearsonr_mean_Z"].to_list()
+                    if "pearsonr_mean_Z" in cols
+                    else None
+                )
+            ),
+            "pearson_overall_mean_Z": pearson_overall_z,
+            "time": (
+                convert_series_to_list(df["time"].to_list())
+                if "time" in cols
+                else [None] * n_trials
+            ),
+            "time_abs": (
+                convert_series_to_list(df["time_abs"].to_list())
+                if "time_abs" in cols
+                else [None] * n_trials
+            ),
+            "time_margined": (
+                convert_series_to_list(df["time_margined"].to_list())
+                if "time_margined" in cols
+                else [None] * n_trials
+            ),
+            "offset": (
+                df["offset"].to_list() if "offset" in cols else [None] * n_trials
+            ),
+            "chunk_margin": (
+                df["chunk_margin"].to_list()
+                if "chunk_margin" in cols
+                else [None] * n_trials
+            ),
+            "margined_duration": (
+                df["margined_duration"].to_list()
+                if "margined_duration" in cols
+                else [None] * n_trials
+            ),
+            "stim": (df["stim"].to_list() if "stim" in cols else [None] * n_trials),
+            "participant_id": df["participant_id"].to_list(),
+            "session": df["session"].to_list(),
+            "block": df["block"].to_list(),
+            "trial": df["trial"].to_list(),
+        }
+
+        forecast_cols = [
+            "Y_future_true",
+            "Y_future_pred",
+            "Y_concat_for_plot",
+            "Z_future_true",
+            "Z_future_pred",
+            "Z_concat_for_plot",
+            "X_future_pred",
+        ]
+        for fc in forecast_cols:
+            if fc in cols:
+                results[fc] = convert_series_to_list(df[fc].to_list())
+
+        if "input_channels" in cols:
+            ic_list = df["input_channels"].to_list()
+            input_channels = ic_list[0] if len(ic_list) > 0 else []
+            if isinstance(input_channels, pl.Series):
+                input_channels = input_channels.to_list()
+        else:
+            input_channels = []
+            for col in cols:
+                if (
+                    col.startswith(("ECOG_", "LFP_"))
+                    and "_epochs" not in col
+                    and "_psd" not in col
+                ):
+                    input_channels.append(col)
+            input_channels = sorted(list(set(input_channels))) if input_channels else []
+        results["input_channels"] = input_channels
+
+        if "output_channels" in cols:
+            oc_list = df["output_channels"].to_list()
+            output_channels = oc_list[0] if len(oc_list) > 0 else []
+            if isinstance(output_channels, pl.Series):
+                output_channels = output_channels.to_list()
+        else:
+            output_channels = []
+            for col in cols:
+                if col in [
+                    "tracing_velocity",
+                    "tracing_velocity_x",
+                    "tracing_velocity_y",
+                    "x",
+                    "y",
+                ]:
+                    output_channels.append(col)
+        results["output_channels"] = output_channels if output_channels else []
+
+        return results
+    except Exception as e:
+        warnings.warn(f"Failed to load pre-computed results for {split}: {e}")
+        return None
+
+def load_all_splits(
+    variant_dir: Path, run_ts: str
+) -> Dict[str, Optional[Dict[str, Any]]]:
+
+    splits = {}
+    for split_name in ["train", "val", "test"]:
+        splits[split_name] = load_precomputed_results(variant_dir, run_ts, split_name)
+    return splits
