@@ -20,12 +20,12 @@ PLOT_COLOR = DotDict(
 
 PLOT_STYLE = DotDict(
     {
-        "font_family": "Montserrat",
-        "title_size": 16,
-        "axis_label_size": 14,
-        "tick_label_size": 12,
-        "line_width_normal": 1.2,
-        "line_width_thick": 3,
+        "font_family": "Arial, sans-serif",
+        "title_size": 14,
+        "axis_label_size": 12,
+        "tick_label_size": 11,
+        "line_width_normal": 1.0,
+        "line_width_thick": 2.5,
     }
 )
 
@@ -210,7 +210,11 @@ def create_base_time_series_figure(
             tickfont=dict(size=PLOT_STYLE.tick_label_size),
             range=[float(time_abs.min()), float(time_abs.max())],
             showgrid=True,
-            gridcolor="rgba(200, 200, 200, 0.4)",
+            gridcolor="#F0F0F0",
+            showline=True,
+            linecolor="black",
+            linewidth=1,
+            mirror=True,
         ),
         xaxis2=dict(
             overlaying="x",
@@ -231,19 +235,27 @@ def create_base_time_series_figure(
             ),
             tickfont=dict(size=PLOT_STYLE.tick_label_size),
             showgrid=True,
-            gridcolor="rgba(200, 200, 200, 0.4)",
+            gridcolor="#F0F0F0",
+            showline=True,
+            linecolor="black",
+            linewidth=1,
+            mirror=True,
         ),
         template="plotly_white",
+        plot_bgcolor="white",
         font=dict(
             family=PLOT_STYLE.font_family,
             size=PLOT_STYLE.tick_label_size,
-            color="#0e131f",
+            color="black",
         ),
         legend=dict(
-            font=dict(size=PLOT_STYLE.tick_label_size, family=PLOT_STYLE.font_family)
+            font=dict(size=10, family=PLOT_STYLE.font_family),
+            bgcolor="rgba(255,255,255,0.8)",
+            bordercolor="#E5E5E5",
+            borderwidth=1,
         ),
         showlegend=True,
-        margin=dict(l=60, r=80, t=100, b=60),
+        margin=dict(l=60, r=40, t=60, b=60),
     )
 
     return fig

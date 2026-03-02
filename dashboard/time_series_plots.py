@@ -772,8 +772,9 @@ def plot_cross_trial_speed(
     return fig
 
 
-def plot_session_average_speed(
-    speed_type: str = "combined",
+def plot_session_average_behavior(
+    behavioral_col: str,
+    y_label: str,
     time_col: str = "motion_time",
 ) -> go.Figure:
 
@@ -788,22 +789,12 @@ def plot_session_average_speed(
         participant_id, session, dataset=dataset
     )
 
-    if speed_type == "x":
-        speed_col = "tracing_velocity_x"
-        y_label = "X Speed (pixels/s)"
-    elif speed_type == "y":
-        speed_col = "tracing_velocity_y"
-        y_label = "Y Speed (pixels/s)"
-    else:
-        speed_col = "tracing_velocity_magnitude"
-        y_label = "Speed (pixels/s)"
-
     dbs_on_data = session_data.filter(pl.col("stim") == "on")
     dbs_off_data = session_data.filter(pl.col("stim") == "off")
 
     fig = go.Figure()
 
-    speeds_on, times_on = _extract_speed_data(dbs_on_data, time_col, speed_col)
+    speeds_on, times_on = _extract_speed_data(dbs_on_data, time_col, behavioral_col)
     if speeds_on:
         mean_speed_on, std_speed_on, time_axis = _compute_block_average(
             speeds_on, times_on
@@ -813,7 +804,7 @@ def plot_session_average_speed(
                 x=time_axis,
                 y=mean_speed_on,
                 mode="lines",
-                name=f"DBS ON (mean, n={len(speeds_on)} trials)",
+                name=f"DBS ON (n={len(speeds_on)})",
                 line=dict(color=PLOT_COLOR.stim_on, width=3),
             )
         )
@@ -825,15 +816,15 @@ def plot_session_average_speed(
                     [mean_speed_on + std_speed_on, (mean_speed_on - std_speed_on)[::-1]]
                 ),
                 fill="toself",
-                fillcolor="rgba(255, 0, 53, 0.2)",
+                fillcolor="rgba(255, 0, 53, 0.15)",
                 line=dict(color="rgba(255,255,255,0)"),
                 showlegend=True,
-                name="DBS ON $\\pm 1\\sigma$",
+                name="DBS ON $\pm 1\sigma$",
             )
         )
 
     if not dbs_off_data.is_empty():
-        speeds_off, times_off = _extract_speed_data(dbs_off_data, time_col, speed_col)
+        speeds_off, times_off = _extract_speed_data(dbs_off_data, time_col, behavioral_col)
         if speeds_off:
             mean_speed_off, std_speed_off, time_axis = _compute_block_average(
                 speeds_off, times_off
@@ -844,7 +835,7 @@ def plot_session_average_speed(
                     x=time_axis,
                     y=mean_speed_off,
                     mode="lines",
-                    name=f"DBS OFF (mean, n={len(speeds_off)} trials)",
+                    name=f"DBS OFF (n={len(speeds_off)})",
                     line=dict(color=PLOT_COLOR.stim_off, width=3, dash="dot"),
                 )
             )
@@ -859,50 +850,39 @@ def plot_session_average_speed(
                         ]
                     ),
                     fill="toself",
-                    fillcolor="rgba(89, 84, 108, 0.2)",
+                    fillcolor="rgba(89, 84, 108, 0.15)",
                     line=dict(color="rgba(255,255,255,0)"),
                     showlegend=True,
-                    name="DBS OFF $\\pm 1\\sigma$",
+                    name="DBS OFF $\pm 1\sigma$",
                 )
             )
 
     fig.update_layout(
-        title=dict(
-            text="",
-            x=0.5,
-            xanchor="center",
-            font=dict(size=PLOT_STYLE.title_size, family=PLOT_STYLE.font_family),
-        ),
-        xaxis=dict(
-            title=dict(
-                text="Time (s)",
-                font=dict(
-                    size=PLOT_STYLE.axis_label_size, family=PLOT_STYLE.font_family
-                ),
-            ),
-            tickfont=dict(size=PLOT_STYLE.tick_label_size),
-        ),
-        yaxis=dict(
-            title=dict(
-                text=y_label,
-                font=dict(
-                    size=PLOT_STYLE.axis_label_size, family=PLOT_STYLE.font_family
-                ),
-            ),
-            tickfont=dict(size=PLOT_STYLE.tick_label_size),
-        ),
+        title="",
         template="plotly_white",
-        font=dict(family=PLOT_STYLE.font_family, size=PLOT_STYLE.tick_label_size),
+        hovermode="x unified",
+        margin=dict(l=60, r=40, t=10, b=40),
         legend=dict(
-            font=dict(size=10, family=PLOT_STYLE.font_family),
             yanchor="top",
             y=0.99,
             xanchor="right",
             x=0.99,
+            bgcolor="rgba(255,255,255,0)",
         ),
-        showlegend=True,
-        margin=dict(l=60, r=30, t=100, b=60),
-        hovermode="x unified",
+    )
+
+    fig.update_xaxes(
+        title_text="Time (s)",
+        showgrid=True,
+        gridcolor="rgba(150, 150, 150, 0.4)",
+        showline=False,
+    )
+    
+    fig.update_yaxes(
+        title_text=y_label,
+        showgrid=True,
+        gridcolor="rgba(150, 150, 150, 0.4)",
+        showline=False,
     )
 
     return fig
@@ -1391,24 +1371,35 @@ def plot_micro_alignment(
         for t in t_m:
             fig.add_vline(
                 x=t,
+                y0=0.0,
+                y1=0.7,
                 line_dash="dot",
-                line_color="rgba(150, 150, 150, 0.3)",
+                line_color="rgba(56, 64, 95, 0.3)",
+                line_width=1.5,
+                layer="below",
+            )
+            
+    if len(t_r) > 0:
+        for t in t_r:
+            fig.add_vline(
+                x=t,
+                y0=0.0,
+                y1=0.7,
+                line_dash="dot",
+                line_color="rgba(255, 0, 53, 0.2)",
                 line_width=1,
                 layer="below",
             )
 
     if neural_data is not None and neural_channel:
-        neural_norm = (neural_data - np.nanmean(neural_data)) / (
-            np.nanstd(neural_data) + 1e-10
-        )
-        n_m = neural_norm[mask_master]
+        n_m = neural_data[mask_master]
 
         fig.add_trace(
             go.Scatter(
                 x=t_m,
                 y=n_m,
                 mode="lines+markers",
-                name=f"Dot A: {neural_channel}",
+                name=f"{neural_channel}",
                 line=dict(color=PALETTE.twilight_indigo, width=1.5),
                 marker=dict(size=4, symbol="circle"),
             ),
@@ -1427,8 +1418,8 @@ def plot_micro_alignment(
                 x=t_i,
                 y=b_i,
                 mode="markers",
-                name=f"Dot C: Interpolated {var}",
-                marker=dict(color=colors_interp.get(var, "red"), size=7, symbol="x"),
+                name=f"Interp {var.upper()}",
+                marker=dict(color=colors_interp.get(var, "red"), size=7, symbol="square"),
             ),
             secondary_y=True,
         )
@@ -1437,9 +1428,10 @@ def plot_micro_alignment(
             go.Scatter(
                 x=t_r,
                 y=b_r,
-                mode="markers",
-                name=f"Dot B: Raw {var}",
-                marker=dict(color=colors_raw.get(var, "blue"), size=4, symbol="circle"),
+                mode="markers+lines",
+                name=f"Raw {var.upper()}",
+                marker=dict(color=colors_raw.get(var, "blue"), size=6, symbol="circle"),
+                line=dict(color=colors_raw.get(var, "blue"), width=1, dash="dot"),
             ),
             secondary_y=True,
         )
@@ -1459,8 +1451,8 @@ def plot_micro_alignment(
             if rng_y == 0:
                 rng_y = 1
 
-            rug_raw_y = np.full_like(t_r, min_y - rng_y * 0.1)
-            rug_grid_y = np.full_like(t_m, min_y - rng_y * 0.15)
+            rug_raw_y = np.full_like(t_r, min_y - rng_y * 0.75)
+            rug_grid_y = np.full_like(t_m, min_y - rng_y * 0.95)
 
             fig.add_trace(
                 go.Scatter(
@@ -1469,10 +1461,9 @@ def plot_micro_alignment(
                     mode="markers",
                     name="Rug: Raw Time",
                     marker=dict(
-                        symbol="line-ns-open", size=6, color=PALETTE.vintage_grape
+                        symbol="line-ns-open", size=12, color=PALETTE.strawberry_red, line=dict(width=2)
                     ),
                     showlegend=False,
-                    opacity=0.6,
                 ),
                 secondary_y=True,
             )
@@ -1483,10 +1474,9 @@ def plot_micro_alignment(
                     mode="markers",
                     name="Rug: Grid Time",
                     marker=dict(
-                        symbol="line-ns-open", size=6, color=PALETTE.twilight_indigo
+                        symbol="line-ns-open", size=12, color=PALETTE.twilight_indigo, line=dict(width=2)
                     ),
                     showlegend=False,
-                    opacity=0.6,
                 ),
                 secondary_y=True,
             )
@@ -1498,26 +1488,41 @@ def plot_micro_alignment(
         margin=dict(l=60, r=60, t=10, b=40),
         legend=dict(
             yanchor="top",
-            y=0.99,
-            xanchor="right",
-            x=0.99,
-            bgcolor="rgba(255,255,255,0.7)",
+            y=-0.3,
+            xanchor="center",
+            x=0.5,
+            orientation="h",
+            bgcolor="rgba(255,255,255,0)",
         ),
     )
 
     if len(t_m) > 0:
-        ticks = np.linspace(t_m[0], t_m[-1], min(10, len(t_m)))
-        ticktexts = [f"{t:.2f}s<br>{(t - t_m[0])*1000:.0f}ms" for t in ticks]
+        # Use exact 80Hz grid ticks (0.0125s / 12.5ms intervals)
+        start_tick = np.floor(window_start / 0.0125) * 0.0125
+        ticks = np.arange(start_tick, window_end + 0.0125, 0.0125)
+        # Show labels on every second tick to prevent overlap text
+        ticktexts = [f"{(t - t_m[0])*1000:.1f}ms<br>{t:.3f}s" if i % 2 == 0 else "" for i, t in enumerate(ticks)]
         fig.update_xaxes(
-            title_text="Time (Absolute & Relative window)",
+            title_text="Time (s)",
             tickvals=ticks,
             ticktext=ticktexts,
+            showgrid=True,
+            gridcolor="rgba(150, 150, 150, 0.4)",
         )
     else:
-        fig.update_xaxes(title_text="Time (s)")
+        fig.update_xaxes(
+            title_text="Time (s)",
+            showgrid=True, gridcolor="rgba(150, 150, 150, 0.4)"
+        )
 
     if neural_data is not None and neural_channel:
-        fig.update_yaxes(title_text=f"{neural_channel} Normalized", secondary_y=False)
-    fig.update_yaxes(title_text="Behavioral Coordinates (x, y)", secondary_y=True)
+        fig.update_yaxes(
+            title_text=f"{neural_channel} (µV)", secondary_y=False,
+            showgrid=True, gridcolor="rgba(150, 150, 150, 0.4)"
+        )
+    fig.update_yaxes(
+        title_text="Behavioral Coordinates (pixels)", secondary_y=True,
+        showgrid=True, gridcolor="rgba(150, 150, 150, 0.4)"
+    )
 
     return fig
