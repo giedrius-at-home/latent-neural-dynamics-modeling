@@ -415,7 +415,6 @@ def render_raincloud_plot(
 
         df_plot = pd.DataFrame(data_list)
 
-
         def get_block_num(s):
             match = re.search(r"\d+", s)
             return int(match.group()) if match else 0

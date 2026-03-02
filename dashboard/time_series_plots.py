@@ -824,7 +824,9 @@ def plot_session_average_behavior(
         )
 
     if not dbs_off_data.is_empty():
-        speeds_off, times_off = _extract_speed_data(dbs_off_data, time_col, behavioral_col)
+        speeds_off, times_off = _extract_speed_data(
+            dbs_off_data, time_col, behavioral_col
+        )
         if speeds_off:
             mean_speed_off, std_speed_off, time_axis = _compute_block_average(
                 speeds_off, times_off
@@ -877,7 +879,7 @@ def plot_session_average_behavior(
         gridcolor="rgba(150, 150, 150, 0.4)",
         showline=False,
     )
-    
+
     fig.update_yaxes(
         title_text=y_label,
         showgrid=True,
@@ -1378,7 +1380,7 @@ def plot_micro_alignment(
                 line_width=1.5,
                 layer="below",
             )
-            
+
     if len(t_r) > 0:
         for t in t_r:
             fig.add_vline(
@@ -1419,7 +1421,9 @@ def plot_micro_alignment(
                 y=b_i,
                 mode="markers",
                 name=f"Interp {var.upper()}",
-                marker=dict(color=colors_interp.get(var, "red"), size=7, symbol="square"),
+                marker=dict(
+                    color=colors_interp.get(var, "red"), size=7, symbol="square"
+                ),
             ),
             secondary_y=True,
         )
@@ -1461,7 +1465,10 @@ def plot_micro_alignment(
                     mode="markers",
                     name="Rug: Raw Time",
                     marker=dict(
-                        symbol="line-ns-open", size=12, color=PALETTE.strawberry_red, line=dict(width=2)
+                        symbol="line-ns-open",
+                        size=12,
+                        color=PALETTE.strawberry_red,
+                        line=dict(width=2),
                     ),
                     showlegend=False,
                 ),
@@ -1474,7 +1481,10 @@ def plot_micro_alignment(
                     mode="markers",
                     name="Rug: Grid Time",
                     marker=dict(
-                        symbol="line-ns-open", size=12, color=PALETTE.twilight_indigo, line=dict(width=2)
+                        symbol="line-ns-open",
+                        size=12,
+                        color=PALETTE.twilight_indigo,
+                        line=dict(width=2),
                     ),
                     showlegend=False,
                 ),
@@ -1501,7 +1511,10 @@ def plot_micro_alignment(
         start_tick = np.floor(window_start / 0.0125) * 0.0125
         ticks = np.arange(start_tick, window_end + 0.0125, 0.0125)
         # Show labels on every second tick to prevent overlap text
-        ticktexts = [f"{(t - t_m[0])*1000:.1f}ms<br>{t:.3f}s" if i % 2 == 0 else "" for i, t in enumerate(ticks)]
+        ticktexts = [
+            f"{(t - t_m[0])*1000:.1f}ms<br>{t:.3f}s" if i % 2 == 0 else ""
+            for i, t in enumerate(ticks)
+        ]
         fig.update_xaxes(
             title_text="Time (s)",
             tickvals=ticks,
@@ -1511,18 +1524,21 @@ def plot_micro_alignment(
         )
     else:
         fig.update_xaxes(
-            title_text="Time (s)",
-            showgrid=True, gridcolor="rgba(150, 150, 150, 0.4)"
+            title_text="Time (s)", showgrid=True, gridcolor="rgba(150, 150, 150, 0.4)"
         )
 
     if neural_data is not None and neural_channel:
         fig.update_yaxes(
-            title_text=f"{neural_channel} (µV)", secondary_y=False,
-            showgrid=True, gridcolor="rgba(150, 150, 150, 0.4)"
+            title_text=f"{neural_channel} (µV)",
+            secondary_y=False,
+            showgrid=True,
+            gridcolor="rgba(150, 150, 150, 0.4)",
         )
     fig.update_yaxes(
-        title_text="Behavioral Coordinates (pixels)", secondary_y=True,
-        showgrid=True, gridcolor="rgba(150, 150, 150, 0.4)"
+        title_text="Behavioral Coordinates (pixels)",
+        secondary_y=True,
+        showgrid=True,
+        gridcolor="rgba(150, 150, 150, 0.4)",
     )
 
     return fig

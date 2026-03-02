@@ -14,7 +14,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from utils.classification import (
     load_all_splits,
     prepare_epoched_data,
-
     run_classification_pipeline,
 )
 from utils.logger import setup_logger, get_logger
@@ -71,7 +70,7 @@ def run_classification(
             Path(config.results.project_root) / "results" / config.run.variant
         )
         model_run_ts = config.run.run_ts
- 
+
     splits = load_all_splits(load_variant_dir, model_run_ts)
     trainval_trials = [splits.get("train"), splits.get("val")]
     test_trials = [splits.get("test")]
@@ -144,10 +143,10 @@ def run_all_classifications(config: Any) -> None:
 
         history_horizons = config.classification.get("h")
         forecast_horizons = config.classification.get("m")
- 
+
         run_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         logger.info(f"Flipped classification run timestamp: {run_ts}")
- 
+
         for hh in history_horizons:
             for fh in forecast_horizons:
                 logger.info(f"Running flipped suite with h={hh}s, m={fh}s")
@@ -167,13 +166,11 @@ def run_all_classifications(config: Any) -> None:
         verify_test_results(logger, project_root, config)
         history_horizons = config.classification.get("h")
         forecast_horizons = config.classification.get("m")
- 
+
         for hh in history_horizons:
             for fh in forecast_horizons:
                 for mode in ["prediction", "forecast"]:
-                    logger.info(
-                        f"Running {mode} classification with h={hh}s, m={fh}s"
-                    )
+                    logger.info(f"Running {mode} classification with h={hh}s, m={fh}s")
                     run_classification(
                         logger,
                         config,

@@ -12,34 +12,32 @@ from dashboard.backbone import (
     create_base_time_series_figure,
     add_caption_below,
 )
-from dashboard.subtabs.predictions import _compute_zp_components
-from dashboard.subtabs.helpers import (
-    get_trial_time_axis,
-    compute_forecast_for_trial,
+from dashboard.subtabs.predictions import (
+    _compute_zp_components,
 )
 from utils.config import get_config
-from dashboard.subtabs.predictions import (
-    render_y_scatter_plot,
-    render_y_residual_plot,
+from dashboard.subtabs.helpers import (
+    render_prediction_psd_analysis,
+    render_residual_plot,
     render_statistics_table,
     render_residual_diagnostics,
-    render_prediction_psd_analysis,
-    render_z_scatter_plot,
-    render_z_residual_plot,
-    render_z_statistics_table,
     BASELINE_COLOR,
-)
-from dashboard.backbone import render_styled_table
-from dashboard.subtabs.helpers import (
-    list_variants,
-    load_precomputed_results,
-    list_run_timestamps,
     variant_short_name,
     find_baseline_variants,
     get_project_root,
     find_config_path,
     rescale_to_reference,
+    list_variants,
+    load_precomputed_results,
+    list_run_timestamps,
+    get_trial_time_axis,
+    compute_forecast_for_trial,
+    select_baseline,
+    get_channel,
+    get_baseline_channel,
+    render_analysis,
 )
+from dashboard.backbone import render_styled_table
 from utils.stats import (
     compute_power_spectrum,
     find_dominant_frequencies,
@@ -170,9 +168,20 @@ def render_y_forecast_plot(
 
     st.plotly_chart(fig, use_container_width=True, key=f"y_forecast_{channel_name}")
     r_str = f"{r_fore_ch:.3f}" if not np.isnan(r_fore_ch) else "N/A"
-    st.caption(
-        f"Neural Signal Forecast: {channel_name} (Pearson r={r_str}) — *Forecast rescaled to match Y_true mean/std for visualization*"
+    caption_parts = [f"Neural Signal Forecast: {channel_name} ({model_name} r={r_str})"]
+    if baseline_y_fp_c_rescaled is not None:
+        # Calculate baseline correlation if possible
+        try:
+            baseline_r = np.corrcoef(y_ft_c.flatten(), baseline_yp_c.flatten())[0, 1]
+            baseline_r_str = f"{baseline_r:.3f}"
+        except:
+            baseline_r_str = "N/A"
+        caption_parts.append(f"{baseline_name} r={baseline_r_str}")
+
+    caption_parts.append(
+        "*Forecast rescaled to match Y_true mean/std for visualization*"
     )
+    st.caption(" | ".join(caption_parts))
 
 
 def render_z_forecast_plot(
@@ -454,89 +463,58 @@ def render_forecasting_tab(
     Yp: List,
 ):
 
-    project_root = get_project_root(cfg_path)
-    results_root = project_root / "results"
-    all_variants = list_variants(results_root)
+    # --- Baseline selection ---
+    split_name = st.session_state.get("pred_split", "val")
+    baseline_res, selected_baseline_name, model_label, baseline_variant = select_baseline(
+        cfg_path, "fore", split_name, trial_idx
+    )
 
-    current_variant = cfg_path.stem
-
-    baseline_variants = find_baseline_variants(current_variant, all_variants)
-
+    # Compute baseline forecast if needed (forecast-specific)
     baseline_forecast_res = None
-    selected_baseline_name = "Baseline"
-    model_label = variant_short_name(current_variant) if cfg_path else "Model"
-    if baseline_variants:
-        st.markdown("#### Baseline Comparison")
-        selected_baseline = st.selectbox(
-            "Select Baseline Model",
-            options=["None"] + baseline_variants,
-            index=1 if baseline_variants else 0,
-            key="fore_baseline_select",
-        )
-
-        if selected_baseline != "None":
-            baseline_dir = results_root / selected_baseline
-            baseline_timestamps = list_run_timestamps(baseline_dir)
-
-            if baseline_timestamps:
-                baseline_ts = st.selectbox(
-                    "Baseline run timestamp",
-                    options=baseline_timestamps,
-                    index=len(baseline_timestamps) - 1,
-                    key="fore_baseline_ts_select",
+    if baseline_res is not None:
+        if "trial_forecasts" not in baseline_res:
+            project_root = get_project_root(cfg_path)
+            with st.spinner(f"Computing baseline forecast for trial {trial_idx}..."):
+                baseline_Y = baseline_res.get("Y", [])
+                y_trial = (
+                    np.array(baseline_Y[trial_idx])
+                    if baseline_Y
+                    and trial_idx < len(baseline_Y)
+                    and baseline_Y[trial_idx] is not None
+                    else np.array(Y_true[trial_idx])
+                )
+                z_trial = (
+                    np.array(baseline_res.get("Z", [None])[trial_idx])
+                    if baseline_res.get("Z")
+                    and baseline_res["Z"][trial_idx] is not None
+                    else None
+                )
+                chunk_margin_b = (
+                    baseline_res["chunk_margin"][trial_idx]
+                    if "chunk_margin" in baseline_res
+                    else None
                 )
 
-                split_name = st.session_state.get("pred_split", "val")
-                baseline_res = load_precomputed_results(
-                    baseline_dir, baseline_ts, split_name
-                )
-                if baseline_res:
-                    if "trial_forecasts" not in baseline_res:
-                        with st.spinner(
-                            f"Computing baseline forecast for trial {trial_idx}..."
-                        ):
-                            # Use baseline's own Y data (may have different channels than main model)
-                            baseline_Y = baseline_res.get("Y", [])
-                            y_trial = (
-                                np.array(baseline_Y[trial_idx])
-                                if baseline_Y
-                                and trial_idx < len(baseline_Y)
-                                and baseline_Y[trial_idx] is not None
-                                else np.array(Y_true[trial_idx])
-                            )
-                            z_trial = (
-                                np.array(baseline_res.get("Z", [None])[trial_idx])
-                                if baseline_res.get("Z")
-                                and baseline_res["Z"][trial_idx] is not None
-                                else None
-                            )
-                            chunk_margin = (
-                                baseline_res["chunk_margin"][trial_idx]
-                                if "chunk_margin" in baseline_res
-                                else None
-                            )
+                b_cfg_path = find_config_path(project_root, baseline_variant)
 
-                            b_cfg_path = find_config_path(
-                                project_root, selected_baseline
-                            )
-                            if b_cfg_path is not None:
-                                try:
-                                    baseline_forecast_res = compute_forecast_for_trial(
-                                        str(b_cfg_path),
-                                        baseline_ts,
-                                        y_trial,
-                                        z_trial,
-                                        chunk_margin,
-                                    )
-                                except Exception as e:
-                                    st.warning(
-                                        f"Baseline forecast computation failed: {e}"
-                                    )
-                    else:
-                        baseline_forecast_res = baseline_res["trial_forecasts"].get(
-                            trial_idx
+                if b_cfg_path is not None:
+                    try:
+                        baseline_ts_list = list_run_timestamps(
+                            project_root / "results" / baseline_variant
                         )
-                    selected_baseline_name = variant_short_name(selected_baseline)
+                        b_ts = baseline_ts_list[-1] if baseline_ts_list else None
+                        if b_ts:
+                            baseline_forecast_res = compute_forecast_for_trial(
+                                str(b_cfg_path),
+                                b_ts,
+                                y_trial,
+                                z_trial,
+                                chunk_margin_b,
+                            )
+                    except Exception as e:
+                        st.warning(f"Baseline forecast computation failed: {e}")
+        else:
+            baseline_forecast_res = baseline_res["trial_forecasts"].get(trial_idx)
 
     f_res = None
 
@@ -712,70 +690,46 @@ def render_forecasting_tab(
             y_future_true_arr = np.array(y_future_true)
             y_future_pred_arr = np.array(y_future_pred)
 
-            if y_future_true_arr.ndim == 1:
-                y_true_ch = y_future_true_arr
-            elif y_future_true_arr.ndim == 2 and c < y_future_true_arr.shape[1]:
-                y_true_ch = y_future_true_arr[:, c]
-            else:
-                y_true_ch = y_future_true_arr.flatten()
-
-            if y_future_pred_arr.ndim == 1:
-                y_pred_ch = y_future_pred_arr
-            elif y_future_pred_arr.ndim == 2 and c < y_future_pred_arr.shape[1]:
-                y_pred_ch = y_future_pred_arr[:, c]
-            else:
-                y_pred_ch = y_future_pred_arr.flatten()
+            y_true_ch = (
+                get_channel(y_future_true_arr, c, t_abs_margined[:m])
+                if y_future_true_arr.ndim == 2
+                else y_future_true_arr.flatten()
+            )
+            y_pred_ch = (
+                get_channel(y_future_pred_arr, c, t_abs_margined[:m])
+                if y_future_pred_arr.ndim == 2
+                else y_future_pred_arr.flatten()
+            )
 
             T = len(y_concat)
             Tpast = max(0, T - m)
             t_future = t_abs_margined[Tpast:T]
 
-            st.markdown("#### PSD Analysis: True Future vs Forecast")
-            render_prediction_psd_analysis(
-                y_true_ch,
-                y_pred_ch,
-                sampling_rate=fs,
-                channel_name=selected_name,
-                baseline_preds=baseline_yp_c_f,
-                baseline_name=selected_baseline_name,
-                model_name=model_label,
-            )
+            # Compute baseline correlation for Y forecast
+            baseline_r_f = None
+            if baseline_yp_c_f is not None:
+                try:
+                    baseline_r_f = np.corrcoef(
+                        y_true_ch.flatten(), baseline_yp_c_f.flatten()
+                    )[0, 1]
+                except Exception:
+                    baseline_r_f = np.nan
 
-            st.markdown("#### Scatter Plot: True Future vs Forecast")
-            render_y_scatter_plot(
-                y_true_ch,
-                y_pred_ch,
-                selected_name,
-                r_fore_ch,
-                baseline_preds=baseline_yp_c_f,
-                baseline_name=selected_baseline_name,
-                model_name=model_label,
-            )
-
-            st.markdown("#### Residual Plot: Prediction Errors Over Time")
-            render_y_residual_plot(
+            # Y forecast analysis pipeline (shared)
+            render_analysis(
                 y_true_ch,
                 y_pred_ch,
                 t_future,
                 selected_name,
-                baseline_preds=baseline_yp_c_f,
+                r_fore_ch,
+                sampling_rate=fs,
+                unit="µV",
+                baseline_pred_c=baseline_yp_c_f,
+                baseline_r=baseline_r_f,
                 baseline_name=selected_baseline_name,
+                model_name=model_label,
+                diagnostics_label="Residual Diagnostics & Normality Tests (Forecast)",
             )
-
-            render_statistics_table(y_true_ch, y_pred_ch, r_fore_ch, selected_name)
-
-            st.markdown("---")
-            with st.expander(
-                "Residual Diagnostics & Normality Tests (Forecast)", expanded=False
-            ):
-                render_residual_diagnostics(
-                    y_true_ch,
-                    y_pred_ch,
-                    selected_name,
-                    baseline_preds=baseline_yp_c_f,
-                    baseline_name=selected_baseline_name,
-                    model_name=model_label,
-                )
 
             z_concat = f_res.get("Z_concat_for_plot")
             z_future_true = f_res.get("Z_future_true")
@@ -808,7 +762,6 @@ def render_forecasting_tab(
                     )
                     z_c = z_channel_options.index(selected_z_name) if nz_chan > 1 else 0
 
-                    # Extract selected channel data for use in downstream plots
                     z_ft_c = (
                         z_future_true.squeeze()
                         if nz_chan == 1
@@ -855,6 +808,7 @@ def render_forecasting_tab(
                     except Exception:
                         pass
 
+                    # Extract baseline Z forecast channel
                     baseline_zp_c_f = None
                     baseline_r_z_f = None
                     if (
@@ -896,66 +850,25 @@ def render_forecasting_tab(
                         baseline_r=baseline_r_z_f,
                     )
 
-                    # Compute t_future_z for downstream plots
+                    # Z forecast analysis pipeline (shared, with rescale)
                     Tpast_z = max(0, len(t_abs_margined) - m)
                     t_future_z = t_abs_margined[Tpast_z : Tpast_z + len(z_ft_c)]
 
-                    st.markdown("#### PSD Analysis: True Future vs Forecast")
-                    render_prediction_psd_analysis(
-                        z_ft_c,
-                        z_fp_c,
-                        sampling_rate=fs,
-                        channel_name=selected_z_name,
-                        baseline_preds=baseline_zp_c_f,
-                        baseline_name=selected_baseline_name,
-                        model_name=model_label,
-                    )
-
-                    st.markdown("#### Scatter Plot: True Future vs Forecast")
-                    render_z_scatter_plot(
-                        z_ft_c,
-                        z_fp_c,
-                        selected_z_name,
-                        r_fore_z_ch,
-                        baseline_preds=baseline_zp_c_f,
-                        baseline_name=selected_baseline_name,
-                        model_name=model_label,
-                    )
-
-                    st.markdown("#### Residual Plot: Prediction Errors Over Time")
-                    render_z_residual_plot(
+                    render_analysis(
                         z_ft_c,
                         z_fp_c,
                         t_future_z,
                         selected_z_name,
-                        baseline_preds=baseline_zp_c_f,
-                        baseline_name=selected_baseline_name,
-                    )
-
-                    render_z_statistics_table(
-                        z_ft_c,
-                        z_fp_c,
                         r_fore_z_ch,
-                        selected_z_name,
-                        baseline_preds=baseline_zp_c_f,
+                        sampling_rate=fs,
+                        baseline_pred_c=baseline_zp_c_f,
                         baseline_r=baseline_r_z_f,
                         baseline_name=selected_baseline_name,
                         model_name=model_label,
+                        rescale=True,
+                        show_psd=False,
+                        diagnostics_label="Residual Diagnostics & Normality Tests (Forecast)",
                     )
-
-                    st.markdown("---")
-                    with st.expander(
-                        "Residual Diagnostics & Normality Tests (Forecast)",
-                        expanded=False,
-                    ):
-                        render_residual_diagnostics(
-                            z_ft_c,
-                            z_fp_c,
-                            selected_z_name,
-                            baseline_preds=baseline_zp_c_f,
-                            baseline_name=selected_baseline_name,
-                            model_name=model_label,
-                        )
 
                 except Exception:
                     pass
@@ -982,63 +895,9 @@ def render_forecasting_tab(
                             x_history, x_future_pred, t_abs_margined, m, n1
                         )
 
-                        with st.expander("Latent State Forecast Values"):
-                            cols_x = [
-                                f"X[{i}]" + (" (beh)" if i < n1 else " (non-beh)")
-                                for i in range(x_future_pred.shape[1])
-                            ]
-                            df_latents = pd.DataFrame(x_future_pred, columns=cols_x)
-                            df_latents_styled = df_latents.copy()
-                            for col in df_latents_styled.columns:
-                                df_latents_styled[col] = df_latents_styled[col].apply(lambda x: f"{x:.4f}")
-                            render_styled_table(df_latents_styled, key="tbl_fore_latents")
-
-                        st.markdown("---")
-                        st.subheader("Latent States Forecast Frequency Analysis")
-
-                        x_future_true = x_p_trial[-m:]
-
-                        if x_future_true.ndim == 1:
-                            x_future_true = x_future_true.reshape(-1, 1)
-                        if x_future_pred.ndim == 1:
-                            x_future_pred = x_future_pred.reshape(-1, 1)
-
-                        if x_future_true.shape[0] < x_future_true.shape[1]:
-                            x_future_true = x_future_true.T
-                        if x_future_pred.shape[0] < x_future_pred.shape[1]:
-                            x_future_pred = x_future_pred.T
-
-                        n_latent_dims = min(
-                            x_future_true.shape[1], x_future_pred.shape[1]
-                        )
-
-                        latent_dim = st.selectbox(
-                            "Latent dimension for frequency analysis",
-                            options=list(range(n_latent_dims)),
-                            format_func=lambda x: f"Dimension {x+1}",
-                            key="forecast_latent_dim",
-                        )
-
-                        x_true_dim = x_future_true[:, latent_dim]
-                        x_pred_dim = x_future_pred[:, latent_dim]
-
-                        min_len = min(len(x_true_dim), len(x_pred_dim))
-                        x_true_dim = x_true_dim[:min_len]
-                        x_pred_dim = x_pred_dim[:min_len]
-
-                        cfg = get_config(str(cfg_path))
-                        sampling_freq = cfg.data.sampling_frequency
-
-                        render_prediction_psd_analysis(
-                            x_true_dim,
-                            x_pred_dim,
-                            sampling_rate=sampling_freq,
-                            channel_name=f"Latent Dimension {latent_dim+1}",
-                        )
-
                 except Exception as e:
                     st.warning(
-                        f"Could not render latent forecast frequency analysis: {e}"
+                        f"Could not render latent forecast plot: {e}"
                     )
 
     except Exception:

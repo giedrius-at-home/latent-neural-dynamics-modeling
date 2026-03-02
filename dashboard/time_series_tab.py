@@ -46,6 +46,7 @@ from dashboard.backbone import (
 )
 from utils.sync import interpolate_to_grid
 
+
 def compute_discrete_velocity(x, y, t):
     if x is None or y is None or t is None or len(x) < 2:
         return None, None
@@ -56,12 +57,11 @@ def compute_discrete_velocity(x, y, t):
     return t_v, v_mag
 
 
-
-
-
 def render_group_raw_analysis(selected_dataset):
     st.divider()
-    st.caption("Cohort Spatial Behavioral Coverage: Aggregated spatial occupancy across the participant cohort.")
+    st.caption(
+        "Cohort Spatial Behavioral Coverage: Aggregated spatial occupancy across the participant cohort."
+    )
 
     with st.spinner("Aggregating group coordinates..."):
         p_ids = get_all_participants(selected_dataset)
@@ -107,10 +107,9 @@ def render_group_raw_analysis(selected_dataset):
             )
             fig_group.update_yaxes(autorange="reversed")
             st.plotly_chart(fig_group, use_container_width=True)
-            st.caption("Aggregated occupancy of task-relevant drawing templates across subjects.")
-
-
-
+            st.caption(
+                "Aggregated occupancy of task-relevant drawing templates across subjects."
+            )
 
 
 def prepare_motion_data(trial_data):
@@ -284,10 +283,26 @@ def render_cross_trial_analysis(block_data):
         {"col": "tracing_velocity_magnitude", "name": "Speed", "unit": "pixels/s"},
         {"col": "tracing_velocity_y", "name": "Velocity in Y", "unit": "pixels/s"},
         {"col": "tracing_velocity_x", "name": "Velocity in X", "unit": "pixels/s"},
-        {"col": "tracing_acceleration_magnitude", "name": "Acceleration Magnitude", "unit": "pixels/s²"},
-        {"col": "tracing_acceleration_x", "name": "Acceleration in X", "unit": "pixels/s²"},
-        {"col": "tracing_acceleration_y", "name": "Acceleration in Y", "unit": "pixels/s²"},
-        {"col": "tracing_jerk_magnitude", "name": "Jerk Magnitude", "unit": "pixels/s³"},
+        {
+            "col": "tracing_acceleration_magnitude",
+            "name": "Acceleration Magnitude",
+            "unit": "pixels/s²",
+        },
+        {
+            "col": "tracing_acceleration_x",
+            "name": "Acceleration in X",
+            "unit": "pixels/s²",
+        },
+        {
+            "col": "tracing_acceleration_y",
+            "name": "Acceleration in Y",
+            "unit": "pixels/s²",
+        },
+        {
+            "col": "tracing_jerk_magnitude",
+            "name": "Jerk Magnitude",
+            "unit": "pixels/s³",
+        },
         {"col": "tracing_jerk_x", "name": "Jerk in X", "unit": "pixels/s³"},
         {"col": "tracing_jerk_y", "name": "Jerk in Y", "unit": "pixels/s³"},
     ]
@@ -295,14 +310,14 @@ def render_cross_trial_analysis(block_data):
     for var in behavioral_vars:
         if var["col"] not in block_data.columns:
             continue
-            
+
         fig_session_avg = plot_session_average_behavior(
-            behavioral_col=var["col"],
-            y_label=f"{var['name']} ({var['unit']})"
+            behavioral_col=var["col"], y_label=f"{var['name']} ({var['unit']})"
         )
 
         st.plotly_chart(fig_session_avg, use_container_width=True)
         st.caption(f"{var['name']} — Session average with ±1 SD (DBS ON vs OFF)")
+
 
 def render_neural_tab(trial_data, lfp_channels, ecog_channels, metadata_str):
     render_neural_channels(trial_data, lfp_channels, "LFP", metadata_str)
@@ -409,9 +424,7 @@ def render_neural_behavioral_correlation(trial_data, lfp_channels, ecog_channels
     )
     margin_samples = int(chunk_margin * SAMPLING_FREQ)
 
-    alignment_tab, correlation_tab = st.tabs(
-        ["Signal Alignment", "Linear Correlation"]
-    )
+    alignment_tab, correlation_tab = st.tabs(["Signal Alignment", "Linear Correlation"])
 
     with alignment_tab:
 
@@ -477,7 +490,6 @@ def render_neural_behavioral_correlation(trial_data, lfp_channels, ecog_channels
             return
 
         correlations.sort(key=lambda x: abs(x[1]), reverse=True)
-
 
         channels = [c[0] for c in correlations]
         r_values = [c[1] for c in correlations]
@@ -1022,13 +1034,13 @@ def render_raw_alignment_tab(trial_data, block_data, lfp_channels, ecog_channels
         beh_interp_dict[var] = interpolate_to_grid(b_r, time_raw, time_master)
 
     st.caption("Alignment Analysis")
-    
+
     window_size = 0.3
     mid_point = (time_master[0] + time_master[-1]) / 2
     window_center = float(mid_point)
 
-    window_start = max(time_master[0], window_center - window_size/2)
-    window_end = min(time_master[-1], window_center + window_size/2)
+    window_start = max(time_master[0], window_center - window_size / 2)
+    window_end = min(time_master[-1], window_center + window_size / 2)
 
     fig_micro = plot_micro_alignment(
         time_master=time_neural,
@@ -1062,8 +1074,12 @@ def render_raw_alignment_tab(trial_data, block_data, lfp_channels, ecog_channels
         errs_x, errs_y = [], []
 
         # Unique trial identifiers across session
-        session_trials = full_session_data.select(["block", "trial"]).unique().sort(["block", "trial"])
-        
+        session_trials = (
+            full_session_data.select(["block", "trial"])
+            .unique()
+            .sort(["block", "trial"])
+        )
+
         for row in session_trials.to_dicts():
             tr_d = full_session_data.filter(
                 (pl.col("block") == row["block"]) & (pl.col("trial") == row["trial"])
@@ -1099,59 +1115,109 @@ def render_raw_alignment_tab(trial_data, block_data, lfp_channels, ecog_channels
             all_diffs_ms = np.array(all_diffs) * 1000
             mean_d = np.mean(all_diffs_ms)
             std_d = np.std(all_diffs_ms)
-            z_diffs = (all_diffs_ms - mean_d) / std_d if std_d > 0 else (all_diffs_ms - mean_d)
+            z_diffs = (
+                (all_diffs_ms - mean_d) / std_d
+                if std_d > 0
+                else (all_diffs_ms - mean_d)
+            )
 
             st.divider()
             st.caption("Entire Session Sampling Jitter (Intervals in ms)")
             fig_jitter = go.Figure()
-            fig_jitter.add_trace(go.Histogram(
-                x=all_diffs_ms, 
-                name='Interval Distribution', marker_color=PALETTE.strawberry_red, opacity=0.6,
-                nbinsx=200
-            ))
-            
+            fig_jitter.add_trace(
+                go.Histogram(
+                    x=all_diffs_ms,
+                    name="Interval Distribution",
+                    marker_color=PALETTE.strawberry_red,
+                    opacity=0.6,
+                    nbinsx=200,
+                )
+            )
+
             fig_jitter.update_layout(
-                template="plotly_white", height=200, showlegend=False,
-                xaxis=dict(title="Sampling Interval (ms)", showgrid=True, showline=False),
+                template="plotly_white",
+                height=200,
+                showlegend=False,
+                xaxis=dict(
+                    title="Sampling Interval (ms)", showgrid=True, showline=False
+                ),
                 yaxis=dict(title="Frequency", showgrid=True, showline=False),
-                margin=dict(l=60, r=40, t=0, b=40)
+                margin=dict(l=60, r=40, t=0, b=40),
             )
             st.plotly_chart(fig_jitter, use_container_width=True)
 
             col1, col2, col3 = st.columns(3)
             col1.markdown(f"**Mean Interval:** {mean_d:.2f} ms")
             col2.markdown(f"**Jitter (Std):** {std_d:.3f} ms")
-            rm_x = np.sqrt(np.mean(np.array(errs_x)**2)) if errs_x else 0.0
-            rm_y = np.sqrt(np.mean(np.array(errs_y)**2)) if errs_y else 0.0
+            rm_x = np.sqrt(np.mean(np.array(errs_x) ** 2)) if errs_x else 0.0
+            rm_y = np.sqrt(np.mean(np.array(errs_y) ** 2)) if errs_y else 0.0
             col3.markdown(f"**RMSE:** X={rm_x:.3f} | Y={rm_y:.3f} px")
 
             st.divider()
-            st.caption("Entire Session Coordinate Coverage: Raw vs. Interpolated (Pixels)")
+            st.caption(
+                "Entire Session Coordinate Coverage: Raw vs. Interpolated (Pixels)"
+            )
             cx, cy = st.columns(2)
-            
+
             with cx:
                 fig_x = go.Figure()
-                fig_x.add_trace(go.Histogram(x=all_x_raw, name="Raw X", marker_color=PALETTE.strawberry_red, opacity=0.5))
-                fig_x.add_trace(go.Histogram(x=all_x_interp, name="Interp X", marker_color=PALETTE.twilight_indigo, opacity=0.5))
-                fig_x.update_layout(barmode='overlay', template="plotly_white", height=250,
-                                   xaxis=dict(title="X (Pixels)", showgrid=True, showline=False),
-                                   yaxis=dict(title="Frequency", showgrid=True, showline=False),
-                                   margin=dict(l=40, r=10, t=0, b=40), showlegend=True,
-                                   legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01))
+                fig_x.add_trace(
+                    go.Histogram(
+                        x=all_x_raw,
+                        name="Raw X",
+                        marker_color=PALETTE.strawberry_red,
+                        opacity=0.5,
+                    )
+                )
+                fig_x.add_trace(
+                    go.Histogram(
+                        x=all_x_interp,
+                        name="Interp X",
+                        marker_color=PALETTE.twilight_indigo,
+                        opacity=0.5,
+                    )
+                )
+                fig_x.update_layout(
+                    barmode="overlay",
+                    template="plotly_white",
+                    height=250,
+                    xaxis=dict(title="X (Pixels)", showgrid=True, showline=False),
+                    yaxis=dict(title="Frequency", showgrid=True, showline=False),
+                    margin=dict(l=40, r=10, t=0, b=40),
+                    showlegend=True,
+                    legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
+                )
                 st.plotly_chart(fig_x, use_container_width=True)
-                
+
             with cy:
                 fig_y = go.Figure()
-                fig_y.add_trace(go.Histogram(x=all_y_raw, name="Raw Y", marker_color=PALETTE.vintage_grape, opacity=0.5))
-                fig_y.add_trace(go.Histogram(x=all_y_interp, name="Interp Y", marker_color=PALETTE.cool_steel, opacity=0.5))
-                fig_y.update_layout(barmode='overlay', template="plotly_white", height=250,
-                                   xaxis=dict(title="Y (Pixels)", showgrid=True, showline=False),
-                                   yaxis=dict(title="Frequency", showgrid=True, showline=False),
-                                   margin=dict(l=40, r=10, t=0, b=40), showlegend=True,
-                                   legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01))
+                fig_y.add_trace(
+                    go.Histogram(
+                        x=all_y_raw,
+                        name="Raw Y",
+                        marker_color=PALETTE.vintage_grape,
+                        opacity=0.5,
+                    )
+                )
+                fig_y.add_trace(
+                    go.Histogram(
+                        x=all_y_interp,
+                        name="Interp Y",
+                        marker_color=PALETTE.cool_steel,
+                        opacity=0.5,
+                    )
+                )
+                fig_y.update_layout(
+                    barmode="overlay",
+                    template="plotly_white",
+                    height=250,
+                    xaxis=dict(title="Y (Pixels)", showgrid=True, showline=False),
+                    yaxis=dict(title="Frequency", showgrid=True, showline=False),
+                    margin=dict(l=40, r=10, t=0, b=40),
+                    showlegend=True,
+                    legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
+                )
                 st.plotly_chart(fig_y, use_container_width=True)
-
-
 
 
 def time_series_tab(block_data):

@@ -509,7 +509,9 @@ def compute_psd_dbs_stats(
 
     if n_on >= 2 and n_off >= 2:
         try:
-            U, p = stats.mannwhitneyu(power_on_db, power_off_db, alternative="two-sided")
+            U, p = stats.mannwhitneyu(
+                power_on_db, power_off_db, alternative="two-sided"
+            )
             # Rank-biserial correlation as effect size
             r = 1 - (2 * U) / (n_on * n_off)
             result.update({"U": float(U), "p": float(p), "effect_size_r": float(r)})
@@ -529,35 +531,35 @@ def compute_band_power_diffs(
 ) -> List[Dict[str, Any]]:
     """
     Compute power differences (DBS effect) across clinical bands.
-    
+
     Args:
         freqs: Frequency vector.
         psds_on: (n_trials, n_freqs) array.
         psds_off: (n_trials, n_freqs) array.
         bands: Dict of {band_name: (fmin, fmax)}. Uses CLINICAL_FREQUENCY_BANDS if None.
-        
+
     Returns:
         List of dicts containing band name, stats for ON/OFF, and DB difference.
     """
     if bands is None:
         bands = CLINICAL_FREQUENCY_BANDS
-        
+
     results = []
-    
+
     for band_name, (fmin, fmax) in bands.items():
         band_mask = (freqs >= fmin) & (freqs <= fmax)
         if not band_mask.any():
             continue
-            
+
         # Subset PSD values for this band
         freqs_band = freqs[band_mask]
         psds_on_band = psds_on[:, band_mask]
         psds_off_band = psds_off[:, band_mask]
-        
+
         # Compare within this band
         stats_result = compute_psd_dbs_stats(freqs_band, psds_on_band, psds_off_band)
         results.append({"Band": band_name, **stats_result})
-        
+
     return results
 
 

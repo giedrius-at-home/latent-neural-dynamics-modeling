@@ -509,7 +509,6 @@ def render_latent_frequency_analysis(
     psd_x_db = 10 * np.log10(psd_x.flatten() + 1e-20) + 120
     psd_y_db = 10 * np.log10(psd_y.flatten() + 1e-20) + 120
 
-
     nperseg = min(len(x_signal), 128)
     if nperseg < 8:
         nperseg = len(x_signal)

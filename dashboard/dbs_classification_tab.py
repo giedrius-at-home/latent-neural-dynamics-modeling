@@ -534,7 +534,11 @@ def dbs_classification_tab(
     project_root: Path, results_root: Optional[Path] = None
 ) -> None:
     st.header("DBS ON/OFF Classification")
-    RESULTS_ROOT = (results_root / "classification") if results_root else (project_root / "results" / "classification")
+    RESULTS_ROOT = (
+        (results_root / "classification")
+        if results_root
+        else (project_root / "results" / "classification")
+    )
 
     variants = list_variants(RESULTS_ROOT)
     if len(variants) == 0:
