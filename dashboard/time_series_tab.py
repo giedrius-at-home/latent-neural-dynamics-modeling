@@ -18,7 +18,7 @@ from dashboard.time_series_plots import (
     plot_2d_trajectory,
     plot_component_time_series,
     plot_cross_trial_speed,
-    plot_session_average_speed,
+    plot_session_average_behavior,
     plot_signal_alignment,
     compute_cross_correlation_lag,
     plot_population_time_series,
@@ -32,6 +32,8 @@ from utils.data_loader import (
     get_all_participants,
     load_participant_data,
     get_participant_sessions,
+    load_participant_session_data,
+    DATA_PATH,
 )
 from dashboard.utils import get_channel_lists, get_trial_metadata
 from dashboard.backbone import (
@@ -39,12 +41,76 @@ from dashboard.backbone import (
     format_trial_metadata,
     update_fig_title,
     PLOT_STYLE,
-)
-from utils.data_loader import (
-    load_participant_session_data,
-    DATA_PATH,
+    PALETTE,
+    create_base_time_series_figure,
 )
 from utils.sync import interpolate_to_grid
+
+def compute_discrete_velocity(x, y, t):
+    if x is None or y is None or t is None or len(x) < 2:
+        return None, None
+    vx = np.diff(x) / np.diff(t)
+    vy = np.diff(y) / np.diff(t)
+    v_mag = np.sqrt(vx**2 + vy**2)
+    t_v = t[:-1] + np.diff(t) / 2
+    return t_v, v_mag
+
+
+
+
+
+def render_group_raw_analysis(selected_dataset):
+    st.divider()
+    st.caption("Cohort Spatial Behavioral Coverage: Aggregated spatial occupancy across the participant cohort.")
+
+    with st.spinner("Aggregating group coordinates..."):
+        p_ids = get_all_participants(selected_dataset)
+        if not p_ids:
+            return
+
+        all_x = []
+        all_y = []
+
+        # Sample a subset of participants/trials to keep it fast
+        for pid in p_ids[:5]:
+            try:
+                df = load_participant_data(pid, selected_dataset, columns=["x", "y"])
+                if df.is_empty():
+                    continue
+                # Take up to 20 trials
+                n_tr = min(20, len(df))
+                for i in range(n_tr):
+                    all_x.extend(df["x"][i])
+                    all_y.extend(df["y"][i])
+            except:
+                continue
+
+        if all_x:
+            fig_group = go.Figure(
+                go.Histogram2dContour(
+                    x=all_x,
+                    y=all_y,
+                    colorscale="YlGnBu",
+                    reversescale=False,
+                    nbinsx=50,
+                    nbinsy=50,
+                    name="Spatial Occupancy",
+                )
+            )
+            fig_group.update_layout(
+                title="Cohort Spatial Behavioral Coverage (Drawing Metrics)",
+                xaxis_title="X (Pixels)",
+                yaxis_title="Y (Pixels)",
+                height=500,
+                width=500,
+                template="plotly_white",
+            )
+            fig_group.update_yaxes(autorange="reversed")
+            st.plotly_chart(fig_group, use_container_width=True)
+            st.caption("Aggregated occupancy of task-relevant drawing templates across subjects.")
+
+
+
 
 
 def prepare_motion_data(trial_data):
@@ -211,58 +277,36 @@ def render_behavioral_tab(trial_data, metadata_str):
         st.markdown("---")
 
 
-def render_cross_trial_speed(block_data):
-    st.subheader("Cross-Trial Speed Analysis")
+def render_cross_trial_analysis(block_data):
+    st.markdown("### Session-Level Average Behavior (DBS ON vs OFF)")
 
-    st.markdown("### Trial-Level Speed (Individual Trials)")
-    st.markdown("Each line represents a single trial from the current block")
+    behavioral_vars = [
+        {"col": "tracing_velocity_magnitude", "name": "Speed", "unit": "pixels/s"},
+        {"col": "tracing_velocity_y", "name": "Velocity in Y", "unit": "pixels/s"},
+        {"col": "tracing_velocity_x", "name": "Velocity in X", "unit": "pixels/s"},
+        {"col": "tracing_acceleration_magnitude", "name": "Acceleration Magnitude", "unit": "pixels/s²"},
+        {"col": "tracing_acceleration_x", "name": "Acceleration in X", "unit": "pixels/s²"},
+        {"col": "tracing_acceleration_y", "name": "Acceleration in Y", "unit": "pixels/s²"},
+        {"col": "tracing_jerk_magnitude", "name": "Jerk Magnitude", "unit": "pixels/s³"},
+        {"col": "tracing_jerk_x", "name": "Jerk in X", "unit": "pixels/s³"},
+        {"col": "tracing_jerk_y", "name": "Jerk in Y", "unit": "pixels/s³"},
+    ]
 
-    speed_types = {"Combined": "combined", "X": "x", "Y": "y"}
+    for var in behavioral_vars:
+        if var["col"] not in block_data.columns:
+            continue
+            
+        fig_session_avg = plot_session_average_behavior(
+            behavioral_col=var["col"],
+            y_label=f"{var['name']} ({var['unit']})"
+        )
 
-    for display_name, internal_name in speed_types.items():
-        fig_cross_trial = plot_cross_trial_speed(block_data, speed_type=internal_name)
-
-        if len(fig_cross_trial.data) == 0:
-            st.info(
-                f"No motion data found for {display_name} speed in any trials in this block."
-            )
-        else:
-            st.plotly_chart(
-                fig_cross_trial,
-                use_container_width=True,
-            )
-            st.caption(
-                f"{display_name} speed — Individual trial traces from current block"
-            )
-
-    st.markdown("---")
-    st.markdown("### Session-Level Average Speed (DBS ON vs OFF)")
-    st.markdown(
-        "Mean speed across **all trials in the entire session** for each DBS condition with ± 1 standard deviation"
-    )
-
-    for display_name, internal_name in speed_types.items():
-        fig_session_avg = plot_session_average_speed(speed_type=internal_name)
-
-        if len(fig_session_avg.data) == 0:
-            st.info(f"No motion data found for {display_name} speed session averages.")
-        else:
-            st.plotly_chart(
-                fig_session_avg,
-                use_container_width=True,
-            )
-            st.caption(
-                f"{display_name} speed — Session average with ±1 SD (DBS ON vs OFF)"
-            )
-
+        st.plotly_chart(fig_session_avg, use_container_width=True)
+        st.caption(f"{var['name']} — Session average with ±1 SD (DBS ON vs OFF)")
 
 def render_neural_tab(trial_data, lfp_channels, ecog_channels, metadata_str):
     render_neural_channels(trial_data, lfp_channels, "LFP", metadata_str)
     render_neural_channels(trial_data, ecog_channels, "ECoG", metadata_str)
-
-
-def render_cross_trial_tab(block_data):
-    render_cross_trial_speed(block_data)
 
 
 def render_signal_alignment_analysis(
@@ -340,7 +384,6 @@ def render_signal_alignment_analysis(
 def render_neural_behavioral_correlation(trial_data, lfp_channels, ecog_channels):
     st.markdown("### Neural-Behavioral Signal Analysis")
 
-    # Dynamically find all behavioral columns
     behavioral_vars = sorted(
         [c for c in trial_data.columns if c.startswith("tracing_")]
     )
@@ -367,7 +410,7 @@ def render_neural_behavioral_correlation(trial_data, lfp_channels, ecog_channels
     margin_samples = int(chunk_margin * SAMPLING_FREQ)
 
     alignment_tab, correlation_tab = st.tabs(
-        ["🔗 Signal Alignment (Cross-Correlation)", "📊 Linear Correlation"]
+        ["Signal Alignment", "Linear Correlation"]
     )
 
     with alignment_tab:
@@ -924,7 +967,7 @@ def render_session_level_tab(neural_channels):
 
 def render_raw_alignment_tab(trial_data, block_data, lfp_channels, ecog_channels):
 
-    st.markdown("### Raw Data Alignment & Interpolation Analysis")
+    st.caption("Raw Data Alignment & Interpolation Analysis")
 
     behavioral_vars = ["x", "y"]
 
@@ -978,12 +1021,14 @@ def render_raw_alignment_tab(trial_data, block_data, lfp_channels, ecog_channels
         beh_raw_dict[var] = b_r
         beh_interp_dict[var] = interpolate_to_grid(b_r, time_raw, time_master)
 
-    st.markdown("### Alignment Analysis")
+    st.caption("Alignment Analysis")
+    
+    window_size = 0.3
+    mid_point = (time_master[0] + time_master[-1]) / 2
+    window_center = float(mid_point)
 
-    min_t = float(time_master[0])
-    max_t = float(time_master[-1])
-    window_start = min_t
-    window_end = max_t
+    window_start = max(time_master[0], window_center - window_size/2)
+    window_end = min(time_master[-1], window_center + window_size/2)
 
     fig_micro = plot_micro_alignment(
         time_master=time_neural,
@@ -998,60 +1043,115 @@ def render_raw_alignment_tab(trial_data, block_data, lfp_channels, ecog_channels
     )
     st.plotly_chart(fig_micro, use_container_width=True)
 
-    st.markdown("---")
-    st.markdown("### Cross-Trial Interpolation Residuals")
+    # --- Session-Wide Alignment Analysis ---
+    meta = get_trial_metadata(block_data)
+    p_id = meta.get("participant_id")
+    sess_id = meta.get("session")
 
-    trials = sorted(block_data["trial"].unique().to_list())
-    all_residuals = []
-    valid_trials = []
+    with st.spinner(f"Aggregating entire session data for P{p_id} {sess_id}..."):
+        try:
+            # We already have load_participant_session_data available in global scope if imported
+            full_session_data = load_participant_session_data(p_id, sess_id)
+        except Exception as e:
+            full_session_data = block_data
+            st.warning(f"Could not load full session: {e}. Showing current block only.")
 
-    global_residuals = []
+        all_diffs = []
+        all_x_raw, all_x_interp = [], []
+        all_y_raw, all_y_interp = [], []
+        errs_x, errs_y = [], []
 
-    selected_beh = "x"
+        # Unique trial identifiers across session
+        session_trials = full_session_data.select(["block", "trial"]).unique().sort(["block", "trial"])
+        
+        for row in session_trials.to_dicts():
+            tr_d = full_session_data.filter(
+                (pl.col("block") == row["block"]) & (pl.col("trial") == row["trial"])
+            )
+            t_vals = tr_d["motion_time"][0]
+            t_master = tr_d["time_original"][0]
+            x_raw, y_raw = tr_d["x"][0], tr_d["y"][0]
 
-    for tr in trials:
-        tr_data = block_data.filter(pl.col("trial") == tr)
-        if tr_data.is_empty():
-            continue
+            if t_vals is not None and len(t_vals) > 1:
+                t_arr = np.array(t_vals).astype(float)
+                all_diffs.extend(np.diff(t_arr))
 
-        br_l = tr_data[selected_beh][0]
-        tr_l = tr_data["motion_time"][0]
-        tm_l = tr_data["time_original"][0]
+                if t_master is not None and x_raw is not None and y_raw is not None:
+                    tm_arr = np.array(t_master).astype(float)
+                    xr_arr = np.array(x_raw).astype(float)
+                    yr_arr = np.array(y_raw).astype(float)
 
-        if br_l is None or tr_l is None or tm_l is None:
-            continue
+                    xi = interpolate_to_grid(xr_arr, t_arr, tm_arr)
+                    yi = interpolate_to_grid(yr_arr, t_arr, tm_arr)
 
-        br = np.array(br_l).astype(float)
-        tr_ts = np.array(tr_l).astype(float)
-        tm_ts = np.array(tm_l).astype(float)
+                    all_x_raw.extend(xr_arr[~np.isnan(xr_arr)])
+                    all_y_raw.extend(yr_arr[~np.isnan(yr_arr)])
+                    all_x_interp.extend(xi[~np.isnan(xi)])
+                    all_y_interp.extend(yi[~np.isnan(yi)])
 
-        bi = interpolate_to_grid(br, tr_ts, tm_ts)
+                    for i, tm in enumerate(tm_arr):
+                        if not np.isnan(xi[i]):
+                            idx_near = np.argmin(np.abs(t_arr - tm))
+                            errs_x.append(xi[i] - xr_arr[idx_near])
+                            errs_y.append(yi[i] - yr_arr[idx_near])
 
-        tr_res = []
-        for i, t_m in enumerate(tm_ts):
-            if np.isnan(bi[i]):
-                continue
-            idx_nearest = np.argmin(np.abs(tr_ts - t_m))
-            tr_res.append(bi[i] - br[idx_nearest])
+        if all_diffs:
+            all_diffs_ms = np.array(all_diffs) * 1000
+            mean_d = np.mean(all_diffs_ms)
+            std_d = np.std(all_diffs_ms)
+            z_diffs = (all_diffs_ms - mean_d) / std_d if std_d > 0 else (all_diffs_ms - mean_d)
 
-        if tr_res:
-            res_arr = np.array(tr_res)
-            all_residuals.append(res_arr)
-            valid_trials.append(tr)
-            global_residuals.extend(tr_res)
+            st.divider()
+            st.caption("Entire Session Sampling Jitter (Intervals in ms)")
+            fig_jitter = go.Figure()
+            fig_jitter.add_trace(go.Histogram(
+                x=all_diffs_ms, 
+                name='Interval Distribution', marker_color=PALETTE.strawberry_red, opacity=0.6,
+                nbinsx=200
+            ))
+            
+            fig_jitter.update_layout(
+                template="plotly_white", height=200, showlegend=False,
+                xaxis=dict(title="Sampling Interval (ms)", showgrid=True, showline=False),
+                yaxis=dict(title="Frequency", showgrid=True, showline=False),
+                margin=dict(l=60, r=40, t=0, b=40)
+            )
+            st.plotly_chart(fig_jitter, use_container_width=True)
 
-    if all_residuals:
-        g_res = np.array(global_residuals)
-        g_rmse = np.sqrt(np.mean(g_res**2))
-        g_max_err = np.max(np.abs(g_res))
+            col1, col2, col3 = st.columns(3)
+            col1.markdown(f"**Mean Interval:** {mean_d:.2f} ms")
+            col2.markdown(f"**Jitter (Std):** {std_d:.3f} ms")
+            rm_x = np.sqrt(np.mean(np.array(errs_x)**2)) if errs_x else 0.0
+            rm_y = np.sqrt(np.mean(np.array(errs_y)**2)) if errs_y else 0.0
+            col3.markdown(f"**RMSE:** X={rm_x:.3f} | Y={rm_y:.3f} px")
 
-        fig2 = plot_residual_violin(all_residuals, valid_trials)
-        st.plotly_chart(fig2, use_container_width=True)
-        st.caption(
-            f"**Residual Distribution**: Cross-trial spread of interpolation errors. | **Block RMSE**: {g_rmse:.4f} | **Block Max Error**: {g_max_err:.4f}"
-        )
-    else:
-        st.info("Not enough data to compute cross-trial residuals.")
+            st.divider()
+            st.caption("Entire Session Coordinate Coverage: Raw vs. Interpolated (Pixels)")
+            cx, cy = st.columns(2)
+            
+            with cx:
+                fig_x = go.Figure()
+                fig_x.add_trace(go.Histogram(x=all_x_raw, name="Raw X", marker_color=PALETTE.strawberry_red, opacity=0.5))
+                fig_x.add_trace(go.Histogram(x=all_x_interp, name="Interp X", marker_color=PALETTE.twilight_indigo, opacity=0.5))
+                fig_x.update_layout(barmode='overlay', template="plotly_white", height=250,
+                                   xaxis=dict(title="X (Pixels)", showgrid=True, showline=False),
+                                   yaxis=dict(title="Frequency", showgrid=True, showline=False),
+                                   margin=dict(l=40, r=10, t=0, b=40), showlegend=True,
+                                   legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01))
+                st.plotly_chart(fig_x, use_container_width=True)
+                
+            with cy:
+                fig_y = go.Figure()
+                fig_y.add_trace(go.Histogram(x=all_y_raw, name="Raw Y", marker_color=PALETTE.vintage_grape, opacity=0.5))
+                fig_y.add_trace(go.Histogram(x=all_y_interp, name="Interp Y", marker_color=PALETTE.cool_steel, opacity=0.5))
+                fig_y.update_layout(barmode='overlay', template="plotly_white", height=250,
+                                   xaxis=dict(title="Y (Pixels)", showgrid=True, showline=False),
+                                   yaxis=dict(title="Frequency", showgrid=True, showline=False),
+                                   margin=dict(l=40, r=10, t=0, b=40), showlegend=True,
+                                   legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01))
+                st.plotly_chart(fig_y, use_container_width=True)
+
+
 
 
 def time_series_tab(block_data):
@@ -1107,7 +1207,7 @@ def time_series_tab(block_data):
                     render_behavioral_tab(trial_data, metadata_str)
 
                 with cross_trial_tab:
-                    render_cross_trial_speed(block_data)
+                    render_cross_trial_analysis(block_data)
 
                 with raw_alignment_tab:
                     render_raw_alignment_tab(
@@ -1119,3 +1219,7 @@ def time_series_tab(block_data):
 
     with pop_level_tab:
         render_population_level_tab(lfp_channels + ecog_channels)
+        st.divider()
+        # Find which dataset we are on accurately
+        selected_dataset = st.session_state.get("selected_dataset")
+        render_group_raw_analysis(selected_dataset)

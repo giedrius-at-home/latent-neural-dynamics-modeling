@@ -9,9 +9,9 @@ from utils.plots import (
     plot_average_psd,
     plot_average_psd_dbs_comparison,
 )
-from utils.stats import compute_psd_dbs_stats
+from utils.stats import compute_psd_dbs_stats, compute_band_power_diffs
 from dashboard.utils import get_channel_lists, get_trial_metadata
-from dashboard.backbone import format_trial_metadata, update_fig_title
+from dashboard.backbone import format_trial_metadata, update_fig_title, create_base_psd_line_figure
 from dashboard.backbone import PARTICIPANT_COLORS, PLOT_COLOR, LINE_STYLE
 from dashboard.backbone import PARTICIPANT_COLORS, PLOT_STYLE
 from dashboard.backbone import render_styled_table
@@ -237,9 +237,101 @@ def render_psd_statistical_comparison(freqs, psd_data, participant_id, session):
         margin=dict(l=60, r=40, t=30, b=60),
     )
     st.plotly_chart(fig, use_container_width=True)
-    st.caption(
-        f"Mean integrated PSD power per channel — " f"* p<0.05, ** p<0.01, *** p<0.001"
+
+
+def render_psd_band_statistics(freqs, psds_on, psds_off, participant_id, session, channel):
+    """Compute and render band-specific statistics for a given session/channel."""
+    band_results = compute_band_power_diffs(freqs, psds_on, psds_off)
+    if not band_results:
+        return None
+
+    rows = []
+    for res in band_results:
+        p = res.get("p", np.nan)
+        if p < 0.001: star = "***"
+        elif p < 0.01: star = "**"
+        elif p < 0.05: star = "*"
+        else: star = "ns"
+
+        rows.append({
+            "Band": res["Band"],
+            "ON (dB)": f"{res['mean_on']:.1f} ± {res['std_on']:.1f}",
+            "OFF (dB)": f"{res['mean_off']:.1f} ± {res['std_off']:.1f}",
+            "Δ (dB)": f"{res['delta_db']:.1f}",
+            "p-val": f"{p:.3f} ({star})" if not np.isnan(p) else "N/A"
+        })
+
+    df = pl.DataFrame(rows)
+    st.markdown(f"**Session {session} Band Statistics - {channel}**")
+    render_styled_table(df.to_pandas(), key=f"tbl_psd_bands_{session}_{channel}")
+    
+    return band_results
+
+
+def render_psd_band_comparison_plot(all_session_band_results, participant_id, channel):
+    """
+    Renders a grouped bar chart comparing DBS ON-OFF differences across sessions and bands.
+    
+    all_session_band_results: Dict of {session_label: list_of_band_results}
+    """
+    fig = go.Figure()
+    
+    # Get all unique bands found across all results
+    bands = []
+    for res_list in all_session_band_results.values():
+        for res in res_list:
+            if res["Band"] not in bands:
+                bands.append(res["Band"])
+    
+    if not bands:
+        return
+
+    # For each session, add a trace
+    for session_label, res_list in all_session_band_results.items():
+        band_diffs = {res["Band"]: res["delta_db"] for res in res_list}
+        y_values = [band_diffs.get(b, 0.0) for b in bands]
+        
+        fig.add_trace(
+            go.Bar(
+                name=session_label,
+                x=bands,
+                y=y_values,
+                text=[f"{v:.1f}" for v in y_values],
+                textposition='auto',
+            )
+        )
+
+    # Add "Grand Average" across all sessions
+    avg_diffs = []
+    for b in bands:
+        diffs = [res_list_item["delta_db"] for res_list in all_session_band_results.values() 
+                 for res_list_item in res_list if res_list_item["Band"] == b]
+        avg_diffs.append(np.mean(diffs) if diffs else 0.0)
+    
+    fig.add_trace(
+        go.Bar(
+            name="Grand Average",
+            x=bands,
+            y=avg_diffs,
+            marker_color="black",
+            opacity=0.6,
+            text=[f"{v:.1f}" for v in avg_diffs],
+            textposition='auto',
+        )
     )
+
+    fig.update_layout(
+        title=f"DBS Effect (ON - OFF) by Frequency Band — {participant_id}, {channel}",
+        xaxis_title="Frequency Band",
+        yaxis_title="Power Difference (Δ dB)",
+        barmode="group",
+        template="plotly_white",
+        margin=dict(l=60, r=40, t=60, b=60),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    )
+    
+    st.plotly_chart(fig, use_container_width=True)
+    st.caption(f"Comparison of DBS-induced power changes (dB) across frequency bands and sessions.")
 
 
 def render_average_psd_participant_level(channels, channel_type):
@@ -302,9 +394,9 @@ def render_average_psd_participant_level(channels, channel_type):
         ):
             st.warning(f"PSD data not found for channel {ch}")
             continue
-
         freqs = None
         fig = go.Figure()
+        all_session_band_results = {}
 
         for idx, session in enumerate(sessions):
             session_data = participant_data.filter(pl.col("session") == session)
@@ -326,8 +418,11 @@ def render_average_psd_participant_level(channels, channel_type):
             on_means = compute_per_trial_psd_means(dbs_on_data, ch)
             off_means = compute_per_trial_psd_means(dbs_off_data, ch)
 
-            if len(on_means) > 0:
+            if len(on_means) > 0 and len(off_means) > 0:
                 psds_on = np.vstack(on_means)
+                psds_off = np.vstack(off_means)
+                
+                # Plot traces
                 mean_psd_on = 10 * np.log10(np.mean(psds_on, axis=0)) + 120
                 fig.add_trace(
                     go.Scatter(
@@ -335,12 +430,10 @@ def render_average_psd_participant_level(channels, channel_type):
                         y=mean_psd_on,
                         mode="lines",
                         name=f"Session {session} ON",
-                        line=dict(color=session_color, width=1.2),
+                        line=dict(color=session_color, width=1.5),
                     )
                 )
 
-            if len(off_means) > 0:
-                psds_off = np.vstack(off_means)
                 mean_psd_off = 10 * np.log10(np.mean(psds_off, axis=0)) + 120
                 fig.add_trace(
                     go.Scatter(
@@ -348,13 +441,18 @@ def render_average_psd_participant_level(channels, channel_type):
                         y=mean_psd_off,
                         mode="lines",
                         name=f"Session {session} OFF",
-                        line=dict(color=session_color, width=1.2, dash="dot"),
+                        line=dict(color=session_color, width=1.5, dash="dot"),
                     )
                 )
 
+                # Store band diffs for summary chart
+                band_res = render_psd_band_statistics(freqs, psds_on, psds_off, participant_id, session, ch)
+                if band_res:
+                    all_session_band_results[f"S{session}"] = band_res
+
         if freqs is not None and len(fig.data) > 0:
             fig.update_layout(
-                title=f"{ch} - {participant_id} (All Sessions)",
+                title=f"PSD Comparison: DBS ON vs OFF — {ch} ({participant_id})",
                 xaxis_title="Frequency (Hz)",
                 yaxis_title="Power/Frequency (dB/Hz)",
                 template="plotly_white",
@@ -365,8 +463,13 @@ def render_average_psd_participant_level(channels, channel_type):
             )
             st.plotly_chart(fig, use_container_width=True)
             st.caption(
-                f"PSD comparison across sessions for {participant_id} — Channel: {ch}"
+                f"PSD levels across clinical sessions for {participant_id} (Channel: {ch})"
             )
+            
+            # Show summary band comparison plot
+            if all_session_band_results:
+                st.markdown("---")
+                render_psd_band_comparison_plot(all_session_band_results, participant_id, ch)
         else:
             st.warning(f"No PSD data could be plotted for channel {ch}")
 
