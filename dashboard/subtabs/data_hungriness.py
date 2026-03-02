@@ -7,25 +7,30 @@ from typing import Dict, List, Any
 
 
 def _load_summaries(results_root: Path) -> Dict[str, List[Dict]]:
-    """Load all data_hungriness_summary.json files from results/data_hungriness/."""
-    dh_root = results_root / "data_hungriness"
+    """Load all data_hungriness_summary.json files from results/data_hungriness/.
+    Also checks for nested results/results/data_hungriness/ as a fallback.
+    """
+    search_paths = [
+        results_root / "data_hungriness",
+        results_root / "results" / "data_hungriness",
+    ]
     summaries = {}
-    if not dh_root.exists():
-        return summaries
-    for model_dir in sorted(dh_root.iterdir()):
-        if not model_dir.is_dir():
+
+    for dh_root in search_paths:
+        if not dh_root.exists():
             continue
-        summary_path = model_dir / "data_hungriness_summary.json"
-        if summary_path.exists():
-            with open(summary_path) as f:
-                data = json.load(f)
-            summaries[model_dir.name] = data
+        for model_dir in sorted(dh_root.iterdir()):
+            if not model_dir.is_dir():
+                continue
+            summary_path = model_dir / "data_hungriness_summary.json"
+            if summary_path.exists():
+                with open(summary_path) as f:
+                    data = json.load(f)
+                summaries[model_dir.name] = data
     return summaries
 
 
 def _extract_participant_session(model_name: str) -> str:
-    """Extract participant-session identifier from model name like
-    'psid_behavioral_PDI1_2_nx_40_...' -> 'PDI1_S2'."""
     parts = model_name.split("_")
     for i, p in enumerate(parts):
         if p.startswith("PDI") and i + 1 < len(parts):

@@ -17,6 +17,13 @@ from dashboard.subtabs.helpers import (
     find_baseline_variants,
     get_project_root,
 )
+from dashboard.backbone import (
+    PALETTE,
+    PLOT_STYLE,
+    create_base_comparison_figure,
+)
+
+BASELINE_COLOR = "#00E5FF"
 import pathlib
 import re
 
@@ -35,6 +42,25 @@ def _get_groups_map(channel_names: list, use_bands: bool) -> list[str]:
         else:
             groups.append("Unknown")
     return groups
+
+
+def _match_channels_by_name(
+    main_channels: list, baseline_channels: list
+) -> tuple[list[int], list[int]]:
+    main_indices = []
+    baseline_indices = []
+
+    baseline_name_to_idx = {
+        str(name): idx for idx, name in enumerate(baseline_channels)
+    }
+
+    for main_idx, main_name in enumerate(main_channels):
+        main_name_str = str(main_name)
+        if main_name_str in baseline_name_to_idx:
+            main_indices.append(main_idx)
+            baseline_indices.append(baseline_name_to_idx[main_name_str])
+
+    return main_indices, baseline_indices
 
 
 def render_cross_trial_performance_tab(
@@ -202,6 +228,7 @@ def render_cross_trial_performance_tab(
             use_bands=True,
             baseline_r_arr=baseline_r_y,
             baseline_name=baseline_name,
+            model_name=model_name,
         )
 
         render_spectral_fvu_plot(
@@ -284,6 +311,7 @@ def render_cross_trial_performance_tab(
             use_bands=False,
             baseline_r_arr=baseline_r_z,
             baseline_name=baseline_name,
+            model_name=model_name,
         )
 
         render_spectral_fvu_plot(
@@ -415,7 +443,6 @@ def render_raincloud_plot(
 
         df_plot = pd.DataFrame(data_list)
 
-
         def get_block_num(s):
             match = re.search(r"\d+", s)
             return int(match.group()) if match else 0
@@ -486,6 +513,7 @@ def render_normalized_kde_plot(
     use_bands: bool = False,
     baseline_r_arr: np.ndarray = None,
     baseline_name: str = "Baseline",
+    model_name: str = "Model",
 ):
     if r_arr is None or len(channel_names) == 0:
         return
@@ -493,68 +521,226 @@ def render_normalized_kde_plot(
     n_trials, n_chans = r_arr.shape
 
     groups = _get_groups_map(channel_names, use_bands)
+    unique_groups = sorted(list(set(groups)))
 
     blocks_arr = (
         np.array(blocks) if (blocks and len(blocks) == n_trials) else np.zeros(n_trials)
     )
     unique_blks = np.unique(blocks_arr)
 
-    z_data_list = []
-    for blk in unique_blks:
-        blk_mask = blocks_arr == blk
-        blk_data = r_arr[blk_mask, :]
+    group_stats = {}
+    for grp in unique_groups:
+        grp_indices = [idx for idx, g in enumerate(groups) if g == grp]
+        grp_data = r_arr[:, grp_indices].flatten()
 
-        mean = np.mean(blk_data)
-        std = np.std(blk_data)
+        mean = np.mean(grp_data)
+        std = np.std(grp_data)
+        sem = std / np.sqrt(len(grp_data)) if len(grp_data) > 1 else 0
 
-        has_base = (
-            baseline_r_arr is not None
-            and baseline_r_arr.ndim == 2
-            and baseline_r_arr.shape[0] == r_arr.shape[0]
-        )
+        group_stats[grp] = {
+            "mean": mean,
+            "std": std,
+            "sem": sem,
+            "n": len(grp_data),
+        }
 
-        if std > 1e-6:
-            z_blk = (blk_data - mean) / std
-            if has_base:
-                z_base_blk = (baseline_r_arr[blk_mask, :] - mean) / std
-        else:
-            z_blk = blk_data - mean
-            if has_base:
-                z_base_blk = baseline_r_arr[blk_mask, :] - mean
+        if baseline_r_arr is not None:
+            main_matched_idx, base_matched_idx = _match_channels_by_name(
+                channel_names, channel_names
+            )
+            valid_grp_main = [idx for idx in grp_indices if idx in main_matched_idx]
+            valid_grp_base = [
+                base_matched_idx[main_matched_idx.index(idx)]
+                for idx in valid_grp_main
+                if idx in main_matched_idx
+            ]
+            valid_grp_base = [
+                idx for idx in valid_grp_base if idx < baseline_r_arr.shape[1]
+            ]
 
-        for t_sub_idx in range(z_blk.shape[0]):
-            for c_idx in range(n_chans):
-                z_data_list.append(
-                    {
-                        "Pearson r (Z-score)": z_blk[t_sub_idx, c_idx],
-                        "Group": groups[c_idx],
-                    }
+            if valid_grp_base:
+                base_grp_data = baseline_r_arr[:, valid_grp_base].flatten()
+                base_mean = np.mean(base_grp_data)
+                base_std = np.std(base_grp_data)
+                base_sem = (
+                    base_std / np.sqrt(len(base_grp_data))
+                    if len(base_grp_data) > 1
+                    else 0
                 )
-                if has_base and c_idx < baseline_r_arr.shape[1]:
-                    z_data_list.append(
+
+                group_stats[grp]["baseline_mean"] = base_mean
+                group_stats[grp]["baseline_std"] = base_std
+                group_stats[grp]["baseline_sem"] = base_sem
+                group_stats[grp]["baseline_n"] = len(base_grp_data)
+                group_stats[grp]["improvement"] = mean - base_mean
+                group_stats[grp]["improvement_pct"] = (
+                    ((mean - base_mean) / abs(base_mean) * 100)
+                    if abs(base_mean) > 1e-6
+                    else 0
+                )
+
+    plot_data = []
+
+    for grp in unique_groups:
+        grp_indices = [idx for idx, g in enumerate(groups) if g == grp]
+        model_data = r_arr[:, grp_indices].flatten()
+
+        # Add model data
+        for val in model_data:
+            plot_data.append(
+                {
+                    "Feature": grp,
+                    "Model": model_name,
+                    "Pearson r": val,
+                }
+            )
+
+        # Add baseline data if available
+        if baseline_r_arr is not None:
+            # Match channels by name
+            main_matched_idx, base_matched_idx = _match_channels_by_name(
+                channel_names, channel_names
+            )
+            valid_grp_main = [idx for idx in grp_indices if idx in main_matched_idx]
+            valid_grp_base = [
+                base_matched_idx[main_matched_idx.index(idx)]
+                for idx in valid_grp_main
+                if idx in main_matched_idx
+            ]
+            valid_grp_base = [
+                idx for idx in valid_grp_base if idx < baseline_r_arr.shape[1]
+            ]
+
+            if valid_grp_base:
+                baseline_data = baseline_r_arr[:, valid_grp_base].flatten()
+                for val in baseline_data:
+                    plot_data.append(
                         {
-                            "Pearson r (Z-score)": z_base_blk[t_sub_idx, c_idx],
-                            "Group": f"{groups[c_idx]} ({baseline_name})",
+                            "Feature": grp,
+                            "Model": baseline_name,
+                            "Pearson r": val,
                         }
                     )
 
-    df_z = pd.DataFrame(z_data_list)
+    df_plot = pd.DataFrame(plot_data)
 
-    fig = px.violin(
-        df_z,
-        y="Pearson r (Z-score)",
-        color="Group",
-        box=True,
-        points=False,
+    feature_to_pos = {grp: i for i, grp in enumerate(unique_groups)}
+    df_plot["x_pos"] = df_plot["Feature"].map(feature_to_pos)
+
+    # Create base figure using backbone utility
+    fig = create_base_comparison_figure(
+        x_label="Frequency Band" if use_bands else "Feature",
+        y_label="Pearson r",
         title=title,
-        template="plotly_white",
-        labels={"Group": "Frequency Band" if use_bands else "Feature"},
     )
 
-    fig.update_layout(height=500, hovermode="closest")
+    # Add box plots and strip plots for each model type
+    for model_type in [model_name, baseline_name]:
+        if model_type == baseline_name and baseline_r_arr is None:
+            continue
+
+        df_model = df_plot[df_plot["Model"] == model_type]
+
+        if len(df_model) == 0:
+            continue
+
+        fig.add_trace(
+            go.Box(
+                x=df_model["x_pos"],
+                y=df_model["Pearson r"],
+                name=model_type,
+                boxmean="sd",
+                marker_color=(
+                    PALETTE.twilight_indigo
+                    if model_type == model_name
+                    else BASELINE_COLOR
+                ),
+                line_color=(
+                    PALETTE.twilight_indigo
+                    if model_type == model_name
+                    else BASELINE_COLOR
+                ),
+                fillcolor=(
+                    PALETTE.twilight_indigo
+                    if model_type == model_name
+                    else BASELINE_COLOR
+                ),
+                opacity=0.6,
+                showlegend=True,
+                legendgroup=model_type,
+            )
+        )
+
+        for grp in unique_groups:
+            grp_data = df_model[df_model["Feature"] == grp]["Pearson r"].values
+            if len(grp_data) > 0:
+                x_numeric = feature_to_pos[grp]
+                if model_type == model_name:
+                    x_jitter = np.random.normal(-0.15, 0.08, len(grp_data))
+                else:
+                    x_jitter = np.random.normal(0.15, 0.08, len(grp_data))
+                x_pos = x_numeric + x_jitter
+
+                fig.add_trace(
+                    go.Scatter(
+                        x=x_pos,
+                        y=grp_data,
+                        mode="markers",
+                        name=model_type,
+                        marker=dict(
+                            color=(
+                                PALETTE.twilight_indigo
+                                if model_type == model_name
+                                else BASELINE_COLOR
+                            ),
+                            size=4,
+                            opacity=0.4,
+                            line=dict(width=0.5, color="white"),
+                        ),
+                        showlegend=False,
+                        legendgroup=model_type,
+                        hoverinfo="y",
+                    )
+                )
+
+    fig.update_layout(
+        height=500,
+        boxmode="group",
+        xaxis=dict(
+            tickmode="array",
+            tickvals=list(range(len(unique_groups))),
+            ticktext=unique_groups,
+        ),
+    )
 
     st.plotly_chart(fig, use_container_width=True)
-    st.caption("Distribution of standardized performance across all blocks.")
+
+    # Summary statistics table
+    if baseline_r_arr is not None:
+        st.markdown("##### Performance Summary")
+        summary_data = []
+        for grp in unique_groups:
+            stats = group_stats[grp]
+            if "baseline_mean" in stats:
+                summary_data.append(
+                    {
+                        "Feature": grp,
+                        f"{baseline_name} Mean": f"{stats['baseline_mean']:.4f}",
+                        f"{baseline_name} SEM": f"{stats['baseline_sem']:.4f}",
+                        "Model Mean": f"{stats['mean']:.4f}",
+                        "Model SEM": f"{stats['sem']:.4f}",
+                        "Improvement": f"{stats['improvement']:+.4f}",
+                        "Improvement %": f"{stats['improvement_pct']:+.2f}%",
+                    }
+                )
+
+        if summary_data:
+            df_summary = pd.DataFrame(summary_data)
+            st.dataframe(df_summary, use_container_width=True, hide_index=True)
+
+    st.caption(
+        "Distribution of Pearson correlations across all trials and channels. Box plots show median, quartiles, and outliers."
+    )
 
 
 def render_distribution_comparison_plot(
@@ -627,16 +813,43 @@ def render_distribution_comparison_plot(
                     blk_true_samples.append(t_true[:, grp_indices])
                     blk_pred_samples.append(t_pred[:, grp_indices])
                     if t_base is not None:
-                        valid_gi = [idx for idx in grp_indices if idx < t_base.shape[1]]
-                        if valid_gi:
-                            blk_base_samples.append(t_base[:, valid_gi])
+                        main_matched_idx, base_matched_idx = _match_channels_by_name(
+                            channel_names, channel_names
+                        )
+                        valid_grp_main = [
+                            idx for idx in grp_indices if idx in main_matched_idx
+                        ]
+                        valid_grp_base = [
+                            base_matched_idx[main_matched_idx.index(idx)]
+                            for idx in valid_grp_main
+                            if idx in main_matched_idx
+                        ]
+                        valid_grp_base = [
+                            idx for idx in valid_grp_base if idx < t_base.shape[1]
+                        ]
+                        if valid_grp_base:
+                            blk_base_samples.append(t_base[:, valid_grp_base])
                 else:
                     blk_true_samples.append(t_true[grp_indices])
                     blk_pred_samples.append(t_pred[grp_indices])
                     if t_base is not None:
-                        valid_gi = [idx for idx in grp_indices if idx < len(t_base)]
-                        if valid_gi:
-                            blk_base_samples.append(t_base[valid_gi])
+                        # Match channels by name
+                        main_matched_idx, base_matched_idx = _match_channels_by_name(
+                            channel_names, channel_names
+                        )
+                        valid_grp_main = [
+                            idx for idx in grp_indices if idx in main_matched_idx
+                        ]
+                        valid_grp_base = [
+                            base_matched_idx[main_matched_idx.index(idx)]
+                            for idx in valid_grp_main
+                            if idx in main_matched_idx
+                        ]
+                        valid_grp_base = [
+                            idx for idx in valid_grp_base if idx < len(t_base)
+                        ]
+                        if valid_grp_base:
+                            blk_base_samples.append(t_base[valid_grp_base])
 
             if not blk_true_samples:
                 continue
@@ -849,12 +1062,32 @@ def render_spectral_fvu_plot(
         P_base_resid = None
         P_true_for_base = None
         if y_base_all is not None:
-            n_base_chans = y_base_all.shape[1]
-            valid_grp_indices = [idx for idx in grp_indices if idx < n_base_chans]
-            if valid_grp_indices:
-                base_grp = y_base_all[:, valid_grp_indices]
-                # Use matching channels from true_grp as well
-                true_grp_matched = y_true_all[:, valid_grp_indices]
+            # Match channels by name (channels have same names in both models)
+            # Since channels have same names, match indices from main to baseline
+            main_matched_idx, base_matched_idx = _match_channels_by_name(
+                channel_names, channel_names  # Same names, but verify matching
+            )
+            # Filter to only include channels in the current group
+            valid_main_idx = [idx for idx in main_matched_idx if idx in grp_indices]
+            valid_base_idx = [
+                base_matched_idx[main_matched_idx.index(idx)]
+                for idx in valid_main_idx
+                if idx in main_matched_idx
+            ]
+
+            # Ensure baseline has enough channels
+            valid_base_idx = [
+                idx for idx in valid_base_idx if idx < y_base_all.shape[1]
+            ]
+            valid_main_idx = [
+                main_matched_idx[base_matched_idx.index(idx)]
+                for idx in valid_base_idx
+                if idx in base_matched_idx
+            ]
+
+            if valid_main_idx and valid_base_idx:
+                base_grp = y_base_all[:, valid_base_idx]
+                true_grp_matched = y_true_all[:, valid_main_idx]
                 min_len = min(len(true_grp_matched), len(base_grp))
                 _P_true_m = true_grp_matched[:min_len]
                 _P_base = base_grp[:min_len]
@@ -1083,14 +1316,33 @@ def render_error_cdf_plot(
 
         abs_err = np.abs(y_true - y_pred)
         b_abs_err = None
+        channel_to_base_idx = {}
         if y_base is not None:
+            # Match channels by name (channels have same names, so 1:1 mapping)
+            main_matched_idx, base_matched_idx = _match_channels_by_name(
+                channel_names, channel_names
+            )
             min_l = min(y_true.shape[0], y_base.shape[0])
-            min_c = min(y_true.shape[1], y_base.shape[1])
-            b_abs_err = np.abs(y_true[:min_l, :min_c] - y_base[:min_l, :min_c])
+            valid_base_idx = [idx for idx in base_matched_idx if idx < y_base.shape[1]]
+            valid_main_idx = [
+                main_matched_idx[base_matched_idx.index(idx)]
+                for idx in valid_base_idx
+                if idx in base_matched_idx
+            ]
+            if valid_main_idx and valid_base_idx:
+                b_abs_err = np.abs(
+                    y_true[:min_l, valid_main_idx] - y_base[:min_l, valid_base_idx]
+                )
+                # Create mapping for error CDF grouping
+                channel_to_base_idx = {
+                    valid_main_idx[i]: valid_base_idx[i]
+                    for i in range(len(valid_main_idx))
+                }
 
         groups = _get_groups_map(channel_names, use_bands)
 
         df_list = []
+
         for c in range(len(channel_names)):
             # Subsample for plot performance
             err_vals = abs_err[:, c]
@@ -1099,14 +1351,16 @@ def render_error_cdf_plot(
             for v in err_vals:
                 df_list.append({"Abs Error": v, "Group": groups[c]})
 
-            if b_abs_err is not None and c < b_abs_err.shape[1]:
-                b_err_vals = b_abs_err[:, c]
-                if len(b_err_vals) > 1000:
-                    b_err_vals = np.random.choice(b_err_vals, 1000, replace=False)
-                for v in b_err_vals:
-                    df_list.append(
-                        {"Abs Error": v, "Group": f"{groups[c]} ({baseline_name})"}
-                    )
+            if b_abs_err is not None and c in channel_to_base_idx:
+                base_c = channel_to_base_idx[c]
+                if base_c < b_abs_err.shape[1]:
+                    b_err_vals = b_abs_err[:, base_c]
+                    if len(b_err_vals) > 1000:
+                        b_err_vals = np.random.choice(b_err_vals, 1000, replace=False)
+                    for v in b_err_vals:
+                        df_list.append(
+                            {"Abs Error": v, "Group": f"{groups[c]} ({baseline_name})"}
+                        )
 
         df = pd.DataFrame(df_list)
         fig = px.ecdf(
@@ -1195,11 +1449,30 @@ def render_residual_qq_plot(
 
             # Baseline residuals
             if y_base is not None:
-                valid_idx = [idx for idx in grp_idx if idx < y_base.shape[1]]
-                if valid_idx:
+                # Match channels by name
+                main_matched_idx, base_matched_idx = _match_channels_by_name(
+                    channel_names, channel_names
+                )
+                valid_grp_main = [idx for idx in grp_idx if idx in main_matched_idx]
+                valid_grp_base = [
+                    base_matched_idx[main_matched_idx.index(idx)]
+                    for idx in valid_grp_main
+                    if idx in main_matched_idx
+                ]
+                valid_grp_base = [
+                    idx for idx in valid_grp_base if idx < y_base.shape[1]
+                ]
+                valid_grp_main = [
+                    main_matched_idx[base_matched_idx.index(idx)]
+                    for idx in valid_grp_base
+                    if idx in base_matched_idx
+                ]
+
+                if valid_grp_main and valid_grp_base:
                     min_len = min(y_true.shape[0], y_base.shape[0])
                     base_resids = (
-                        y_true[:min_len, valid_idx] - y_base[:min_len, valid_idx]
+                        y_true[:min_len, valid_grp_main]
+                        - y_base[:min_len, valid_grp_base]
                     ).flatten()
                     base_resids = (base_resids - np.mean(base_resids)) / (
                         np.std(base_resids) + 1e-8

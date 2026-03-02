@@ -203,7 +203,6 @@ def state_space_matrices_tab(project_root, results_root=None):
 
     RESULTS_ROOT = results_root if results_root else project_root / "results"
 
-
     variants = list_variants(RESULTS_ROOT)
     if len(variants) == 0:
         st.info("No result variants found under results/.")

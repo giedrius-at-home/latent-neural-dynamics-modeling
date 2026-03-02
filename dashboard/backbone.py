@@ -432,40 +432,101 @@ def create_base_psd_line_figure(
     return fig
 
 
+def create_base_comparison_figure(
+    x_label: str = "Feature",
+    y_label: str = "Value",
+    title: str = "",
+):
+    fig = go.Figure()
+
+    fig.update_layout(
+        title=dict(
+            text=title,
+            x=0.5,
+            xanchor="center",
+            yanchor="top",
+            font=dict(size=PLOT_STYLE.title_size, family=PLOT_STYLE.font_family),
+        ),
+        xaxis=dict(
+            title=dict(
+                text=x_label,
+                font=dict(
+                    size=PLOT_STYLE.axis_label_size, family=PLOT_STYLE.font_family
+                ),
+            ),
+            tickfont=dict(size=PLOT_STYLE.tick_label_size),
+            showgrid=True,
+            gridcolor="rgba(200, 200, 200, 0.4)",
+        ),
+        yaxis=dict(
+            title=dict(
+                text=y_label,
+                font=dict(
+                    size=PLOT_STYLE.axis_label_size, family=PLOT_STYLE.font_family
+                ),
+            ),
+            tickfont=dict(size=PLOT_STYLE.tick_label_size),
+            showgrid=True,
+            gridcolor="rgba(200, 200, 200, 0.4)",
+        ),
+        template="plotly_white",
+        font=dict(
+            family=PLOT_STYLE.font_family,
+            size=PLOT_STYLE.tick_label_size,
+            color="#0e131f",
+        ),
+        legend=dict(
+            font=dict(size=PLOT_STYLE.tick_label_size, family=PLOT_STYLE.font_family),
+            bgcolor="rgba(255,255,255,0.8)",
+            bordercolor="#E5E5E5",
+            borderwidth=1,
+        ),
+        showlegend=True,
+        margin=dict(l=60, r=80, t=60, b=60),
+        hovermode="closest",
+    )
+
+    return fig
+
+
 def render_styled_table(df, key: str = None) -> None:
-    """Render a DataFrame as a beautifully styled Plotly table matching the dashboard scheme."""
-    
+
     headerColor = PALETTE.twilight_indigo
-    rowEvenColor = 'white'
-    rowOddColor = 'rgba(240, 240, 245, 0.5)'
-    
+    rowEvenColor = "white"
+    rowOddColor = "rgba(240, 240, 245, 0.5)"
+
     # Repeat colors enough times for all rows
     row_colors = []
     for i in range(len(df)):
         row_colors.append(rowEvenColor if i % 2 == 0 else rowOddColor)
-        
-    fig = go.Figure(data=[go.Table(
-        header=dict(
-            values=list(df.columns),
-            line_color='rgba(200, 200, 200, 0.5)',
-            fill_color=headerColor,
-            align=['left'] + ['center'] * (len(df.columns) - 1),
-            font=dict(color='white', size=14, family=PLOT_STYLE.font_family),
-            height=35
-        ),
-        cells=dict(
-            values=[df[col] for col in df.columns],
-            line_color='rgba(200, 200, 200, 0.5)',
-            fill_color=[row_colors * len(df.columns)],
-            align=['left'] + ['center'] * (len(df.columns) - 1),
-            font=dict(color=PALETTE.ink_black, size=13, family=PLOT_STYLE.font_family),
-            height=30
-        ))
-    ])
-    
-    fig.update_layout(
-        margin=dict(l=0, r=0, t=0, b=0),
-        height=min(600, max(150, len(df) * 30 + 50))
+
+    fig = go.Figure(
+        data=[
+            go.Table(
+                header=dict(
+                    values=list(df.columns),
+                    line_color="rgba(200, 200, 200, 0.5)",
+                    fill_color=headerColor,
+                    align=["left"] + ["center"] * (len(df.columns) - 1),
+                    font=dict(color="white", size=14, family=PLOT_STYLE.font_family),
+                    height=35,
+                ),
+                cells=dict(
+                    values=[df[col] for col in df.columns],
+                    line_color="rgba(200, 200, 200, 0.5)",
+                    fill_color=[row_colors * len(df.columns)],
+                    align=["left"] + ["center"] * (len(df.columns) - 1),
+                    font=dict(
+                        color=PALETTE.ink_black, size=13, family=PLOT_STYLE.font_family
+                    ),
+                    height=30,
+                ),
+            )
+        ]
     )
-    
+
+    fig.update_layout(
+        margin=dict(l=0, r=0, t=0, b=0), height=min(600, max(150, len(df) * 30 + 50))
+    )
+
     st.plotly_chart(fig, use_container_width=True, key=key)

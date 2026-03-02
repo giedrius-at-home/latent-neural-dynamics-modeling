@@ -44,6 +44,14 @@ from dashboard.subtabs.helpers import (
     variant_short_name,
     find_baseline_variants,
     get_project_root,
+    render_prediction_psd_analysis,
+    render_residual_plot,
+    render_statistics_table,
+    render_residual_diagnostics,
+    select_baseline,
+    get_channel,
+    get_baseline_channel,
+    render_analysis,
 )
 from utils.config import get_config
 
@@ -100,473 +108,6 @@ def render_y_prediction_plot(
         )
 
     st.plotly_chart(fig, use_container_width=True)
-
-
-def render_y_scatter_plot(
-    y_true_c: np.ndarray,
-    y_pred_c: np.ndarray,
-    channel_name: str,
-    r_ch: float,
-    baseline_preds: Optional[np.ndarray] = None,
-    baseline_name: str = "Baseline",
-    model_name: str = "Model",
-):
-
-    fig = go.Figure()
-
-    fig.add_trace(
-        go.Scatter(
-            x=y_true_c,
-            y=y_pred_c,
-            mode="markers",
-            name=model_name,
-            marker=dict(
-                size=4,
-                color=PALETTE.twilight_indigo,
-                opacity=0.6,
-                line=dict(width=0),
-            ),
-        )
-    )
-
-    if baseline_preds is not None:
-        fig.add_trace(
-            go.Scatter(
-                x=y_true_c,
-                y=baseline_preds,
-                mode="markers",
-                name=baseline_name,
-                marker=dict(
-                    size=4,
-                    color=BASELINE_COLOR,
-                    opacity=0.4,
-                    line=dict(width=0),
-                ),
-            )
-        )
-
-    min_val = min(np.min(y_true_c), np.min(y_pred_c))
-    max_val = max(np.max(y_true_c), np.max(y_pred_c))
-
-    slope, intercept, r_value, p_value, std_err = scipy_stats.linregress(
-        y_true_c, y_pred_c
-    )
-    r_squared = r_value**2
-
-    x_line = np.array([min_val, max_val])
-    y_line = slope * x_line + intercept
-
-    fig.add_trace(
-        go.Scatter(
-            x=x_line,
-            y=y_line,
-            mode="lines",
-            name=f"OLS ({model_name})",
-            line=dict(color=PALETTE.strawberry_red, width=1.2),
-        )
-    )
-
-    if baseline_preds is not None:
-        slope_b, intercept_b, r_value_b, p_value_b, _ = scipy_stats.linregress(
-            y_true_c, baseline_preds
-        )
-        y_line_b = slope_b * x_line + intercept_b
-        fig.add_trace(
-            go.Scatter(
-                x=x_line,
-                y=y_line_b,
-                mode="lines",
-                name=f"OLS ({baseline_name})",
-                line=dict(color=BASELINE_COLOR, width=1.2, dash="dash"),
-            )
-        )
-
-    fig.update_layout(
-        template="plotly_white",
-        font=dict(family=PLOT_STYLE.font_family),
-        margin=dict(l=60, r=80, t=40, b=60),
-        xaxis_title="True Amplitude (µV)",
-        yaxis_title="Predicted Amplitude (µV)",
-    )
-    st.plotly_chart(fig, use_container_width=True)
-
-    caption_parts = [f"True vs Predicted — {channel_name} (Pearson r={r_ch:.3f})"]
-    caption_parts.append(
-        f"{model_name} OLS: y={slope:.4f}x+{intercept:.4f}, R²={r_squared:.4f}, p={p_value:.2e}"
-    )
-    if baseline_preds is not None:
-        r_sq_b = r_value_b**2
-        caption_parts.append(
-            f"{baseline_name} OLS: y={slope_b:.4f}x+{intercept_b:.4f}, R²={r_sq_b:.4f}, p={p_value_b:.2e}"
-        )
-    st.caption(" | ".join(caption_parts))
-
-
-def render_y_residual_plot(
-    y_true_c: np.ndarray,
-    y_pred_c: np.ndarray,
-    t_abs: np.ndarray,
-    channel_name: str,
-    chunk_margin: float = 0.0,
-    baseline_preds: Optional[np.ndarray] = None,
-    baseline_name: str = "Baseline",
-):
-    residuals = y_true_c - y_pred_c
-
-    fig = go.Figure()
-
-    fig.add_trace(
-        go.Scatter(
-            x=t_abs,
-            y=residuals,
-            mode="lines",
-            name="Model Residuals",
-            line=dict(color=PALETTE.strawberry_red, width=1.2),
-        )
-    )
-    rmse = np.sqrt(np.mean(residuals**2))
-
-    baseline_caption = ""
-    if baseline_preds is not None:
-        baseline_residuals = y_true_c - baseline_preds
-        fig.add_trace(
-            go.Scatter(
-                x=t_abs,
-                y=baseline_residuals,
-                mode="lines",
-                name=f"{baseline_name} Residuals",
-                line=dict(color=BASELINE_COLOR, width=1.2, dash="dash"),
-                opacity=0.7,
-            )
-        )
-        base_rmse = np.sqrt(np.mean(baseline_residuals**2))
-        baseline_caption = f" | {baseline_name} RMSE={base_rmse:.3f} µV"
-
-    if chunk_margin > 0:
-        add_margin_visualization(fig, t_abs, chunk_margin)
-
-    fig.update_layout(
-        template="plotly_white",
-        font=dict(family=PLOT_STYLE.font_family),
-        margin=dict(l=60, r=80, t=40, b=60),
-        xaxis_title="Time (s)",
-        yaxis_title="Residual (µV)",
-    )
-    st.plotly_chart(fig, use_container_width=True)
-    st.caption(
-        f"Residuals (Prediction Errors) — {channel_name} (RMSE={rmse:.3f} µV){baseline_caption}"
-    )
-
-
-def render_statistics_table(
-    y_true_c: np.ndarray,
-    y_pred_c: np.ndarray,
-    r_ch: float,
-    channel_name: str,
-):
-    residuals = y_true_c - y_pred_c
-    mae = np.mean(np.abs(residuals))
-    rmse = np.sqrt(np.mean(residuals**2))
-
-    ss_res = np.sum(residuals**2)
-    ss_tot = np.sum((y_true_c - np.mean(y_true_c)) ** 2)
-    r_squared = 1 - (ss_res / ss_tot) if ss_tot != 0 else 0
-
-    st.markdown(f"### Statistics — {channel_name}")
-
-    col1, col2, col3, col4 = st.columns(4)
-
-    with col1:
-        st.metric("Pearson r", f"{r_ch:.4f}")
-
-    with col2:
-        st.metric("R2", f"{r_squared:.4f}")
-
-    with col3:
-        st.metric("RMSE (µV)", f"{rmse:.3f}")
-
-    with col4:
-        st.metric("MAE (µV)", f"{mae:.3f}")
-
-
-def _show_residual_stats_row(stats: dict, label: str = ""):
-    """Display a row of residual stats metrics."""
-    if label:
-        st.markdown(f"**{label}**")
-    c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        st.metric("Mean", f"{stats['mean']:.4f}")
-    with c2:
-        st.metric("Std Dev", f"{stats['std']:.4f}")
-    with c3:
-        st.metric("Min", f"{stats['min']:.4f}")
-    with c4:
-        st.metric("Max", f"{stats['max']:.4f}")
-
-
-def render_residual_diagnostics(
-    y_true: np.ndarray,
-    y_pred: np.ndarray,
-    channel_name: str,
-    baseline_preds: Optional[np.ndarray] = None,
-    baseline_name: str = "Baseline",
-    model_name: str = "Model",
-):
-
-    res_stats = compute_residual_statistics(y_true, y_pred)
-    residuals = res_stats["residuals"]
-
-    st.markdown(f"### Residual Diagnostics — {channel_name}")
-
-    if baseline_preds is not None:
-        base_res_stats = compute_residual_statistics(y_true, baseline_preds)
-        base_residuals = base_res_stats["residuals"]
-        _show_residual_stats_row(res_stats, model_name)
-        _show_residual_stats_row(base_res_stats, baseline_name)
-    else:
-        _show_residual_stats_row(res_stats)
-
-    norm_tests = normality_tests(residuals)
-
-    st.markdown("#### Normality Test")
-    shapiro_stat, shapiro_p = norm_tests["shapiro"]
-    if baseline_preds is not None:
-        base_norm = normality_tests(base_residuals)
-        base_shapiro_stat, base_shapiro_p = base_norm["shapiro"]
-        col_s1, col_s2 = st.columns(2)
-        with col_s1:
-            st.metric(
-                f"Shapiro-Wilk ({model_name})",
-                f"p = {shapiro_p:.4f}",
-                delta=f"stat = {shapiro_stat:.4f}",
-            )
-        with col_s2:
-            st.metric(
-                f"Shapiro-Wilk ({baseline_name})",
-                f"p = {base_shapiro_p:.4f}",
-                delta=f"stat = {base_shapiro_stat:.4f}",
-            )
-    else:
-        st.metric(
-            "Shapiro-Wilk Test",
-            f"p = {shapiro_p:.4f}",
-            delta=f"stat = {shapiro_stat:.4f}",
-        )
-
-    st.markdown("#### Q-Q Plot (Quantile-Quantile)")
-
-    residuals_std = (residuals - np.mean(residuals)) / (np.std(residuals) + 1e-12)
-    theoretical_q, sample_q = qq_plot_data(residuals_std)
-
-    if len(theoretical_q) > 0:
-        fig_qq = go.Figure()
-
-        fig_qq.add_trace(
-            go.Scatter(
-                x=theoretical_q,
-                y=sample_q,
-                mode="markers",
-                name=model_name,
-                marker=dict(size=4, color=PALETTE.twilight_indigo, opacity=0.6),
-            )
-        )
-
-        if baseline_preds is not None:
-            base_resids = y_true - baseline_preds
-            base_resids_std = (base_resids - np.mean(base_resids)) / (
-                np.std(base_resids) + 1e-12
-            )
-            base_tq, base_sq = qq_plot_data(base_resids_std)
-            if len(base_tq) > 0:
-                fig_qq.add_trace(
-                    go.Scatter(
-                        x=base_tq,
-                        y=base_sq,
-                        mode="markers",
-                        name=baseline_name,
-                        marker=dict(size=4, color=BASELINE_COLOR, opacity=0.4),
-                    )
-                )
-
-        min_q = min(np.min(theoretical_q), np.min(sample_q))
-        max_q = max(np.max(theoretical_q), np.max(sample_q))
-        fig_qq.add_trace(
-            go.Scatter(
-                x=[min_q, max_q],
-                y=[min_q, max_q],
-                mode="lines",
-                name="Normal",
-                line=dict(color=PALETTE.strawberry_red, width=1, dash="dash"),
-            )
-        )
-
-        fig_qq.update_layout(
-            template="plotly_white",
-            font=dict(family=PLOT_STYLE.font_family),
-            margin=dict(l=60, r=80, t=40, b=60),
-            showlegend=True,
-            xaxis_title="Theoretical Quantiles (Normal)",
-            yaxis_title="Sample Quantiles (Standardized)",
-        )
-        st.plotly_chart(fig_qq, use_container_width=True)
-        st.caption(f"Q-Q Plot — {channel_name} (Standardized)")
-    else:
-        pass
-
-    st.markdown("#### Probability Plot (CDF Comparison)")
-
-    theoretical_cdf, empirical_cdf = probability_plot_data(residuals_std)
-
-    if len(theoretical_cdf) > 0:
-        fig_prob = go.Figure()
-
-        fig_prob.add_trace(
-            go.Scatter(
-                x=theoretical_cdf,
-                y=empirical_cdf,
-                mode="markers",
-                name=model_name,
-                marker=dict(size=3, color=PALETTE.twilight_indigo),
-            )
-        )
-
-        if baseline_preds is not None:
-            base_resids = y_true - baseline_preds
-            base_resids_std = (base_resids - np.mean(base_resids)) / (
-                np.std(base_resids) + 1e-12
-            )
-            base_tcdf, base_ecdf = probability_plot_data(base_resids_std)
-            if len(base_tcdf) > 0:
-                fig_prob.add_trace(
-                    go.Scatter(
-                        x=base_tcdf,
-                        y=base_ecdf,
-                        mode="markers",
-                        name=baseline_name,
-                        marker=dict(size=3, color=BASELINE_COLOR, opacity=0.5),
-                    )
-                )
-
-        fig_prob.add_trace(
-            go.Scatter(
-                x=[0, 1],
-                y=[0, 1],
-                mode="lines",
-                name="Reference",
-                line=dict(color=PALETTE.strawberry_red, width=1, dash="dash"),
-            )
-        )
-
-        fig_prob.update_layout(
-            template="plotly_white",
-            font=dict(family=PLOT_STYLE.font_family),
-            margin=dict(l=60, r=80, t=40, b=60),
-            showlegend=True,
-            xaxis_title="Theoretical Cumulative Probability",
-            yaxis_title="Empirical Cumulative Probability",
-        )
-        st.plotly_chart(fig_prob, use_container_width=True)
-        st.caption(f"Probability Plot — {channel_name}")
-    else:
-        pass
-
-    st.markdown("#### Whiteness Test (Ljung-Box)")
-    whiteness_results = whiteness_test(residuals)
-    lb_stat = whiteness_results["ljung_box_stat"]
-    lb_p = whiteness_results["ljung_box_p"]
-    lags = whiteness_results["lags"]
-    acf = whiteness_results["acf"]
-
-    if baseline_preds is not None:
-        base_resids_w = y_true - baseline_preds
-        base_whiteness = whiteness_test(base_resids_w)
-        base_lb_stat = base_whiteness["ljung_box_stat"]
-        base_lb_p = base_whiteness["ljung_box_p"]
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric(
-                f"LB Stat ({model_name})",
-                f"{lb_stat:.4f}" if not np.isnan(lb_stat) else "N/A",
-            )
-        with col2:
-            st.metric(
-                f"LB p ({model_name})",
-                f"{lb_p:.4f}" if not np.isnan(lb_p) else "N/A",
-            )
-        with col3:
-            st.metric(
-                f"LB Stat ({baseline_name})",
-                f"{base_lb_stat:.4f}" if not np.isnan(base_lb_stat) else "N/A",
-            )
-        with col4:
-            st.metric(
-                f"LB p ({baseline_name})",
-                f"{base_lb_p:.4f}" if not np.isnan(base_lb_p) else "N/A",
-            )
-    else:
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric(
-                "Ljung-Box Statistic",
-                f"{lb_stat:.4f}" if not np.isnan(lb_stat) else "N/A",
-            )
-        with col2:
-            st.metric(
-                "Ljung-Box p-value",
-                f"{lb_p:.4f}" if not np.isnan(lb_p) else "N/A",
-            )
-
-    if len(lags) > 0 and len(acf) > 0:
-        fig_acf = go.Figure()
-
-        fig_acf.add_trace(
-            go.Bar(
-                x=lags,
-                y=acf,
-                name=model_name,
-                marker=dict(color=PALETTE.twilight_indigo),
-            )
-        )
-
-        if baseline_preds is not None:
-            base_acf_vals = base_whiteness["acf"]
-            base_lags = base_whiteness["lags"]
-            if len(base_lags) > 0:
-                fig_acf.add_trace(
-                    go.Bar(
-                        x=base_lags,
-                        y=base_acf_vals,
-                        name=baseline_name,
-                        marker=dict(color=BASELINE_COLOR, opacity=0.5),
-                    )
-                )
-
-        confidence_interval = 1.96 / np.sqrt(len(residuals.flatten()))
-        fig_acf.add_hline(
-            y=confidence_interval,
-            line_dash="dot",
-            line_color=PALETTE.cool_steel,
-            annotation_text="95% CI",
-        )
-        fig_acf.add_hline(
-            y=-confidence_interval,
-            line_dash="dot",
-            line_color=PALETTE.cool_steel,
-        )
-
-        fig_acf.update_layout(
-            template="plotly_white",
-            font=dict(family=PLOT_STYLE.font_family),
-            margin=dict(l=60, r=80, t=40, b=60),
-            showlegend=True,
-            barmode="group",
-            xaxis_title="Lag (timesteps)",
-            yaxis_title="Autocorrelation",
-        )
-        st.plotly_chart(fig_acf, use_container_width=True)
-        st.caption(f"Autocorrelation Function — {channel_name}")
-    else:
-        pass
 
 
 def render_system_eigenvalues(idSys):
@@ -766,6 +307,7 @@ def render_learned_noise_diagnostics(
                         xaxis_title="State Dimension",
                         yaxis_title="State Dimension",
                         height=400,
+                        yaxis=dict(autorange="reversed"),
                     )
                     st.plotly_chart(fig_q, use_container_width=True)
                     st.caption(f"Shape: {Q_np.shape}")
@@ -787,6 +329,7 @@ def render_learned_noise_diagnostics(
                         xaxis_title="Output Dimension",
                         yaxis_title="Output Dimension",
                         height=400,
+                        yaxis=dict(autorange="reversed"),
                     )
                     st.plotly_chart(fig_r, use_container_width=True)
                     st.caption(f"Shape: {R_np.shape}")
@@ -808,6 +351,7 @@ def render_learned_noise_diagnostics(
                         xaxis_title="Output Dimension",
                         yaxis_title="State Dimension",
                         height=400,
+                        yaxis=dict(autorange="reversed"),
                     )
                     st.plotly_chart(fig_s, use_container_width=True)
                     st.caption(f"Shape: {S_np.shape}")
@@ -815,113 +359,6 @@ def render_learned_noise_diagnostics(
             st.info("No noise covariance matrices found in model")
     else:
         st.info("This model type does not expose noise covariance matrices")
-
-
-def render_z_scatter_plot(
-    z_true_c: np.ndarray,
-    z_pred_c: np.ndarray,
-    channel_name: str,
-    r_ch: float,
-    baseline_preds: Optional[np.ndarray] = None,
-    baseline_name: str = "Baseline",
-    model_name: str = "Model",
-):
-    z_pred_c_rescaled = rescale_to_reference(z_pred_c, z_true_c)
-    baseline_rescaled = (
-        rescale_to_reference(baseline_preds, z_true_c)
-        if baseline_preds is not None
-        else None
-    )
-
-    fig = go.Figure()
-
-    fig.add_trace(
-        go.Scatter(
-            x=z_true_c,
-            y=z_pred_c_rescaled,
-            mode="markers",
-            name=model_name,
-            marker=dict(
-                size=4,
-                color=PALETTE.twilight_indigo,
-                opacity=0.6,
-                line=dict(width=0),
-            ),
-        )
-    )
-
-    if baseline_rescaled is not None:
-        fig.add_trace(
-            go.Scatter(
-                x=z_true_c,
-                y=baseline_rescaled,
-                mode="markers",
-                name=baseline_name,
-                marker=dict(
-                    size=4,
-                    color=BASELINE_COLOR,
-                    opacity=0.4,
-                    line=dict(width=0),
-                ),
-            )
-        )
-
-    min_val = min(np.min(z_true_c), np.min(z_pred_c_rescaled))
-    max_val = max(np.max(z_true_c), np.max(z_pred_c_rescaled))
-
-    slope, intercept, r_value, p_value, std_err = scipy_stats.linregress(
-        z_true_c, z_pred_c_rescaled
-    )
-    r_squared = r_value**2
-
-    x_line = np.array([min_val, max_val])
-    y_line = slope * x_line + intercept
-
-    fig.add_trace(
-        go.Scatter(
-            x=x_line,
-            y=y_line,
-            mode="lines",
-            name=f"OLS ({model_name})",
-            line=dict(color=PALETTE.strawberry_red, width=1.2),
-        )
-    )
-
-    if baseline_rescaled is not None:
-        slope_b, intercept_b, r_value_b, p_value_b, _ = scipy_stats.linregress(
-            z_true_c, baseline_rescaled
-        )
-        y_line_b = slope_b * x_line + intercept_b
-        fig.add_trace(
-            go.Scatter(
-                x=x_line,
-                y=y_line_b,
-                mode="lines",
-                name=f"OLS ({baseline_name})",
-                line=dict(color=BASELINE_COLOR, width=1.2, dash="dash"),
-            )
-        )
-
-    fig.update_layout(
-        template="plotly_white",
-        font=dict(family=PLOT_STYLE.font_family),
-        margin=dict(l=60, r=80, t=40, b=60),
-        showlegend=True,
-        xaxis_title="True Value",
-        yaxis_title="Predicted Value (rescaled)",
-    )
-    st.plotly_chart(fig, use_container_width=True)
-
-    caption_parts = [f"True vs Predicted — {channel_name} (Pearson r={r_ch:.3f})"]
-    caption_parts.append(
-        f"{model_name} OLS: y={slope:.4f}x+{intercept:.4f}, $R^2$={r_squared:.4f}, p={p_value:.2e}"
-    )
-    if baseline_rescaled is not None:
-        r_sq_b = r_value_b**2
-        caption_parts.append(
-            f"{baseline_name} OLS: y={slope_b:.4f}x+{intercept_b:.4f}, $R^2$={r_sq_b:.4f}, p={p_value_b:.2e}"
-        )
-    st.caption(" | ".join(caption_parts))
 
 
 def _compute_zp_components(
@@ -960,123 +397,6 @@ def _compute_zp_components(
     )
 
     return zp_1, zp_2, r_zp1, r_zp2
-
-
-def render_z_residual_plot(
-    z_true_c: np.ndarray,
-    z_pred_c: np.ndarray,
-    t_abs: np.ndarray,
-    channel_name: str,
-    chunk_margin: float = 0.0,
-    baseline_preds: Optional[np.ndarray] = None,
-    baseline_name: str = "Baseline",
-):
-    residuals = z_true_c - z_pred_c
-
-    fig = go.Figure()
-
-    fig.add_trace(
-        go.Scatter(
-            x=t_abs,
-            y=residuals,
-            mode="lines",
-            name="Model Residuals",
-            line=dict(color=PALETTE.strawberry_red, width=1.2),
-        )
-    )
-    rmse = np.sqrt(np.mean(residuals**2))
-
-    baseline_caption = ""
-    if baseline_preds is not None:
-        baseline_residuals = z_true_c - baseline_preds
-        fig.add_trace(
-            go.Scatter(
-                x=t_abs,
-                y=baseline_residuals,
-                mode="lines",
-                name=f"{baseline_name} Residuals",
-                line=dict(color=BASELINE_COLOR, width=1.2, dash="dash"),
-                opacity=0.7,
-            )
-        )
-        base_rmse = np.sqrt(np.mean(baseline_residuals**2))
-        baseline_caption = f" | {baseline_name} RMSE={base_rmse:.3f}"
-
-    if chunk_margin > 0:
-        add_margin_visualization(fig, t_abs, chunk_margin)
-
-    fig.update_layout(
-        template="plotly_white",
-        font=dict(family=PLOT_STYLE.font_family),
-        margin=dict(l=60, r=80, t=40, b=60),
-        xaxis_title="Time (s)",
-        yaxis_title="Residual",
-    )
-    st.plotly_chart(fig, use_container_width=True)
-    st.caption(
-        f"Residuals (Prediction Errors) — {channel_name} (RMSE={rmse:.3f}){baseline_caption}"
-    )
-
-
-def render_z_statistics_table(
-    z_true_c: np.ndarray,
-    z_pred_c: np.ndarray,
-    r_ch: float,
-    channel_name: str,
-    baseline_preds: Optional[np.ndarray] = None,
-    baseline_r: Optional[float] = None,
-    baseline_name: str = "Baseline",
-    model_name: str = "Model",
-):
-    residuals = z_true_c - z_pred_c
-    mae = np.mean(np.abs(residuals))
-    rmse = np.sqrt(np.mean(residuals**2))
-
-    ss_res = np.sum(residuals**2)
-    ss_tot = np.sum((z_true_c - np.mean(z_true_c)) ** 2)
-    r_squared = 1 - (ss_res / ss_tot) if ss_tot != 0 else 0
-
-    st.markdown(f"### Statistics — {channel_name}")
-
-    if baseline_preds is not None:
-        base_residuals = z_true_c - baseline_preds
-        base_mae = np.mean(np.abs(base_residuals))
-        base_rmse = np.sqrt(np.mean(base_residuals**2))
-        base_ss_res = np.sum(base_residuals**2)
-        base_r_squared = 1 - (base_ss_res / ss_tot) if ss_tot != 0 else 0
-        base_r = baseline_r if baseline_r is not None else np.nan
-
-        st.markdown(f"**{model_name}**")
-        c1, c2, c3, c4 = st.columns(4)
-        with c1:
-            st.metric("Pearson r", f"{r_ch:.4f}")
-        with c2:
-            st.metric("$R^2$", f"{r_squared:.4f}")
-        with c3:
-            st.metric("RMSE", f"{rmse:.3f}")
-        with c4:
-            st.metric("MAE", f"{mae:.3f}")
-
-        st.markdown(f"**{baseline_name}**")
-        c1b, c2b, c3b, c4b = st.columns(4)
-        with c1b:
-            st.metric("Pearson r", f"{base_r:.4f}" if not np.isnan(base_r) else "N/A")
-        with c2b:
-            st.metric("$R^2$", f"{base_r_squared:.4f}")
-        with c3b:
-            st.metric("RMSE", f"{base_rmse:.3f}")
-        with c4b:
-            st.metric("MAE", f"{base_mae:.3f}")
-    else:
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("Pearson r", f"{r_ch:.4f}")
-        with col2:
-            st.metric("$R^2$", f"{r_squared:.4f}")
-        with col3:
-            st.metric("RMSE", f"{rmse:.3f}")
-        with col4:
-            st.metric("MAE", f"{mae:.3f}")
 
 
 def render_z_prediction_plot(
@@ -1213,7 +533,6 @@ def render_prediction_psd_analysis(
     if y_true is None or y_pred is None:
         return
 
-
     freqs_t, psd_t = compute_power_spectrum(y_true, sampling_rate)
     freqs_p, psd_p = compute_power_spectrum(y_pred, sampling_rate)
 
@@ -1329,12 +648,8 @@ def render_predictions_tab(
     c = channel_options.index(selected_name) if n_chan > 1 else 0
     r_ch = r_list[c] if r_list and c < len(r_list) else np.nan
 
-    n_chan = y_t.shape[1] if y_t.ndim == 2 else 1
-    y_t = transpose_if_needed(y_t, len(t_abs))
-    y_p = transpose_if_needed(y_p, len(t_abs))
-
-    y_true_c = y_t.squeeze() if n_chan == 1 else y_t[:, c]
-    y_pred_c = y_p.squeeze() if n_chan == 1 else y_p[:, c]
+    y_true_c = get_channel(y_t, c, t_abs)
+    y_pred_c = get_channel(y_p, c, t_abs)
 
     if y_true_c is not None and y_pred_c is not None and len(y_true_c) > 1:
         try:
@@ -1347,85 +662,19 @@ def render_predictions_tab(
         except Exception:
             pass
 
+    # --- Baseline selection ---
+    split_name = st.session_state.get("pred_split", "val")
+    baseline_res, selected_baseline_name, model_label, _baseline_variant = (
+        select_baseline(cfg_path, "pred", split_name, trial_idx)
+    )
+    baseline_yp_c, baseline_r = get_baseline_channel(
+        baseline_res, "Yp", trial_idx, c, t_abs, y_true_c
+    )
+    if baseline_res is not None:
+        st.session_state["baseline_res_cache"] = baseline_res
 
-    project_root = get_project_root(cfg_path)
-    results_root = project_root / "results"
-    all_variants = list_variants(results_root)
-
-    current_variant = cfg_path.stem
-
-    baseline_variants = find_baseline_variants(current_variant, all_variants)
-
-    baseline_yp_c = None
-    baseline_r = None
-    baseline_info = None
-    selected_baseline_name = "Baseline"
-    model_label = variant_short_name(current_variant) if cfg_path else "Model"
-
-    if baseline_variants:
-        st.markdown("#### Baseline Comparison")
-
-        default_idx = 0
-
-        selected_baseline = st.selectbox(
-            "Select Baseline Model",
-            options=["None"] + baseline_variants,
-            index=default_idx + 1 if baseline_variants else 0,
-            key="pred_baseline_select",
-        )
-
-        if selected_baseline != "None":
-            baseline_dir = results_root / selected_baseline
-            baseline_timestamps = list_run_timestamps(baseline_dir)
-
-            if baseline_timestamps:
-                baseline_ts = st.selectbox(
-                    "Baseline run timestamp",
-                    options=baseline_timestamps,
-                    index=len(baseline_timestamps) - 1,
-                    key="pred_baseline_ts_select",
-                )
-
-                # Load baseline results for same split
-                split_name = st.session_state.get("pred_split", "val")
-                baseline_res = load_precomputed_results(
-                    baseline_dir, baseline_ts, split_name
-                )
-
-                if baseline_res and trial_idx < len(baseline_res.get("Yp", [])):
-                    baseline_yp = baseline_res["Yp"][trial_idx]
-                    if baseline_yp is not None:
-                        baseline_yp = np.array(baseline_yp)
-                        baseline_yp = transpose_if_needed(baseline_yp, len(t_abs))
-                        n_baseline_chan = (
-                            baseline_yp.shape[1] if baseline_yp.ndim == 2 else 1
-                        )
-                        if c < n_baseline_chan:
-                            baseline_yp_c = (
-                                baseline_yp.squeeze()
-                                if n_baseline_chan == 1
-                                else baseline_yp[:, c]
-                            )
-                            # Compute baseline correlation
-                            try:
-                                baseline_r = np.corrcoef(
-                                    y_true_c.flatten(), baseline_yp_c.flatten()
-                                )[0, 1]
-                            except:
-                                baseline_r = np.nan
-
-                    selected_baseline_name = variant_short_name(selected_baseline)
-                    st.session_state["baseline_res_cache"] = baseline_res
-
-                # Load baseline metadata for info display
-                metadata_path = baseline_dir / f"model_{baseline_ts}_metadata.json"
-                if metadata_path.exists():
-                    with open(metadata_path, "r") as f:
-                        baseline_info = json.load(f)
-
+    # --- Y time series plot (prediction-specific) ---
     st.markdown("#### Time Series: Y_true vs Y_pred")
-
-    model_variant_name = model_label
 
     onset_time = t_abs.min() if len(t_abs) > 0 else 0.0
     fig_ts = create_base_time_series_figure(
@@ -1447,7 +696,7 @@ def render_predictions_tab(
         go.Scatter(
             x=t_abs,
             y=y_pred_c,
-            name=model_variant_name,
+            name=model_label,
             mode="lines",
             line=dict(
                 color=PLOT_COLOR.stim_on, width=PLOT_STYLE.line_width_normal, dash="dot"
@@ -1485,55 +734,24 @@ def render_predictions_tab(
         caption += ")"
     st.caption(caption)
 
-
+    # --- Y analysis pipeline (shared) ---
     cfg = get_config(str(cfg_path))
-    fs = getattr(cfg.data, "sampling_frequency", 60)
+    fs = getattr(cfg.data, "sampling_frequency", 80)
 
-    st.markdown("#### PSD Analysis: True vs Predicted")
-    render_prediction_psd_analysis(
-        y_true_c,
-        y_pred_c,
-        sampling_rate=fs,
-        channel_name=selected_name,
-        baseline_preds=baseline_yp_c,
-        baseline_name=selected_baseline_name,
-        model_name=model_label,
-    )
-
-    st.markdown("#### Scatter Plot: True vs Predicted")
-    render_y_scatter_plot(
-        y_true_c,
-        y_pred_c,
-        selected_name,
-        r_ch,
-        baseline_preds=baseline_yp_c,
-        baseline_name=selected_baseline_name,
-        model_name=model_label,
-    )
-
-    st.markdown("#### Residual Plot: Prediction Errors Over Time")
-    render_y_residual_plot(
+    render_analysis(
         y_true_c,
         y_pred_c,
         t_abs,
         selected_name,
+        r_ch,
+        sampling_rate=fs,
+        unit="µV",
         chunk_margin=chunk_margin,
-        baseline_preds=baseline_yp_c,
+        baseline_pred_c=baseline_yp_c,
+        baseline_r=baseline_r,
         baseline_name=selected_baseline_name,
+        model_name=model_label,
     )
-
-    render_statistics_table(y_true_c, y_pred_c, r_ch, selected_name)
-
-    st.markdown("---")
-    with st.expander("Residual Diagnostics & Normality Tests", expanded=False):
-        render_residual_diagnostics(
-            y_true_c,
-            y_pred_c,
-            selected_name,
-            baseline_preds=baseline_yp_c,
-            baseline_name=selected_baseline_name,
-            model_name=model_label,
-        )
 
     st.markdown("---")
     with st.expander("Learned Noise Covariance Matrices", expanded=False):
@@ -1544,6 +762,7 @@ def render_predictions_tab(
         else:
             st.info("Model configuration not available in session state")
 
+    # --- Z behavioral predictions ---
     Z_true = split_res.get("Z")
 
     tester = Tester.from_config_file(str(cfg_path), run_timestamp=run_ts)
@@ -1552,7 +771,6 @@ def render_predictions_tab(
     B_z = getattr(idSys, "B_z", None) if idSys else None
     d_z = getattr(idSys, "d_z", None) if idSys else None
 
-    cfg = get_config(str(cfg_path))
     n1 = getattr(cfg.model, "n1", 0)
 
     if Z_true is not None and z_p is not None:
@@ -1583,53 +801,14 @@ def render_predictions_tab(
             pearson_z_tr = split_res.get("pearson_per_channel_Z", [])
             r_z_list = pearson_z_tr[trial_idx] if pearson_z_tr else []
 
-            if r_z_list:
-                valid_r_z = [r for r in r_z_list if not (r is None or np.isnan(r))]
-                r_z_mean = np.mean(valid_r_z) if len(valid_r_z) > 0 else np.nan
-            else:
-                r_z_mean = np.nan
-
             r_z_ch = r_z_list[z_c] if r_z_list and z_c < len(r_z_list) else np.nan
 
-            mean_z_str = f"{r_z_mean:.4f}" if not np.isnan(r_z_mean) else "nan"
-            st.markdown(
-                f"**Pearson per channel (Z):** {r_z_list} | **Mean:** {mean_z_str}"
-            )
+            z_true_c = get_channel(z_t, z_c, t_abs)
+            z_pred_c = get_channel(z_p, z_c, t_abs)
 
-            z_t_transposed = transpose_if_needed(z_t, len(t_abs))
-            z_p_transposed = transpose_if_needed(z_p, len(t_abs))
-            z_true_c = (
-                z_t_transposed.squeeze() if nz_chan == 1 else z_t_transposed[:, z_c]
+            baseline_zp_c, baseline_r_z = get_baseline_channel(
+                baseline_res, "Zp", trial_idx, z_c, t_abs, z_true_c
             )
-            z_pred_c = (
-                z_p_transposed.squeeze() if nz_chan == 1 else z_p_transposed[:, z_c]
-            )
-
-            baseline_zp_c = None
-            baseline_r_z = None
-            baseline_name_z = selected_baseline_name
-            baseline_res_cache = st.session_state.get("baseline_res_cache")
-
-            if baseline_res_cache and trial_idx < len(baseline_res_cache.get("Zp", [])):
-                baseline_zp = baseline_res_cache["Zp"][trial_idx]
-                if baseline_zp is not None:
-                    baseline_zp = np.array(baseline_zp)
-                    baseline_zp = transpose_if_needed(baseline_zp, len(t_abs))
-                    n_baseline_chan_z = (
-                        baseline_zp.shape[1] if baseline_zp.ndim == 2 else 1
-                    )
-                    if z_c < n_baseline_chan_z:
-                        baseline_zp_c = (
-                            baseline_zp.squeeze()
-                            if n_baseline_chan_z == 1
-                            else baseline_zp[:, z_c]
-                        )
-                        try:
-                            baseline_r_z = np.corrcoef(
-                                z_true_c.flatten(), baseline_zp_c.flatten()
-                            )[0, 1]
-                        except:
-                            baseline_r_z = np.nan
 
             Xp_trial = (
                 np.array(split_res.get("Xp", [])[trial_idx])
@@ -1656,66 +835,24 @@ def render_predictions_tab(
                 r_zp1=r_zp1,
                 r_zp2=r_zp2,
                 baseline_preds=baseline_zp_c,
-                baseline_name=baseline_name_z,
+                baseline_name=selected_baseline_name,
                 baseline_r=baseline_r_z,
             )
 
-            st.markdown("#### PSD Analysis: Z_true vs Z_pred")
-            render_prediction_psd_analysis(
-                z_true_c,
-                z_pred_c,
-                sampling_rate=fs,
-                channel_name=selected_z_name,
-                baseline_preds=baseline_zp_c,
-                baseline_name=baseline_name_z,
-                model_name=model_label,
-            )
-
-            st.markdown("#### Scatter Plot: True vs Predicted")
-            render_z_scatter_plot(
-                z_true_c,
-                z_pred_c,
-                selected_z_name,
-                r_z_ch,
-                baseline_preds=baseline_zp_c,
-                baseline_name=baseline_name_z,
-                model_name=model_label,
-            )
-
-            st.markdown("#### Residual Plot: Prediction Errors Over Time")
-            render_z_residual_plot(
+            render_analysis(
                 z_true_c,
                 z_pred_c,
                 t_abs,
                 selected_z_name,
-                baseline_preds=baseline_zp_c,
-                baseline_name=baseline_name_z,
-            )
-
-            render_z_statistics_table(
-                z_true_c,
-                z_pred_c,
                 r_z_ch,
-                selected_z_name,
-                baseline_preds=baseline_zp_c,
+                sampling_rate=fs,
+                baseline_pred_c=baseline_zp_c,
                 baseline_r=baseline_r_z,
-                baseline_name=baseline_name_z,
+                baseline_name=selected_baseline_name,
                 model_name=model_label,
+                rescale=True,
+                show_psd=False,
             )
-
-            st.markdown("---")
-            with st.expander("Residual Diagnostics & Normality Tests", expanded=False):
-                st.markdown(
-                    "Comprehensive diagnostics to verify that residuals follow a Gaussian distribution."
-                )
-                render_residual_diagnostics(
-                    z_true_c,
-                    z_pred_c,
-                    selected_z_name,
-                    baseline_preds=baseline_zp_c,
-                    baseline_name=baseline_name_z,
-                    model_name=model_label,
-                )
 
             st.markdown("---")
             with st.expander("Detrended Z_pred Diagnostics", expanded=False):
@@ -1729,6 +866,9 @@ def render_predictions_tab(
                     z_pred_detrended,
                     f"{selected_z_name} (detrended)",
                     baseline_preds=base_detrended,
-                    baseline_name=baseline_name_z,
+                    baseline_name=selected_baseline_name,
                     model_name=model_label,
+                    rescale=True,
+                    sampling_freq=fs,
+                    is_neural=False,
                 )

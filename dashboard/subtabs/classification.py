@@ -44,7 +44,6 @@ def reevaluate_against_history(res: Dict[str, Any], pred_res: Dict[str, Any]) ->
     if len(history_preds) != len(y_pred):
         return False
 
-
     y_true = history_preds
     res["accuracy"] = accuracy_score(y_true, y_pred)
     res["balanced_accuracy"] = balanced_accuracy_score(y_true, y_pred)
@@ -337,9 +336,7 @@ def create_line_plot_by_future(
             )
             color_idx += 1
 
-    _apply_line_plot_layout(
-        fig, "Forecast Horizon m (seconds)"
-    )
+    _apply_line_plot_layout(fig, "Forecast Horizon m (seconds)")
     return fig
 
 

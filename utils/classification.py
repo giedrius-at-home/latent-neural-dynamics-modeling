@@ -346,7 +346,7 @@ def prepare_ground_truth_eval_data(
     fs: float,
     window_step_sec: float = 1.0,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, List[Dict[str, Any]]]:
-    
+
     h_samples = int(history_horizon * fs)
     m_samples = int(forecast_horizon * fs)
     window_step = int(window_step_sec * fs)
@@ -391,7 +391,9 @@ def prepare_ground_truth_eval_data(
 def reorder_dims_for_mne(X: np.ndarray) -> np.ndarray:
     return np.transpose(X, (0, 2, 1))
 
+
 _transpose_for_csp = reorder_dims_for_mne
+
 
 def create_pipeline(fs: float = 80, feature_source: str = "Xp") -> Pipeline:
     steps = [
@@ -657,6 +659,7 @@ def run_classification_pipeline(
 
     return results
 
+
 def load_precomputed_results(
     variant_dir: Path, run_ts: str, split: str
 ) -> Optional[Dict[str, Any]]:
@@ -675,7 +678,7 @@ def load_precomputed_results(
 
     legacy_parquet_path = variant_dir / f"{split}_results_{run_ts}"
     new_parquet_path = variant_dir / split / f"test_results_{run_ts}.parquet"
- 
+
     if new_parquet_path.exists():
         results_path = new_parquet_path
     elif legacy_parquet_path.exists():
@@ -839,6 +842,7 @@ def load_precomputed_results(
     except Exception as e:
         warnings.warn(f"Failed to load pre-computed results for {split}: {e}")
         return None
+
 
 def load_all_splits(
     variant_dir: Path, run_ts: str

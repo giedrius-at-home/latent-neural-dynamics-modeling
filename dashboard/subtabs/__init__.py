@@ -10,14 +10,15 @@ from dashboard.subtabs.helpers import (
     get_trial_time_axis,
     transpose_if_needed,
     rescale_to_reference,
+    select_baseline,
+    get_channel,
+    get_baseline_channel,
+    render_analysis,
 )
 from dashboard.subtabs.predictions import render_predictions_tab
 from dashboard.subtabs.cross_trial_performance import render_cross_trial_performance_tab
 from dashboard.subtabs.forecasting import render_forecasting_tab
 from dashboard.subtabs.latent_states import render_latent_states_tab
-from dashboard.subtabs.cross_correlation_analysis import (
-    render_cross_correlation_analysis_tab,
-)
 from dashboard.subtabs.classification import (
     load_classification_results,
     create_line_plot_by_history,
@@ -41,11 +42,14 @@ __all__ = [
     "get_trial_time_axis",
     "transpose_if_needed",
     "rescale_to_reference",
+    "select_baseline",
+    "get_channel",
+    "get_baseline_channel",
+    "render_analysis",
     "render_predictions_tab",
     "render_cross_trial_performance_tab",
     "render_forecasting_tab",
     "render_latent_states_tab",
-    "render_cross_correlation_analysis_tab",
     "load_classification_results",
     "create_line_plot_by_history",
     "create_line_plot_by_future",

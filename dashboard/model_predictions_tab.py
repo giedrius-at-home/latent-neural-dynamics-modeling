@@ -13,7 +13,6 @@ from dashboard.subtabs import (
     render_predictions_tab,
     render_forecasting_tab,
     render_latent_states_tab,
-    render_cross_correlation_analysis_tab,
     render_data_hungriness_tab,
 )
 
@@ -173,14 +172,12 @@ def _render_model_analysis(project_root, RESULTS_ROOT):
 
             (
                 performance_tab,
-                lag_analysis_tab,
                 predictions_subtab,
                 forecasting_subtab,
                 latent_states_subtab,
             ) = st.tabs(
                 [
                     "Global Performance",
-                    "Lag Analysis",
                     "Predictions",
                     "Forecasting",
                     "Latent States",
@@ -197,11 +194,6 @@ def _render_model_analysis(project_root, RESULTS_ROOT):
                 render_cross_trial_performance_tab(
                     split_res, sampling_freq=fs, cfg_path=cfg_path
                 )
-
-            with lag_analysis_tab:
-                cfg = get_config(str(cfg_path))
-                fs = getattr(cfg.data, "sampling_frequency", 60.0)
-                render_cross_correlation_analysis_tab(split_res, sampling_freq=fs)
 
             with predictions_subtab:
                 render_predictions_tab(split_res, trial_idx, cfg_path, run_ts)
