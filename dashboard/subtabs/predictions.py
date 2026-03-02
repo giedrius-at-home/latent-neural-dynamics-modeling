@@ -307,6 +307,7 @@ def render_learned_noise_diagnostics(
                         xaxis_title="State Dimension",
                         yaxis_title="State Dimension",
                         height=400,
+                        yaxis=dict(autorange="reversed"),
                     )
                     st.plotly_chart(fig_q, use_container_width=True)
                     st.caption(f"Shape: {Q_np.shape}")
@@ -328,6 +329,7 @@ def render_learned_noise_diagnostics(
                         xaxis_title="Output Dimension",
                         yaxis_title="Output Dimension",
                         height=400,
+                        yaxis=dict(autorange="reversed"),
                     )
                     st.plotly_chart(fig_r, use_container_width=True)
                     st.caption(f"Shape: {R_np.shape}")
@@ -349,6 +351,7 @@ def render_learned_noise_diagnostics(
                         xaxis_title="Output Dimension",
                         yaxis_title="State Dimension",
                         height=400,
+                        yaxis=dict(autorange="reversed"),
                     )
                     st.plotly_chart(fig_s, use_container_width=True)
                     st.caption(f"Shape: {S_np.shape}")
@@ -661,8 +664,8 @@ def render_predictions_tab(
 
     # --- Baseline selection ---
     split_name = st.session_state.get("pred_split", "val")
-    baseline_res, selected_baseline_name, model_label, _baseline_variant = select_baseline(
-        cfg_path, "pred", split_name, trial_idx
+    baseline_res, selected_baseline_name, model_label, _baseline_variant = (
+        select_baseline(cfg_path, "pred", split_name, trial_idx)
     )
     baseline_yp_c, baseline_r = get_baseline_channel(
         baseline_res, "Yp", trial_idx, c, t_abs, y_true_c
@@ -836,7 +839,6 @@ def render_predictions_tab(
                 baseline_r=baseline_r_z,
             )
 
-            # Z analysis pipeline (shared, with rescale for behavioral)
             render_analysis(
                 z_true_c,
                 z_pred_c,
@@ -867,4 +869,6 @@ def render_predictions_tab(
                     baseline_name=selected_baseline_name,
                     model_name=model_label,
                     rescale=True,
+                    sampling_freq=fs,
+                    is_neural=False,
                 )

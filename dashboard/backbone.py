@@ -432,8 +432,64 @@ def create_base_psd_line_figure(
     return fig
 
 
+def create_base_comparison_figure(
+    x_label: str = "Feature",
+    y_label: str = "Value",
+    title: str = "",
+):
+    fig = go.Figure()
+
+    fig.update_layout(
+        title=dict(
+            text=title,
+            x=0.5,
+            xanchor="center",
+            yanchor="top",
+            font=dict(size=PLOT_STYLE.title_size, family=PLOT_STYLE.font_family),
+        ),
+        xaxis=dict(
+            title=dict(
+                text=x_label,
+                font=dict(
+                    size=PLOT_STYLE.axis_label_size, family=PLOT_STYLE.font_family
+                ),
+            ),
+            tickfont=dict(size=PLOT_STYLE.tick_label_size),
+            showgrid=True,
+            gridcolor="rgba(200, 200, 200, 0.4)",
+        ),
+        yaxis=dict(
+            title=dict(
+                text=y_label,
+                font=dict(
+                    size=PLOT_STYLE.axis_label_size, family=PLOT_STYLE.font_family
+                ),
+            ),
+            tickfont=dict(size=PLOT_STYLE.tick_label_size),
+            showgrid=True,
+            gridcolor="rgba(200, 200, 200, 0.4)",
+        ),
+        template="plotly_white",
+        font=dict(
+            family=PLOT_STYLE.font_family,
+            size=PLOT_STYLE.tick_label_size,
+            color="#0e131f",
+        ),
+        legend=dict(
+            font=dict(size=PLOT_STYLE.tick_label_size, family=PLOT_STYLE.font_family),
+            bgcolor="rgba(255,255,255,0.8)",
+            bordercolor="#E5E5E5",
+            borderwidth=1,
+        ),
+        showlegend=True,
+        margin=dict(l=60, r=80, t=60, b=60),
+        hovermode="closest",
+    )
+
+    return fig
+
+
 def render_styled_table(df, key: str = None) -> None:
-    """Render a DataFrame as a beautifully styled Plotly table matching the dashboard scheme."""
 
     headerColor = PALETTE.twilight_indigo
     rowEvenColor = "white"

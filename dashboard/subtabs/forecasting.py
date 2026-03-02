@@ -59,6 +59,7 @@ def render_y_forecast_plot(
     baseline_yp_c: Optional[np.ndarray] = None,
     baseline_name: str = "Baseline",
     model_name: str = "Model",
+    baseline_r: Optional[float] = None,
 ):
 
     n_chan = y_concat.shape[1] if y_concat.ndim == 2 else 1
@@ -170,12 +171,19 @@ def render_y_forecast_plot(
     r_str = f"{r_fore_ch:.3f}" if not np.isnan(r_fore_ch) else "N/A"
     caption_parts = [f"Neural Signal Forecast: {channel_name} ({model_name} r={r_str})"]
     if baseline_y_fp_c_rescaled is not None:
-        # Calculate baseline correlation if possible
-        try:
-            baseline_r = np.corrcoef(y_ft_c.flatten(), baseline_yp_c.flatten())[0, 1]
+        if baseline_r is not None and not np.isnan(baseline_r):
             baseline_r_str = f"{baseline_r:.3f}"
-        except:
-            baseline_r_str = "N/A"
+        else:
+            # Fallback: compute if not provided
+            try:
+                computed_r = np.corrcoef(y_ft_c.flatten(), baseline_yp_c.flatten())[
+                    0, 1
+                ]
+                baseline_r_str = (
+                    f"{computed_r:.3f}" if not np.isnan(computed_r) else "N/A"
+                )
+            except:
+                baseline_r_str = "N/A"
         caption_parts.append(f"{baseline_name} r={baseline_r_str}")
 
     caption_parts.append(
@@ -465,56 +473,54 @@ def render_forecasting_tab(
 
     # --- Baseline selection ---
     split_name = st.session_state.get("pred_split", "val")
-    baseline_res, selected_baseline_name, model_label, baseline_variant = select_baseline(
-        cfg_path, "fore", split_name, trial_idx
+    baseline_res, selected_baseline_name, model_label, baseline_variant = (
+        select_baseline(cfg_path, "fore", split_name, trial_idx)
     )
 
     # Compute baseline forecast if needed (forecast-specific)
     baseline_forecast_res = None
     if baseline_res is not None:
-        if "trial_forecasts" not in baseline_res:
-            project_root = get_project_root(cfg_path)
-            with st.spinner(f"Computing baseline forecast for trial {trial_idx}..."):
-                baseline_Y = baseline_res.get("Y", [])
-                y_trial = (
-                    np.array(baseline_Y[trial_idx])
-                    if baseline_Y
-                    and trial_idx < len(baseline_Y)
-                    and baseline_Y[trial_idx] is not None
-                    else np.array(Y_true[trial_idx])
-                )
-                z_trial = (
-                    np.array(baseline_res.get("Z", [None])[trial_idx])
-                    if baseline_res.get("Z")
-                    and baseline_res["Z"][trial_idx] is not None
-                    else None
-                )
-                chunk_margin_b = (
-                    baseline_res["chunk_margin"][trial_idx]
-                    if "chunk_margin" in baseline_res
-                    else None
-                )
+        # Check if forecast results are already in baseline_res (same as main model logic)
+        if (
+            "Y_future_pred" in baseline_res
+            and baseline_res["Y_future_pred"] is not None
+        ):
+            if len(baseline_res["Y_future_pred"]) > trial_idx:
+                baseline_forecast_res = {}
+                keys_to_copy = [
+                    "Y_future_true",
+                    "Y_future_pred",
+                    "Y_concat_for_plot",
+                    "Z_future_true",
+                    "Z_future_pred",
+                    "Z_concat_for_plot",
+                    "X_future_pred",
+                    "pearson_per_channel",
+                    "pearson_per_channel_Z",
+                ]
+                for k in keys_to_copy:
+                    if k in baseline_res:
+                        val = baseline_res[k][trial_idx]
+                        if val is not None:
+                            baseline_forecast_res[k] = val
 
-                b_cfg_path = find_config_path(project_root, baseline_variant)
-
-                if b_cfg_path is not None:
+                if "metric_m" in baseline_res:
+                    m_val = baseline_res["metric_m"]
+                    if isinstance(m_val, list) and len(m_val) > 0:
+                        baseline_forecast_res["m"] = m_val[0]
+                    else:
+                        baseline_forecast_res["m"] = m_val
+                else:
                     try:
-                        baseline_ts_list = list_run_timestamps(
-                            project_root / "results" / baseline_variant
-                        )
-                        b_ts = baseline_ts_list[-1] if baseline_ts_list else None
-                        if b_ts:
-                            baseline_forecast_res = compute_forecast_for_trial(
-                                str(b_cfg_path),
-                                b_ts,
-                                y_trial,
-                                z_trial,
-                                chunk_margin_b,
-                            )
-                    except Exception as e:
-                        st.warning(f"Baseline forecast computation failed: {e}")
-        else:
-            baseline_forecast_res = baseline_res["trial_forecasts"].get(trial_idx)
+                        project_root = get_project_root(cfg_path)
+                        b_cfg_path = find_config_path(project_root, baseline_variant)
+                        if b_cfg_path is not None:
+                            cfg = get_config(str(b_cfg_path))
+                            m_seconds = cfg.model.forecast.m
+                            sampling_freq = cfg.data.sampling_frequency
+                            baseline_forecast_res["m"] = int(m_seconds * sampling_freq)
+                    except Exception:
+                        baseline_forecast_res["m"] = 0
 
     f_res = None
 
@@ -670,20 +676,6 @@ def render_forecasting_tab(
                 else:
                     baseline_yp_c_f = by_fp.flatten()
 
-            render_y_forecast_plot(
-                y_concat,
-                y_future_true,
-                y_future_pred,
-                t_abs_margined,
-                m,
-                c,
-                selected_name,
-                r_fore_ch,
-                baseline_yp_c=baseline_yp_c_f,
-                baseline_name=selected_baseline_name,
-                model_name=model_label,
-            )
-
             cfg = get_config(str(cfg_path))
             fs = getattr(cfg.data, "sampling_frequency", SAMPLING_FREQ)
 
@@ -705,7 +697,6 @@ def render_forecasting_tab(
             Tpast = max(0, T - m)
             t_future = t_abs_margined[Tpast:T]
 
-            # Compute baseline correlation for Y forecast
             baseline_r_f = None
             if baseline_yp_c_f is not None:
                 try:
@@ -714,6 +705,21 @@ def render_forecasting_tab(
                     )[0, 1]
                 except Exception:
                     baseline_r_f = np.nan
+
+            render_y_forecast_plot(
+                y_concat,
+                y_future_true,
+                y_future_pred,
+                t_abs_margined,
+                m,
+                c,
+                selected_name,
+                r_fore_ch,
+                baseline_yp_c=baseline_yp_c_f,
+                baseline_name=selected_baseline_name,
+                model_name=model_label,
+                baseline_r=baseline_r_f,
+            )
 
             # Y forecast analysis pipeline (shared)
             render_analysis(
@@ -896,9 +902,7 @@ def render_forecasting_tab(
                         )
 
                 except Exception as e:
-                    st.warning(
-                        f"Could not render latent forecast plot: {e}"
-                    )
+                    st.warning(f"Could not render latent forecast plot: {e}")
 
     except Exception:
         pass

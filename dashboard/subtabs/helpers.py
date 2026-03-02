@@ -7,24 +7,27 @@ from typing import Optional, Dict, Any, List
 import re
 from training.components.tester import Tester
 from utils.classification import load_precomputed_results
-from utils.polars import get_scalar_value, convert_series_to_list
 import plotly.graph_objects as go
 
 from dashboard.backbone import (
     PALETTE,
     PLOT_STYLE,
     PLOT_COLOR,
-    create_base_time_series_figure,
     create_base_psd_line_figure,
     add_margin_visualization,
-    render_styled_table,
 )
 from utils.stats import (
     compute_power_spectrum,
     compute_residual_statistics,
     normality_tests,
     qq_plot_data,
+    probability_plot_data,
+    whiteness_test,
+    bandpower,
+    CLINICAL_FREQUENCY_BANDS,
 )
+from statsmodels.tsa.stattools import acf
+from scipy import stats as scipy_stats
 
 BASELINE_COLOR = "#00E5FF"
 
@@ -441,46 +444,64 @@ def render_residual_diagnostics(
     baseline_name: str = "Baseline",
     model_name: str = "Model",
     rescale: bool = False,
+    sampling_freq: float = 80.0,
+    is_neural: bool = False,
 ):
     """Generic residual diagnostics (normality, whiteness)."""
     if y_true is None or y_pred is None:
         return
 
+    def format_p_value(p_val):
+        """Format p-value, using scientific notation for very small values."""
+        if np.isnan(p_val):
+            return "N/A"
+        if p_val < 0.0001:
+            return f"{p_val:.2e}"
+        return f"{p_val:.4f}"
+
     if rescale:
         y_pred = rescale_to_reference(y_pred, y_true)
-        if baseline_preds is not None:
-            baseline_preds = rescale_to_reference(baseline_preds, y_true)
+        baseline_preds = rescale_to_reference(baseline_preds, y_true)
 
     res_stats = compute_residual_statistics(y_true, y_pred)
     residuals = res_stats["residuals"]
 
     st.markdown(f"### Residual Diagnostics — {channel_name}")
 
-    if baseline_preds is not None:
-        base_res_stats = compute_residual_statistics(y_true, baseline_preds)
-        base_residuals = base_res_stats["residuals"]
-        _show_residual_stats_row(res_stats, model_name)
-        _show_residual_stats_row(base_res_stats, baseline_name)
-    else:
-        _show_residual_stats_row(res_stats)
+    base_res_stats = compute_residual_statistics(y_true, baseline_preds)
+    base_residuals = base_res_stats["residuals"]
+    _show_residual_stats_row(res_stats, model_name)
+    _show_residual_stats_row(base_res_stats, baseline_name)
 
     st.markdown("#### Normality Test")
+
     col1, col2 = st.columns(2)
     with col1:
         shapiro_stat, shapiro_p = normality_tests(residuals)["shapiro"]
-        st.metric(
-            f"Shapiro-Wilk ({model_name})",
-            f"p = {shapiro_p:.4f}",
-            delta=f"stat = {shapiro_stat:.4f}",
+        n = len(residuals)
+        effect_size = 1.0 - shapiro_stat if not np.isnan(shapiro_stat) else np.nan
+        skewness = scipy_stats.skew(residuals) if n > 2 else np.nan
+        kurtosis = scipy_stats.kurtosis(residuals) if n > 2 else np.nan
+        st.markdown(f"**{model_name}**")
+        st.text(
+            f"Shapiro-Wilk: W = {shapiro_stat:.4f}, p = {format_p_value(shapiro_p)}"
         )
-    if baseline_preds is not None:
-        with col2:
-            b_shapiro_stat, b_shapiro_p = normality_tests(base_residuals)["shapiro"]
-            st.metric(
-                f"Shapiro-Wilk ({baseline_name})",
-                f"p = {b_shapiro_p:.4f}",
-                delta=f"stat = {b_shapiro_stat:.4f}",
-            )
+        st.text(
+            f"n = {n}, dev = {effect_size:.4f}, skew = {skewness:.3f}, kurt = {kurtosis:.3f}"
+        )
+    with col2:
+        b_shapiro_stat, b_shapiro_p = normality_tests(base_residuals)["shapiro"]
+        b_n = len(base_residuals)
+        b_effect_size = 1.0 - b_shapiro_stat if not np.isnan(b_shapiro_stat) else np.nan
+        b_skewness = scipy_stats.skew(base_residuals) if b_n > 2 else np.nan
+        b_kurtosis = scipy_stats.kurtosis(base_residuals) if b_n > 2 else np.nan
+        st.markdown(f"**{baseline_name}**")
+        st.text(
+            f"Shapiro-Wilk: W = {b_shapiro_stat:.4f}, p = {format_p_value(b_shapiro_p)}"
+        )
+        st.text(
+            f"n = {b_n}, dev = {b_effect_size:.4f}, skew = {b_skewness:.3f}, kurt = {b_kurtosis:.3f}"
+        )
 
     st.markdown("#### Q-Q Plot")
     residuals_std = (residuals - np.mean(residuals)) / (np.std(residuals) + 1e-12)
@@ -495,20 +516,19 @@ def render_residual_diagnostics(
             marker=dict(size=4, color=PALETTE.twilight_indigo, opacity=0.6),
         )
     )
-    if baseline_preds is not None:
-        b_resids_std = (base_residuals - np.mean(base_residuals)) / (
-            np.std(base_residuals) + 1e-12
+    b_resids_std = (base_residuals - np.mean(base_residuals)) / (
+        np.std(base_residuals) + 1e-12
+    )
+    btq, bsq = qq_plot_data(b_resids_std)
+    fig_qq.add_trace(
+        go.Scatter(
+            x=btq,
+            y=bsq,
+            mode="markers",
+            name=baseline_name,
+            marker=dict(size=4, color=BASELINE_COLOR, opacity=0.4),
         )
-        btq, bsq = qq_plot_data(b_resids_std)
-        fig_qq.add_trace(
-            go.Scatter(
-                x=btq,
-                y=bsq,
-                mode="markers",
-                name=baseline_name,
-                marker=dict(size=4, color=BASELINE_COLOR, opacity=0.4),
-            )
-        )
+    )
 
     min_q = min(np.min(tq), np.min(sq))
     max_q = max(np.max(tq), np.max(sq))
@@ -528,6 +548,289 @@ def render_residual_diagnostics(
         yaxis_title="Sample Quantiles",
     )
     st.plotly_chart(fig_qq, use_container_width=True)
+
+    st.markdown("#### Probability Plot")
+    tp, sp = probability_plot_data(residuals)
+    fig_pp = go.Figure()
+    fig_pp.add_trace(
+        go.Scatter(
+            x=tp,
+            y=sp,
+            mode="markers",
+            name=model_name,
+            marker=dict(size=4, color=PALETTE.twilight_indigo, opacity=0.6),
+        )
+    )
+    b_tp, b_sp = probability_plot_data(base_residuals)
+    fig_pp.add_trace(
+        go.Scatter(
+            x=b_tp,
+            y=b_sp,
+            mode="markers",
+            name=baseline_name,
+            marker=dict(size=4, color=BASELINE_COLOR, opacity=0.4),
+        )
+    )
+
+    min_p = min(np.min(tp), np.min(sp)) if len(tp) > 0 and len(sp) > 0 else 0.0
+    max_p = max(np.max(tp), np.max(sp)) if len(tp) > 0 and len(sp) > 0 else 1.0
+    fig_pp.add_trace(
+        go.Scatter(
+            x=[min_p, max_p],
+            y=[min_p, max_p],
+            mode="lines",
+            name="Normal",
+            line=dict(color="black", dash="dash"),
+        )
+    )
+    fig_pp.update_layout(
+        template="plotly_white",
+        margin=dict(l=60, r=80, t=40, b=60),
+        xaxis_title="Theoretical CDF",
+        yaxis_title="Empirical CDF",
+        showlegend=True,
+    )
+    st.plotly_chart(fig_pp, use_container_width=True)
+
+    # Only show PSD and band power analysis for neural data
+    if is_neural and len(residuals) > 10 and sampling_freq > 0:
+        st.markdown("#### Residual Frequency Band Power")
+
+        # Compute band power for each frequency band
+        band_powers_model = {}
+        band_powers_baseline = {}
+
+        for band_name, (fmin, fmax) in CLINICAL_FREQUENCY_BANDS.items():
+            try:
+                band_powers_model[band_name] = bandpower(
+                    residuals, fs=sampling_freq, fmin=fmin, fmax=fmax
+                )
+                band_powers_baseline[band_name] = bandpower(
+                    base_residuals, fs=sampling_freq, fmin=fmin, fmax=fmax
+                )
+            except Exception:
+                band_powers_model[band_name] = 0.0
+                band_powers_baseline[band_name] = 0.0
+
+        # Create bar chart comparing band powers
+        band_names = list(CLINICAL_FREQUENCY_BANDS.keys())
+        model_powers = [band_powers_model[band] for band in band_names]
+        baseline_powers = [band_powers_baseline[band] for band in band_names]
+
+        fig_bands = go.Figure()
+
+        fig_bands.add_trace(
+            go.Bar(
+                x=band_names,
+                y=model_powers,
+                name=model_name,
+                marker=dict(color=PALETTE.twilight_indigo),
+            )
+        )
+        fig_bands.add_trace(
+            go.Bar(
+                x=band_names,
+                y=baseline_powers,
+                name=baseline_name,
+                marker=dict(color=BASELINE_COLOR),
+            )
+        )
+
+        fig_bands.update_layout(
+            template="plotly_white",
+            margin=dict(l=60, r=40, t=40, b=60),
+            xaxis_title="Frequency Band",
+            yaxis_title="Power",
+            showlegend=True,
+            barmode="group",
+            title="Residual Power by Frequency Band",
+        )
+        st.plotly_chart(fig_bands, use_container_width=True)
+
+    st.markdown("#### Residual Histogram & Autocorrelation Function (ACF)")
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown("##### Residual Distribution")
+        fig_hist = go.Figure()
+        fig_hist.add_trace(
+            go.Histogram(
+                x=residuals,
+                name=model_name,
+                nbinsx=30,
+                opacity=0.7,
+                marker=dict(color=PALETTE.twilight_indigo),
+            )
+        )
+        fig_hist.add_trace(
+            go.Histogram(
+                x=base_residuals,
+                name=baseline_name,
+                nbinsx=30,
+                opacity=0.7,
+                marker=dict(color=BASELINE_COLOR),
+            )
+        )
+        fig_hist.update_layout(
+            template="plotly_white",
+            margin=dict(l=60, r=40, t=40, b=60),
+            xaxis_title="Residual Value",
+            yaxis_title="Frequency",
+            showlegend=True,
+            barmode="overlay",
+        )
+        st.plotly_chart(fig_hist, use_container_width=True)
+        bands_present = []
+
+        if len(residuals) > 10 and sampling_freq > 0:
+            total_power = bandpower(residuals, fs=sampling_freq, fmin=0.5, fmax=35.0)
+            power_threshold = (
+                max(total_power * 0.01, 1e-10) if total_power > 0 else 1e-10
+            )
+
+            for band_name, (fmin, fmax) in CLINICAL_FREQUENCY_BANDS.items():
+                try:
+                    band_power = bandpower(
+                        residuals, fs=sampling_freq, fmin=fmin, fmax=fmax
+                    )
+                    if band_power >= power_threshold:
+                        bands_present.append((band_name, fmin, fmax))
+                except Exception:
+                    pass
+
+        if not bands_present:
+            bands_present = [
+                (name, fmin, fmax)
+                for name, (fmin, fmax) in CLINICAL_FREQUENCY_BANDS.items()
+            ]
+
+        band_str = ", ".join(
+            [f"{name} ({low}-{high} Hz)" for name, low, high in bands_present]
+        )
+        st.caption(f"Frequency bands with significant power in residuals: {band_str}")
+
+    with col2:
+        st.markdown("##### Autocorrelation Function (ACF)")
+        max_lag = min(len(residuals) // 4, 40)
+
+        acf_vals, confint = acf(residuals, nlags=max_lag, fft=True, alpha=0.05)
+        lags = np.arange(len(acf_vals))
+        whiteness = whiteness_test(residuals, max_lag)
+
+        lags_display = lags[1:]
+        acf_vals_display = acf_vals[1:]
+        confint_display = confint[1:]
+
+        fig_acf = go.Figure()
+
+        fig_acf.add_trace(
+            go.Bar(
+                x=lags_display,
+                y=acf_vals_display,
+                name=model_name,
+                marker=dict(color=PALETTE.twilight_indigo),
+                width=0.8,
+            )
+        )
+
+        b_acf_vals, b_confint = acf(base_residuals, nlags=max_lag, fft=True, alpha=0.05)
+        b_lags = np.arange(len(b_acf_vals))
+        b_lags_display = b_lags[1:]
+        b_acf_vals_display = b_acf_vals[1:]
+        b_confint_display = b_confint[1:]
+        fig_acf.add_trace(
+            go.Bar(
+                x=b_lags_display,
+                y=b_acf_vals_display,
+                name=baseline_name,
+                marker=dict(
+                    color=BASELINE_COLOR, line=dict(color=BASELINE_COLOR, width=1)
+                ),
+                width=0.8,
+                opacity=0.7,
+            )
+        )
+
+        conf_lower = confint_display[:, 0]
+        conf_upper = confint_display[:, 1]
+        # Use the mean confidence bounds for cleaner visualization
+        mean_conf_lower = np.mean(conf_lower)
+        mean_conf_upper = np.mean(conf_upper)
+
+        fig_acf.add_hline(
+            y=mean_conf_upper,
+            line_dash="dot",
+            line_color="lightblue",
+            line_width=1,
+            annotation_text="95% CI",
+            annotation_position="right",
+        )
+        fig_acf.add_hline(
+            y=mean_conf_lower,
+            line_dash="dot",
+            line_color="lightblue",
+            line_width=1,
+        )
+        fig_acf.add_hline(
+            y=0,
+            line_dash="dot",
+            line_color="gray",
+            line_width=1,
+        )
+
+        fig_acf.update_layout(
+            template="plotly_white",
+            margin=dict(l=60, r=40, t=40, b=60),
+            xaxis_title="Lag",
+            yaxis_title="Autocorrelation",
+            showlegend=True,
+            barmode="group",
+        )
+        st.plotly_chart(fig_acf, use_container_width=True)
+
+    st.markdown("#### Whiteness Test (Ljung-Box)")
+    max_lag = min(len(residuals) // 4, 40)
+    acf_vals_whiteness, _ = acf(residuals, nlags=max_lag, fft=True, alpha=0.05)
+    b_acf_vals_whiteness, _ = acf(base_residuals, nlags=max_lag, fft=True, alpha=0.05)
+
+    col1, col2 = st.columns(2)
+    with col1:
+        n = len(residuals)
+        max_acf = (
+            np.max(np.abs(acf_vals_whiteness[1:]))
+            if len(acf_vals_whiteness) > 1
+            else 0.0
+        )
+        mean_abs_acf = (
+            np.mean(np.abs(acf_vals_whiteness[1:]))
+            if len(acf_vals_whiteness) > 1
+            else 0.0
+        )
+        st.markdown(f"**{model_name}**")
+        st.text(
+            f"Ljung-Box: Q = {whiteness['ljung_box_stat']:.2f}, p = {format_p_value(whiteness['ljung_box_p'])}"
+        )
+        st.text(f"n = {n}, max |ACF| = {max_acf:.4f}, mean |ACF| = {mean_abs_acf:.4f}")
+    b_whiteness = whiteness_test(base_residuals, max_lag)
+    with col2:
+        b_n = len(base_residuals)
+        b_max_acf = (
+            np.max(np.abs(b_acf_vals_whiteness[1:]))
+            if len(b_acf_vals_whiteness) > 1
+            else 0.0
+        )
+        b_mean_abs_acf = (
+            np.mean(np.abs(b_acf_vals_whiteness[1:]))
+            if len(b_acf_vals_whiteness) > 1
+            else 0.0
+        )
+        st.markdown(f"**{baseline_name}**")
+        st.text(
+            f"Ljung-Box: Q = {b_whiteness['ljung_box_stat']:.2f}, p = {format_p_value(b_whiteness['ljung_box_p'])}"
+        )
+        st.text(
+            f"n = {b_n}, max |ACF| = {b_max_acf:.4f}, mean |ACF| = {b_mean_abs_acf:.4f}"
+        )
 
 
 def select_baseline(
@@ -583,7 +886,6 @@ def get_channel(
     channel_idx: int,
     t_abs: np.ndarray,
 ) -> np.ndarray:
-    """Extract a single channel from a multi-channel array, transposing if needed."""
     data = transpose_if_needed(data, len(t_abs))
     n_chan = data.shape[1] if data.ndim == 2 else 1
     return data.squeeze() if n_chan == 1 else data[:, channel_idx]
@@ -597,23 +899,11 @@ def get_baseline_channel(
     t_abs: np.ndarray,
     true_c: np.ndarray,
 ) -> tuple:
-    """Extract baseline predictions for one channel and compute correlation.
-
-    Returns (baseline_pred_c, baseline_r). Both are None/np.nan if unavailable.
-    """
-    if baseline_res is None:
-        return None, None
 
     preds_list = baseline_res.get(key, [])
-    if not preds_list or trial_idx >= len(preds_list) or preds_list[trial_idx] is None:
-        return None, None
-
     preds = np.array(preds_list[trial_idx])
     preds = transpose_if_needed(preds, len(t_abs))
     n_chan = preds.shape[1] if preds.ndim == 2 else 1
-
-    if channel_idx >= n_chan:
-        return None, None
 
     pred_c = preds.squeeze() if n_chan == 1 else preds[:, channel_idx]
 
@@ -694,4 +984,6 @@ def render_analysis(
             baseline_name=baseline_name,
             model_name=model_name,
             rescale=rescale,
+            sampling_freq=sampling_rate,
+            is_neural=(unit == "µV"),
         )
