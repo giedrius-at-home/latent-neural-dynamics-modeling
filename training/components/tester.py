@@ -367,7 +367,7 @@ class Tester:
             Y_list, _z, meta_list = loader.get_full_dataset()
             Y_list, Z_list, meta_list = self._slice_data(Y_list, _z, meta_list)
 
-            Zp, Yp, Xp = self.framework._predict(Y_list)
+            Zp, Yp, Xp = self.framework._predict(Y_list, Z_list)
 
             chunk_margin = meta_list[0].get("chunk_margin")
             f_res = self.framework.model.validate_forecast(
@@ -406,7 +406,7 @@ class Tester:
             Y_list, _z, meta_list = loader.get_full_dataset()
             Y_list, Z_list, meta_list = self._slice_data(Y_list, _z, meta_list)
 
-            Zp, Yp, Xp = self.framework._predict(Y_list)
+            Zp, Yp, Xp = self.framework._predict(Y_list, Z_list)
 
             chunk_margin = meta_list[0].get("chunk_margin")
             f_res = self.framework.model.validate_forecast(

@@ -5,7 +5,7 @@ model:
   long_ar_lags: 30
   time_first: true
   fast: false
-  reuse_splits: true
+  reuse_splits: false
   forecast:
     m: 2
     history: 5

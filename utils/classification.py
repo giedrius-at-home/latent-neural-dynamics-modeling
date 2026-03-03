@@ -310,6 +310,10 @@ def prepare_epoched_data(
             if forecast_horizon is not None and mode == "forecast":
                 trial_latents = trial_latents[:forecast_samples]
 
+            if history_horizon is not None and mode == "prediction":
+                if trial_latents.shape[0] > history_samples:
+                    trial_latents = trial_latents[-history_samples:]
+
             if trial_latents.shape[0] < epoch_len:
                 continue
 

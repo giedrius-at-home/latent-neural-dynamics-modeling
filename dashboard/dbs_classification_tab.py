@@ -18,18 +18,17 @@ from dashboard.backbone import (
     PLOT_STYLE,
     PLOT_COLOR,
 )
-from dashboard.subtabs.classification import (
+from dashboard.subtabs import (
+    list_variants,
+    list_run_timestamps,
+    config_for_variant,
     load_classification_results,
     create_line_plot_by_history,
     create_line_plot_by_future,
     create_heatmap_figure,
     create_summary_table,
     reevaluate_against_history,
-)
-from dashboard.subtabs import (
-    list_variants,
-    list_run_timestamps,
-    config_for_variant,
+    has_roc_data,
 )
 from dashboard.backbone import render_styled_table
 from sklearn.metrics import confusion_matrix
@@ -46,7 +45,6 @@ def save_classification_results(results: Dict[str, Any], save_path: Path) -> Non
 
 
 def load_single_result(save_path: Path) -> Optional[Dict[str, Any]]:
-    # Simple load after MNE upgrade
     if save_path.exists():
         with open(save_path, "rb") as f:
             try:
@@ -75,38 +73,57 @@ def render_metrics_row(results: Dict[str, Any], prefix: str = "") -> None:
 
 
 def render_confusion_matrix(cm: np.ndarray, key: str) -> None:
-    labels = ["DBS OFF", "DBS ON"]
+
+    cm_reordered = np.array([[cm[1, 1], cm[1, 0]], [cm[0, 1], cm[0, 0]]])
+
     fig = go.Figure(
         data=go.Heatmap(
-            z=cm,
-            x=labels,
-            y=labels,
+            z=cm_reordered,
+            x=["P", "N"],
+            y=["P", "N"],
             colorscale="Blues",
-            text=cm,
+            text=cm_reordered,
             texttemplate="%{text}",
             textfont={"size": 20},
             showscale=True,
         )
     )
+
     fig.update_layout(
-        xaxis_title="Predicted Class",
-        yaxis_title="True Class",
+        xaxis_title="Predicted",
+        yaxis_title="Actual",
         height=400,
         template="plotly_white",
         font=dict(family=PLOT_STYLE.font_family),
-        margin=dict(l=40, r=40, t=20, b=40),
+        margin=dict(l=60, r=40, t=60, b=60),
+        xaxis=dict(
+            tickmode="array",
+            tickvals=[0, 1],
+            ticktext=["TP", "FN"],
+        ),
+        yaxis=dict(
+            tickmode="array",
+            tickvals=[0, 1],
+            ticktext=["TP", "FP"],
+            autorange="reversed",  # Reverse Y-axis so TP is at top
+        ),
     )
     st.plotly_chart(fig, use_container_width=True, key=f"cm_{key}")
-    st.caption("Confusion Matrix")
 
 
 def render_roc_curve(results: Dict[str, Any], key: str) -> None:
+    # Check if ROC data exists
+    if not has_roc_data(results):
+        st.info("ROC curve data not available for this evaluation.")
+        return
+
     fig = go.Figure()
     fig.add_trace(
         go.Scatter(
             x=results["fpr"],
             y=results["tpr"],
             name=f"ROC (AUC = {results['roc_auc']:.4f})",
+            mode="lines",
             line=dict(
                 color=PALETTE.twilight_indigo, width=PLOT_STYLE.line_width_normal
             ),
@@ -125,15 +142,60 @@ def render_roc_curve(results: Dict[str, Any], key: str) -> None:
             ),
         )
     )
+
     fig.update_layout(
-        xaxis_title="False Positive Rate (FPR)",
-        yaxis_title="True Positive Rate (TPR)",
-        xaxis=dict(range=[0, 1], scaleanchor="y", scaleratio=1),
-        yaxis=dict(range=[0, 1]),
+        xaxis=dict(
+            title=dict(
+                text="False Positive Rate (FPR)",
+                font=dict(
+                    size=PLOT_STYLE.axis_label_size, family=PLOT_STYLE.font_family
+                ),
+            ),
+            tickfont=dict(size=PLOT_STYLE.tick_label_size),
+            range=[0, 1],
+            showgrid=True,
+            gridcolor="#F0F0F0",
+            showline=True,
+            linecolor="black",
+            linewidth=1,
+            mirror=True,
+            dtick=0.2,
+            constrain="domain",
+        ),
+        yaxis=dict(
+            title=dict(
+                text="True Positive Rate (TPR)",
+                font=dict(
+                    size=PLOT_STYLE.axis_label_size, family=PLOT_STYLE.font_family
+                ),
+            ),
+            tickfont=dict(size=PLOT_STYLE.tick_label_size),
+            range=[0, 1],
+            showgrid=True,
+            gridcolor="#F0F0F0",
+            showline=True,
+            linecolor="black",
+            linewidth=1,
+            mirror=True,
+            dtick=0.2,
+            constrain="domain",
+        ),
         height=400,
+        width=None,
         template="plotly_white",
-        font=dict(family=PLOT_STYLE.font_family),
-        margin=dict(l=50, r=20, t=20, b=50),
+        plot_bgcolor="white",
+        font=dict(
+            family=PLOT_STYLE.font_family,
+            size=PLOT_STYLE.tick_label_size,
+            color="black",
+        ),
+        legend=dict(
+            font=dict(size=10, family=PLOT_STYLE.font_family),
+            bgcolor="rgba(255,255,255,0.8)",
+            bordercolor="#E5E5E5",
+            borderwidth=1,
+        ),
+        margin=dict(l=60, r=40, t=60, b=60),
     )
     st.plotly_chart(fig, use_container_width=True, key=f"roc_{key}")
     st.caption("Receiver Operating Characteristic (ROC)")
@@ -151,7 +213,11 @@ def render_results_view(results: Dict[str, Any], key: str) -> None:
     with col1:
         render_confusion_matrix(results["confusion_matrix"], f"cv_{key}")
     with col2:
-        render_roc_curve(results, f"cv_{key}")
+        # Only render ROC curve if the data exists
+        if has_roc_data(results):
+            render_roc_curve(results, f"cv_{key}")
+        else:
+            st.info("ROC curve not available for this evaluation.")
 
     if "permutation_test" in results:
         st.markdown("#### Permutation Test")
@@ -171,7 +237,11 @@ def render_results_view(results: Dict[str, Any], key: str) -> None:
         with col1:
             render_confusion_matrix(test_res["confusion_matrix"], f"test_{key}")
         with col2:
-            render_roc_curve(test_res, f"test_{key}")
+            # Only render ROC curve if the data exists
+            if has_roc_data(test_res):
+                render_roc_curve(test_res, f"test_{key}")
+            else:
+                st.info("ROC curve not available for this evaluation.")
 
 
 def render_fold_results(fold_results: list, key: str) -> None:
@@ -294,7 +364,7 @@ def render_classification_results(
     eval_target: str = "dbs_stim",
 ) -> None:
 
-    results_dir = variant_dir / run_ts / "classification"
+    results_dir = variant_dir / run_ts
 
     if not results_dir.exists():
         st.warning(
@@ -405,18 +475,12 @@ def render_classification_results(
                     pred_res = load_single_result(pred_file)
                     if pred_res:
                         if reevaluate_against_history(results, pred_res):
-                            n = len(pred_res["y_pred"])
+                            n = len(
+                                results["y_pred"]
+                            )  # Use forecast predictions length
                             st.info(
                                 f"Evaluating {n} forecast samples against historical predictions."
                             )
-                            # Also recompute confusion matrix and drop ROC data
-
-                            results["confusion_matrix"] = confusion_matrix(
-                                pred_res["y_pred"], results["y_pred"], labels=[0, 1]
-                            )
-                            results.pop("roc_auc", None)
-                            results.pop("fpr", None)
-                            results.pop("tpr", None)
                         else:
                             st.error(
                                 "Sample size mismatch between history and forecast predictions."
@@ -434,7 +498,7 @@ def render_classification_results(
 
 
 def render_classification_from_predictions(variant_dir: Path, run_ts: str) -> None:
-    results_dir = variant_dir / run_ts / "classification"
+    results_dir = variant_dir / run_ts
     if results_dir.exists():
         all_results = load_classification_results(results_dir, mode="prediction")
         # Show summary if we have multiple windows OR multiple features
@@ -454,25 +518,23 @@ def render_classification_summary(
     if not all_results:
         return
 
-    # Check if any feature has test results
-    has_any_test = any(
-        any("test_results" in v for v in res.values()) for res in all_results.values()
-    )
-
-    col_m1, col_m2 = st.columns([1, 2])
-    with col_m1:
-        metric = st.selectbox(
-            "Evaluation Metric",
-            options=["best_cv_score", "balanced_accuracy", "accuracy", "f1"],
-            index=0,
-            key=f"metric_{key_prefix}",
-            format_func=lambda x: {
-                "best_cv_score": "Mean CV Score (Best)",
-                "balanced_accuracy": "Full-Set Balanced Accuracy",
-                "accuracy": "Full-Set Accuracy",
-                "f1": "Full-Set F1 Score",
-            }.get(x, x),
+    # Check if any feature has test_results with balanced_accuracy
+    if not any(
+        any(
+            "test_results" in v
+            and v.get("test_results") is not None
+            and "balanced_accuracy" in v.get("test_results", {})
+            for v in res.values()
         )
+        for res in all_results.values()
+    ):
+        st.warning(
+            "No test set results available. Test set balanced accuracy requires test results to be computed."
+        )
+        return
+
+    # Use test set balanced accuracy only (no dropdown, single metric)
+    metric = "balanced_accuracy"
 
     # Render a separate section for each feature source
     for feature_source, feat_results in all_results.items():
@@ -484,14 +546,18 @@ def render_classification_summary(
         col1, col2 = st.columns(2)
         with col1:
             st.plotly_chart(
-                create_line_plot_by_history(single_feat_results, metric=metric),
+                create_line_plot_by_history(
+                    single_feat_results, metric=metric, use_training_only=False
+                ),
                 use_container_width=True,
                 key=f"h_plot_{feature_source}_{key_prefix}",
             )
             st.caption("Accuracy vs History Length")
         with col2:
             st.plotly_chart(
-                create_line_plot_by_future(single_feat_results, metric=metric),
+                create_line_plot_by_future(
+                    single_feat_results, metric=metric, use_training_only=False
+                ),
                 use_container_width=True,
                 key=f"m_plot_{feature_source}_{key_prefix}",
             )
@@ -513,7 +579,7 @@ def render_classification_from_forecasts(variant_dir: Path, run_ts: str) -> None
         key=f"eval_target_forecast_{run_ts}",
     )
 
-    results_dir = variant_dir / run_ts / "classification"
+    results_dir = variant_dir / run_ts
     if results_dir.exists():
         all_results = load_classification_results(
             results_dir, mode="forecast", eval_target=eval_target
@@ -571,7 +637,6 @@ def dbs_classification_tab(
             for d in classification_dir.iterdir()
             if d.is_dir() and hm_pattern.match(d.name)
         ]
-        # Flipped results tab only for variants that are explicitly flipped
         has_flipped_results = len(hm_dirs) > 0 and "flipped" in variant.lower()
 
     if classification_dir.exists():
@@ -600,7 +665,6 @@ def dbs_classification_tab(
             "## Classification Results on Different History and Forecast Windows"
         )
 
-        # Reset results if variant or run changes
         current_selection = (variant, run_ts)
         if st.session_state.get("flipped_selection") != current_selection:
             st.session_state["flipped_results"] = None
@@ -609,7 +673,7 @@ def dbs_classification_tab(
         if st.button("Load/Refresh Flipped Results"):
             with st.spinner("Loading results..."):
                 st.session_state["flipped_results"] = load_classification_results(
-                    classification_dir
+                    classification_dir, mode="flipped"
                 )
 
         flipped_results = st.session_state.get("flipped_results")
@@ -625,7 +689,6 @@ def dbs_classification_tab(
             st.markdown("---")
             st.markdown("### Detailed Flipped Analysis")
 
-            # Collect unique h, m, and feature across all results
             all_feats = sorted(flipped_results.keys())
             h_values = sorted(
                 set(k[0] for res in flipped_results.values() for k in res.keys())
