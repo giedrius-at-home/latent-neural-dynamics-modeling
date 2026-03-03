@@ -4,6 +4,7 @@ from pathlib import Path
 from utils.config import get_config
 from dashboard.subtabs import (
     render_cross_trial_performance_tab,
+    render_forecast_performance_tab,
     list_variants,
     list_run_timestamps,
     config_for_variant,
@@ -188,12 +189,23 @@ def _render_model_analysis(project_root, RESULTS_ROOT):
             st.session_state["run_timestamp"] = run_ts
 
             with performance_tab:
-
-                cfg = get_config(str(cfg_path))
-                fs = getattr(cfg.data, "sampling_frequency", 60.0)
-                render_cross_trial_performance_tab(
-                    split_res, sampling_freq=fs, cfg_path=cfg_path
+                perf_pred_tab, perf_forecast_tab = st.tabs(
+                    ["Predictions Performance", "Forecasts Performance"]
                 )
+
+                with perf_pred_tab:
+                    cfg = get_config(str(cfg_path))
+                    fs = getattr(cfg.data, "sampling_frequency", 60.0)
+                    render_cross_trial_performance_tab(
+                        split_res, sampling_freq=fs, cfg_path=cfg_path
+                    )
+
+                with perf_forecast_tab:
+                    cfg = get_config(str(cfg_path))
+                    fs = getattr(cfg.data, "sampling_frequency", 60.0)
+                    render_forecast_performance_tab(
+                        split_res, sampling_freq=fs, cfg_path=cfg_path
+                    )
 
             with predictions_subtab:
                 render_predictions_tab(split_res, trial_idx, cfg_path, run_ts)

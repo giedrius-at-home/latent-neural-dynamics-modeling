@@ -662,18 +662,25 @@ def render_predictions_tab(
         except Exception:
             pass
 
-    # --- Baseline selection ---
     split_name = st.session_state.get("pred_split", "val")
     baseline_res, selected_baseline_name, model_label, _baseline_variant = (
         select_baseline(cfg_path, "pred", split_name, trial_idx)
     )
+    main_ch_names = split_res.get("input_channels", [])
+    baseline_ch_names = baseline_res.get("input_channels", []) if baseline_res else []
     baseline_yp_c, baseline_r = get_baseline_channel(
-        baseline_res, "Yp", trial_idx, c, t_abs, y_true_c
+        baseline_res,
+        "Yp",
+        trial_idx,
+        c,
+        t_abs,
+        y_true_c,
+        main_channel_names=main_ch_names,
+        baseline_channel_names=baseline_ch_names,
     )
     if baseline_res is not None:
         st.session_state["baseline_res_cache"] = baseline_res
 
-    # --- Y time series plot (prediction-specific) ---
     st.markdown("#### Time Series: Y_true vs Y_pred")
 
     onset_time = t_abs.min() if len(t_abs) > 0 else 0.0
@@ -806,8 +813,19 @@ def render_predictions_tab(
             z_true_c = get_channel(z_t, z_c, t_abs)
             z_pred_c = get_channel(z_p, z_c, t_abs)
 
+            main_z_ch_names = split_res.get("output_channels", [])
+            baseline_z_ch_names = (
+                baseline_res.get("output_channels", []) if baseline_res else []
+            )
             baseline_zp_c, baseline_r_z = get_baseline_channel(
-                baseline_res, "Zp", trial_idx, z_c, t_abs, z_true_c
+                baseline_res,
+                "Zp",
+                trial_idx,
+                z_c,
+                t_abs,
+                z_true_c,
+                main_channel_names=main_z_ch_names,
+                baseline_channel_names=baseline_z_ch_names,
             )
 
             Xp_trial = (

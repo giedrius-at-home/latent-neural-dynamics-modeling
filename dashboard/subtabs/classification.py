@@ -14,6 +14,9 @@ from sklearn.metrics import (
     precision_score,
     recall_score,
     f1_score,
+    confusion_matrix,
+    roc_curve,
+    auc,
 )
 from dashboard.backbone import (
     PALETTE,
@@ -23,34 +26,162 @@ from dashboard.backbone import (
 )
 
 
-def resolve_metric(res: Dict[str, Any], metric: str) -> float:
-    """Resolve a metric value from a result dict, checking test_results first."""
-    if "test_results" in res and metric in res["test_results"]:
+def resolve_metric(
+    res: Dict[str, Any], metric: str, use_training_only: bool = False
+) -> float:
+    """
+    Resolve a metric value from results dictionary.
+
+    Args:
+        res: Results dictionary
+        metric: Metric name to resolve
+        use_training_only: If True, skip test_results and only use top-level metrics
+
+    Returns:
+        Metric value or NaN if not found
+    """
+    if metric == "best_cv_score":
+        if metric in res:
+            return res[metric]
+        return float("nan")
+
+    # If use_training_only is True, skip test_results and only use top-level metrics
+    if (
+        not use_training_only
+        and "test_results" in res
+        and metric in res["test_results"]
+    ):
         return res["test_results"][metric]
     if metric in res:
         return res[metric]
     return float("nan")
 
 
+def compute_classification_metrics(
+    y_true: np.ndarray, y_pred: np.ndarray
+) -> Dict[str, Any]:
+    """
+    Compute standard classification metrics from true and predicted labels.
+
+    Args:
+        y_true: True labels
+        y_pred: Predicted labels
+
+    Returns:
+        Dictionary containing accuracy, balanced_accuracy, precision, recall, f1, and confusion_matrix
+    """
+    return {
+        "accuracy": accuracy_score(y_true, y_pred),
+        "balanced_accuracy": balanced_accuracy_score(y_true, y_pred),
+        "precision": precision_score(y_true, y_pred, zero_division=0),
+        "recall": recall_score(y_true, y_pred, zero_division=0),
+        "f1": f1_score(y_true, y_pred, zero_division=0),
+        "confusion_matrix": confusion_matrix(y_true, y_pred, labels=[0, 1]),
+    }
+
+
+def compute_roc_metrics(y_true: np.ndarray, y_proba: np.ndarray) -> Dict[str, Any]:
+    """
+    Compute ROC curve metrics from true labels and probability scores.
+
+    Args:
+        y_true: True labels
+        y_proba: Probability scores for the positive class
+
+    Returns:
+        Dictionary containing roc_auc, fpr, and tpr
+    """
+    fpr, tpr, _ = roc_curve(y_true, y_proba)
+    roc_auc_val = auc(fpr, tpr)
+    return {
+        "roc_auc": roc_auc_val,
+        "fpr": fpr,
+        "tpr": tpr,
+    }
+
+
+def truncate_to_match_length(
+    longer_array: np.ndarray, target_length: int, from_end: bool = True
+) -> np.ndarray:
+    """
+    Truncate an array to match a target length.
+
+    Args:
+        longer_array: Array to truncate
+        target_length: Desired length
+        from_end: If True, take the last N samples. If False, take the first N samples.
+
+    Returns:
+        Truncated array
+
+    Raises:
+        ValueError: If target_length is greater than array length
+    """
+    if len(longer_array) < target_length:
+        raise ValueError(
+            f"Cannot truncate array of length {len(longer_array)} to length {target_length}"
+        )
+    if from_end:
+        return longer_array[-target_length:]
+    else:
+        return longer_array[:target_length]
+
+
+def has_roc_data(results: Dict[str, Any]) -> bool:
+    """
+    Check if results dictionary contains ROC curve data.
+
+    Args:
+        results: Results dictionary
+
+    Returns:
+        True if all required ROC keys are present, False otherwise
+    """
+    return all(key in results for key in ["fpr", "tpr", "roc_auc"])
+
+
 def reevaluate_against_history(res: Dict[str, Any], pred_res: Dict[str, Any]) -> bool:
     """
     Re-evaluate forecast results against historical predictions.
     Modifies `res` in-place. Returns True on success, False on failure.
+
+    Forecast predictions are limited to the future time window (m seconds),
+    while history predictions cover the full trial. We truncate history predictions
+    to match the forecast window by taking the last N samples where N is the
+    length of forecast predictions.
     """
     if "y_pred" not in pred_res or "y_pred" not in res:
         return False
+
     history_preds = pred_res["y_pred"]
     y_pred = res["y_pred"]
-    if len(history_preds) != len(y_pred):
+
+    if len(history_preds) > len(y_pred):
+        history_preds = truncate_to_match_length(
+            history_preds, len(y_pred), from_end=True
+        )
+    elif len(history_preds) < len(y_pred):
         return False
 
     y_true = history_preds
-    res["accuracy"] = accuracy_score(y_true, y_pred)
-    res["balanced_accuracy"] = balanced_accuracy_score(y_true, y_pred)
-    res["precision"] = precision_score(y_true, y_pred, zero_division=0)
-    res["recall"] = recall_score(y_true, y_pred, zero_division=0)
-    res["f1"] = f1_score(y_true, y_pred, zero_division=0)
-    res["best_cv_score"] = res["balanced_accuracy"]
+
+    # Compute standard classification metrics
+    metrics = compute_classification_metrics(y_true, y_pred)
+    res.update(metrics)
+
+    # Compute ROC metrics if probability scores are available
+    if "y_proba" in res:
+        y_proba = res["y_proba"]
+        # Truncate y_proba to match the length if needed
+        if len(y_proba) > len(y_true):
+            y_proba = truncate_to_match_length(y_proba, len(y_true), from_end=True)
+
+        if len(y_proba) == len(y_true):
+            roc_metrics = compute_roc_metrics(y_true, y_proba)
+            res.update(roc_metrics)
+
+    if "best_cv_score" not in res:
+        res["best_cv_score"] = res["balanced_accuracy"]
     res.pop("test_results", None)
     return True
 
@@ -63,6 +194,32 @@ def _apply_line_plot_layout(fig: go.Figure, xaxis_title: str) -> None:
         line_color=PALETTE.cool_steel,
         annotation_text="Chance",
     )
+
+    # Calculate dynamic y-axis range based on data
+    y_min = 0.4
+    y_max = 1.0
+    if fig.data:
+        all_y_values = []
+        for trace in fig.data:
+            if hasattr(trace, "y") and trace.y is not None:
+                y_vals = np.array(trace.y)
+                y_vals = y_vals[~np.isnan(y_vals)]
+                if len(y_vals) > 0:
+                    all_y_values.extend(y_vals.tolist())
+
+        if all_y_values:
+            data_min = np.min(all_y_values)
+            data_max = np.max(all_y_values)
+            # Add padding: 5% below min, 5% above max, but keep within [0, 1] bounds
+            padding = (data_max - data_min) * 0.05 if data_max > data_min else 0.05
+            y_min = max(0.0, data_min - padding)
+            y_max = min(1.0, data_max + padding)
+            # Ensure minimum range of 0.2
+            if y_max - y_min < 0.2:
+                center = (y_max + y_min) / 2
+                y_min = max(0.0, center - 0.1)
+                y_max = min(1.0, center + 0.1)
+
     fig.update_layout(
         xaxis=dict(
             title=dict(
@@ -72,6 +229,12 @@ def _apply_line_plot_layout(fig: go.Figure, xaxis_title: str) -> None:
                 ),
             ),
             tickfont=dict(size=PLOT_STYLE.tick_label_size),
+            showgrid=True,
+            gridcolor="#F0F0F0",
+            showline=True,
+            linecolor="black",
+            linewidth=1,
+            mirror=True,
         ),
         yaxis=dict(
             title=dict(
@@ -81,12 +244,29 @@ def _apply_line_plot_layout(fig: go.Figure, xaxis_title: str) -> None:
                 ),
             ),
             tickfont=dict(size=PLOT_STYLE.tick_label_size),
-            range=[0.4, 1.0],
+            range=[y_min, y_max],
+            showgrid=True,
+            gridcolor="#F0F0F0",
+            showline=True,
+            linecolor="black",
+            linewidth=1,
+            mirror=True,
         ),
         template="plotly_white",
+        plot_bgcolor="white",
         font=dict(family=PLOT_STYLE.font_family, color=PALETTE.ink_black),
-        legend=dict(font=dict(size=PLOT_STYLE.tick_label_size)),
-        margin=dict(l=60, r=60, t=20, b=60),
+        legend=dict(
+            font=dict(size=PLOT_STYLE.tick_label_size, family=PLOT_STYLE.font_family),
+            bgcolor="rgba(255,255,255,0.8)",
+            bordercolor="#E5E5E5",
+            borderwidth=1,
+            x=1.02,
+            xanchor="left",
+            y=1,
+            yanchor="top",
+        ),
+        margin=dict(l=60, r=120, t=40, b=60),
+        hovermode="closest",
     )
 
 
@@ -255,6 +435,7 @@ def create_heatmap_figure(
 def create_line_plot_by_history(
     all_results: Dict[str, Dict[Tuple[float, float], Dict[str, Any]]],
     metric: str = "balanced_accuracy",
+    use_training_only: bool = False,
 ) -> go.Figure:
     """
     Create line plot showing accuracy vs history length.
@@ -278,7 +459,11 @@ def create_line_plot_by_history(
             x_vals = []
             for h in h_values:
                 if (h, m) in results:
-                    y_vals.append(resolve_metric(results[(h, m)], metric))
+                    y_vals.append(
+                        resolve_metric(
+                            results[(h, m)], metric, use_training_only=use_training_only
+                        )
+                    )
                     x_vals.append(h)
 
             name = f"{feature_source} (m={m:.1f}s)"
@@ -302,6 +487,7 @@ def create_line_plot_by_history(
 def create_line_plot_by_future(
     all_results: Dict[str, Dict[Tuple[float, float], Dict[str, Any]]],
     metric: str = "balanced_accuracy",
+    use_training_only: bool = False,
 ) -> go.Figure:
     if not all_results:
         return go.Figure()
@@ -319,7 +505,11 @@ def create_line_plot_by_future(
             x_vals = []
             for m in m_values:
                 if (h, m) in results:
-                    y_vals.append(resolve_metric(results[(h, m)], metric))
+                    y_vals.append(
+                        resolve_metric(
+                            results[(h, m)], metric, use_training_only=use_training_only
+                        )
+                    )
                     x_vals.append(m)
 
             name = f"{feature_source} (h={h:.1f}s)"

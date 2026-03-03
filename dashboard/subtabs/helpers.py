@@ -468,10 +468,15 @@ def render_residual_diagnostics(
 
     st.markdown(f"### Residual Diagnostics — {channel_name}")
 
-    base_res_stats = compute_residual_statistics(y_true, baseline_preds)
-    base_residuals = base_res_stats["residuals"]
+    base_res_stats = None
+    base_residuals = None
+    if baseline_preds is not None:
+        base_res_stats = compute_residual_statistics(y_true, baseline_preds)
+        base_residuals = base_res_stats["residuals"]
+
     _show_residual_stats_row(res_stats, model_name)
-    _show_residual_stats_row(base_res_stats, baseline_name)
+    if base_res_stats is not None:
+        _show_residual_stats_row(base_res_stats, baseline_name)
 
     st.markdown("#### Normality Test")
 
@@ -490,18 +495,24 @@ def render_residual_diagnostics(
             f"n = {n}, dev = {effect_size:.4f}, skew = {skewness:.3f}, kurt = {kurtosis:.3f}"
         )
     with col2:
-        b_shapiro_stat, b_shapiro_p = normality_tests(base_residuals)["shapiro"]
-        b_n = len(base_residuals)
-        b_effect_size = 1.0 - b_shapiro_stat if not np.isnan(b_shapiro_stat) else np.nan
-        b_skewness = scipy_stats.skew(base_residuals) if b_n > 2 else np.nan
-        b_kurtosis = scipy_stats.kurtosis(base_residuals) if b_n > 2 else np.nan
-        st.markdown(f"**{baseline_name}**")
-        st.text(
-            f"Shapiro-Wilk: W = {b_shapiro_stat:.4f}, p = {format_p_value(b_shapiro_p)}"
-        )
-        st.text(
-            f"n = {b_n}, dev = {b_effect_size:.4f}, skew = {b_skewness:.3f}, kurt = {b_kurtosis:.3f}"
-        )
+        if base_residuals is not None:
+            b_shapiro_stat, b_shapiro_p = normality_tests(base_residuals)["shapiro"]
+            b_n = len(base_residuals)
+            b_effect_size = (
+                1.0 - b_shapiro_stat if not np.isnan(b_shapiro_stat) else np.nan
+            )
+            b_skewness = scipy_stats.skew(base_residuals) if b_n > 2 else np.nan
+            b_kurtosis = scipy_stats.kurtosis(base_residuals) if b_n > 2 else np.nan
+            st.markdown(f"**{baseline_name}**")
+            st.text(
+                f"Shapiro-Wilk: W = {b_shapiro_stat:.4f}, p = {format_p_value(b_shapiro_p)}"
+            )
+            st.text(
+                f"n = {b_n}, dev = {b_effect_size:.4f}, skew = {b_skewness:.3f}, kurt = {b_kurtosis:.3f}"
+            )
+        else:
+            st.markdown(f"**{baseline_name}**")
+            st.text("No baseline data available")
 
     st.markdown("#### Q-Q Plot")
     residuals_std = (residuals - np.mean(residuals)) / (np.std(residuals) + 1e-12)
@@ -516,22 +527,24 @@ def render_residual_diagnostics(
             marker=dict(size=4, color=PALETTE.twilight_indigo, opacity=0.6),
         )
     )
-    b_resids_std = (base_residuals - np.mean(base_residuals)) / (
-        np.std(base_residuals) + 1e-12
-    )
-    btq, bsq = qq_plot_data(b_resids_std)
-    fig_qq.add_trace(
-        go.Scatter(
-            x=btq,
-            y=bsq,
-            mode="markers",
-            name=baseline_name,
-            marker=dict(size=4, color=BASELINE_COLOR, opacity=0.4),
-        )
-    )
-
     min_q = min(np.min(tq), np.min(sq))
     max_q = max(np.max(tq), np.max(sq))
+    if base_residuals is not None:
+        b_resids_std = (base_residuals - np.mean(base_residuals)) / (
+            np.std(base_residuals) + 1e-12
+        )
+        btq, bsq = qq_plot_data(b_resids_std)
+        fig_qq.add_trace(
+            go.Scatter(
+                x=btq,
+                y=bsq,
+                mode="markers",
+                name=baseline_name,
+                marker=dict(size=4, color=BASELINE_COLOR, opacity=0.4),
+            )
+        )
+        min_q = min(min_q, np.min(btq), np.min(bsq))
+        max_q = max(max_q, np.max(btq), np.max(bsq))
     fig_qq.add_trace(
         go.Scatter(
             x=[min_q, max_q],
@@ -561,16 +574,17 @@ def render_residual_diagnostics(
             marker=dict(size=4, color=PALETTE.twilight_indigo, opacity=0.6),
         )
     )
-    b_tp, b_sp = probability_plot_data(base_residuals)
-    fig_pp.add_trace(
-        go.Scatter(
-            x=b_tp,
-            y=b_sp,
-            mode="markers",
-            name=baseline_name,
-            marker=dict(size=4, color=BASELINE_COLOR, opacity=0.4),
+    if base_residuals is not None:
+        b_tp, b_sp = probability_plot_data(base_residuals)
+        fig_pp.add_trace(
+            go.Scatter(
+                x=b_tp,
+                y=b_sp,
+                mode="markers",
+                name=baseline_name,
+                marker=dict(size=4, color=BASELINE_COLOR, opacity=0.4),
+            )
         )
-    )
 
     min_p = min(np.min(tp), np.min(sp)) if len(tp) > 0 and len(sp) > 0 else 0.0
     max_p = max(np.max(tp), np.max(sp)) if len(tp) > 0 and len(sp) > 0 else 1.0
@@ -605,9 +619,12 @@ def render_residual_diagnostics(
                 band_powers_model[band_name] = bandpower(
                     residuals, fs=sampling_freq, fmin=fmin, fmax=fmax
                 )
-                band_powers_baseline[band_name] = bandpower(
-                    base_residuals, fs=sampling_freq, fmin=fmin, fmax=fmax
-                )
+                if base_residuals is not None:
+                    band_powers_baseline[band_name] = bandpower(
+                        base_residuals, fs=sampling_freq, fmin=fmin, fmax=fmax
+                    )
+                else:
+                    band_powers_baseline[band_name] = 0.0
             except Exception:
                 band_powers_model[band_name] = 0.0
                 band_powers_baseline[band_name] = 0.0
@@ -662,15 +679,16 @@ def render_residual_diagnostics(
                 marker=dict(color=PALETTE.twilight_indigo),
             )
         )
-        fig_hist.add_trace(
-            go.Histogram(
-                x=base_residuals,
-                name=baseline_name,
-                nbinsx=30,
-                opacity=0.7,
-                marker=dict(color=BASELINE_COLOR),
+        if base_residuals is not None:
+            fig_hist.add_trace(
+                go.Histogram(
+                    x=base_residuals,
+                    name=baseline_name,
+                    nbinsx=30,
+                    opacity=0.7,
+                    marker=dict(color=BASELINE_COLOR),
+                )
             )
-        )
         fig_hist.update_layout(
             template="plotly_white",
             margin=dict(l=60, r=40, t=40, b=60),
@@ -733,23 +751,26 @@ def render_residual_diagnostics(
             )
         )
 
-        b_acf_vals, b_confint = acf(base_residuals, nlags=max_lag, fft=True, alpha=0.05)
-        b_lags = np.arange(len(b_acf_vals))
-        b_lags_display = b_lags[1:]
-        b_acf_vals_display = b_acf_vals[1:]
-        b_confint_display = b_confint[1:]
-        fig_acf.add_trace(
-            go.Bar(
-                x=b_lags_display,
-                y=b_acf_vals_display,
-                name=baseline_name,
-                marker=dict(
-                    color=BASELINE_COLOR, line=dict(color=BASELINE_COLOR, width=1)
-                ),
-                width=0.8,
-                opacity=0.7,
+        if base_residuals is not None:
+            b_acf_vals, b_confint = acf(
+                base_residuals, nlags=max_lag, fft=True, alpha=0.05
             )
-        )
+            b_lags = np.arange(len(b_acf_vals))
+            b_lags_display = b_lags[1:]
+            b_acf_vals_display = b_acf_vals[1:]
+            b_confint_display = b_confint[1:]
+            fig_acf.add_trace(
+                go.Bar(
+                    x=b_lags_display,
+                    y=b_acf_vals_display,
+                    name=baseline_name,
+                    marker=dict(
+                        color=BASELINE_COLOR, line=dict(color=BASELINE_COLOR, width=1)
+                    ),
+                    width=0.8,
+                    opacity=0.7,
+                )
+            )
 
         conf_lower = confint_display[:, 0]
         conf_upper = confint_display[:, 1]
@@ -791,7 +812,6 @@ def render_residual_diagnostics(
     st.markdown("#### Whiteness Test (Ljung-Box)")
     max_lag = min(len(residuals) // 4, 40)
     acf_vals_whiteness, _ = acf(residuals, nlags=max_lag, fft=True, alpha=0.05)
-    b_acf_vals_whiteness, _ = acf(base_residuals, nlags=max_lag, fft=True, alpha=0.05)
 
     col1, col2 = st.columns(2)
     with col1:
@@ -811,26 +831,35 @@ def render_residual_diagnostics(
             f"Ljung-Box: Q = {whiteness['ljung_box_stat']:.2f}, p = {format_p_value(whiteness['ljung_box_p'])}"
         )
         st.text(f"n = {n}, max |ACF| = {max_acf:.4f}, mean |ACF| = {mean_abs_acf:.4f}")
-    b_whiteness = whiteness_test(base_residuals, max_lag)
-    with col2:
-        b_n = len(base_residuals)
-        b_max_acf = (
-            np.max(np.abs(b_acf_vals_whiteness[1:]))
-            if len(b_acf_vals_whiteness) > 1
-            else 0.0
+
+    if base_residuals is not None:
+        b_acf_vals_whiteness, _ = acf(
+            base_residuals, nlags=max_lag, fft=True, alpha=0.05
         )
-        b_mean_abs_acf = (
-            np.mean(np.abs(b_acf_vals_whiteness[1:]))
-            if len(b_acf_vals_whiteness) > 1
-            else 0.0
-        )
-        st.markdown(f"**{baseline_name}**")
-        st.text(
-            f"Ljung-Box: Q = {b_whiteness['ljung_box_stat']:.2f}, p = {format_p_value(b_whiteness['ljung_box_p'])}"
-        )
-        st.text(
-            f"n = {b_n}, max |ACF| = {b_max_acf:.4f}, mean |ACF| = {b_mean_abs_acf:.4f}"
-        )
+        b_whiteness = whiteness_test(base_residuals, max_lag)
+        with col2:
+            b_n = len(base_residuals)
+            b_max_acf = (
+                np.max(np.abs(b_acf_vals_whiteness[1:]))
+                if len(b_acf_vals_whiteness) > 1
+                else 0.0
+            )
+            b_mean_abs_acf = (
+                np.mean(np.abs(b_acf_vals_whiteness[1:]))
+                if len(b_acf_vals_whiteness) > 1
+                else 0.0
+            )
+            st.markdown(f"**{baseline_name}**")
+            st.text(
+                f"Ljung-Box: Q = {b_whiteness['ljung_box_stat']:.2f}, p = {format_p_value(b_whiteness['ljung_box_p'])}"
+            )
+            st.text(
+                f"n = {b_n}, max |ACF| = {b_max_acf:.4f}, mean |ACF| = {b_mean_abs_acf:.4f}"
+            )
+    else:
+        with col2:
+            st.markdown(f"**{baseline_name}**")
+            st.text("No baseline data available")
 
 
 def select_baseline(
@@ -898,14 +927,39 @@ def get_baseline_channel(
     channel_idx: int,
     t_abs: np.ndarray,
     true_c: np.ndarray,
+    main_channel_names: Optional[list] = None,
+    baseline_channel_names: Optional[list] = None,
 ) -> tuple:
 
+    if baseline_res is None:
+        return None, np.nan
+
     preds_list = baseline_res.get(key, [])
+    if not preds_list or trial_idx >= len(preds_list) or preds_list[trial_idx] is None:
+        return None, np.nan
+
     preds = np.array(preds_list[trial_idx])
     preds = transpose_if_needed(preds, len(t_abs))
     n_chan = preds.shape[1] if preds.ndim == 2 else 1
 
-    pred_c = preds.squeeze() if n_chan == 1 else preds[:, channel_idx]
+    baseline_idx = channel_idx
+    if main_channel_names and baseline_channel_names and n_chan > 1:
+        try:
+            if channel_idx < len(main_channel_names):
+                main_ch_name = str(main_channel_names[channel_idx])
+                for b_idx, b_name in enumerate(baseline_channel_names):
+                    if str(b_name) == main_ch_name:
+                        baseline_idx = b_idx
+                        break
+        except Exception:
+            pass
+
+    if n_chan == 1:
+        pred_c = preds.squeeze()
+    elif baseline_idx < n_chan:
+        pred_c = preds[:, baseline_idx]
+    else:
+        return None, np.nan
 
     try:
         r = np.corrcoef(true_c.flatten(), pred_c.flatten())[0, 1]

@@ -36,17 +36,17 @@ class BaseFramework:
         self.logger.info(f"Model initialized: {self.model}")
         return self.model.train(Y, Z)
 
-    def _validate(self, Y: TrialList) -> Dict[str, Any]:
+    def _validate(self, Y: TrialList, Z: Optional[TrialList] = None) -> Dict[str, Any]:
         self.logger.info("Starting validation...")
-        return self.model.validate(Y)
+        return self.model.validate(Y, Z)
 
-    def _test(self, Y: TrialList) -> Dict[str, Any]:
+    def _test(self, Y: TrialList, Z: Optional[TrialList] = None) -> Dict[str, Any]:
         self.logger.info("Starting test...")
-        return self.model.test(Y)
+        return self.model.test(Y, Z)
 
-    def _predict(self, Y: TrialList):
+    def _predict(self, Y: TrialList, Z: Optional[TrialList] = None):
         self.logger.info("Running prediction on provided data...")
-        return self.model.predict(Y)
+        return self.model.predict(Y, Z)
 
     def _forecast(self, m: int, Y_past: Array2D):
         self.logger.info(f"Running {m}-step ahead forecast...")
@@ -1474,7 +1474,7 @@ class VARMAOLSWrapper:
 
         return predictions
 
-    def predict(self, Y: TrialList) -> Tuple[Optional[TrialList], TrialList, None]:
+    def predict(self, Y: TrialList, Z: Optional[TrialList] = None) -> Tuple[Optional[TrialList], TrialList, None]:
         """
         One-step-ahead prediction for all trials.
         Returns (Zp, Yp, None) to match the interface.
@@ -1482,15 +1482,27 @@ class VARMAOLSWrapper:
         all_Yp = []
         all_Zp = [] if self.n_channels_Z > 0 else None
 
-        for y_trial in Y:
+        for trial_idx, y_trial in enumerate(Y):
             y_zscored = (y_trial - self.Y_mean) / self.Y_std
 
             if self.n_channels_Z > 0:
-                # We need Z for joint prediction, but during prediction on
-                # unseen data we don't have Z. Use zeros as placeholder for Z
-                # (the model will predict based on Y history + cross-dynamics).
-                z_placeholder = np.zeros((y_trial.shape[0], self.n_channels_Z))
-                data_zscored = np.concatenate([y_zscored, z_placeholder], axis=1)
+                # Use actual Z if provided, otherwise use zeros as placeholder
+                if Z is not None and trial_idx < len(Z) and Z[trial_idx] is not None:
+                    z_trial = Z[trial_idx]
+                    if z_trial.shape[0] == y_trial.shape[0]:
+                        z_zscored = (z_trial - self.Z_mean) / self.Z_std
+                        data_zscored = np.concatenate([y_zscored, z_zscored], axis=1)
+                    else:
+                        # Length mismatch, use zeros
+                        self.logger.warning(
+                            f"Trial {trial_idx}: Z length ({z_trial.shape[0]}) doesn't match Y length ({y_trial.shape[0]}). Using zeros."
+                        )
+                        z_placeholder = np.zeros((y_trial.shape[0], self.n_channels_Z))
+                        data_zscored = np.concatenate([y_zscored, z_placeholder], axis=1)
+                else:
+                    # Z not provided or None, use zeros as placeholder
+                    z_placeholder = np.zeros((y_trial.shape[0], self.n_channels_Z))
+                    data_zscored = np.concatenate([y_zscored, z_placeholder], axis=1)
             else:
                 data_zscored = y_zscored
 
@@ -1507,8 +1519,8 @@ class VARMAOLSWrapper:
 
         return all_Zp, all_Yp, None
 
-    def validate(self, Y: TrialList) -> Dict[str, Any]:
-        Zp, Yp, Xp = self.predict(Y)
+    def validate(self, Y: TrialList, Z: Optional[TrialList] = None) -> Dict[str, Any]:
+        Zp, Yp, Xp = self.predict(Y, Z)
         r_list, r_mean = pearson_r_per_channel(Y, Yp)
         result = {
             "Y": Y,
@@ -1523,8 +1535,8 @@ class VARMAOLSWrapper:
         }
         return result
 
-    def test(self, Y: TrialList) -> Dict[str, Any]:
-        return self.validate(Y)
+    def test(self, Y: TrialList, Z: Optional[TrialList] = None) -> Dict[str, Any]:
+        return self.validate(Y, Z)
 
     def _forecast_from_history(
         self,

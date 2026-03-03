@@ -5,7 +5,7 @@ model:
   long_ar_lags: 30
   time_first: true
   fast: false
-  reuse_splits: true
+  reuse_splits: false
   forecast:
     m: 2
     history: 5
@@ -26,7 +26,17 @@ data:
       "ECOG_3_lowbeta_raw",
       "LFP_11_delta_raw",
       "ECOG_4_alpha_raw",
-      "ECOG_3_alpha_raw"
+      "ECOG_3_alpha_raw",
+      "LFP_15_lowbeta_raw",
+      "LFP_12_lowbeta_raw",
+      "LFP_13_beta_raw",
+      "LFP_11_lowbeta_raw",
+      "ECOG_2_highbeta_raw",
+      "LFP_14_beta_raw",
+      "LFP_9_beta_raw",
+      "LFP_15_delta_raw",
+      "LFP_10_beta_raw",
+      "LFP_16_beta_raw"
     ]
     output_type: "behavioral"
     output: [

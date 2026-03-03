@@ -16,7 +16,10 @@ from dashboard.subtabs.helpers import (
     render_analysis,
 )
 from dashboard.subtabs.predictions import render_predictions_tab
-from dashboard.subtabs.cross_trial_performance import render_cross_trial_performance_tab
+from dashboard.subtabs.cross_trial_performance import (
+    render_cross_trial_performance_tab,
+    render_forecast_performance_tab,
+)
 from dashboard.subtabs.forecasting import render_forecasting_tab
 from dashboard.subtabs.latent_states import render_latent_states_tab
 from dashboard.subtabs.classification import (
@@ -27,6 +30,10 @@ from dashboard.subtabs.classification import (
     create_summary_table,
     resolve_metric,
     reevaluate_against_history,
+    compute_classification_metrics,
+    compute_roc_metrics,
+    truncate_to_match_length,
+    has_roc_data,
 )
 from dashboard.subtabs.data_hungriness import render_data_hungriness_tab
 
@@ -48,6 +55,7 @@ __all__ = [
     "render_analysis",
     "render_predictions_tab",
     "render_cross_trial_performance_tab",
+    "render_forecast_performance_tab",
     "render_forecasting_tab",
     "render_latent_states_tab",
     "load_classification_results",
@@ -57,5 +65,9 @@ __all__ = [
     "create_summary_table",
     "resolve_metric",
     "reevaluate_against_history",
+    "compute_classification_metrics",
+    "compute_roc_metrics",
+    "truncate_to_match_length",
+    "has_roc_data",
     "render_data_hungriness_tab",
 ]
