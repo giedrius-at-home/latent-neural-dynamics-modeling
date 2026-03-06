@@ -503,7 +503,6 @@ class LSSM:
         U_future=None,
         add_process_noise=False,  # Kept for API compatibility; no longer used (no Q in forecast)
     ):
-        import warnings
         import numpy as np
 
         if isinstance(Y_past, (list, tuple)):
@@ -540,25 +539,6 @@ class LSSM:
         else:
             U_ext = None
 
-        U_future_proc = None
-        if self.input_dim > 0:
-            if U_future is None:
-                warnings.warn(
-                    f"Model has input_dim > 0 but U_future was not provided. "
-                    f"Assuming {m} steps of zero input."
-                )
-                U_future_proc = np.zeros((m, self.input_dim))
-            else:
-                if U_future.shape[0] != m:
-                    raise ValueError(
-                        f"U_future has {U_future.shape[0]} steps, "
-                        f"but forecast length m is {m}."
-                    )
-                if hasattr(self, "UPrepModel") and self.UPrepModel is not None:
-                    U_future_proc = self.UPrepModel.apply(U_future, time_first=True)
-                else:
-                    U_future_proc = np.asarray(U_future, dtype=float)
-
         x_forecast = np.zeros((m, self.state_dim))
 
         for i in range(m):
@@ -569,28 +549,23 @@ class LSSM:
                     f"Filtered state has wrong dimension {x_filt.shape}. "
                     f"Expected {self.state_dim}."
                 )
-            # One-step-ahead state: x(t+1|t) = A @ x(t|t) + B @ u(t)
+            # One-step-ahead state: x(t+1|t) = A @ x(t|t); forecast steps use zero input
             x_next = self.A @ x_filt
-            if self.input_dim > 0:
-                u_i = U_future_proc[i, :]
-                x_next = x_next + self.B @ u_i
             x_forecast[i, :] = x_next
-            # One-step-ahead observation to feed back as "truth" for next Kalman step
-            u_i_2d = (U_future_proc[i : i + 1, :] if self.input_dim > 0 else None)
             y_next = self.generateObservationFromStates(
                 x_next.reshape(1, -1),
-                u=u_i_2d,
+                u=None,
                 param_names=["C", "D"],
                 prep_model_param="YPrepModel",
             )
             y_next_row = np.atleast_2d(y_next)[0, :]
             Y_ext = np.vstack([Y_ext, y_next_row[np.newaxis, :]])
             if self.input_dim > 0:
-                U_ext = np.vstack([U_ext, U_future_proc[i, :][np.newaxis, :]])
+                U_ext = np.vstack([U_ext, np.zeros((1, self.input_dim))])
 
         y_forecast = self.generateObservationFromStates(
             x_forecast,
-            u=U_future,
+            u=None,
             param_names=["C", "D"],
             prep_model_param="YPrepModel",
         )
@@ -601,7 +576,7 @@ class LSSM:
         ):
             z_forecast = self.generateObservationFromStates(
                 x_forecast,
-                u=U_future,
+                u=None,
                 param_names=["Cz", "Dz"],
                 prep_model_param="ZPrepModel",
             )
