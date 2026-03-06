@@ -3,6 +3,9 @@ model:
   p: 20
   q: 1
   long_ar_lags: 30
+  stabilize_roots: true
+  max_root: 0.999
+  sample_future_ma_errors: true
   time_first: true
   fast: false
   reuse_splits: true

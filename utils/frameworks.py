@@ -123,9 +123,9 @@ class PSIDWrapper:
         )
         return self.idSys
 
-    def predict(self, Y: TrialList):
+    def predict(self, Y: TrialList, Z: Optional[TrialList] = None):
         use_smoothing = getattr(self.idSys, "backward_kalman", False)
-        return self.idSys.predict(Y, useSmoothing=use_smoothing)
+        return self.idSys.predict(Y, U=Z, useSmoothing=use_smoothing)
 
     def validate(self, Y: TrialList) -> Dict[str, Any]:
         Zp, Yp, Xp = self.idSys.predict(Y)
@@ -148,7 +148,8 @@ class PSIDWrapper:
         return self.validate(Y)
 
     def forecast(self, m: int, Y_past: Array2D):
-        return self.idSys.forecast(m, Y_past)
+        add_noise = getattr(self.config.model, "add_process_noise_in_forecast", False)
+        return self.idSys.forecast(m, Y_past, add_process_noise=add_noise)
 
     def validate_forecast(
         self,
@@ -1242,6 +1243,7 @@ class VARMAOLSWrapper:
         self.Z_std = None
         self.mean_all = None
         self.std_all = None
+        self.sigma_e = None
 
     def __getstate__(self):
         state = self.__dict__.copy()
@@ -1383,6 +1385,22 @@ class VARMAOLSWrapper:
             f"n_features={self.beta_ols.shape[0]}, K={self.beta_ols.shape[1]}"
         )
 
+        pred_full = X_full @ self.beta_ols
+        resid_full = Y_full - pred_full
+        sigma_e = np.cov(resid_full.T)
+        if sigma_e.ndim == 0:
+            sigma_e = np.array([[sigma_e]])
+        sigma_e = np.atleast_2d(sigma_e)
+        min_eig = np.min(np.linalg.eigvalsh(sigma_e))
+        if min_eig < 1e-8:
+            sigma_e = sigma_e + (1e-8 - min_eig) * np.eye(self.K)
+        self.sigma_e = sigma_e
+
+        stabilize = getattr(self.config.model, "stabilize_roots", False)
+        max_root = float(getattr(self.config.model, "max_root", 0.999))
+        if stabilize and max_root < 1.0 and self.p > 0:
+            self._stabilize_ar_roots(max_root)
+
         if self.Z_mean is not None:
             self.mean_all = np.concatenate([self.Y_mean, self.Z_mean], axis=1)
             self.std_all = np.concatenate([self.Y_std, self.Z_std], axis=1)
@@ -1391,6 +1409,28 @@ class VARMAOLSWrapper:
             self.std_all = self.Y_std
 
         return self
+
+    def _stabilize_ar_roots(self, max_root: float) -> None:
+        p, K = self.p, self.K
+        Phi_list = []
+        for i in range(1, p + 1):
+            block = self.beta_ols[1 + (i - 1) * K : 1 + i * K, :]
+            Phi_list.append(block.T)
+        F = np.zeros((p * K, p * K))
+        for i in range(p):
+            F[:K, i * K : (i + 1) * K] = Phi_list[i]
+        for i in range(p - 1):
+            F[(i + 1) * K : (i + 2) * K, i * K : (i + 1) * K] = np.eye(K)
+        evals = np.linalg.eigvals(F)
+        rho = np.max(np.abs(evals))
+        if rho <= max_root:
+            return
+        scale = max_root / rho
+        for i in range(p):
+            Phi_list[i] = Phi_list[i] * scale
+        for i in range(1, p + 1):
+            self.beta_ols[1 + (i - 1) * K : 1 + i * K, :] = Phi_list[i - 1].T
+        self.logger.info(f"AR roots stabilized: max modulus {rho:.4f} -> {max_root}")
 
     def load_from_file(self, model_path: str):
         import pickle
@@ -1474,7 +1514,9 @@ class VARMAOLSWrapper:
 
         return predictions
 
-    def predict(self, Y: TrialList, Z: Optional[TrialList] = None) -> Tuple[Optional[TrialList], TrialList, None]:
+    def predict(
+        self, Y: TrialList, Z: Optional[TrialList] = None
+    ) -> Tuple[Optional[TrialList], TrialList, None]:
         """
         One-step-ahead prediction for all trials.
         Returns (Zp, Yp, None) to match the interface.
@@ -1498,7 +1540,9 @@ class VARMAOLSWrapper:
                             f"Trial {trial_idx}: Z length ({z_trial.shape[0]}) doesn't match Y length ({y_trial.shape[0]}). Using zeros."
                         )
                         z_placeholder = np.zeros((y_trial.shape[0], self.n_channels_Z))
-                        data_zscored = np.concatenate([y_zscored, z_placeholder], axis=1)
+                        data_zscored = np.concatenate(
+                            [y_zscored, z_placeholder], axis=1
+                        )
                 else:
                     # Z not provided or None, use zeros as placeholder
                     z_placeholder = np.zeros((y_trial.shape[0], self.n_channels_Z))
@@ -1543,20 +1587,8 @@ class VARMAOLSWrapper:
         history_data: np.ndarray,
         history_resid: np.ndarray,
         n_steps: int,
+        sample_future_ma_errors: bool = False,
     ) -> np.ndarray:
-        """
-        Recursive multi-step forecasting using VARMA-OLS coefficients.
-
-        Parameters
-        ----------
-        history_data : (T_hist, K) z-scored past data
-        history_resid : (T_hist, K) residual proxies from Long VAR
-        n_steps : number of steps to forecast
-
-        Returns
-        -------
-        forecasts : (n_steps, K) z-scored forecasts
-        """
         p = self.p
         q = self.q
         K = self.K
@@ -1565,16 +1597,15 @@ class VARMAOLSWrapper:
         current_e = list(history_resid[-q:]) if q > 0 else []
 
         forecasts = []
+        sigma_e = getattr(self, "sigma_e", None)
+        use_sampling = (
+            sample_future_ma_errors and sigma_e is not None and sigma_e.size > 0
+        )
 
-        for step in range(n_steps):
-            # Build regressor vector: [intercept, AR lags, MA lags]
+        for _ in range(n_steps):
             regressors = [1.0]
-
-            # AR terms
             for i in range(1, p + 1):
                 regressors.extend(current_y[-i])
-
-            # MA terms
             for i in range(1, q + 1):
                 if len(current_e) >= i:
                     regressors.extend(current_e[-i])
@@ -1586,7 +1617,10 @@ class VARMAOLSWrapper:
 
             forecasts.append(y_next)
             current_y.append(y_next)
-            current_e.append(np.zeros(K))
+            if use_sampling:
+                current_e.append(np.random.multivariate_normal(np.zeros(K), sigma_e))
+            else:
+                current_e.append(np.zeros(K))
 
         return np.array(forecasts)
 
@@ -1622,7 +1656,10 @@ class VARMAOLSWrapper:
         resid_proxy = self._get_long_var_residuals(padded_data)
         effective_data = padded_data[long_ar_lags:]
 
-        forecasts_zscored = self._forecast_from_history(effective_data, resid_proxy, m)
+        sample_future_ma = getattr(self.config.model, "sample_future_ma_errors", False)
+        forecasts_zscored = self._forecast_from_history(
+            effective_data, resid_proxy, m, sample_future_ma_errors=sample_future_ma
+        )
 
         Yf_zscored = forecasts_zscored[:, : self.n_channels_Y]
         Yf = Yf_zscored * self.Y_std + self.Y_mean
