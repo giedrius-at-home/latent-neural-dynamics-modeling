@@ -19,6 +19,7 @@ from dashboard.time_series_plots import (
     plot_component_time_series,
     plot_cross_trial_speed,
     plot_session_average_behavior,
+    plot_participant_average_behavior,
     plot_signal_alignment,
     compute_cross_correlation_lag,
     plot_population_time_series,
@@ -311,12 +312,15 @@ def render_cross_trial_analysis(block_data):
         if var["col"] not in block_data.columns:
             continue
 
-        fig_session_avg = plot_session_average_behavior(
+        # Use participant-level function to show all sessions
+        fig_session_avg = plot_participant_average_behavior(
             behavioral_col=var["col"], y_label=f"{var['name']} ({var['unit']})"
         )
 
         st.plotly_chart(fig_session_avg, use_container_width=True)
-        st.caption(f"{var['name']} — Session average with ±1 SD (DBS ON vs OFF)")
+        st.caption(
+            f"{var['name']} — Participant average across sessions (DBS ON vs OFF)"
+        )
 
 
 def render_neural_tab(trial_data, lfp_channels, ecog_channels, metadata_str):
@@ -1223,7 +1227,21 @@ def render_raw_alignment_tab(trial_data, block_data, lfp_channels, ecog_channels
 def time_series_tab(block_data):
     st.header("Time-Series Analysis")
 
-    lfp_channels, ecog_channels, motion_channels = get_channel_lists(block_data)
+    # Handle case where block_data might be None (for Session Level tab)
+    if block_data is not None:
+        try:
+            if not block_data.is_empty():
+                lfp_channels, ecog_channels, motion_channels = get_channel_lists(
+                    block_data
+                )
+            else:
+                lfp_channels, ecog_channels, motion_channels = [], [], []
+        except Exception:
+            # If block_data exists but has issues, use empty lists
+            lfp_channels, ecog_channels, motion_channels = [], [], []
+    else:
+        # Default empty lists for Session/Population Level tabs that don't need block_data
+        lfp_channels, ecog_channels, motion_channels = [], [], []
 
     # Outer tabs for Level of Analysis
     trial_level_tab, session_level_tab, pop_level_tab = st.tabs(
@@ -1231,54 +1249,61 @@ def time_series_tab(block_data):
     )
 
     with trial_level_tab:
-        trials_in_block = sorted(block_data["trial"].unique().to_list())
-        # If no trials, warn
-        if not trials_in_block:
-            st.warning("No trials in block.")
-        else:
-            selected_trial = st.selectbox(
-                "Select a Trial to Render",
-                options=trials_in_block,
+        if block_data is None or block_data.is_empty():
+            st.info(
+                "Select a block in the sidebar and click 'Load Block Data' to view Trial Level analysis."
             )
-
-            trial_data = block_data.filter(pl.col("trial") == selected_trial)
-
-            if trial_data is None or trial_data.is_empty():
-                st.info("Select a block and trial to view time-series data.")
+        else:
+            trials_in_block = sorted(block_data["trial"].unique().to_list())
+            # If no trials, warn
+            if not trials_in_block:
+                st.warning("No trials in block.")
             else:
-                meta = get_trial_metadata(trial_data)
-                duration = get_trial_duration(trial_data)
-
-                metadata_str = format_trial_metadata(
-                    meta.get("participant_id"),
-                    meta.get("session"),
-                    meta.get("block"),
-                    meta.get("trial"),
-                    stim=meta.get("stim"),
-                    duration=duration,
+                selected_trial = st.selectbox(
+                    "Select a Trial to Render",
+                    options=trials_in_block,
                 )
 
-                st.subheader(metadata_str)
+                trial_data = block_data.filter(pl.col("trial") == selected_trial)
 
-                neural_tab, behavioral_tab, cross_trial_tab, raw_alignment_tab = (
-                    st.tabs(["Neural", "Behavioral", "Cross-Trial", "Raw Alignment"])
-                )
+                if trial_data is None or trial_data.is_empty():
+                    st.info("Select a block and trial to view time-series data.")
+                else:
+                    meta = get_trial_metadata(trial_data)
+                    duration = get_trial_duration(trial_data)
 
-                with neural_tab:
-                    render_neural_tab(
-                        trial_data, lfp_channels, ecog_channels, metadata_str
+                    metadata_str = format_trial_metadata(
+                        meta.get("participant_id"),
+                        meta.get("session"),
+                        meta.get("block"),
+                        meta.get("trial"),
+                        stim=meta.get("stim"),
+                        duration=duration,
                     )
 
-                with behavioral_tab:
-                    render_behavioral_tab(trial_data, metadata_str)
+                    st.subheader(metadata_str)
 
-                with cross_trial_tab:
-                    render_cross_trial_analysis(block_data)
-
-                with raw_alignment_tab:
-                    render_raw_alignment_tab(
-                        trial_data, block_data, lfp_channels, ecog_channels
+                    neural_tab, behavioral_tab, cross_trial_tab, raw_alignment_tab = (
+                        st.tabs(
+                            ["Neural", "Behavioral", "Cross-Trial", "Raw Alignment"]
+                        )
                     )
+
+                    with neural_tab:
+                        render_neural_tab(
+                            trial_data, lfp_channels, ecog_channels, metadata_str
+                        )
+
+                    with behavioral_tab:
+                        render_behavioral_tab(trial_data, metadata_str)
+
+                    with cross_trial_tab:
+                        render_cross_trial_analysis(block_data)
+
+                    with raw_alignment_tab:
+                        render_raw_alignment_tab(
+                            trial_data, block_data, lfp_channels, ecog_channels
+                        )
 
     with session_level_tab:
         render_session_level_tab(lfp_channels + ecog_channels)
