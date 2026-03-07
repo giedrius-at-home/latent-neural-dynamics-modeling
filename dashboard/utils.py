@@ -39,6 +39,77 @@ def get_channel_lists(
     return lfp_channels, ecog_channels, motion_channels
 
 
+def discover_channels_from_data(
+    participant_id: str, dataset: str, session: str = None
+) -> tuple[list[str], list[str]]:
+    """
+    Discover LFP and ECoG channels from participant or session data by reading schema.
+    If session is None, discovers from participant level, otherwise from session level.
+    Returns (lfp_channels, ecog_channels).
+    """
+    from pathlib import Path
+    from utils.data_loader import DATA_PATH
+
+    try:
+        # Build path based on whether session is provided
+        p_partition = f"participant_id={participant_id}"
+        if session is not None:
+            s_partition = f"session={session}"
+            data_path = DATA_PATH / dataset / p_partition / s_partition
+        else:
+            data_path = DATA_PATH / dataset / p_partition
+
+        if not data_path.exists():
+            return [], []
+
+        # Find first parquet file to read schema
+        first_file = next(data_path.rglob("*.parquet"), None)
+        if not first_file:
+            return [], []
+
+        # Read schema only (much faster than loading data)
+        schema = pl.read_parquet_schema(first_file)
+        all_cols = set(schema.keys())
+
+        lfp_channels = sorted(
+            [
+                col
+                for col in all_cols
+                if col.lower().startswith("lfp")
+                and ("psd" not in col and "epochs" not in col)
+            ],
+            key=natural_sort_key,
+        )
+        ecog_channels = sorted(
+            [
+                col
+                for col in all_cols
+                if col.lower().startswith("ecog")
+                and ("psd" not in col and "epochs" not in col)
+            ],
+            key=natural_sort_key,
+        )
+
+        return lfp_channels, ecog_channels
+    except Exception:
+        return [], []
+
+
+# Convenience aliases for backward compatibility
+def discover_channels_from_participant_data(
+    participant_id: str, dataset: str
+) -> tuple[list[str], list[str]]:
+    """Discover channels from participant data (calls discover_channels_from_data with session=None)."""
+    return discover_channels_from_data(participant_id, dataset, session=None)
+
+
+def discover_channels_from_session_data(
+    participant_id: str, session: str, dataset: str
+) -> tuple[list[str], list[str]]:
+    """Discover channels from session data (calls discover_channels_from_data with session)."""
+    return discover_channels_from_data(participant_id, dataset, session=session)
+
+
 def get_trial_metadata(trial_data: pl.DataFrame, trial_idx: int = 0) -> dict:
     if trial_data.is_empty():
         return {}

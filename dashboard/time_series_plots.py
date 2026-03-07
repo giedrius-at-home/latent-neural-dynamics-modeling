@@ -890,6 +890,201 @@ def plot_session_average_behavior(
     return fig
 
 
+def plot_participant_average_behavior(
+    behavioral_col: str,
+    y_label: str,
+    time_col: str = "motion_time",
+) -> go.Figure:
+    """
+    Plot participant-level average behavior across multiple sessions.
+    DBS OFF: nice blue color
+    DBS ON: red for S2, orange for S4 (or three sessions for last participant)
+    """
+    participant_id = st.session_state.get("participant_id")
+    dataset = st.session_state.get("selected_dataset")
+
+    if not participant_id:
+        return go.Figure().update_layout(
+            title_text="Participant information not available"
+        )
+
+    from utils.data_loader import (
+        get_participant_sessions,
+        load_participant_session_data,
+    )
+
+    # Get all sessions for this participant
+    participant_sessions = get_participant_sessions(dataset).get(participant_id, {})
+    if not participant_sessions:
+        return go.Figure().update_layout(title_text="No sessions found for participant")
+
+    # Session colors: red for S2, orange for S4, etc.
+    # For DBS ON: red (#DC143C), orange (#FF8C00), or third color for 3 sessions
+    session_colors_on = {
+        "2": "#DC143C",  # Crimson red
+        "4": "#FF8C00",  # Dark orange
+        "3": "#FF6347",  # Tomato red (for third session if needed)
+    }
+
+    # Two chromatically similar blue colors for DBS OFF (similar to palette colors)
+    # Based on palette: twilight_indigo (#38405f) and cool_steel (#8b939c) as inspiration
+    session_colors_off = {
+        "2": "#4A90E2",  # Nice medium blue (similar chroma to twilight_indigo)
+        "4": "#5B9BD5",  # Slightly lighter blue (similar chroma, lighter)
+        "3": "#6BA3D6",  # Even lighter blue (for third session if needed)
+    }
+
+    fig = go.Figure()
+
+    # Process each session
+    for session_id in sorted(
+        participant_sessions.keys(), key=lambda x: int(x) if str(x).isdigit() else x
+    ):
+        try:
+            session_data = load_participant_session_data(
+                participant_id, session_id, dataset=dataset
+            )
+
+            if session_data.is_empty():
+                continue
+
+            dbs_on_data = session_data.filter(pl.col("stim") == "on")
+            dbs_off_data = session_data.filter(pl.col("stim") == "off")
+
+            # DBS ON
+            speeds_on, times_on = _extract_speed_data(
+                dbs_on_data, time_col, behavioral_col
+            )
+            if speeds_on:
+                mean_speed_on, std_speed_on, time_axis = _compute_block_average(
+                    speeds_on, times_on
+                )
+                session_color_on = session_colors_on.get(str(session_id), "#DC143C")
+
+                # Main line
+                fig.add_trace(
+                    go.Scatter(
+                        x=time_axis,
+                        y=mean_speed_on,
+                        mode="lines",
+                        name=f"S{session_id} DBS ON",
+                        line=dict(color=session_color_on, width=2.5),
+                        showlegend=True,
+                    )
+                )
+
+                hex_color = session_color_on.lstrip("#")
+                rgb = tuple(int(hex_color[i : i + 2], 16) for i in (0, 2, 4))
+                fig.add_trace(
+                    go.Scatter(
+                        x=np.concatenate([time_axis, time_axis[::-1]]),
+                        y=np.concatenate(
+                            [
+                                mean_speed_on + std_speed_on,
+                                (mean_speed_on - std_speed_on)[::-1],
+                            ]
+                        ),
+                        fill="toself",
+                        fillcolor=f"rgba({rgb[0]}, {rgb[1]}, {rgb[2]}, 0.1)",
+                        line=dict(color="rgba(255,255,255,0)"),
+                        showlegend=False,
+                        hoverinfo="skip",
+                    )
+                )
+
+            if not dbs_off_data.is_empty():
+                speeds_off, times_off = _extract_speed_data(
+                    dbs_off_data, time_col, behavioral_col
+                )
+                if speeds_off:
+                    mean_speed_off, std_speed_off, time_axis = _compute_block_average(
+                        speeds_off, times_off
+                    )
+
+                    session_color_off = session_colors_off.get(
+                        str(session_id), "#4A90E2"
+                    )
+
+                    fig.add_trace(
+                        go.Scatter(
+                            x=time_axis,
+                            y=mean_speed_off,
+                            mode="lines",
+                            name=f"S{session_id} DBS OFF",
+                            line=dict(color=session_color_off, width=2.5),
+                            showlegend=True,
+                        )
+                    )
+
+                    hex_color = session_color_off.lstrip("#")
+                    rgb = tuple(int(hex_color[i : i + 2], 16) for i in (0, 2, 4))
+                    fig.add_trace(
+                        go.Scatter(
+                            x=np.concatenate([time_axis, time_axis[::-1]]),
+                            y=np.concatenate(
+                                [
+                                    mean_speed_off + std_speed_off,
+                                    (mean_speed_off - std_speed_off)[::-1],
+                                ]
+                            ),
+                            fill="toself",
+                            fillcolor=f"rgba({rgb[0]}, {rgb[1]}, {rgb[2]}, 0.1)",
+                            line=dict(color="rgba(255,255,255,0)"),
+                            showlegend=False,
+                            hoverinfo="skip",
+                        )
+                    )
+        except Exception:
+            continue
+
+    fig.update_layout(
+        title="",
+        template="plotly_white",
+        hovermode="x unified",
+        margin=dict(l=70, r=30, t=20, b=50),
+        legend=dict(
+            yanchor="top",
+            y=0.99,
+            xanchor="right",
+            x=0.99,
+            bgcolor="rgba(255,255,255,0.9)",
+            bordercolor="rgba(200,200,200,0.5)",
+            borderwidth=1,
+            font=dict(size=11),
+        ),
+        plot_bgcolor="white",
+        paper_bgcolor="white",
+    )
+
+    fig.update_xaxes(
+        title_text="Time (s)",
+        title_font=dict(size=12, family="Arial"),
+        showgrid=True,
+        gridcolor="rgba(220, 220, 220, 0.5)",
+        gridwidth=1,
+        showline=True,
+        linecolor="black",
+        linewidth=1.5,
+        mirror=True,
+        tickfont=dict(size=11, family="Arial"),
+    )
+
+    fig.update_yaxes(
+        title_text=y_label,
+        title_font=dict(size=12, family="Arial"),
+        showgrid=True,
+        gridcolor="rgba(220, 220, 220, 0.5)",
+        gridwidth=1,
+        showline=True,
+        linecolor="black",
+        linewidth=1.5,
+        mirror=True,
+        tickfont=dict(size=11, family="Arial"),
+    )
+
+    return fig
+
+
 def _extract_speed_data(data: pl.DataFrame, time_col: str, speed_col: str):
     speeds = []
     times = []

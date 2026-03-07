@@ -9,7 +9,7 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 # Support custom results path via environment variable
-# Usage: RESULTS_PATH=/path/to/local/results streamlit run dashboard.py
+# Usage: RESULTS_PATH=/path/to/local/results streamlit run dashboard_psd_session.py
 results_root = Path(os.environ.get("RESULTS_PATH", project_root / "results"))
 
 from utils.data_loader import (
@@ -19,19 +19,15 @@ from utils.data_loader import (
     get_available_datasets,
     set_participants_path,
 )
-from dashboard.time_series_tab import time_series_tab
-from dashboard.psd_analysis_tab import psd_analysis_tab
-from dashboard.model_predictions_tab import model_predictions_tab
-from dashboard.dbs_classification_tab import dbs_classification_tab
-from dashboard.grid_search_tab import grid_search_tab
+from dashboard.psd_analysis_tab import render_average_psd_session_level
 from utils.logger import setup_logger
 
 logger = setup_logger("dashboard_logs", name=__name__)
-logger.info("Dashboard script started.")
+logger.info("PSD Session Level Dashboard script started.")
 
 st.set_page_config(layout="wide")
 
-st.title("iEEG & Motion Analysis Dashboard")
+st.title("PSD Analysis - Session Level")
 
 st.sidebar.header("Dataset Selection")
 
@@ -68,10 +64,16 @@ else:
         "Participant", options=list(participant_sessions.keys()), key="sb_participant"
     )
 
+    # Set participant_id in session_state so Session Level tab can access it
+    st.session_state["participant_id"] = selected_participant_id
+
     sessions_dict = participant_sessions[selected_participant_id]
     selected_session = st.sidebar.selectbox(
         "Session", options=list(sessions_dict.keys()), key="sb_session"
     )
+    # Set session in session_state for Session Level tab
+    st.session_state["session"] = selected_session
+
     blocks = sessions_dict[selected_session]
     selected_block = st.sidebar.selectbox("Block", options=blocks, key="sb_block")
 
@@ -84,71 +86,38 @@ else:
                 selected_dataset,
             )
             st.session_state["block_data"] = data
-            st.session_state["participant_id"] = selected_participant_id
-            st.session_state["session"] = selected_session
             st.session_state["block"] = selected_block
             st.sidebar.success(
                 f"Loaded: P{selected_participant_id} S{selected_session} B{selected_block}"
             )
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs(
-    [
-        "Time-Series Analysis",
-        "Frequency (PSD) Analysis",
-        "Model Predictions",
-        "DBS Classification",
-        "Grid Search",
-    ]
-)
+# Session Level PSD Analysis - doesn't require block_data, but we can get channels from it if available
+block_data = st.session_state.get("block_data", None)
+if block_data is not None and not block_data.is_empty():
+    from dashboard.utils import get_channel_lists
+    lfp_channels, ecog_channels, motion_channels = get_channel_lists(block_data)
+else:
+    # Try to discover channels from session data
+    # For now, use common channel names - render_average_psd_session_level will filter based on available data
+    lfp_channels = [f"LFP_{i}" for i in range(1, 17)]
+    ecog_channels = [f"ECOG_{i}" for i in range(1, 5)]
 
+st.markdown("### Session-level Average PSD")
 
-def get_channels_from_data(data):
-    if data is None:
-        return [], []
-    lfp = sorted(
-        [
-            col
-            for col in data.columns
-            if col.lower().startswith("lfp")
-            and ("psd" not in col and "epochs" not in col)
-        ],
-        key=natural_sort_key,
+col1_session, col2_session = st.columns(2)
+
+with col1_session:
+    st.markdown("#### LFP")
+    selected_lfp_session = st.multiselect(
+        "Select LFP Channels", lfp_channels, key="lfp_psd_avg_session"
     )
-    ecog = sorted(
-        [
-            col
-            for col in data.columns
-            if col.lower().startswith("ecog")
-            and ("psd" not in col and "epochs" not in col)
-        ],
-        key=natural_sort_key,
+    if selected_lfp_session:
+        render_average_psd_session_level(selected_lfp_session, "LFP")
+
+with col2_session:
+    st.markdown("#### ECoG")
+    selected_ecog_session = st.multiselect(
+        "Select ECoG Channels", ecog_channels, key="ecog_psd_avg_session"
     )
-    return lfp, ecog
-
-
-with tab1:
-    if "block_data" in st.session_state:
-        time_series_tab(st.session_state["block_data"])
-    else:
-        st.info(
-            "Select a block in the sidebar and click 'Load Block Data' to view Time-Series analysis."
-        )
-
-with tab2:
-    if "block_data" in st.session_state:
-        block_data = st.session_state["block_data"]
-        lfp, ecog = get_channels_from_data(block_data)
-        psd_analysis_tab(block_data, lfp, ecog)
-    else:
-        st.info(
-            "Select a block in the sidebar and click 'Load Block Data' to view PSD analysis."
-        )
-
-with tab3:
-    model_predictions_tab(project_root, results_root)
-
-with tab4:
-    dbs_classification_tab(project_root, results_root)
-
-with tab5:
-    grid_search_tab(project_root, results_root)
+    if selected_ecog_session:
+        render_average_psd_session_level(selected_ecog_session, "ECoG")

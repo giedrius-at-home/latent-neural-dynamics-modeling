@@ -1,8 +1,9 @@
 import streamlit as st
 import numpy as np
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from pathlib import Path
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 import pandas as pd
 
 from dashboard.backbone import (
@@ -45,6 +46,330 @@ from utils.stats import (
 )
 
 SAMPLING_FREQ = 60
+
+
+def _block_trial_indices_by_block(split_res: Dict[str, Any]) -> Dict[Tuple, List[int]]:
+    blk_list = split_res.get("block", [])
+    pid_list = split_res.get("participant_id", [])
+    ses_list = split_res.get("session", [])
+    n_trials = len(split_res.get("Y", []))
+    if not blk_list and n_trials > 0:
+        return {("all",): list(range(n_trials))}
+    block_to_trials = {}
+    for t in range(n_trials):
+        pid = pid_list[t] if pid_list and t < len(pid_list) else None
+        ses = ses_list[t] if ses_list and t < len(ses_list) else None
+        blk = blk_list[t] if blk_list and t < len(blk_list) else t
+        key = (pid, ses, blk)
+        block_to_trials.setdefault(key, []).append(t)
+    return block_to_trials
+
+
+def _get_or_compute_forecast_for_trial(
+    split_res: Dict[str, Any],
+    trial_idx: int,
+    cfg_path: Path,
+    run_ts: str,
+    project_root: Path,
+    results_root: Path,
+    split_name: str,
+    baseline_res: Optional[Dict],
+    baseline_variant: Optional[str],
+) -> Tuple[Optional[Dict], Optional[Dict]]:
+    Y_true = split_res.get("Y", [])
+    Z_list = split_res.get("Z")
+    chunk_margins = split_res.get("chunk_margin")
+    if trial_idx >= len(Y_true):
+        return None, None
+
+    main_f = None
+    if "Y_future_pred" in split_res and split_res["Y_future_pred"] is not None:
+        if (
+            trial_idx < len(split_res["Y_future_pred"])
+            and split_res["Y_future_pred"][trial_idx] is not None
+        ):
+            m_val = split_res.get("metric_m")
+            m = (
+                int(m_val[0] if isinstance(m_val, list) and m_val else m_val)
+                if m_val
+                else 0
+            )
+            if not m and cfg_path:
+                cfg = get_config(str(cfg_path))
+                m = int(
+                    getattr(cfg.model.forecast, "m", 2.0)
+                    * getattr(cfg.data, "sampling_frequency", 60)
+                )
+            main_f = {
+                "m": m,
+                "Y_future_true": (
+                    split_res["Y_future_true"][trial_idx]
+                    if split_res.get("Y_future_true")
+                    else None
+                ),
+                "Y_future_pred": split_res["Y_future_pred"][trial_idx],
+                "Y_concat_for_plot": (
+                    split_res["Y_concat_for_plot"][trial_idx]
+                    if split_res.get("Y_concat_for_plot")
+                    else None
+                ),
+            }
+    if (
+        main_f is None
+        and "trial_forecasts" in split_res
+        and trial_idx in split_res["trial_forecasts"]
+    ):
+        main_f = split_res["trial_forecasts"][trial_idx]
+    if main_f is None:
+        y_trial = np.array(Y_true[trial_idx])
+        z_trial = (
+            np.array(Z_list[trial_idx])
+            if Z_list and trial_idx < len(Z_list) and Z_list[trial_idx] is not None
+            else None
+        )
+        chunk_margin = (
+            chunk_margins[trial_idx]
+            if isinstance(chunk_margins, (list, np.ndarray))
+            and chunk_margins is not None
+            and trial_idx < len(chunk_margins)
+            else None
+        )
+        if chunk_margin is None and isinstance(
+            split_res.get("chunk_margin"), (list, np.ndarray)
+        ):
+            chunk_margin = (
+                split_res["chunk_margin"][trial_idx]
+                if trial_idx < len(split_res["chunk_margin"])
+                else None
+            )
+        try:
+            main_f = compute_forecast_for_trial(
+                str(cfg_path), run_ts, y_trial, z_trial, chunk_margin
+            )
+            if "trial_forecasts" not in split_res:
+                split_res["trial_forecasts"] = {}
+            split_res["trial_forecasts"][trial_idx] = main_f
+        except Exception:
+            return None, None
+
+    base_f = None
+    if baseline_res is not None and baseline_variant:
+        if (
+            "Y_future_pred" in baseline_res
+            and baseline_res["Y_future_pred"] is not None
+            and trial_idx < len(baseline_res["Y_future_pred"])
+            and baseline_res["Y_future_pred"][trial_idx] is not None
+        ):
+            m_val = baseline_res.get("metric_m")
+            m = (
+                int(m_val[0] if isinstance(m_val, list) and m_val else m_val)
+                if m_val
+                else main_f.get("m", 0)
+            )
+            base_f = {
+                "m": m,
+                "Y_future_true": (
+                    baseline_res["Y_future_true"][trial_idx]
+                    if baseline_res.get("Y_future_true")
+                    else None
+                ),
+                "Y_future_pred": baseline_res["Y_future_pred"][trial_idx],
+            }
+        elif main_f and main_f.get("m"):
+            baseline_cfg = find_config_path(project_root, baseline_variant)
+            baseline_ts = st.session_state.get("fore_baseline_ts")
+            if baseline_cfg and baseline_ts:
+                y_trial = np.array(Y_true[trial_idx])
+                z_trial = (
+                    np.array(Z_list[trial_idx])
+                    if Z_list
+                    and trial_idx < len(Z_list)
+                    and Z_list[trial_idx] is not None
+                    else None
+                )
+                chunk_margin = (
+                    chunk_margins[trial_idx]
+                    if isinstance(chunk_margins, (list, np.ndarray))
+                    and chunk_margins is not None
+                    and trial_idx < len(chunk_margins)
+                    else None
+                )
+                try:
+                    base_f = compute_forecast_for_trial(
+                        str(baseline_cfg), baseline_ts, y_trial, z_trial, chunk_margin
+                    )
+                except Exception:
+                    pass
+    return main_f, base_f
+
+
+def render_block_forecast_view(
+    split_res: Dict[str, Any],
+    cfg_path: Path,
+    run_ts: str,
+    baseline_res: Optional[Dict[str, Any]],
+    baseline_variant: Optional[str],
+    selected_baseline_name: str,
+    model_label: str,
+    split_name: str,
+):
+    n_trials = len(split_res.get("Y", []))
+    if n_trials == 0:
+        st.info("No trials in this split.")
+        return
+
+    block_to_trials = _block_trial_indices_by_block(split_res)
+    if not block_to_trials:
+        block_to_trials = {("all",): list(range(n_trials))}
+    project_root = get_project_root(cfg_path)
+    results_root = project_root / "results"
+    try:
+        cfg = get_config(str(cfg_path))
+    except Exception:
+        cfg = None
+    fs = (
+        getattr(cfg.data, "sampling_frequency", SAMPLING_FREQ) if cfg else SAMPLING_FREQ
+    )
+
+    block_options = []
+    for key, indices in block_to_trials.items():
+        if key == ("all",):
+            label = f"All trials ({len(indices)})"
+        else:
+            _, ses, blk = (
+                key if len(key) == 3 else (None, None, key[0] if len(key) == 1 else key)
+            )
+            label = (
+                f"Block {blk}"
+                + (f" (session {ses})" if ses is not None else "")
+                + f" — {len(indices)} trials"
+            )
+        block_options.append((key, label, indices))
+
+    st.markdown("#### Block view")
+    selected_block_idx = st.selectbox(
+        "Block",
+        options=list(range(len(block_options))),
+        format_func=lambda i: block_options[i][1],
+        key="block_forecast_block_select",
+    )
+    _, _, block_trial_indices = block_options[selected_block_idx]
+
+    with st.spinner("Loading or computing forecasts for block..."):
+        main_list = []
+        base_list = []
+        m_used = None
+        for t in block_trial_indices:
+            main_f, base_f = _get_or_compute_forecast_for_trial(
+                split_res,
+                t,
+                cfg_path,
+                run_ts,
+                project_root,
+                results_root,
+                split_name,
+                baseline_res,
+                baseline_variant,
+            )
+            main_list.append(main_f)
+            base_list.append(base_f)
+            if main_f and main_f.get("m"):
+                m_used = main_f["m"]
+
+        if not main_list or not any(main_list):
+            st.warning("No forecast data available for trials in this block.")
+            return
+        if m_used is None and cfg:
+            m_used = int(getattr(cfg.model.forecast, "m", 2.0) * fs)
+        if m_used is None:
+            m_used = int(2.0 * fs)
+
+    n_chan = None
+    for mf in main_list:
+        if mf and mf.get("Y_future_true") is not None:
+            yt = np.array(mf["Y_future_true"])
+            n_chan = yt.shape[1] if yt.ndim == 2 else 1
+            break
+    if n_chan is None:
+        st.warning("Could not infer number of channels.")
+        return
+
+    chan_names = split_res.get("input_channels", [])
+    if not chan_names or len(chan_names) != n_chan:
+        chan_names = [f"ch{i}" for i in range(n_chan)]
+
+    t_future_full = np.arange(m_used) / fs
+    n_rows = n_chan
+    fig = make_subplots(
+        rows=n_rows,
+        cols=1,
+        subplot_titles=chan_names,
+        vertical_spacing=0.06,
+        shared_xaxes=True,
+    )
+
+    for ch in range(n_chan):
+        for tri_idx, (main_f, base_f) in enumerate(zip(main_list, base_list)):
+            if main_f is None or main_f.get("Y_future_true") is None:
+                continue
+            y_true = np.array(main_f["Y_future_true"])
+            y_pred = np.array(main_f["Y_future_pred"])
+            y_true_c = y_true.squeeze() if n_chan == 1 else y_true[:, ch]
+            y_pred_c = y_pred.squeeze() if n_chan == 1 else y_pred[:, ch]
+            show_legend_true = ch == 0 and tri_idx == 0
+            show_legend_main = ch == 0 and tri_idx == 0
+            show_legend_base = ch == 0 and tri_idx == 0
+            fig.add_trace(
+                go.Scatter(
+                    x=t_future_full,
+                    y=y_true_c,
+                    name="True",
+                    legendgroup="True",
+                    showlegend=show_legend_true,
+                    mode="lines",
+                    line=dict(color=PLOT_COLOR.stim_off, width=0.8),
+                ),
+                row=ch + 1,
+                col=1,
+            )
+            fig.add_trace(
+                go.Scatter(
+                    x=t_future_full,
+                    y=y_pred_c,
+                    name=model_label,
+                    legendgroup=model_label,
+                    showlegend=show_legend_main,
+                    mode="lines",
+                    line=dict(color=PLOT_COLOR.stim_on, width=0.8, dash="dot"),
+                ),
+                row=ch + 1,
+                col=1,
+            )
+            if base_f is not None and base_f.get("Y_future_pred") is not None:
+                y_base = np.array(base_f["Y_future_pred"])
+                y_base_c = y_base.squeeze() if n_chan == 1 else y_base[:, ch]
+                fig.add_trace(
+                    go.Scatter(
+                        x=t_future_full,
+                        y=y_base_c,
+                        name=selected_baseline_name,
+                        legendgroup=selected_baseline_name,
+                        showlegend=show_legend_base,
+                        mode="lines",
+                        line=dict(color=BASELINE_COLOR, width=0.8, dash="dash"),
+                    ),
+                    row=ch + 1,
+                    col=1,
+                )
+
+    fig.update_layout(
+        height=max(220 * n_rows, 300),
+        margin=dict(t=40, b=40, l=50, r=40),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    )
+    fig.update_yaxes(title_text="Amplitude (µV)", row=1, col=1)
+    fig.update_xaxes(title_text="Time (s)", row=n_rows, col=1)
+    st.plotly_chart(fig, use_container_width=True, key="block_forecast_fig")
 
 
 def render_y_forecast_plot(
@@ -591,6 +916,20 @@ def render_forecasting_tab(
             f_res = trial_forecast
 
     if not f_res:
+        try:
+            st.markdown("---")
+            render_block_forecast_view(
+                split_res,
+                cfg_path,
+                run_ts,
+                baseline_res,
+                baseline_variant,
+                selected_baseline_name,
+                model_label,
+                split_name,
+            )
+        except Exception as e:
+            st.warning(f"Block view: {e}")
         return
 
     try:
@@ -903,6 +1242,21 @@ def render_forecasting_tab(
 
                 except Exception as e:
                     st.warning(f"Could not render latent forecast plot: {e}")
+
+            st.markdown("---")
+            try:
+                render_block_forecast_view(
+                    split_res,
+                    cfg_path,
+                    run_ts,
+                    baseline_res,
+                    baseline_variant,
+                    selected_baseline_name,
+                    model_label,
+                    split_name,
+                )
+            except Exception as e:
+                st.warning(f"Block view: {e}")
 
     except Exception:
         pass
