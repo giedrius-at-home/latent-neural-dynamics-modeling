@@ -1,5 +1,0 @@
-numpy
-scipy
-scikit-learn # sklearn
-matplotlib
-h5py

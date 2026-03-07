@@ -532,7 +532,6 @@ class LSSM:
                     Y_past=Y_past[i],
                     U_past=U_past_seg,
                     U_future=U_future_seg,
-                    add_process_noise=add_process_noise,
                 )
                 if i == 0:
                     outs = [[o] for o in trial_outs]

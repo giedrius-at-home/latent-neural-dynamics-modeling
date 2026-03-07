@@ -172,8 +172,7 @@ class PSIDWrapper:
         return self.validate(Y)
 
     def forecast(self, m: int, Y_past: Array2D):
-        add_noise = getattr(self.config.model, "add_process_noise_in_forecast", False)
-        return self.idSys.forecast(m, Y_past, add_process_noise=add_noise)
+        return self.idSys.forecast(m, Y_past)
 
     def validate_forecast(
         self,
