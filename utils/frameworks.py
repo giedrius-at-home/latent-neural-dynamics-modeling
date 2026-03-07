@@ -123,9 +123,9 @@ class PSIDWrapper:
         )
         return self.idSys
 
-    def predict(self, Y: TrialList):
+    def predict(self, Y: TrialList, Z: Optional[TrialList] = None):
         use_smoothing = getattr(self.idSys, "backward_kalman", False)
-        return self.idSys.predict(Y, useSmoothing=use_smoothing)
+        return self.idSys.predict(Y, U=Z, useSmoothing=use_smoothing)
 
     def validate(self, Y: TrialList) -> Dict[str, Any]:
         Zp, Yp, Xp = self.idSys.predict(Y)
@@ -148,7 +148,8 @@ class PSIDWrapper:
         return self.validate(Y)
 
     def forecast(self, m: int, Y_past: Array2D):
-        return self.idSys.forecast(m, Y_past)
+        add_noise = getattr(self.config.model, "add_process_noise_in_forecast", False)
+        return self.idSys.forecast(m, Y_past, add_process_noise=add_noise)
 
     def validate_forecast(
         self,
@@ -707,504 +708,6 @@ class DPADFramework(BaseFramework):
         return DPADWrapper(self.config)
 
 
-class AutoARIMAWrapper:
-
-    def __init__(self, config: Config):
-        self.config = config
-        self.logger = get_logger()
-        self.models_Y = []
-        self.models_Z = []
-        self.Y_train = None
-        self.Z_train = None
-        self.Y_mean = None
-        self.Y_std = None
-        self.Z_mean = None
-        self.Z_std = None
-
-        # Store necessary params from config so they survive pickling
-        self.forecast_m = getattr(config.model.forecast, "m", 2.0)
-        self.forecast_history = getattr(config.model.forecast, "history", 5.0)
-        self.sampling_freq = getattr(config.data, "sampling_frequency", 60)
-        self.n_fit_trials = getattr(config.model, "n_fit_trials", 1)
-
-    def __getstate__(self):
-        """Exclude unpicklable logger and large training data from serialization."""
-        state = self.__dict__.copy()
-        state.pop("logger", None)
-        state.pop("config", None)
-        state.pop("Y_train", None)
-        state.pop("Z_train", None)
-        return state
-
-    def __setstate__(self, state):
-        self.__dict__.update(state)
-        self.logger = get_logger()
-        # self.config remains None after unpickling, but we have stored params
-        self.Y_train = None
-        self.Z_train = None
-
-    def load_from_file(self, model_path: str):
-        import pickle
-
-        self.logger.info(f"Loading AutoARIMA model from {model_path}")
-        with open(model_path, "rb") as f:
-            obj = pickle.load(f)
-
-        self.__dict__.update(obj.__dict__)
-        self.logger.info("AutoARIMA model loaded successfully")
-        return self
-
-    def train(self, Y: TrialList, Z: Optional[TrialList] = None):
-        from sktime.forecasting.arima import AutoARIMA
-
-        self.logger.info("Training AutoARIMA models...")
-
-        Y_concat = np.concatenate(Y, axis=0)
-        n_channels_Y = Y_concat.shape[1] if Y_concat.ndim == 2 else 1
-
-        self.Y_mean = np.mean(Y_concat, axis=0, keepdims=True)
-        self.Y_std = np.std(Y_concat, axis=0, keepdims=True)
-        self.Y_std[self.Y_std < 1e-10] = 1.0
-
-        self.Y_train = [(y - self.Y_mean) / self.Y_std for y in Y]
-
-        sp = getattr(self.config.model, "sp", 1)
-        max_p = getattr(self.config.model, "max_p", 5)
-        max_q = getattr(self.config.model, "max_q", 5)
-        max_d = getattr(self.config.model, "max_d", 2)
-        n_fit_trials = self.n_fit_trials
-
-        n_available = len(self.Y_train)
-        n_to_fit = min(n_fit_trials, n_available)
-        fit_indices = np.linspace(0, n_available - 1, n_to_fit, dtype=int).tolist()
-
-        self.logger.info(
-            f"AutoARIMA params: sp={sp}, max_p={max_p}, max_q={max_q}, max_d={max_d}, "
-            f"n_channels_Y={n_channels_Y}, fitting per-trial on {n_to_fit} "
-            f"representative trials (indices: {fit_indices})"
-        )
-
-        # Fit Y channels — per-trial windowed approach (NOT concatenated)
-        self.models_Y = []
-        for ch in range(n_channels_Y):
-            best_model = None
-            for i, trial_idx in enumerate(fit_indices):
-                y_series = pd.Series(self.Y_train[trial_idx][:, ch])
-
-                model = AutoARIMA(
-                    sp=sp,
-                    suppress_warnings=True,
-                    max_p=max_p,
-                    max_q=max_q,
-                    max_d=max_d,
-                    stepwise=True,
-                    n_jobs=1,
-                )
-                model.fit(y_series)
-                if best_model is None:
-                    best_model = model
-                self.logger.info(
-                    f"Fitted AutoARIMA for Y ch {ch}, trial {trial_idx} "
-                    f"({i + 1}/{n_to_fit})"
-                )
-
-            self.models_Y.append(best_model)
-            self.logger.info(f"Selected model for Y channel {ch}")
-
-        if Z is not None:
-            Z_concat = np.concatenate(Z, axis=0)
-            n_channels_Z = Z_concat.shape[1] if Z_concat.ndim == 2 else 1
-
-            self.Z_mean = np.mean(Z_concat, axis=0, keepdims=True)
-            self.Z_std = np.std(Z_concat, axis=0, keepdims=True)
-            self.Z_std[self.Z_std < 1e-10] = 1.0
-
-            self.Z_train = [(z - self.Z_mean) / self.Z_std for z in Z]
-
-            self.models_Z = []
-            for ch in range(n_channels_Z):
-                best_model = None
-                for i, trial_idx in enumerate(fit_indices):
-                    z_series = pd.Series(self.Z_train[trial_idx][:, ch])
-                    y_exog = pd.DataFrame(self.Y_train[trial_idx])
-
-                    model = AutoARIMA(
-                        sp=sp,
-                        suppress_warnings=True,
-                        max_p=max_p,
-                        max_q=max_q,
-                        max_d=max_d,
-                        stepwise=True,
-                        n_jobs=1,
-                    )
-                    model.fit(z_series, X=y_exog)
-                    if best_model is None:
-                        best_model = model
-                    self.logger.info(
-                        f"Fitted ARIMAX for Z ch {ch}, trial {trial_idx} "
-                        f"({i + 1}/{n_to_fit})"
-                    )
-
-                self.models_Z.append(best_model)
-                self.logger.info(f"Selected model for Z channel {ch}")
-
-        self.logger.info("AutoARIMA training complete")
-        return self
-
-    def predict(self, Y: TrialList) -> Tuple[Optional[TrialList], TrialList, None]:
-
-        all_Yp = []
-
-        for y_trial in Y:
-            y_zscored = (y_trial - self.Y_mean) / self.Y_std
-            n_samples = y_trial.shape[0]
-            n_channels = y_trial.shape[1] if y_trial.ndim == 2 else 1
-
-            Yp_trial = np.zeros((n_samples, n_channels))
-            for ch, model in enumerate(self.models_Y):
-                try:
-                    # Correct path for sktime AutoARIMA -> pmdarima -> statsmodels
-                    # sktime.AutoARIMA has _forecaster (pmdarima.AutoARIMA)
-                    # pmdarima.AutoARIMA has model_ (pmdarima.ARIMA) after fit
-                    # pmdarima.ARIMA has arima_res_ (statsmodels result)
-                    pm_auto = getattr(model, "_forecaster", None)
-                    pm_model = getattr(pm_auto, "model_", None) if pm_auto else None
-                    res = getattr(pm_model, "arima_res_", None) if pm_model else None
-
-                    if res is not None:
-                        # Apply trained parameters to new data
-                        new_res = res.apply(y_zscored[:, ch])
-
-                        # One-step-ahead predictions for the whole trial (in-sample for new_res)
-                        preds = new_res.predict()
-
-                        # Handle potential shape mismatch if predict() returns different length
-                        if len(preds) == n_samples:
-                            Yp_trial[:, ch] = preds
-                        else:
-                            self.logger.warning(
-                                f"SARIMAX.apply().predict() length mismatch for Y channel {ch}. "
-                                f"Expected {n_samples}, got {len(preds)}. Falling back to rolling prediction."
-                            )
-                            import copy
-
-                            model_clone = copy.deepcopy(model)
-                            for t in range(n_samples):
-                                pred = model_clone.predict(fh=[1])
-                                Yp_trial[t, ch] = pred.values[0]
-                                y_obs = pd.Series([y_zscored[t, ch]], index=[t])
-                                model_clone.update(y_obs)
-                    else:
-                        self.logger.warning(
-                            f"Statsmodels results not found for Y channel {ch}. Falling back to rolling."
-                        )
-                        import copy
-
-                        model_clone = copy.deepcopy(model)
-                        for t in range(n_samples):
-                            pred = model_clone.predict(fh=[1])
-                            Yp_trial[t, ch] = pred.values[0]
-                            y_obs = pd.Series([y_zscored[t, ch]], index=[t])
-                            model_clone.update(y_obs)
-
-                except Exception as e:
-                    self.logger.warning(
-                        f"Fast prediction failed for Y channel {ch}: {e}. "
-                        f"Falling back to last known value."
-                    )
-                    Yp_trial[:, ch] = y_zscored[-1, ch] if n_samples > 0 else 0.0
-
-            Yp_trial = Yp_trial * self.Y_std + self.Y_mean
-            all_Yp.append(Yp_trial)
-
-        all_Zp = None
-        if self.models_Z and self.Z_mean is not None:
-            all_Zp = []
-            for trial_idx, y_trial in enumerate(Y):
-                y_zscored = (y_trial - self.Y_mean) / self.Y_std
-                n_samples = y_trial.shape[0]
-                n_channels_Z = len(self.models_Z)
-                Zp_trial = np.zeros((n_samples, n_channels_Z))
-
-                y_exog = pd.DataFrame(y_zscored)
-
-                for ch, model in enumerate(self.models_Z):
-                    try:
-                        # Bypass sktime — go through pmdarima/statsmodels directly
-                        pm_auto = getattr(model, "_forecaster", None)
-                        pm_model = getattr(pm_auto, "model_", None) if pm_auto else None
-                        res = (
-                            getattr(pm_model, "arima_res_", None) if pm_model else None
-                        )
-
-                        if res is not None:
-                            # Use a dummy endogenous series (zeros) since we don't
-                            # have the true Z for this trial — we're decoding it.
-                            z_dummy = np.zeros(n_samples)
-                            new_res = res.apply(z_dummy, exog=y_exog)
-                            preds = new_res.predict()
-
-                            if len(preds) == n_samples:
-                                Zp_trial[:, ch] = preds
-                            else:
-                                Zp_trial[:, ch] = 0.0
-                        else:
-                            self.logger.warning(
-                                f"No statsmodels result for Z channel {ch}. Using zero."
-                            )
-                            Zp_trial[:, ch] = 0.0
-
-                    except Exception as e:
-                        self.logger.warning(
-                            f"AutoARIMA prediction failed for Z channel {ch}: {e}. "
-                            f"Falling back to zero."
-                        )
-                        Zp_trial[:, ch] = 0.0
-
-                all_Zp.append(Zp_trial * self.Z_std + self.Z_mean)
-
-        return all_Zp, all_Yp, None
-
-    def validate(self, Y: TrialList) -> Dict[str, Any]:
-        Zp, Yp, Xp = self.predict(Y)
-        r_list, r_mean = pearson_r_per_channel(Y, Yp)
-        result = {
-            "Y": Y,
-            "Zp": Zp,
-            "Yp": Yp,
-            "Xp": Xp,
-            "Yp_shape": state_shape(Yp),
-            "Zp_shape": (None if Zp is None else state_shape(Zp)),
-            "Xp_shape": None,
-            "pearson_r_per_channel": r_list,
-            "pearson_r_mean": r_mean,
-        }
-        return result
-
-    def test(self, Y: TrialList) -> Dict[str, Any]:
-        return self.validate(Y)
-
-    def forecast(
-        self, m: int, Y_past: Array2D
-    ) -> Tuple[Optional[Array2D], Array2D, None]:
-
-        n_channels_Y = Y_past.shape[1] if Y_past.ndim == 2 else 1
-        Y_past_zscored = (Y_past - self.Y_mean) / self.Y_std
-        Yf = np.zeros((m, n_channels_Y))
-
-        for ch, model in enumerate(self.models_Y):
-            try:
-                pm_auto = getattr(model, "_forecaster", None)
-                pm_model = getattr(pm_auto, "model_", None) if pm_auto else None
-                res = getattr(pm_model, "arima_res_", None) if pm_model else None
-
-                if res is not None:
-                    # Apply parameters to the past data
-                    new_res = res.apply(Y_past_zscored[:, ch])
-
-                    # Forecast from the end of the past data
-                    forecast = new_res.forecast(steps=m)
-                    Yf[:, ch] = (
-                        forecast.values if hasattr(forecast, "values") else forecast
-                    )
-                else:
-                    import copy
-
-                    model_updated = copy.deepcopy(model)
-                    model_updated.update(pd.Series(Y_past_zscored[:, ch]))
-                    fh = list(range(1, m + 1))
-                    forecast = model_updated.predict(fh=fh)
-                    Yf[:, ch] = forecast.values
-            except Exception as e:
-                self.logger.warning(f"Fast forecast failed for channel {ch}: {e}")
-                Yf[:, ch] = Y_past_zscored[-1, ch]
-
-        Yf = Yf * self.Y_std + self.Y_mean
-
-        Zf = None
-        if self.models_Z and self.Z_mean is not None:
-            n_channels_Z = len(self.models_Z)
-            Zf = np.zeros((m, n_channels_Z))
-
-            Yf_zscored = (Yf - self.Y_mean) / self.Y_std
-            Y_past_zscored = (Y_past - self.Y_mean) / self.Y_std
-
-            for ch, model in enumerate(self.models_Z):
-                try:
-                    # Bypass sktime, go through pmdarima/statsmodels directly
-                    pm_auto = getattr(model, "_forecaster", None)
-                    pm_model = getattr(pm_auto, "model_", None) if pm_auto else None
-                    res = getattr(pm_model, "arima_res_", None) if pm_model else None
-
-                    if res is not None:
-                        # We need a "dummy" endogenous series for the history period.
-                        # Use zeros since we don't have ground-truth Z for new data.
-                        z_dummy = np.zeros(Y_past_zscored.shape[0])
-                        y_exog_past = pd.DataFrame(Y_past_zscored)
-
-                        # Apply the fitted ARIMAX params to the history period
-                        new_res = res.apply(z_dummy, exog=y_exog_past)
-
-                        # Forecast m steps ahead with future neural predictions as exog
-                        y_exog_future = pd.DataFrame(Yf_zscored)
-                        fc = new_res.forecast(steps=m, exog=y_exog_future)
-                        Zf[:, ch] = fc.values if hasattr(fc, "values") else fc
-                    else:
-                        self.logger.warning(
-                            f"No statsmodels result found for Z channel {ch}. Using zero."
-                        )
-                        Zf[:, ch] = 0.0
-                except Exception as e:
-                    self.logger.warning(
-                        f"AutoARIMA Z forecast failed for channel {ch}: {e}"
-                    )
-                    Zf[:, ch] = 0.0
-            Zf = Zf * self.Z_std + self.Z_mean
-
-        return Zf, Yf, None
-
-    def validate_forecast(
-        self,
-        Y_list: TrialList,
-        Z_list: Optional[TrialList] = None,
-        margin: Optional[float] = None,
-        Yp_val: Optional[TrialList] = None,
-        Zp_val: Optional[TrialList] = None,
-    ) -> Dict[str, Any]:
-        m_seconds = self.forecast_m
-        history_seconds = self.forecast_history
-        sampling_freq = self.sampling_freq
-        m = int(m_seconds * sampling_freq)
-        history = int(history_seconds * sampling_freq)
-
-        if Yp_val is None:
-            self.logger.info(
-                "Yp_val not provided to validate_forecast, running prediction..."
-            )
-            Zp_val, Yp_val, Xp_val = self.predict(Y_list)
-
-        all_residuals = []
-        for y_true, y_pred in zip(Y_list, Yp_val):
-            if y_pred is not None:
-                all_residuals.append(y_true - y_pred)
-
-        if all_residuals:
-            all_residuals_concat = np.concatenate(all_residuals, axis=0)
-            residual_mean = np.mean(all_residuals_concat, axis=0)
-            residual_std = np.std(all_residuals_concat, axis=0)
-        else:
-            residual_mean = 0.0
-            residual_std = 0.0
-
-        results = {
-            "m": m,
-            "Y_future_true": [],
-            "Y_future_pred": [],
-            "Y_concat_for_plot": [],
-            "Z_future_true": [],
-            "Z_future_pred": [],
-            "Z_concat_for_plot": [],
-            "X_future_pred": [],
-            "pearson_per_channel": [],
-            "pearson_per_channel_Z": [],
-            "residual_mean": (
-                residual_mean.tolist()
-                if isinstance(residual_mean, np.ndarray)
-                else residual_mean
-            ),
-            "residual_std": (
-                residual_std.tolist()
-                if isinstance(residual_std, np.ndarray)
-                else residual_std
-            ),
-        }
-
-        for idx, Y in enumerate(Y_list):
-            T = Y.shape[0]
-            if history + m > T:
-                raise ValueError(
-                    f"history + m ({history} + {m} = {history + m}) must not exceed trial length T={T}"
-                )
-
-            start = 0
-            history_end = history
-            forecast_end = history + m
-
-            Y_past = Y[start:history_end]
-            Y_future_true = Y[history_end:forecast_end]
-
-            Z = Z_list[idx] if Z_list is not None and idx < len(Z_list) else None
-            Z_future_true = Z[history_end:forecast_end] if Z is not None else None
-            Z_past = Z[start:history_end] if Z is not None else None
-
-            Zf, Yf, Xf = self.forecast(m, Y_past)
-
-            Y_concat = np.concatenate([Y_past, Yf], axis=0)
-            Z_concat = (
-                np.concatenate([Z_past, Zf], axis=0)
-                if Z_past is not None and Zf is not None
-                else None
-            )
-
-            r_list, _ = pearson_r_per_channel([Y_future_true], [Yf])
-            r_list = (
-                r_list[0] if isinstance(r_list, list) and len(r_list) > 0 else r_list
-            )
-
-            if Z_future_true is not None and Zf is not None:
-                r_list_Z, _ = pearson_r_per_channel([Z_future_true], [Zf])
-                r_list_Z = (
-                    r_list_Z[0]
-                    if isinstance(r_list_Z, list) and len(r_list_Z) > 0
-                    else r_list_Z
-                )
-            else:
-                r_list_Z = []
-
-            results["Y_future_true"].append(Y_future_true.tolist())
-            results["Y_future_pred"].append(Yf.tolist())
-            results["Y_concat_for_plot"].append(Y_concat.tolist())
-            results["Z_future_true"].append(
-                Z_future_true.tolist() if Z_future_true is not None else None
-            )
-            results["Z_future_pred"].append(Zf.tolist() if Zf is not None else None)
-            results["Z_concat_for_plot"].append(
-                Z_concat.tolist() if Z_concat is not None else None
-            )
-            results["X_future_pred"].append(None)  # No latent states in ARIMA
-            results["pearson_per_channel"].append(r_list)
-            results["pearson_per_channel_Z"].append(r_list_Z)
-
-        flat_r = []
-        for r in results["pearson_per_channel"]:
-            if r is None:
-                continue
-            for v in r:
-                if v is not None and not np.isnan(v):
-                    flat_r.append(float(v))
-        results["pearson_overall_mean"] = (
-            float(np.mean(flat_r)) if len(flat_r) > 0 else np.nan
-        )
-
-        flat_r_Z = []
-        for r in results["pearson_per_channel_Z"]:
-            if r is None or not r:
-                continue
-            for v in r:
-                if v is not None and not np.isnan(v):
-                    flat_r_Z.append(float(v))
-        results["pearson_overall_mean_Z"] = (
-            float(np.mean(flat_r_Z)) if len(flat_r_Z) > 0 else np.nan
-        )
-
-        return results
-
-
-class AutoARIMAFramework(BaseFramework):
-    def _initialize_model(self):
-        return AutoARIMAWrapper(self.config)
-
-
 class VARMAOLSWrapper:
     """
     VARMA(p, q) estimation via OLS using a Long-VAR residual proxy.
@@ -1223,15 +726,18 @@ class VARMAOLSWrapper:
         self.config = config
         self.logger = get_logger()
 
+        # VARMA orders: p = AR lags, q = MA lags; long_ar_lags = order of Long-VAR used for residual proxy
         self.p = getattr(config.model, "p", 20)
         self.q = getattr(config.model, "q", 1)
         self.long_ar_lags = getattr(config.model, "long_ar_lags", 30)
         self.ridge_alpha = getattr(config.model, "ridge_alpha", 100.0)
 
+        # Forecast horizon (seconds) and history length (samples) for validate_forecast
         self.forecast_m = getattr(config.model.forecast, "m", 2.0)
         self.forecast_history = getattr(config.model.forecast, "history", 5.0)
         self.sampling_freq = getattr(config.data, "sampling_frequency", 80)
 
+        # Fitted state: beta_ols maps regressors -> K outputs; K = n_channels_Y + n_channels_Z
         self.beta_ols = None
         self.n_channels_Y = None
         self.n_channels_Z = None
@@ -1242,6 +748,8 @@ class VARMAOLSWrapper:
         self.Z_std = None
         self.mean_all = None
         self.std_all = None
+        # Innovation covariance (K x K); used when sampling future MA errors in forecast
+        self.sigma_e = None
 
     def __getstate__(self):
         state = self.__dict__.copy()
@@ -1263,24 +771,18 @@ class VARMAOLSWrapper:
         q = self.q
         long_ar_lags = self.long_ar_lags
 
+        # Normalization: compute mean/std over all trials for z-scoring (avoid div-by-zero later)
         Y_concat = np.concatenate(Y, axis=0)
         self.n_channels_Y = Y_concat.shape[1] if Y_concat.ndim == 2 else 1
-
         self.Y_mean = np.mean(Y_concat, axis=0, keepdims=True)
         self.Y_std = np.std(Y_concat, axis=0, keepdims=True)
         self.Y_std[self.Y_std < 1e-10] = 1.0
 
-        if Z is not None:
-            Z_concat = np.concatenate(Z, axis=0)
-            self.n_channels_Z = Z_concat.shape[1] if Z_concat.ndim == 2 else 1
-            self.Z_mean = np.mean(Z_concat, axis=0, keepdims=True)
-            self.Z_std = np.std(Z_concat, axis=0, keepdims=True)
-            self.Z_std[self.Z_std < 1e-10] = 1.0
-        else:
-            self.n_channels_Z = 0
-            self.Z_mean = None
-            self.Z_std = None
-
+        Z_concat = np.concatenate(Z, axis=0)
+        self.n_channels_Z = Z_concat.shape[1] if Z_concat.ndim == 2 else 1
+        self.Z_mean = np.mean(Z_concat, axis=0, keepdims=True)
+        self.Z_std = np.std(Z_concat, axis=0, keepdims=True)
+        self.Z_std[self.Z_std < 1e-10] = 1.0
         self.K = self.n_channels_Y + self.n_channels_Z
 
         self.logger.info(
@@ -1289,17 +791,13 @@ class VARMAOLSWrapper:
             f"K={self.K}"
         )
 
-        if self.Z_mean is not None:
-            mean_concat = np.concatenate([self.Y_mean, self.Z_mean], axis=1)
-            std_concat = np.concatenate([self.Y_std, self.Z_std], axis=1)
-            data_concat = np.concatenate([Y_concat, Z_concat], axis=1)
-        else:
-            mean_concat = self.Y_mean
-            std_concat = self.Y_std
-            data_concat = Y_concat
+        mean_concat = np.concatenate([self.Y_mean, self.Z_mean], axis=1)
+        std_concat = np.concatenate([self.Y_std, self.Z_std], axis=1)
+        data_concat = np.concatenate([Y_concat, Z_concat], axis=1)
 
         data_concat_zscored = (data_concat - mean_concat) / std_concat
 
+        # Long-VAR: high-order VAR fit on pooled z-scored data; its residuals proxy MA innovations
         self.logger.info(
             f"Training single Long-VAR on all trials concatenated (T={data_concat.shape[0]})"
         )
@@ -1309,6 +807,7 @@ class VARMAOLSWrapper:
         self.long_var_coefs = long_results.coefs
         self.long_var_intercept = long_results.intercept
 
+        # Per-trial design matrices and targets; concatenated into X_full, Y_full for one global fit
         all_X = []
         all_target = []
 
@@ -1329,12 +828,15 @@ class VARMAOLSWrapper:
                 )
                 continue
 
+            # Residual proxy e(t) = data(t) - Long-VAR one-step prediction; effective_data = data after dropping Long-VAR burn-in
             resid_proxy = self._get_long_var_residuals(data_trial)
             effective_data = data_trial[long_ar_lags:]
 
+            # First time index we can predict: need p lags of y and q lags of e
             offset = max(p, q)
             target = effective_data[offset:]
 
+            # Build regressors: [y(t-1), ..., y(t-p), e(t-1), ..., e(t-q)]; each lag is (n_times x K)
             X_list = []
             for i in range(1, p + 1):
                 lag_start = offset - i
@@ -1358,6 +860,7 @@ class VARMAOLSWrapper:
         if not all_X:
             raise ValueError("No trials were long enough for VARMA-OLS fitting.")
 
+        # Single global fit: stack all trials; beta_ols shape (1 + p*K + q*K, K)
         X_full = np.concatenate(all_X, axis=0)
         Y_full = np.concatenate(all_target, axis=0)
 
@@ -1383,6 +886,25 @@ class VARMAOLSWrapper:
             f"n_features={self.beta_ols.shape[0]}, K={self.beta_ols.shape[1]}"
         )
 
+        # Innovation covariance from OLS residuals; regularize if near-singular (for sampling in forecast)
+        pred_full = X_full @ self.beta_ols
+        resid_full = Y_full - pred_full
+        sigma_e = np.cov(resid_full.T)
+        if sigma_e.ndim == 0:
+            sigma_e = np.array([[sigma_e]])
+        sigma_e = np.atleast_2d(sigma_e)
+        min_eig = np.min(np.linalg.eigvalsh(sigma_e))
+        if min_eig < 1e-8:
+            sigma_e = sigma_e + (1e-8 - min_eig) * np.eye(self.K)
+        self.sigma_e = sigma_e
+
+        # Optional: scale AR coefficients so companion matrix eigenvalues have modulus <= max_root
+        stabilize = getattr(self.config.model, "stabilize_roots", False)
+        max_root = float(getattr(self.config.model, "max_root", 0.999))
+        if stabilize and max_root < 1.0 and self.p > 0:
+            self._stabilize_ar_roots(max_root)
+
+        # Combined mean/std for full K-vector (used when un-z-scoring predictions/forecasts)
         if self.Z_mean is not None:
             self.mean_all = np.concatenate([self.Y_mean, self.Z_mean], axis=1)
             self.std_all = np.concatenate([self.Y_std, self.Z_std], axis=1)
@@ -1391,6 +913,31 @@ class VARMAOLSWrapper:
             self.std_all = self.Y_std
 
         return self
+
+    def _stabilize_ar_roots(self, max_root: float) -> None:
+        """Scale AR coefficients so the companion matrix has all eigenvalues with modulus <= max_root."""
+        p, K = self.p, self.K
+        # Extract AR coefficient blocks from beta_ols (rows 1..p*K; col 0 is intercept)
+        Phi_list = []
+        for i in range(1, p + 1):
+            block = self.beta_ols[1 + (i - 1) * K : 1 + i * K, :]
+            Phi_list.append(block.T)
+        # Companion matrix F: top block row = [Phi_1 .. Phi_p], below = identity blocks
+        F = np.zeros((p * K, p * K))
+        for i in range(p):
+            F[:K, i * K : (i + 1) * K] = Phi_list[i]
+        for i in range(p - 1):
+            F[(i + 1) * K : (i + 2) * K, i * K : (i + 1) * K] = np.eye(K)
+        evals = np.linalg.eigvals(F)
+        rho = np.max(np.abs(evals))
+        if rho <= max_root:
+            return
+        scale = max_root / rho
+        for i in range(p):
+            Phi_list[i] = Phi_list[i] * scale
+        for i in range(1, p + 1):
+            self.beta_ols[1 + (i - 1) * K : 1 + i * K, :] = Phi_list[i - 1].T
+        self.logger.info(f"AR roots stabilized: max modulus {rho:.4f} -> {max_root}")
 
     def load_from_file(self, model_path: str):
         import pickle
@@ -1402,6 +949,7 @@ class VARMAOLSWrapper:
         return self
 
     def _get_long_var_residuals(self, data_zscored: np.ndarray) -> np.ndarray:
+        """One-step-ahead prediction errors from the fitted Long-VAR; shape (T - long_ar_lags, K)."""
         L = self.long_ar_lags
         T, K = data_zscored.shape
         if T <= L:
@@ -1462,9 +1010,10 @@ class VARMAOLSWrapper:
         predictions_segment = X_matrix @ self.beta_ols
 
         predictions = np.zeros_like(data_zscored)
+        # First index where we have full AR/MA history (after Long-VAR burn-in and offset)
         start_idx = long_ar_lags + offset
 
-        # Naive warm-up: carry forward last known value
+        # Warm-up: no full regressors before start_idx; carry previous observation
         if start_idx > 0 and start_idx <= len(data_zscored):
             predictions[0] = data_zscored[0]
             for i in range(1, start_idx):
@@ -1474,7 +1023,9 @@ class VARMAOLSWrapper:
 
         return predictions
 
-    def predict(self, Y: TrialList, Z: Optional[TrialList] = None) -> Tuple[Optional[TrialList], TrialList, None]:
+    def predict(
+        self, Y: TrialList, Z: Optional[TrialList] = None
+    ) -> Tuple[Optional[TrialList], TrialList, None]:
         """
         One-step-ahead prediction for all trials.
         Returns (Zp, Yp, None) to match the interface.
@@ -1498,7 +1049,9 @@ class VARMAOLSWrapper:
                             f"Trial {trial_idx}: Z length ({z_trial.shape[0]}) doesn't match Y length ({y_trial.shape[0]}). Using zeros."
                         )
                         z_placeholder = np.zeros((y_trial.shape[0], self.n_channels_Z))
-                        data_zscored = np.concatenate([y_zscored, z_placeholder], axis=1)
+                        data_zscored = np.concatenate(
+                            [y_zscored, z_placeholder], axis=1
+                        )
                 else:
                     # Z not provided or None, use zeros as placeholder
                     z_placeholder = np.zeros((y_trial.shape[0], self.n_channels_Z))
@@ -1543,38 +1096,28 @@ class VARMAOLSWrapper:
         history_data: np.ndarray,
         history_resid: np.ndarray,
         n_steps: int,
+        sample_future_ma_errors: bool = False,
     ) -> np.ndarray:
-        """
-        Recursive multi-step forecasting using VARMA-OLS coefficients.
-
-        Parameters
-        ----------
-        history_data : (T_hist, K) z-scored past data
-        history_resid : (T_hist, K) residual proxies from Long VAR
-        n_steps : number of steps to forecast
-
-        Returns
-        -------
-        forecasts : (n_steps, K) z-scored forecasts
-        """
+        """Recursive m-step forecast. Regressor order: const, y(t-1)..y(t-p), e(t-1)..e(t-q)."""
         p = self.p
         q = self.q
         K = self.K
 
+        # Rolling window of last p observations and q residuals (lists of length-K arrays)
         current_y = list(history_data[-p:])
         current_e = list(history_resid[-q:]) if q > 0 else []
 
         forecasts = []
+        sigma_e = getattr(self, "sigma_e", None)
+        use_sampling = (
+            sample_future_ma_errors and sigma_e is not None and sigma_e.size > 0
+        )
 
-        for step in range(n_steps):
-            # Build regressor vector: [intercept, AR lags, MA lags]
+        for _ in range(n_steps):
+            # Build row [1, y(t-1), ..., y(t-p), e(t-1), ..., e(t-q)] to match training design
             regressors = [1.0]
-
-            # AR terms
             for i in range(1, p + 1):
                 regressors.extend(current_y[-i])
-
-            # MA terms
             for i in range(1, q + 1):
                 if len(current_e) >= i:
                     regressors.extend(current_e[-i])
@@ -1586,18 +1129,18 @@ class VARMAOLSWrapper:
 
             forecasts.append(y_next)
             current_y.append(y_next)
-            current_e.append(np.zeros(K))
+            # Future innovation: either zero (deterministic) or N(0, sigma_e)
+            if use_sampling:
+                current_e.append(np.random.multivariate_normal(np.zeros(K), sigma_e))
+            else:
+                current_e.append(np.zeros(K))
 
         return np.array(forecasts)
 
     def forecast(
         self, m: int, Y_past: Array2D, Z_past: Optional[Array2D] = None
     ) -> Tuple[Optional[Array2D], Array2D, None]:
-        """
-        Forecast m steps ahead given past neural and behavioral observations.
-        """
-        from statsmodels.tsa.api import VAR
-
+        """Forecast m steps ahead given past (Y_past, Z_past). Returns (Zf, Yf, None) in original scale."""
         Y_past_zscored = (Y_past - self.Y_mean) / self.Y_std
 
         if self.n_channels_Z > 0:
@@ -1613,16 +1156,22 @@ class VARMAOLSWrapper:
         long_ar_lags = self.long_ar_lags
         required_len = long_ar_lags + max(self.p, self.q)
 
+        # Pad with repeated first sample if history shorter than needed (avoids flat forecast start from zeros)
         padded_data = data_zscored
         if data_zscored.shape[0] < required_len:
             pad_len = required_len - data_zscored.shape[0]
-            pad_arr = np.zeros((pad_len, self.K))
+            first_row = data_zscored[0:1]
+            pad_arr = np.tile(first_row, (pad_len, 1))
             padded_data = np.concatenate([pad_arr, data_zscored], axis=0)
 
         resid_proxy = self._get_long_var_residuals(padded_data)
         effective_data = padded_data[long_ar_lags:]
 
-        forecasts_zscored = self._forecast_from_history(effective_data, resid_proxy, m)
+        # With sample_future_ma_errors=False, future shocks are zero so the forecast can flatten toward the mean; True adds variance.
+        sample_future_ma = getattr(self.config.model, "sample_future_ma_errors", False)
+        forecasts_zscored = self._forecast_from_history(
+            effective_data, resid_proxy, m, sample_future_ma_errors=sample_future_ma
+        )
 
         Yf_zscored = forecasts_zscored[:, : self.n_channels_Y]
         Yf = Yf_zscored * self.Y_std + self.Y_mean
@@ -1642,6 +1191,7 @@ class VARMAOLSWrapper:
         Yp_val: Optional[TrialList] = None,
         Zp_val: Optional[TrialList] = None,
     ) -> Dict[str, Any]:
+        """Fixed-horizon forecast evaluation: for each trial, take first `history` samples as past, forecast `m` steps, compare to true future."""
         m_seconds = self.forecast_m
         history_seconds = self.forecast_history
         sampling_freq = self.sampling_freq

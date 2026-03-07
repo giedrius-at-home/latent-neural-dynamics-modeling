@@ -43,10 +43,6 @@ class Tester:
             from utils.frameworks import DPADFramework
 
             self.framework = DPADFramework(self.config)
-        elif self.framework_type == "autoarima":
-            from utils.frameworks import AutoARIMAFramework
-
-            self.framework = AutoARIMAFramework(self.config)
         elif self.framework_type == "varma":
             from utils.frameworks import VARMAOLSFramework
 
@@ -79,7 +75,7 @@ class Tester:
 
         self._init_framework()
 
-        if framework_type in ("autoarima", "varma"):
+        if framework_type == "varma":
             self.framework.model = model_obj
             self.logger.info(f"Loaded {framework_type} model from {model_path}")
         else:

@@ -11,6 +11,7 @@ model:
   backward_kalman: true
   rescale_states: true
   max_eigenvalue: 0.995
+  add_process_noise_in_forecast: false
   forecast:
     m: 2
     history: 5

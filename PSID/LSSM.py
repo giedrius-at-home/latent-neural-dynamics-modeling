@@ -495,28 +495,14 @@ class LSSM:
 
         return allZp, allYp, allXp
 
-    def forecast(self, m, Y_past=None, U_past=None, U_future=None):
-        """Forecasts the model m steps into the future.
-
-        The forecast is initialized from an initial state x0. If x0 is not
-        provided, it is inferred by running the Kalman filter on Y_past
-        (and U_past, if provided).
-
-        Args:
-            m (int): The number of steps to forecast.
-            Y_past (np.ndarray or list, optional): Past neural data to initialize
-                the state. (time x dim) or list of segments.
-            U_past (np.ndarray or list, optional): Past input data (for IPSID)
-                to initialize the state. (time x dim) or list of segments.
-            U_future (np.ndarray or list, optional): Future input data (for IPSID)
-                required for forecasting. Must have m steps. (m x dim) or list.
-
-        Returns:
-            allZp (np.ndarray or list): m-step forecast of behavior Z.
-            allYp (np.ndarray or list): m-step forecast of neural data Y.
-            allXp (np.ndarray or list): m-step forecast of latent state X.
-        """
-        import warnings
+    def forecast(
+        self,
+        m,
+        Y_past=None,
+        U_past=None,
+        U_future=None,
+        add_process_noise=False,  # Kept for API compatibility; no longer used (no Q in forecast)
+    ):
         import numpy as np
 
         if isinstance(Y_past, (list, tuple)):
@@ -530,6 +516,7 @@ class LSSM:
                     Y_past=Y_past[i],
                     U_past=U_past_seg,
                     U_future=U_future_seg,
+                    add_process_noise=add_process_noise,
                 )
                 if i == 0:
                     outs = [[o] for o in trial_outs]
@@ -537,51 +524,48 @@ class LSSM:
                     outs = [outs[oi] + [o] for oi, o in enumerate(trial_outs)]
             return tuple(outs)
 
-        _, _, allXf = self.kalman(Y_past, U=U_past)
-        x_k = allXf[-1, :]
-
-        if x_k.shape[0] != self.state_dim:
-            raise ValueError(
-                f"Initial state x0 has wrong dimension {x_k.shape}. "
-                f"Expected {self.state_dim}."
-            )
-
-        U_future_proc = None
+        # Iterative one-step-ahead: extend history with predicted observation each step,
+        # run Kalman, take 1-step-ahead state and observation. No process noise (Q) in forecast.
+        Y_ext = np.asarray(Y_past, dtype=float).copy()
+        if Y_ext.ndim == 1:
+            Y_ext = Y_ext.reshape(-1, 1)
         if self.input_dim > 0:
-            if U_future is None:
-                warnings.warn(
-                    f"Model has input_dim > 0 but U_future was not provided. "
-                    f"Assuming {m} steps of zero input."
-                )
-                U_future_proc = np.zeros((m, self.input_dim))
+            if U_past is not None:
+                U_ext = np.asarray(U_past, dtype=float)
+                if U_ext.ndim == 1:
+                    U_ext = U_ext.reshape(-1, self.input_dim)
             else:
-                if U_future.shape[0] != m:
-                    raise ValueError(
-                        f"U_future has {U_future.shape[0]} steps, "
-                        f"but forecast length m is {m}."
-                    )
-                if hasattr(self, "UPrepModel") and self.UPrepModel is not None:
-                    U_future_proc = self.UPrepModel.apply(U_future, time_first=True)
-                else:
-                    U_future_proc = U_future
+                U_ext = np.zeros((Y_ext.shape[0], self.input_dim))
+        else:
+            U_ext = None
 
         x_forecast = np.zeros((m, self.state_dim))
-        x = x_k
 
         for i in range(m):
-            A_x = self.A @ x
-
-            B_u = 0.0
+            _, _, allXf = self.kalman(Y_ext, U=U_ext)[0:3]
+            x_filt = allXf[-1, :]
+            if x_filt.shape[0] != self.state_dim:
+                raise ValueError(
+                    f"Filtered state has wrong dimension {x_filt.shape}. "
+                    f"Expected {self.state_dim}."
+                )
+            # One-step-ahead state: x(t+1|t) = A @ x(t|t); forecast steps use zero input
+            x_next = self.A @ x_filt
+            x_forecast[i, :] = x_next
+            y_next = self.generateObservationFromStates(
+                x_next.reshape(1, -1),
+                u=None,
+                param_names=["C", "D"],
+                prep_model_param="YPrepModel",
+            )
+            y_next_row = np.atleast_2d(y_next)[0, :]
+            Y_ext = np.vstack([Y_ext, y_next_row[np.newaxis, :]])
             if self.input_dim > 0:
-                u_vec = U_future_proc[i, :]
-                B_u = self.B @ u_vec
-
-            x = A_x + B_u
-            x_forecast[i, :] = x
+                U_ext = np.vstack([U_ext, np.zeros((1, self.input_dim))])
 
         y_forecast = self.generateObservationFromStates(
             x_forecast,
-            u=U_future,
+            u=None,
             param_names=["C", "D"],
             prep_model_param="YPrepModel",
         )
@@ -592,7 +576,7 @@ class LSSM:
         ):
             z_forecast = self.generateObservationFromStates(
                 x_forecast,
-                u=U_future,
+                u=None,
                 param_names=["Cz", "Dz"],
                 prep_model_param="ZPrepModel",
             )
