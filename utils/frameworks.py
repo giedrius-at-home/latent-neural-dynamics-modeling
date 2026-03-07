@@ -79,6 +79,22 @@ class PSIDWrapper:
         with open(model_path, "rb") as f:
             self.idSys = pickle.load(f)
         self.logger.info("PSID model loaded successfully")
+        if (
+            hasattr(self.idSys, "A")
+            and self.idSys.A is not None
+            and len(self.idSys.A_powers_cache) == 0
+        ):
+            A = np.array(self.idSys.A)
+            # Precompute up to 200 (2 seconds * 80 Hz = 160, 200 is reasonable)
+            max_m = 200
+
+            self.idSys.A_powers_cache = [A.copy()]
+            for i in range(2, max_m + 1):
+                self.idSys.A_powers_cache.append(self.idSys.A_powers_cache[-1] @ A)
+            self.idSys.max_m_precomputed = max_m
+            self.logger.info(
+                f"Precomputed A matrix powers up to m={max_m} after loading model"
+            )
         return self.idSys
 
     def train(self, Y: TrialList, Z: Optional[TrialList] = None):
@@ -93,7 +109,6 @@ class PSIDWrapper:
         backward_kalman: bool = getattr(self.config.model, "backward_kalman", False)
         rescale_states: bool = getattr(self.config.model, "rescale_states", True)
         max_eigenvalue = getattr(self.config.model, "max_eigenvalue", 0.995)
-        # Handle YAML null which becomes None
         if max_eigenvalue is None:
             max_eigenvalue = 1.0
         else:
@@ -121,6 +136,15 @@ class PSIDWrapper:
             rescale_states=rescale_states,
             max_eigenvalue=max_eigenvalue,
         )
+        if hasattr(self.idSys, "A") and self.idSys.A is not None:
+            A = np.array(self.idSys.A)
+            max_m = 200
+
+            self.idSys.A_powers_cache = [A.copy()]
+            for i in range(2, max_m + 1):
+                self.idSys.A_powers_cache.append(self.idSys.A_powers_cache[-1] @ A)
+            self.idSys.max_m_precomputed = max_m
+            self.logger.info(f"Precomputed A matrix powers up to m={max_m}")
         return self.idSys
 
     def predict(self, Y: TrialList):
@@ -184,8 +208,6 @@ class PSIDWrapper:
         else:
             residual_mean = 0.0
             residual_std = 0.0
-
-        # TODO: Check Gaussian assumption for behavioral (Z) residuals and apply probabilistic forecasting if valid
 
         results = {
             "m": m,
@@ -1474,7 +1496,9 @@ class VARMAOLSWrapper:
 
         return predictions
 
-    def predict(self, Y: TrialList, Z: Optional[TrialList] = None) -> Tuple[Optional[TrialList], TrialList, None]:
+    def predict(
+        self, Y: TrialList, Z: Optional[TrialList] = None
+    ) -> Tuple[Optional[TrialList], TrialList, None]:
         """
         One-step-ahead prediction for all trials.
         Returns (Zp, Yp, None) to match the interface.
@@ -1498,7 +1522,9 @@ class VARMAOLSWrapper:
                             f"Trial {trial_idx}: Z length ({z_trial.shape[0]}) doesn't match Y length ({y_trial.shape[0]}). Using zeros."
                         )
                         z_placeholder = np.zeros((y_trial.shape[0], self.n_channels_Z))
-                        data_zscored = np.concatenate([y_zscored, z_placeholder], axis=1)
+                        data_zscored = np.concatenate(
+                            [y_zscored, z_placeholder], axis=1
+                        )
                 else:
                     # Z not provided or None, use zeros as placeholder
                     z_placeholder = np.zeros((y_trial.shape[0], self.n_channels_Z))
