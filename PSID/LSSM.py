@@ -498,13 +498,18 @@ class LSSM:
 
         return allZp, allYp, allXp
 
-    def forecast(self, m, Y_past=None, U_past=None, U_future=None):
+    def forecast(self, m, Y_past=None, U_past=None, U_future=None, residual_mean=None, residual_std=None):
         # Modified by Giedrius
-        """Forecasts the model m steps into the future using state-space dynamics.
+        """Forecasts the model m steps into the future using iterative 1-step predictions.
 
-        The forecast uses: x_(t+step) = A^step @ x_(t+step-1) + N(0, Q)
-        and applies Kalman filter (observation model) to get Y and Z forecasts.
-        Maintains Xp as a sliding window that updates with newest forecasts.
+        The forecast works exactly like 1-step predictions, but iteratively:
+        1. Predict state: Xp (one-step ahead predicted state)
+        2. Predict observation: Yp = C @ Xp
+        3. Simulate innovation: zi = residual_mean + N(0, residual_std^2)
+        4. Update next state: Xp_next = A @ Xp + K @ zi (exactly like Kalman filter)
+
+        This makes forecasts identical to running predictions step-by-step, but using
+        simulated innovations from residual statistics instead of actual observations.
 
         Args:
             m (int): The number of steps to forecast.
@@ -514,6 +519,10 @@ class LSSM:
                 to initialize the state. (time x dim) or list of segments.
             U_future (np.ndarray or list, optional): Future input data (for IPSID)
                 required for forecasting. Must have m steps. (m x dim) or list.
+            residual_mean (np.ndarray, optional): Mean of prediction residuals.
+                Shape (ny,) where ny is number of output channels.
+            residual_std (np.ndarray, optional): Std of prediction residuals.
+                Shape (ny,) where ny is number of output channels.
 
         Returns:
             allZp (np.ndarray or list): m-step forecast of behavior Z.
@@ -532,6 +541,8 @@ class LSSM:
                     Y_past=Y_past[i],
                     U_past=U_past_seg,
                     U_future=U_future_seg,
+                    residual_mean=residual_mean,
+                    residual_std=residual_std,
                 )
                 if i == 0:
                     outs = [[o] for o in trial_outs]
@@ -539,56 +550,85 @@ class LSSM:
                     outs = [outs[oi] + [o] for oi, o in enumerate(trial_outs)]
             return tuple(outs)
 
-        # Get initial states from one-step-ahead prediction
-        _, _, allXf = self.kalman(Y_past, U=U_past)
-        Xp_initial = allXf
-        x_current = Xp_initial[-1:]  # Last state as starting point (keep as 2D)
-        Xp_window = Xp_initial.copy()  # Initialize sliding window
-
+        # Get initial states from Kalman filter
+        allXp, _, allXf = self.kalman(Y_past, U=U_past)
+        
         # Extract state-space matrices
         A = np.array(self.A)
-        Q = np.array(self.Q)
+        
+        # Start from filtered state X(t|t) - the best estimate after seeing all past observations
+        # This avoids discontinuity at the start of forecast
+        Xf_last = allXf[-1:].T  # Last filtered state (column vector) - this is X(t|t)
+        # Initialize predicted state for first forecast step: X(t+1|t) = A @ X(t|t)
+        Xp = A @ Xf_last
         Cy = np.array(self.C)
-        Cz = np.array(self.Cz)
+        Cz = np.array(self.Cz) if hasattr(self, 'Cz') and self.Cz is not None else None
 
-        # Initialize or extend A powers cache if needed
-        if len(self.A_powers_cache) == 0:
-            # Initialize cache if empty (e.g., model loaded from file)
-            self.A_powers_cache = [A.copy()]
-            self.max_m_precomputed = 1
-        if m > self.max_m_precomputed:
-            for i in range(self.max_m_precomputed + 1, m + 1):
-                self.A_powers_cache.append(self.A_powers_cache[-1] @ A)
-            self.max_m_precomputed = m
+        # Get Kalman gain K (used for updating next prediction, like in Kalman filter)
+        K = self.K if hasattr(self, 'K') and self.K is not None else None
+
+        # Prepare residual statistics (these represent the innovation distribution)
+        ny = Cy.shape[0]
+        if residual_mean is None:
+            residual_mean = np.zeros(ny)
+        if residual_std is None:
+            residual_std = np.zeros(ny)
+        
+        # Convert to numpy arrays and ensure correct shape
+        residual_mean = np.atleast_1d(residual_mean)
+        residual_std = np.atleast_1d(residual_std)
+
+        # Ensure shapes match output dimension
+        if residual_mean.shape[0] != ny:
+            residual_mean = np.zeros(ny) if residual_mean.size == 1 else residual_mean[:ny]
+        if residual_std.shape[0] != ny:
+            residual_std = np.zeros(ny) if residual_std.size == 1 else residual_std[:ny]
 
         # Initialize forecast arrays
-        nx = x_current.shape[1]
-        ny = Cy.shape[0]
+        nx = Xp.shape[0]
         nz = Cz.shape[0] if Cz is not None else 0
 
         Xf = np.zeros((m, nx))
         Yf = np.zeros((m, ny))
         Zf = np.zeros((m, nz)) if nz > 0 else None
 
-        # Forecast m steps ahead
-        for step in range(1, m + 1):
-            # Compute x_(t+step) = A^step @ x_(t+step-1) + N(0, Q)
-            A_power = self.A_powers_cache[step - 1]  # A^step
-            noise = np.random.multivariate_normal(mean=np.zeros(nx), cov=Q).reshape(
-                1, -1
-            )
-            x_new = (A_power @ x_current.T).T + noise
+        # Forecast m steps ahead - exactly like 1-step predictions
+        for step in range(m):
+            # Predict observation (like in Kalman: Yp = C @ Xp)
+            Yp = Cy @ Xp
 
-            # Apply observation model (Kalman filter)
-            Yf[step - 1] = (Cy @ x_new.T).T.flatten()
+            # Store forecasted observation (just the prediction, not actual + innovation)
+            # In forecasts, we don't have actual observations, so we output the predicted observation
+            Yf[step] = Yp.flatten()
             if Zf is not None:
-                Zf[step - 1] = (Cz @ x_new.T).T.flatten()
+                Zf[step] = (Cz @ Xp).flatten()
+
+            # Simulate innovation for state update (like in Kalman: zi = Y_actual - C @ Xp)
+            # Since we don't have Y_actual, we use residual statistics to simulate the error
+            # This innovation is used to update the state for the next step, making forecasts
+            # work like iterative predictions where each step's error informs the next step
+            if np.any(residual_std > 0):
+                zi = residual_mean[:, np.newaxis] + np.random.normal(
+                    0, residual_std[:, np.newaxis], size=(ny, 1)
+                )
+            else:
+                zi = residual_mean[:, np.newaxis]
 
             # Store forecasted state
-            Xf[step - 1] = x_new.flatten()
+            Xf[step] = Xp.flatten()
 
-            # Update sliding window: append new, drop oldest
-            Xp_window = np.vstack([Xp_window[1:], x_new])
-            x_current = x_new
+            # Update for next step (exactly like Kalman: Xp_next = A @ Xp + K @ zi)
+            if K is not None and not np.any(np.isnan(K)):
+                Xp = A @ Xp + K @ zi
+            else:
+                Xp = A @ Xp
+
+            # Handle future inputs if provided (for IPSID)
+            if U_future is not None and hasattr(self, 'B') and self.B is not None and self.B.size > 0:
+                if step < U_future.shape[0]:
+                    ui = U_future[step:step+1, :].T
+                    if hasattr(self, "UPrepModel") and self.UPrepModel is not None:
+                        ui = self.UPrepModel.apply(ui, time_first=False)
+                    Xp = Xp + self.B @ ui
 
         return Zf, Yf, Xf

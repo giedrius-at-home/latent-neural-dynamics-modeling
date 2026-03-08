@@ -171,8 +171,8 @@ class PSIDWrapper:
     def test(self, Y: TrialList) -> Dict[str, Any]:
         return self.validate(Y)
 
-    def forecast(self, m: int, Y_past: Array2D):
-        return self.idSys.forecast(m, Y_past)
+    def forecast(self, m: int, Y_past: Array2D, residual_mean: Optional[Array2D] = None, residual_std: Optional[Array2D] = None):
+        return self.idSys.forecast(m, Y_past, residual_mean=residual_mean, residual_std=residual_std)
 
     def validate_forecast(
         self,
@@ -250,7 +250,7 @@ class PSIDWrapper:
             Z_future_true = Z[history_end:forecast_end] if Z is not None else None
             Z_past = Z[start:history_end] if Z is not None else None
 
-            Zf, Yf, Xf = self.forecast(m, Y_past)
+            Zf, Yf, Xf = self.forecast(m, Y_past, residual_mean=residual_mean, residual_std=residual_std)
 
             Y_concat = np.concatenate([Y_past, Yf], axis=0)
             Z_concat = (
@@ -751,7 +751,6 @@ class VARMAOLSWrapper:
         self.p = getattr(config.model, "p", 20)
         self.q = getattr(config.model, "q", 1)
         self.long_ar_lags = getattr(config.model, "long_ar_lags", 30)
-        self.ridge_alpha = getattr(config.model, "ridge_alpha", 100.0)
 
         # Forecast horizon (seconds) and history length (samples) for validate_forecast
         self.forecast_m = getattr(config.model.forecast, "m", 2.0)
@@ -799,6 +798,7 @@ class VARMAOLSWrapper:
         self.Y_std = np.std(Y_concat, axis=0, keepdims=True)
         self.Y_std[self.Y_std < 1e-10] = 1.0
 
+        # Normalize Z (behavioral/output channels)
         Z_concat = np.concatenate(Z, axis=0)
         self.n_channels_Z = Z_concat.shape[1] if Z_concat.ndim == 2 else 1
         self.Z_mean = np.mean(Z_concat, axis=0, keepdims=True)
@@ -806,12 +806,22 @@ class VARMAOLSWrapper:
         self.Z_std[self.Z_std < 1e-10] = 1.0
         self.K = self.n_channels_Y + self.n_channels_Z
 
+        # Log normalization statistics to diagnose Z modeling issues
         self.logger.info(
             f"VARMA-OLS params: p={p}, q={q}, long_ar_lags={long_ar_lags}, "
             f"n_channels_Y={self.n_channels_Y}, n_channels_Z={self.n_channels_Z}, "
             f"K={self.K}"
         )
+        self.logger.info(
+            f"Y normalization: mean range [{self.Y_mean.min():.4f}, {self.Y_mean.max():.4f}], "
+            f"std range [{self.Y_std.min():.4f}, {self.Y_std.max():.4f}]"
+        )
+        self.logger.info(
+            f"Z normalization: mean range [{self.Z_mean.min():.4f}, {self.Z_mean.max():.4f}], "
+            f"std range [{self.Z_std.min():.4f}, {self.Z_std.max():.4f}]"
+        )
 
+        # Concatenate Y and Z for joint modeling
         mean_concat = np.concatenate([self.Y_mean, self.Z_mean], axis=1)
         std_concat = np.concatenate([self.Y_std, self.Z_std], axis=1)
         data_concat = np.concatenate([Y_concat, Z_concat], axis=1)
@@ -889,17 +899,7 @@ class VARMAOLSWrapper:
             f"Design matrix shape: {X_full.shape}, Target shape: {Y_full.shape}"
         )
 
-        if self.ridge_alpha > 0.0:
-            from sklearn.linear_model import Ridge
-
-            self.logger.info(
-                f"Solving via Ridge regression (alpha={self.ridge_alpha})..."
-            )
-            ridge = Ridge(alpha=self.ridge_alpha, fit_intercept=False)
-            ridge.fit(X_full, Y_full)
-            self.beta_ols = ridge.coef_.T
-        else:
-            self.beta_ols = np.linalg.lstsq(X_full, Y_full, rcond=None)[0]
+        self.beta_ols = np.linalg.lstsq(X_full, Y_full, rcond=None)[0]
 
         self.logger.info(
             f"VARMA-OLS training complete. "
@@ -907,7 +907,6 @@ class VARMAOLSWrapper:
             f"n_features={self.beta_ols.shape[0]}, K={self.beta_ols.shape[1]}"
         )
 
-        # Innovation covariance from OLS residuals; regularize if near-singular (for sampling in forecast)
         pred_full = X_full @ self.beta_ols
         resid_full = Y_full - pred_full
         sigma_e = np.cov(resid_full.T)
@@ -919,13 +918,10 @@ class VARMAOLSWrapper:
             sigma_e = sigma_e + (1e-8 - min_eig) * np.eye(self.K)
         self.sigma_e = sigma_e
 
-        # Optional: scale AR coefficients so companion matrix eigenvalues have modulus <= max_root
-        stabilize = getattr(self.config.model, "stabilize_roots", False)
         max_root = float(getattr(self.config.model, "max_root", 0.999))
-        if stabilize and max_root < 1.0 and self.p > 0:
+        if self.p > 0:
             self._stabilize_ar_roots(max_root)
 
-        # Combined mean/std for full K-vector (used when un-z-scoring predictions/forecasts)
         if self.Z_mean is not None:
             self.mean_all = np.concatenate([self.Y_mean, self.Z_mean], axis=1)
             self.std_all = np.concatenate([self.Y_std, self.Z_std], axis=1)
@@ -936,29 +932,52 @@ class VARMAOLSWrapper:
         return self
 
     def _stabilize_ar_roots(self, max_root: float) -> None:
-        """Scale AR coefficients so the companion matrix has all eigenvalues with modulus <= max_root."""
+        """
+        Scale AR coefficients so the companion matrix has all eigenvalues with modulus <= max_root.
+        Uses lag-dependent scaling (gamma^lag) to preserve relative importance of different lags,
+        matching the approach in fit_regularized_robust_varma.
+        """
         p, K = self.p, self.K
-        # Extract AR coefficient blocks from beta_ols (rows 1..p*K; col 0 is intercept)
-        Phi_list = []
-        for i in range(1, p + 1):
-            block = self.beta_ols[1 + (i - 1) * K : 1 + i * K, :]
-            Phi_list.append(block.T)
-        # Companion matrix F: top block row = [Phi_1 .. Phi_p], below = identity blocks
-        F = np.zeros((p * K, p * K))
-        for i in range(p):
-            F[:K, i * K : (i + 1) * K] = Phi_list[i]
-        for i in range(p - 1):
-            F[(i + 1) * K : (i + 2) * K, i * K : (i + 1) * K] = np.eye(K)
-        evals = np.linalg.eigvals(F)
-        rho = np.max(np.abs(evals))
-        if rho <= max_root:
+        if p == 0:
             return
-        scale = max_root / rho
+        
+        # Build companion matrix to check current eigenvalues
+        # Extract AR coefficient blocks from beta_ols (rows 1..p*K; col 0 is intercept)
+        companion = np.zeros((p * K, p * K))
         for i in range(p):
-            Phi_list[i] = Phi_list[i] * scale
-        for i in range(1, p + 1):
-            self.beta_ols[1 + (i - 1) * K : 1 + i * K, :] = Phi_list[i - 1].T
-        self.logger.info(f"AR roots stabilized: max modulus {rho:.4f} -> {max_root}")
+            # Extract block for lag (i+1): rows 1 + i*K to 1 + (i+1)*K
+            A_i_T = self.beta_ols[1 + i * K : 1 + (i + 1) * K, :]
+            A_i = A_i_T.T  # AR matrix is the transpose of the OLS block
+            companion[0:K, i * K : (i + 1) * K] = A_i
+        
+        if p > 1:
+            companion[K:, :-K] = np.eye((p - 1) * K)
+        
+        eigenvalues = np.linalg.eigvals(companion)
+        max_pole = np.max(np.abs(eigenvalues))
+        
+        # Only scale if max_pole exceeds target (prevents over-damping of stable systems)
+        # This matches the example's intent: "Scale the roots if the system decays (or if it is explosive!)"
+        if max_pole > max_root:
+            gamma = max_root / max_pole
+            
+            for i in range(p):
+                lag = i + 1
+                self.beta_ols[1 + i * K : 1 + (i + 1) * K, :] *= gamma**lag
+            
+            companion_reg = np.zeros((p * K, p * K))
+            for i in range(p):
+                A_i_T = self.beta_ols[1 + i * K : 1 + (i + 1) * K, :]
+                A_i = A_i_T.T
+                companion_reg[0:K, i * K : (i + 1) * K] = A_i
+            if p > 1:
+                companion_reg[K:, :-K] = np.eye((p - 1) * K)
+            eigenvalues_reg = np.linalg.eigvals(companion_reg)
+            max_pole_reg = np.max(np.abs(eigenvalues_reg))
+            self.logger.info(
+                f"AR roots stabilized: max modulus {max_pole:.4f} -> {max_pole_reg:.4f} "
+                f"(target: {max_root:.4f}, gamma: {gamma:.6f})"
+            )
 
     def load_from_file(self, model_path: str):
         import pickle

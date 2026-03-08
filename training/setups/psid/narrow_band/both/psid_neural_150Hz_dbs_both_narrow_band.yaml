@@ -1,0 +1,76 @@
+model:
+  name: psid_neural_150Hz_dbs_both_narrow_band
+  nx: 80
+  n1: 20
+  i: 80
+  time_first: true
+  fast: false
+  reuse_splits: false
+  alpha_Q: 0.0001
+  alpha_R: 0.001
+  backward_kalman: true
+  rescale_states: true
+  max_eigenvalue: 0.995
+  forecast:
+    m: 2
+    history: 5
+data:
+  root: resampled_recordings/participants_at_150Hz_scaled_1e6_narrow_band_envelope
+  participant: PDI1
+  session: '2'
+  blocks: all
+  channels:
+    neural_input:
+    - ECOG_1_delta_raw
+    - ECOG_1_theta_raw
+    - ECOG_1_alpha_raw
+    - ECOG_1_lowbeta_env
+    - ECOG_1_beta_env
+    - ECOG_1_highbeta_env
+    - ECOG_2_delta_raw
+    - ECOG_2_theta_raw
+    - ECOG_2_alpha_raw
+    - ECOG_2_lowbeta_env
+    - ECOG_2_beta_env
+    - ECOG_2_highbeta_env
+    - ECOG_3_delta_raw
+    - ECOG_3_theta_raw
+    - ECOG_3_alpha_raw
+    - ECOG_3_lowbeta_env
+    - ECOG_3_beta_env
+    - ECOG_3_highbeta_env
+    - ECOG_4_delta_raw
+    - ECOG_4_theta_raw
+    - ECOG_4_alpha_raw
+    - ECOG_4_lowbeta_env
+    - ECOG_4_beta_env
+    - ECOG_4_highbeta_env
+    output_type: neural
+    output:
+    - LAPLACIAN_13-15_LFP_delta_raw
+    - LAPLACIAN_13-15_LFP_theta_raw
+    - LAPLACIAN_13-15_LFP_alpha_raw
+    - LAPLACIAN_13-15_LFP_lowbeta_env
+    - LAPLACIAN_13-15_LFP_beta_env
+    - LAPLACIAN_13-15_LFP_highbeta_env
+    - LAPLACIAN_14-16_LFP_delta_raw
+    - LAPLACIAN_14-16_LFP_theta_raw
+    - LAPLACIAN_14-16_LFP_alpha_raw
+    - LAPLACIAN_14-16_LFP_lowbeta_env
+    - LAPLACIAN_14-16_LFP_beta_env
+    - LAPLACIAN_14-16_LFP_highbeta_env
+    input_lag: null
+  split:
+    within_session_split: true
+    train: 0.6
+    val: 0.2
+    test: 0.2
+    min_train_epochs: 50
+  batch_size: 32
+  sampling_frequency: 150
+  dbs_condition: both
+  jitter: 0
+results:
+  save_dir: results/{model.name}
+  log_dir: '{results.save_dir}/logs'
+  checkpoint_dir: checkpoints
