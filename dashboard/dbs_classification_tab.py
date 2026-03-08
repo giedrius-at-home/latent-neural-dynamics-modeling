@@ -501,25 +501,20 @@ def render_classification_from_predictions(variant_dir: Path, run_ts: str) -> No
     results_dir = variant_dir / run_ts
     if results_dir.exists():
         all_results = load_classification_results(results_dir, mode="prediction")
-        # Show summary if we have multiple windows OR multiple features
         n_configs = sum(len(res) for res in all_results.values())
         if n_configs > 1 or len(all_results) > 1:
             st.markdown("## Prediction Performance Summary")
-            render_classification_summary(all_results, f"pred_{run_ts}")
+            render_prediction_summary(all_results, f"pred_{run_ts}")
             st.markdown("---")
 
     render_classification_results(variant_dir, run_ts, mode="prediction")
 
 
-def render_classification_summary(
-    all_results: Dict[str, Dict[Tuple[float, float], Dict[str, Any]]], key_prefix: str
-) -> None:
-    """DRY function to render line plots grouped by feature source."""
-    if not all_results:
-        return
-
-    # Check if any feature has test_results with balanced_accuracy
-    if not any(
+def _validate_test_results(
+    all_results: Dict[str, Dict[Tuple[float, float], Dict[str, Any]]],
+) -> bool:
+    """Check if any feature has test_results with balanced_accuracy."""
+    has_results = any(
         any(
             "test_results" in v
             and v.get("test_results") is not None
@@ -527,42 +522,86 @@ def render_classification_summary(
             for v in res.values()
         )
         for res in all_results.values()
-    ):
+    )
+    if not has_results:
         st.warning(
             "No test set results available. Test set balanced accuracy requires test results to be computed."
         )
-        return
+    return has_results
 
-    # Use test set balanced accuracy only (no dropdown, single metric)
+
+def _render_prediction_feature_summary(
+    feature_source: str,
+    feat_results: Dict[Tuple[float, float], Dict[str, Any]],
+    key_prefix: str,
+) -> None:
+    """Render summary table for a single feature source in predictions."""
+    st.markdown(f"### Feature Source: {feature_source}")
+    summary_rows = create_summary_table(feat_results)
+    if summary_rows:
+        df = pd.DataFrame(summary_rows)
+        render_styled_table(df, key=f"pred_summary_{feature_source}_{key_prefix}")
+    st.markdown("---")
+
+
+def _render_forecast_feature_summary(
+    feature_source: str,
+    feat_results: Dict[Tuple[float, float], Dict[str, Any]],
+    key_prefix: str,
+) -> None:
+    """Render h/m plots for a single feature source in forecasts."""
+    st.markdown(f"### Feature Source: {feature_source}")
+    single_feat_results = {feature_source: feat_results}
     metric = "balanced_accuracy"
 
-    # Render a separate section for each feature source
+    col1, col2 = st.columns(2)
+    with col1:
+        st.plotly_chart(
+            create_line_plot_by_history(
+                single_feat_results, metric=metric, use_training_only=False
+            ),
+            use_container_width=True,
+            key=f"h_plot_{feature_source}_{key_prefix}",
+        )
+        st.caption("Accuracy vs History Length")
+    with col2:
+        st.plotly_chart(
+            create_line_plot_by_future(
+                single_feat_results, metric=metric, use_training_only=False
+            ),
+            use_container_width=True,
+            key=f"m_plot_{feature_source}_{key_prefix}",
+        )
+        st.caption("Accuracy vs Forecast Horizon")
+    st.markdown("---")
+
+
+def render_prediction_summary(
+    all_results: Dict[str, Dict[Tuple[float, float], Dict[str, Any]]], key_prefix: str
+) -> None:
+    """Render summary for predictions."""
+    if not all_results:
+        return
+
+    if not _validate_test_results(all_results):
+        return
+
     for feature_source, feat_results in all_results.items():
-        st.markdown(f"### Feature Source: {feature_source}")
+        _render_prediction_feature_summary(feature_source, feat_results, key_prefix)
 
-        # Pass a single-feature Dict to maintain plotting logic but isolate the section
-        single_feat_results = {feature_source: feat_results}
 
-        col1, col2 = st.columns(2)
-        with col1:
-            st.plotly_chart(
-                create_line_plot_by_history(
-                    single_feat_results, metric=metric, use_training_only=False
-                ),
-                use_container_width=True,
-                key=f"h_plot_{feature_source}_{key_prefix}",
-            )
-            st.caption("Accuracy vs History Length")
-        with col2:
-            st.plotly_chart(
-                create_line_plot_by_future(
-                    single_feat_results, metric=metric, use_training_only=False
-                ),
-                use_container_width=True,
-                key=f"m_plot_{feature_source}_{key_prefix}",
-            )
-            st.caption("Accuracy vs Forecast Horizon")
-        st.markdown("---")
+def render_forecast_summary(
+    all_results: Dict[str, Dict[Tuple[float, float], Dict[str, Any]]], key_prefix: str
+) -> None:
+    """Render summary for forecasts with h/m plots."""
+    if not all_results:
+        return
+
+    if not _validate_test_results(all_results):
+        return
+
+    for feature_source, feat_results in all_results.items():
+        _render_forecast_feature_summary(feature_source, feat_results, key_prefix)
 
 
 def render_classification_from_forecasts(variant_dir: Path, run_ts: str) -> None:
@@ -588,7 +627,7 @@ def render_classification_from_forecasts(variant_dir: Path, run_ts: str) -> None
         n_configs = sum(len(res) for res in all_results.values())
         if n_configs > 1 or len(all_results) > 1:
             st.markdown("## Forecast Performance Summary")
-            render_classification_summary(all_results, f"forecast_{run_ts}")
+            render_forecast_summary(all_results, f"forecast_{run_ts}")
             st.markdown("---")
 
     render_classification_results(
@@ -684,7 +723,7 @@ def dbs_classification_tab(
             )
         else:
             st.markdown("### Flipped Performance Summary")
-            render_classification_summary(flipped_results, f"flipped_{run_ts}")
+            render_forecast_summary(flipped_results, f"flipped_{run_ts}")
 
             st.markdown("---")
             st.markdown("### Detailed Flipped Analysis")

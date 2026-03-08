@@ -171,8 +171,119 @@ class PSIDWrapper:
     def test(self, Y: TrialList) -> Dict[str, Any]:
         return self.validate(Y)
 
-    def forecast(self, m: int, Y_past: Array2D, residual_mean: Optional[Array2D] = None, residual_std: Optional[Array2D] = None):
-        return self.idSys.forecast(m, Y_past, residual_mean=residual_mean, residual_std=residual_std)
+    def forecast(
+        self,
+        m: int,
+        Y_past: Array2D,
+        residual_mean: Optional[Array2D] = None,
+        residual_std: Optional[Array2D] = None,
+    ):
+        """
+        Efficient m-step ahead forecast using state-space model.
+
+        Complexity: O(len(Y_past) + m) instead of O(m * (len(Y_past) + m))
+
+        Algorithm:
+        1. Run Kalman filter once on Y_past to get initial state estimate
+        2. Iterate state equation forward m times: x_{t+1} = A @ x_t
+        3. Compute outputs: y_t = C @ x_t, z_t = Cz @ x_t
+        """
+        if self.idSys is None:
+            raise ValueError(
+                "Model not initialized. Call train() or load_from_file() first."
+            )
+
+        # Step 1: Get initial state estimate by running Kalman filter once on past data
+        # Convert Y_past to list format expected by predict
+        Y_past_list = [Y_past]
+        Zp_past, Yp_past, Xp_past = self.idSys.predict(
+            Y_past_list, U=None, useSmoothing=False
+        )
+
+        # Extract the final state estimate (last time step)
+        if Xp_past is None or len(Xp_past) == 0:
+            raise ValueError("Could not extract state estimate from past data")
+
+        Xp_past_array = np.asarray(Xp_past[0]) if isinstance(Xp_past, list) else Xp_past
+        if Xp_past_array.shape[0] == 0:
+            raise ValueError("State estimate is empty")
+
+        x0 = Xp_past_array[-1, :]  # Final state estimate: shape (nx,)
+
+        # Get state-space matrices
+        A = np.array(self.idSys.A)  # State transition matrix: (nx, nx)
+        C = np.array(self.idSys.C)  # Output matrix for Y: (ny, nx)
+        Cz = (
+            np.array(self.idSys.Cz)
+            if hasattr(self.idSys, "Cz") and self.idSys.Cz is not None
+            else None
+        )  # Output matrix for Z: (nz, nx)
+
+        nx = A.shape[0]
+        ny = C.shape[0]
+        nz = Cz.shape[0] if Cz is not None else 0
+
+        # Step 2: Iterate state equation forward m times
+        # Option A: Use precomputed A powers if available and m is small enough
+        use_cache = (
+            hasattr(self.idSys, "A_powers_cache")
+            and len(self.idSys.A_powers_cache) > 0
+            and hasattr(self.idSys, "max_m_precomputed")
+            and m <= self.idSys.max_m_precomputed
+        )
+
+        if use_cache:
+            # Efficient: compute all states at once using A^m powers
+            # A_powers_cache[0] = A^1, A_powers_cache[1] = A^2, ..., A_powers_cache[t-1] = A^t
+            # For state at step t: x_t = A^t @ x0
+            Xf = np.zeros((m, nx))
+            for t in range(1, m + 1):
+                if t <= len(self.idSys.A_powers_cache):
+                    # A_powers_cache[t-1] is A^t
+                    Xf[t - 1, :] = self.idSys.A_powers_cache[t - 1] @ x0
+                else:
+                    # Fallback to iterative if beyond cache (shouldn't happen if m <= max_m_precomputed)
+                    if t == 1:
+                        Xf[t - 1, :] = A @ x0
+                    else:
+                        Xf[t - 1, :] = A @ Xf[t - 2, :]
+        else:
+            # Option B: Iterative forward propagation (still O(m))
+            Xf = np.zeros((m, nx))
+            x_current = x0.copy()
+            for t in range(m):
+                x_current = A @ x_current
+                Xf[t, :] = x_current
+
+        # Step 3: Compute outputs from states
+        Yf = Xf @ C.T  # (m, nx) @ (nx, ny) -> (m, ny)
+
+        Zf = None
+        if Cz is not None and nz > 0:
+            Zf = Xf @ Cz.T  # (m, nx) @ (nx, nz) -> (m, nz)
+
+        # Apply residual noise if provided (for probabilistic forecasting)
+        if residual_mean is not None and residual_std is not None:
+            residual_mean_arr = np.asarray(residual_mean)
+            residual_std_arr = np.asarray(residual_std)
+
+            # Ensure shapes match
+            if residual_mean_arr.ndim == 1:
+                residual_mean_arr = residual_mean_arr.reshape(1, -1)
+            if residual_std_arr.ndim == 1:
+                residual_std_arr = residual_std_arr.reshape(1, -1)
+
+            # Broadcast to m steps
+            if residual_mean_arr.shape[0] == 1:
+                residual_mean_arr = np.tile(residual_mean_arr, (m, 1))
+            if residual_std_arr.shape[0] == 1:
+                residual_std_arr = np.tile(residual_std_arr, (m, 1))
+
+            # Add noise (mean is typically 0, but allow for bias correction)
+            noise = np.random.normal(residual_mean_arr, residual_std_arr, size=Yf.shape)
+            Yf = Yf + noise
+
+        return Zf, Yf, Xf
 
     def validate_forecast(
         self,
@@ -250,7 +361,9 @@ class PSIDWrapper:
             Z_future_true = Z[history_end:forecast_end] if Z is not None else None
             Z_past = Z[start:history_end] if Z is not None else None
 
-            Zf, Yf, Xf = self.forecast(m, Y_past, residual_mean=residual_mean, residual_std=residual_std)
+            Zf, Yf, Xf = self.forecast(
+                m, Y_past, residual_mean=residual_mean, residual_std=residual_std
+            )
 
             Y_concat = np.concatenate([Y_past, Yf], axis=0)
             Z_concat = (
@@ -940,7 +1053,7 @@ class VARMAOLSWrapper:
         p, K = self.p, self.K
         if p == 0:
             return
-        
+
         # Build companion matrix to check current eigenvalues
         # Extract AR coefficient blocks from beta_ols (rows 1..p*K; col 0 is intercept)
         companion = np.zeros((p * K, p * K))
@@ -949,22 +1062,22 @@ class VARMAOLSWrapper:
             A_i_T = self.beta_ols[1 + i * K : 1 + (i + 1) * K, :]
             A_i = A_i_T.T  # AR matrix is the transpose of the OLS block
             companion[0:K, i * K : (i + 1) * K] = A_i
-        
+
         if p > 1:
             companion[K:, :-K] = np.eye((p - 1) * K)
-        
+
         eigenvalues = np.linalg.eigvals(companion)
         max_pole = np.max(np.abs(eigenvalues))
-        
+
         # Only scale if max_pole exceeds target (prevents over-damping of stable systems)
         # This matches the example's intent: "Scale the roots if the system decays (or if it is explosive!)"
         if max_pole > max_root:
             gamma = max_root / max_pole
-            
+
             for i in range(p):
                 lag = i + 1
                 self.beta_ols[1 + i * K : 1 + (i + 1) * K, :] *= gamma**lag
-            
+
             companion_reg = np.zeros((p * K, p * K))
             for i in range(p):
                 A_i_T = self.beta_ols[1 + i * K : 1 + (i + 1) * K, :]
