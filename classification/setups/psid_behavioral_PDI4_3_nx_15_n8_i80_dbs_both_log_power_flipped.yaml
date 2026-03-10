@@ -3,13 +3,13 @@ name: psid_behavioral_PDI4_3_nx_15_n8_i80_dbs_both_log_power_flipped
 run:
   dbs_on: 
     variant: "psid_behavioral_PDI4_3_nx_15_n8_i80_dbs_on_log_power"
-    run_ts: "20260221_185259"
+    run_ts: "20260309_124344"
   dbs_off: 
     variant: "psid_behavioral_PDI4_3_nx_15_n8_i80_dbs_off_log_power"
-    run_ts: "20260221_184343"
+    run_ts: "20260309_124939"
   dbs_both: 
     variant: "psid_behavioral_PDI4_3_nx_15_n8_i80_dbs_both_log_power"
-    run_ts: "20260221_183248"
+    run_ts: "20260309_125312"
 
 classification:
   flipped: true
