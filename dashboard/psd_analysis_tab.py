@@ -18,7 +18,6 @@ from dashboard.backbone import (
 )
 from dashboard.backbone import PARTICIPANT_COLORS, PLOT_COLOR, LINE_STYLE
 from dashboard.backbone import PARTICIPANT_COLORS, PLOT_STYLE
-from dashboard.backbone import render_styled_table
 from utils.data_loader import get_all_participants, load_participant_data
 from utils.data_loader import load_participant_data
 from utils.data_loader import load_participant_session_data
@@ -179,7 +178,7 @@ def render_psd_statistical_comparison(freqs, psd_data, participant_id, session):
         pl.col("effect_size_r").round(3).alias("Effect Size (r)"),
     )
 
-    render_styled_table(df.to_pandas(), key="tbl_psd_stats")
+    st.dataframe(df.to_pandas(), use_container_width=True, key="tbl_psd_stats")
     st.caption(
         f"Mann–Whitney U test — DBS ON vs OFF integrated PSD power — "
         f"{participant_id}, Session: {session}"
@@ -273,7 +272,7 @@ def render_psd_band_statistics(
 
     df = pl.DataFrame(rows)
     st.markdown(f"**Session {session} Band Statistics - {channel}**")
-    render_styled_table(df.to_pandas(), key=f"tbl_psd_bands_{session}_{channel}")
+    st.dataframe(df.to_pandas(), use_container_width=True, key=f"tbl_psd_bands_{session}_{channel}")
 
     return band_results
 

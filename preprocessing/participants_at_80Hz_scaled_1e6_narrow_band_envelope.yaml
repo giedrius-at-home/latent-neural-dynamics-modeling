@@ -5,11 +5,11 @@ save_directory: "{root_directory}/resampled_recordings"
 logger_directory: "{root_directory}/logs"
 participants_table_name: "participants.tsv"
 participants_intermediate_table_name: "participants_2"
-output_participants_table_name: "participants_at_150Hz_scaled_1e6_narrow_band_envelope"
+output_participants_table_name: "participants_at_80Hz_scaled_1e6_narrow_band_envelope"
 ieeg_process:
   resampled_dir: "{save_directory}/resampled_mat_recordings"
   chunk_margin: 2
-  resampled_freq: 150
+  resampled_freq: 80
   notch_freqs: []
   scale_factor: 1e6
   raw_bands:

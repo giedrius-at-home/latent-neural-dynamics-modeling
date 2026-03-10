@@ -5,7 +5,6 @@ import plotly.express as px
 import plotly.graph_objects as go
 import polars as pl
 from pathlib import Path
-from dashboard.backbone import render_styled_table
 
 
 def _find_parquet_source(results_dir: Path) -> Path | None:
@@ -231,7 +230,7 @@ def grid_search_tab(project_root: Path, results_root=None):
                 lambda x: f"{x:.4f}" if pd.notna(x) else ""
             )
 
-    render_styled_table(styled_df, key="tbl_grid_search_results")
+    st.dataframe(styled_df, use_container_width=True, key="tbl_grid_search_results")
 
     # ------------------------------------------------------------------
     # Distribution plots

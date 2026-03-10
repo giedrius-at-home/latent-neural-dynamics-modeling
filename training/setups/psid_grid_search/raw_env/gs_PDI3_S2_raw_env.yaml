@@ -59,7 +59,7 @@ model:
     behavioral_outputs:
     - - tracing_velocity_magnitude
 data:
-  root: resampled_recordings/participants_at_150Hz_scaled_1e6_narrow_band_envelope
+  root: resampled_recordings/participants_at_80Hz_scaled_1e6_narrow_band
   participant: PDI3
   session: '2'
   blocks: all
@@ -102,7 +102,7 @@ data:
     test: 0.2
     min_train_epochs: 50
   batch_size: 32
-  sampling_frequency: 150
+  sampling_frequency: 80
   dbs_condition: both
   jitter: 0
 results:

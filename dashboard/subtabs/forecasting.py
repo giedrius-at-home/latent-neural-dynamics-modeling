@@ -38,7 +38,6 @@ from dashboard.subtabs.helpers import (
     get_baseline_channel,
     render_analysis,
 )
-from dashboard.backbone import render_styled_table
 from utils.stats import (
     compute_power_spectrum,
     find_dominant_frequencies,

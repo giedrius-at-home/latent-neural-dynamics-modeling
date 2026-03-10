@@ -30,7 +30,6 @@ from dashboard.subtabs import (
     reevaluate_against_history,
     has_roc_data,
 )
-from dashboard.backbone import render_styled_table
 from sklearn.metrics import confusion_matrix
 from utils.classification import (
     load_all_splits,
@@ -280,7 +279,7 @@ def render_fold_results(fold_results: list, key: str) -> None:
         "Bal Acc",
     ]
 
-    render_styled_table(display_df, key=f"tbl_fold_perf_{key}")
+    st.dataframe(display_df, use_container_width=True, key=f"tbl_fold_perf_{key}")
 
     fig = go.Figure()
     fig.add_trace(
@@ -540,7 +539,7 @@ def _render_prediction_feature_summary(
     summary_rows = create_summary_table(feat_results)
     if summary_rows:
         df = pd.DataFrame(summary_rows)
-        render_styled_table(df, key=f"pred_summary_{feature_source}_{key_prefix}")
+        st.dataframe(df, use_container_width=True, key=f"pred_summary_{feature_source}_{key_prefix}")
     st.markdown("---")
 
 

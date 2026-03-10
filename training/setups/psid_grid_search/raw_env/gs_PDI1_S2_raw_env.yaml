@@ -2,7 +2,7 @@ model:
   name: psid_grid_search_PDI1_S2_raw_env
   i: 80
   time_first: true
-  reuse_splits: true
+  reuse_splits: false
   forecast:
     m: 2
     history: 5
@@ -62,7 +62,7 @@ model:
       - tracing_jerk_x
       - tracing_jerk_magnitude
 data:
-  root: resampled_recordings/participants_at_150Hz_scaled_1e6_narrow_band_envelope
+  root: resampled_recordings/participants_at_80Hz_scaled_1e6_narrow_band
   participant: PDI1
   session: '2'
   blocks: all
@@ -106,7 +106,7 @@ data:
     test: 0.2
     min_train_epochs: 50
   batch_size: 32
-  sampling_frequency: 150
+  sampling_frequency: 80
   dbs_condition: both
   jitter: 0
 results:
