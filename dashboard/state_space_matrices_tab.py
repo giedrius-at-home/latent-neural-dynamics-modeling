@@ -5,7 +5,6 @@ import plotly.express as px
 from pathlib import Path
 from typing import Dict, Any, Optional
 import pandas as pd
-from dashboard.backbone import render_styled_table
 from dashboard.subtabs import list_variants, list_run_timestamps
 from utils.matrix_extraction import (
     load_model_matrices,
@@ -145,7 +144,7 @@ def render_frequency_decay_table(eig_analysis: Dict[str, Any]):
     df = pd.DataFrame(data)
     df = df.sort_values("Magnitude", ascending=False)
 
-    render_styled_table(df, key="tbl_osc_modes")
+    st.dataframe(df, use_container_width=True, key="tbl_osc_modes")
 
 
 def render_matrix_comparison(
@@ -255,7 +254,7 @@ def state_space_matrices_tab(project_root, results_root=None):
         )
 
     df_info = pd.DataFrame(matrix_info)
-    render_styled_table(df_info, key="tbl_matrix_info")
+    st.dataframe(df_info, use_container_width=True, key="tbl_matrix_info")
 
     st.markdown("---")
     st.subheader("Matrix Visualizations")

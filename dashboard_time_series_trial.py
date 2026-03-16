@@ -99,12 +99,12 @@ else:
 # Trial Level Analysis
 if "block_data" in st.session_state:
     block_data = st.session_state["block_data"]
-    
+
     if block_data is not None and not block_data.is_empty():
         lfp_channels, ecog_channels, motion_channels = get_channel_lists(block_data)
-        
+
         trials_in_block = sorted(block_data["trial"].unique().to_list())
-        
+
         if not trials_in_block:
             st.warning("No trials in block.")
         else:

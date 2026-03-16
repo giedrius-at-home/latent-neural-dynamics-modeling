@@ -1,6 +1,6 @@
 model:
   name: "varma_PDI3_S2_dbs_off_narrow_band"
-  p: 20
+  p: 30
   q: 1
   long_ar_lags: 30
   time_first: true
@@ -28,7 +28,6 @@ data:
       "tracing_velocity_magnitude",
       "tracing_acceleration_x"
     ]
-    input_lag: null
   split:
     within_session_split: true
     train: 0.6
@@ -38,7 +37,6 @@ data:
   batch_size: 32
   sampling_frequency: 80
   dbs_condition: "off"
-  jitter: 0
 
 results:
   save_dir: "results/{model.name}"

@@ -461,7 +461,8 @@ def render_residual_diagnostics(
 
     if rescale:
         y_pred = rescale_to_reference(y_pred, y_true)
-        baseline_preds = rescale_to_reference(baseline_preds, y_true)
+        if baseline_preds is not None:
+            baseline_preds = rescale_to_reference(baseline_preds, y_true)
 
     res_stats = compute_residual_statistics(y_true, y_pred)
     residuals = res_stats["residuals"]

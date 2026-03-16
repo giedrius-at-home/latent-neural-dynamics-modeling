@@ -34,6 +34,7 @@ import pickle
 import polars as pl
 from pathlib import Path
 from utils.polars import get_scalar_value, convert_series_to_list
+from utils.config import get_config
 
 
 __all__ = [
@@ -150,10 +151,9 @@ def scope_features(
     if feature_source == "Xp_2":
         return X[:, :, n1:nx]
 
-    if feature_source == "Xp_with_dbs":
-        time_pts = X.shape[1]
-        dbs_state = np.ones((len(y), time_pts, 1)) * y[:, None, None]
-        return np.concatenate([X, dbs_state], axis=-1)
+    # Xp_with_dbs is now handled in prepare_epoched_data to avoid data leakage
+    # (DBS state is added per-epoch using actual stim value, not from labels)
+    # No additional processing needed here
 
     return X
 
@@ -218,22 +218,66 @@ def prepare_epoched_data(
     target_future: bool = False,
     n1: Optional[int] = None,
     nx: Optional[int] = None,
+    framework: Optional[Any] = None,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, List[Dict[str, Any]]]:
 
     epoch_len = int(epoch_length_sec * fs)
-    forecast_samples = int(forecast_horizon * fs)
-    history_samples = int(history_horizon * fs)
+    forecast_samples = int(forecast_horizon * fs) if forecast_horizon is not None else 0
+    history_samples = int(history_horizon * fs) if history_horizon is not None else 0
 
     X_all, y_all, groups_all, meta_all = [], [], [], []
     block_id_map, current_block_id = {}, 0
 
     for trial_set in trials:
+        # Skip None trial sets
+        if trial_set is None:
+            continue
+
         observations = trial_set.get("Y", [])
 
-        data_key = "X_future_pred" if mode == "forecast" else "Xp"
-        latent_states = trial_set[data_key]
+        # For forecast mode with history_horizon, generate forecasts on-the-fly
+        # Framework is REQUIRED for this mode
+        if mode == "forecast" and history_horizon is not None:
+            if framework is None:
+                raise ValueError(
+                    f"Framework is required for forecast mode with history_horizon={history_horizon}. "
+                    f"Cannot generate forecasts on-the-fly without a loaded framework."
+                )
+            # Generate forecasts on-the-fly with specified history window
+            latent_states = []
+            for trial_idx, Y_trial in enumerate(observations):
+                Y_trial = np.array(Y_trial)
+                if Y_trial.ndim == 1:
+                    Y_trial = Y_trial.reshape(-1, 1)
+                if Y_trial.shape[0] < Y_trial.shape[1]:
+                    Y_trial = Y_trial.T
+
+                # Use history_horizon to slice past data
+                if Y_trial.shape[0] < history_samples + forecast_samples:
+                    latent_states.append(None)
+                    continue
+
+                Y_past = Y_trial[:history_samples]
+                try:
+                    # Generate forecast
+                    Zf, Yf, Xf = framework.model.forecast(forecast_samples, Y_past)
+                    if Xf is not None:
+                        latent_states.append(Xf)
+                    else:
+                        latent_states.append(None)
+                except Exception as e:
+                    warnings.warn(
+                        f"Failed to generate forecast for trial {trial_idx}: {e}"
+                    )
+                    latent_states.append(None)
+        else:
+            # Use precomputed data
+            data_key = "X_future_pred" if mode == "forecast" else "Xp"
+            latent_states = trial_set[data_key]
 
         for trial_idx, trial_latents in enumerate(latent_states):
+            if trial_latents is None:
+                continue
             stim = trial_set["stim"][trial_idx]
             session = trial_set["session"][trial_idx]
             block = trial_set["block"][trial_idx]
@@ -278,7 +322,15 @@ def prepare_epoched_data(
                     trial_obs, model_on, model_off, params
                 )
                 for item in batch:
-                    X_all.append(item["X"])
+                    X_item = item["X"]
+                    # For Xp_with_dbs, add DBS state channel to each flipped sample
+                    # Use actual stim value (not label) to avoid data leakage
+                    if feature_source == "Xp_with_dbs":
+                        dbs_channel = np.ones((X_item.shape[0], 1)) * (
+                            1 if stim == "on" else 0
+                        )
+                        X_item = np.concatenate([X_item, dbs_channel], axis=-1)
+                    X_all.append(X_item)
                     y_all.append(item["y"])
                     groups_all.append(item["group"])
                     meta_all.append(item["meta"])
@@ -295,7 +347,14 @@ def prepare_epoched_data(
                         start + epoch_len : start + epoch_len + forecast_samples
                     ]
                     for sample in X_fut:
-                        X_all.append(sample.reshape(1, -1))
+                        sample_reshaped = sample.reshape(1, -1)
+                        # For Xp_with_dbs, add DBS state channel to each sample
+                        if feature_source == "Xp_with_dbs":
+                            dbs_channel = np.ones((1, 1)) * (1 if stim == "on" else 0)
+                            sample_reshaped = np.concatenate(
+                                [sample_reshaped, dbs_channel], axis=-1
+                            )
+                        X_all.append(sample_reshaped)
                         y_all.append(1 if stim == "on" else 0)
                         groups_all.append(group_id)
                         meta_all.append(
@@ -307,18 +366,24 @@ def prepare_epoched_data(
                         )
                 continue
 
+            # For forecast mode, ensure we only use the forecast horizon
+            # (already handled if generated on-the-fly, but needed for precomputed)
             if forecast_horizon is not None and mode == "forecast":
-                trial_latents = trial_latents[:forecast_samples]
-
-            if history_horizon is not None and mode == "prediction":
-                if trial_latents.shape[0] > history_samples:
-                    trial_latents = trial_latents[-history_samples:]
+                if trial_latents.shape[0] > forecast_samples:
+                    trial_latents = trial_latents[:forecast_samples]
 
             if trial_latents.shape[0] < epoch_len:
                 continue
 
             epochs = epoch_trial(trial_latents, epoch_len, overlap)
             for ep_idx, ep in enumerate(epochs):
+                # For Xp_with_dbs, add DBS state channel to each epoch
+                # Use actual stim value (not label) to avoid data leakage
+                if feature_source == "Xp_with_dbs":
+                    # Add DBS state as an additional channel (1 for "on", 0 for "off")
+                    dbs_channel = np.ones((ep.shape[0], 1)) * (1 if stim == "on" else 0)
+                    ep = np.concatenate([ep, dbs_channel], axis=-1)
+
                 X_all.append(ep)
                 y_all.append(1 if stim == "on" else 0)
                 groups_all.append(group_id)
@@ -856,3 +921,78 @@ def load_all_splits(
     for split_name in ["train", "val", "test"]:
         splits[split_name] = load_precomputed_results(variant_dir, run_ts, split_name)
     return splits
+
+
+def _load_framework_for_forecast(
+    variant_dir: Path, run_ts: str, project_root: Path
+) -> Any:
+    """Load framework/model for generating forecasts on-the-fly.
+
+    Raises:
+        FileNotFoundError: If model file or setup file not found
+        ValueError: If framework type is unsupported or invalid
+        Exception: For any other loading errors
+    """
+    from utils.frameworks import PSIDFramework, DPADFramework
+    import json
+    from utils.logger import get_logger
+
+    logger = get_logger()
+
+    model_path = variant_dir / f"model_{run_ts}.pkl"
+    metadata_path = variant_dir / f"model_{run_ts}_metadata.json"
+
+    if not model_path.exists():
+        raise FileNotFoundError(
+            f"Model file not found: {model_path}. "
+            f"Variant: {variant_dir.name}, Run: {run_ts}"
+        )
+
+    # Load metadata to determine framework type
+    framework_type = "psid"
+    if metadata_path.exists():
+        with open(metadata_path, "r") as f:
+            metadata = json.load(f)
+        framework_type = metadata.get("framework_type", "psid")
+
+    # Find config file - try both training and classification setups
+    setup_paths = []
+    for setup_dir in ["training/setups", "classification/setups"]:
+        base = project_root / setup_dir
+        if base.exists():
+            matches = list(base.rglob(f"{variant_dir.name}.yaml"))
+            setup_paths.extend(matches)
+
+    if not setup_paths:
+        raise FileNotFoundError(
+            f"Could not find setup file for variant: {variant_dir.name}. "
+            f"Searched in: {project_root / 'training' / 'setups'}, "
+            f"{project_root / 'classification' / 'setups'}"
+        )
+
+    config = get_config(str(setup_paths[0]))
+    logger.info(f"Using config file: {setup_paths[0]}")
+
+    # Initialize framework (only PSID and DPAD support Xp)
+    if framework_type == "psid":
+        framework = PSIDFramework(config)
+    elif framework_type == "dpad":
+        framework = DPADFramework(config)
+    else:
+        raise ValueError(
+            f"Unknown or unsupported framework type: {framework_type}. "
+            f"Only 'psid' and 'dpad' are supported for classification."
+        )
+
+    # Load model
+    with open(model_path, "rb") as f:
+        model_obj = pickle.load(f)
+
+    framework.model = framework._initialize_model()
+    framework.model.idSys = model_obj
+    if hasattr(model_obj, "restoreModels"):
+        model_obj.restoreModels()
+        logger.info("DPAD model restored successfully")
+
+    logger.info(f"Framework loaded successfully: {framework_type}")
+    return framework

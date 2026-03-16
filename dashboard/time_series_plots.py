@@ -535,24 +535,79 @@ def plot_jerk_time_series(
 
 
 def plot_2d_trajectory(
-    trial_df: pl.DataFrame, x_col: str = "x", y_col: str = "y", title: str = ""
+    trial_df: pl.DataFrame,
+    x_col: str = "x",
+    y_col: str = "y",
+    title: str = "",
+    jump_indices: np.ndarray = None,
+    stationary_runs: list = None,
+    pause_threshold_s: float = 0.5,
 ) -> go.Figure:
     fig = go.Figure()
 
-    fig.add_trace(
-        go.Scatter(
-            x=trial_df[x_col],
-            y=trial_df[y_col],
-            mode="lines+markers",
-            name="Path",
-            line=dict(width=2),
-        )
-    )
+    x_arr = trial_df[x_col].to_numpy()
+    y_arr = trial_df[y_col].to_numpy()
 
     fig.add_trace(
         go.Scatter(
-            x=trial_df.head(1)[x_col],
-            y=trial_df.head(1)[y_col],
+            x=x_arr,
+            y=y_arr,
+            mode="lines",
+            name="Path",
+            line=dict(width=2, color=PALETTE.twilight_indigo),
+        )
+    )
+
+    if jump_indices is not None and len(jump_indices) > 0:
+        for idx in jump_indices:
+            if idx + 1 < len(x_arr):
+                fig.add_trace(
+                    go.Scatter(
+                        x=[x_arr[idx], x_arr[idx + 1]],
+                        y=[y_arr[idx], y_arr[idx + 1]],
+                        mode="lines+markers",
+                        line=dict(color=PALETTE.strawberry_red, width=2, dash="dash"),
+                        marker=dict(color=PALETTE.strawberry_red, size=7, symbol="x"),
+                        showlegend=False,
+                        hovertext=f"Jump: {np.sqrt((x_arr[idx+1]-x_arr[idx])**2 + (y_arr[idx+1]-y_arr[idx])**2):.0f}px",
+                        hoverinfo="text",
+                    )
+                )
+        fig.add_trace(
+            go.Scatter(
+                x=[None], y=[None],
+                mode="lines+markers",
+                line=dict(color=PALETTE.strawberry_red, dash="dash"),
+                marker=dict(color=PALETTE.strawberry_red, symbol="x"),
+                name=f"Jumps ({len(jump_indices)})",
+            )
+        )
+
+    if stationary_runs is not None:
+        long_runs = [r for r in stationary_runs if r["duration_s"] >= pause_threshold_s]
+        if long_runs:
+            sizes = [max(8, min(25, r["duration_s"] * 10)) for r in long_runs]
+            fig.add_trace(
+                go.Scatter(
+                    x=[r["x"] for r in long_runs],
+                    y=[r["y"] for r in long_runs],
+                    mode="markers",
+                    marker=dict(
+                        color="orange",
+                        size=sizes,
+                        opacity=0.6,
+                        line=dict(width=1, color="darkorange"),
+                    ),
+                    name=f"Pauses >{pause_threshold_s}s ({len(long_runs)})",
+                    hovertext=[f"Pause: {r['duration_s']:.1f}s" for r in long_runs],
+                    hoverinfo="text",
+                )
+            )
+
+    fig.add_trace(
+        go.Scatter(
+            x=[x_arr[0]],
+            y=[y_arr[0]],
             mode="markers",
             marker=dict(color="green", size=10),
             name="Start",
@@ -560,8 +615,8 @@ def plot_2d_trajectory(
     )
     fig.add_trace(
         go.Scatter(
-            x=trial_df.tail(1)[x_col],
-            y=trial_df.tail(1)[y_col],
+            x=[x_arr[-1]],
+            y=[y_arr[-1]],
             mode="markers",
             marker=dict(color="red", size=10),
             name="End",

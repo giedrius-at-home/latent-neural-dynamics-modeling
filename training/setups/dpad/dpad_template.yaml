@@ -34,7 +34,6 @@ data:
     is_behavioral_neural: true
     input: []  # Y (neural)
     output: []  # Z (behavior)
-    input_lag: ##  # Number of samples to lag the input channels
   split:
     within_session_split: true
     train: ## # Proportion of data to use for training

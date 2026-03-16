@@ -35,7 +35,6 @@ from utils.stats import (
 )
 from dashboard.backbone import (
     create_base_psd_line_figure,
-    render_styled_table,
 )
 from dashboard.subtabs.helpers import (
     list_variants,
@@ -239,7 +238,7 @@ def render_system_eigenvalues(idSys):
             df_brain_styled = df_brain.copy()
             for col in df_brain_styled.columns:
                 df_brain_styled[col] = df_brain_styled[col].apply(lambda x: f"{x:.4f}")
-            render_styled_table(df_brain_styled, key="tbl_ev_brain")
+            st.dataframe(df_brain_styled, use_container_width=True, key="tbl_ev_brain")
             max_eig_b = np.max(np.abs(ev_brain))
             st.info(
                 f"**Spectral Radius:** {max_eig_b:.4f} ({'Stable' if max_eig_b < 1.0 else 'Unstable'})"
@@ -258,7 +257,7 @@ def render_system_eigenvalues(idSys):
             df_noise_styled = df_noise.copy()
             for col in df_noise_styled.columns:
                 df_noise_styled[col] = df_noise_styled[col].apply(lambda x: f"{x:.4f}")
-            render_styled_table(df_noise_styled, key="tbl_ev_noise")
+            st.dataframe(df_noise_styled, use_container_width=True, key="tbl_ev_noise")
             max_eig_n = np.max(np.abs(ev_noise))
             st.info(
                 f"**Noise Spectral Radius:** {max_eig_n:.4f} ({'Stable' if max_eig_n < 1.0 else 'Unstable'})"

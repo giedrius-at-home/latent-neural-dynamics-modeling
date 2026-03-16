@@ -68,12 +68,11 @@ class Tester:
                 metadata = json.load(f)
             self.logger.info(f"Loading model with metadata: {metadata}")
 
-        framework_type = metadata.get("framework_type", "psid")
-
         with open(model_path, "rb") as f:
             model_obj = pickle.load(f)
 
         self._init_framework()
+        framework_type = metadata.get("framework_type", self.framework_type)
 
         if framework_type == "varma":
             self.framework.model = model_obj
@@ -171,13 +170,9 @@ class Tester:
             "block": meta.get("block", []),
             "trial": meta.get("trial", []),
             "input_channels": (
-                meta.get("original_input_channels", [[]])[0]
-                if meta.get("original_input_channels")
-                else (
-                    meta.get("input_channels", [[]])[0]
-                    if meta.get("input_channels")
-                    else []
-                )
+                meta.get("input_channels", [[]])[0]
+                if meta.get("input_channels")
+                else []
             ),
             "output_channels": (
                 meta.get("output_channels", [[]])[0]
@@ -257,97 +252,6 @@ class Tester:
         )
         return _Y, _Z, _meta
 
-    def _remove_lagged_channels(self, Y_list, Yp_list, meta_list):
-        input_lag = meta_list[0].get("input_lag", 0) if meta_list else 0
-
-        self.logger.info(f"_remove_lagged_channels called: input_lag={input_lag}")
-
-        if input_lag == 0:
-            self.logger.info("No input lag, returning original data")
-            return Y_list, Yp_list
-
-        original_channels = meta_list[0].get("original_input_channels", [])
-        n_original = len(original_channels)
-
-        self.logger.info(f"Original channels: {original_channels} (n={n_original})")
-
-        if n_original == 0:
-            self.logger.warning(
-                "No original_input_channels found in metadata, cannot remove lagged channels"
-            )
-            return Y_list, Yp_list
-
-        if len(Y_list) > 0:
-            self.logger.info(
-                f"Before slicing - Y[0] shape: {Y_list[0].shape}, Yp[0] shape: {Yp_list[0].shape}"
-            )
-
-        Y_list_sliced = []
-        Yp_list_sliced = []
-
-        for i, (Y, Yp) in enumerate(zip(Y_list, Yp_list)):
-            if Y.shape[1] < n_original:
-                self.logger.error(
-                    f"Trial {i}: Y has {Y.shape[1]} channels but trying to keep {n_original} original channels!"
-                )
-                Y_sliced = Y
-                Yp_sliced = Yp
-            else:
-                Y_sliced = Y[:, :n_original]
-                Yp_sliced = Yp[:, :n_original]
-
-            Y_list_sliced.append(Y_sliced)
-            Yp_list_sliced.append(Yp_sliced)
-
-        if len(Y_list_sliced) > 0:
-            self.logger.info(
-                f"After slicing - Y[0] shape: {Y_list_sliced[0].shape}, Yp[0] shape: {Yp_list_sliced[0].shape}"
-            )
-            self.logger.info(
-                f"Removed lagged channels: {Y_list[0].shape[1]} -> {Y_list_sliced[0].shape[1]} channels"
-            )
-
-        return Y_list_sliced, Yp_list_sliced
-
-    def _remove_lagged_channels_from_forecast(self, f_res, meta_list):
-        input_lag = meta_list[0].get("input_lag", 0) if meta_list else 0
-
-        if input_lag == 0:
-            self.logger.info(
-                "No input lag in forecast, returning original forecast results"
-            )
-            return f_res
-
-        original_channels = meta_list[0].get("original_input_channels", [])
-        n_original = len(original_channels)
-
-        if n_original == 0:
-            self.logger.warning(
-                "No original_input_channels found, cannot slice forecast results"
-            )
-            return f_res
-
-        self.logger.info(
-            f"Slicing forecast results to keep {n_original} original channels"
-        )
-
-        for key in ["Y_future_true", "Y_future_pred", "Y_concat_for_plot"]:
-            if key in f_res and f_res[key]:
-                sliced = []
-                for arr in f_res[key]:
-                    if arr is not None:
-                        arr_np = np.array(arr)
-                        if arr_np.ndim == 2 and arr_np.shape[1] > n_original:
-                            arr_sliced = arr_np[:, :n_original]
-                            sliced.append(arr_sliced.tolist())
-                        else:
-                            sliced.append(arr)
-                    else:
-                        sliced.append(None)
-                f_res[key] = sliced
-
-        return f_res
-
     def run_predictions(self):
 
         self._load_dataloaders()
@@ -369,10 +273,6 @@ class Tester:
             f_res = self.framework.model.validate_forecast(
                 Y_list, Z_list=Z_list, margin=chunk_margin
             )
-
-            Y_list, Yp = self._remove_lagged_channels(Y_list, Yp, meta_list)
-
-            f_res = self._remove_lagged_channels_from_forecast(f_res, meta_list)
 
             meta = {k: [d.get(k) for d in meta_list] for k in meta_list[0]}
             split_results = self._get_metrics(Y_list, Z_list, Yp, Zp, Xp, meta)
@@ -408,10 +308,6 @@ class Tester:
             f_res = self.framework.model.validate_forecast(
                 Y_list, Z_list=Z_list, margin=chunk_margin
             )
-
-            Y_list, Yp = self._remove_lagged_channels(Y_list, Yp, meta_list)
-
-            f_res = self._remove_lagged_channels_from_forecast(f_res, meta_list)
 
             meta = {k: [d.get(k) for d in meta_list] for k in meta_list[0]}
             split_results = self._get_metrics(Y_list, Z_list, Yp, Zp, Xp, meta)

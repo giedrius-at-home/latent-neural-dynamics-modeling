@@ -5,7 +5,6 @@ import plotly.express as px
 import plotly.graph_objects as go
 import polars as pl
 from pathlib import Path
-from dashboard.backbone import render_styled_table
 
 
 def _find_parquet_source(results_dir: Path) -> Path | None:
@@ -141,10 +140,18 @@ def grid_search_tab(project_root: Path, results_root=None):
             "pearson_trimmed",
             "pearson_fisher",
             "r_squared",
+            "rmse_Z",
+            "rmse_Y",
             "xcorr_mean",
             "xcorr_median",
             "xcorr_lag_mean_ms",
             "xcorr_lag_median_ms",
+            "plv_Z_mean",
+            "plv_Y_mean",
+            "csd_phase_Z_mean",
+            "csd_phase_Y_mean",
+            "coherence_Z_mean",
+            "coherence_Y_mean",
             "cv",
             "pct_above_zero",
             "pct_above_03",
@@ -158,8 +165,6 @@ def grid_search_tab(project_root: Path, results_root=None):
         in [
             "nx",
             "n1",
-            "alpha_Q",
-            "alpha_R",
             "backward_kalman",
             "rescale_states",
             "max_eigenvalue",
@@ -197,17 +202,6 @@ def grid_search_tab(project_root: Path, results_root=None):
             filtered_df = filtered_df[filtered_df["n1"].isin(selected_n1)]
 
     with col2:
-        if "alpha_Q" in df.columns:
-            aq_vals = sorted(df["alpha_Q"].dropna().unique())
-            selected_aq = st.multiselect("alpha_Q", aq_vals, default=aq_vals)
-            filtered_df = filtered_df[filtered_df["alpha_Q"].isin(selected_aq)]
-
-        if "alpha_R" in df.columns:
-            ar_vals = sorted(df["alpha_R"].dropna().unique())
-            selected_ar = st.multiselect("alpha_R", ar_vals, default=ar_vals)
-            filtered_df = filtered_df[filtered_df["alpha_R"].isin(selected_ar)]
-
-    with col3:
         if "backward_kalman" in df.columns:
             bk_vals = list(df["backward_kalman"].dropna().unique())
             selected_bk = st.multiselect("backward_kalman", bk_vals, default=bk_vals)
@@ -231,7 +225,7 @@ def grid_search_tab(project_root: Path, results_root=None):
                 lambda x: f"{x:.4f}" if pd.notna(x) else ""
             )
 
-    render_styled_table(styled_df, key="tbl_grid_search_results")
+    st.dataframe(styled_df, use_container_width=True, key="tbl_grid_search_results")
 
     # ------------------------------------------------------------------
     # Distribution plots

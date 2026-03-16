@@ -15,9 +15,11 @@ from utils.classification import (
     load_all_splits,
     prepare_epoched_data,
     run_classification_pipeline,
+    _load_framework_for_forecast,
 )
 from utils.logger import setup_logger, get_logger
 from utils.config import get_config
+from training.components.tester import Tester
 
 
 def _get_model_path(project_root: Path, variant_cfg: Any) -> Path:
@@ -73,7 +75,21 @@ def run_classification(
 
     splits = load_all_splits(load_variant_dir, model_run_ts)
     trainval_trials = [splits.get("train"), splits.get("val")]
+    # Filter out None values from trainval_trials
+    trainval_trials = [t for t in trainval_trials if t is not None]
+
     test_trials = [splits.get("test")]
+    # Filter out None values from test_trials
+    test_trials = [t for t in test_trials if t is not None]
+
+    # Load framework for forecast generation - REQUIRED for forecast mode
+    framework = None
+    if mode == "forecast" and history_horizon is not None:
+        project_root = Path(config.results.project_root)
+        framework = _load_framework_for_forecast(
+            load_variant_dir, model_run_ts, project_root
+        )
+        # Framework loading will raise an exception if it fails
 
     if flipped:
         X_train, y_train, groups_train, _ = prepare_epoched_data(
@@ -95,6 +111,23 @@ def run_classification(
             history_horizon=history_horizon,
             forecast_horizon=forecast_horizon,
         )
+
+        # Log test data availability for flipped case
+        if X_test is not None and y_test is not None:
+            logger.info(
+                f"Test data prepared (flipped): {len(X_test)} samples for {feature_source} {mode}"
+            )
+        elif len(test_trials) == 0:
+            logger.warning(
+                f"No test trials available (flipped) for {feature_source} {mode}. "
+                f"Test results will not be computed."
+            )
+        else:
+            logger.warning(
+                f"Test data preparation returned None (flipped) for {feature_source} {mode}. "
+                f"Test trials were provided but no valid data was extracted. "
+                f"Test results will not be computed."
+            )
     else:
         X_train, y_train, groups_train, _ = prepare_epoched_data(
             trainval_trials,
@@ -102,6 +135,7 @@ def run_classification(
             mode=mode,
             history_horizon=history_horizon,
             forecast_horizon=forecast_horizon,
+            framework=framework,
         )
         X_test, y_test, _, _ = prepare_epoched_data(
             test_trials,
@@ -109,6 +143,24 @@ def run_classification(
             mode=mode,
             history_horizon=history_horizon,
             forecast_horizon=forecast_horizon,
+            framework=framework,
+        )
+
+    # Log test data availability
+    if X_test is not None and y_test is not None:
+        logger.info(
+            f"Test data prepared: {len(X_test)} samples for {feature_source} {mode}"
+        )
+    elif len(test_trials) == 0:
+        logger.warning(
+            f"No test trials available for {feature_source} {mode}. "
+            f"Test results will not be computed."
+        )
+    else:
+        logger.warning(
+            f"Test data preparation returned None for {feature_source} {mode}. "
+            f"Test trials were provided but no valid data was extracted. "
+            f"Test results will not be computed."
         )
 
     results = run_classification_pipeline(
@@ -122,11 +174,30 @@ def run_classification(
         feature_source=feature_source,
     )
 
+    # Log whether test_results were computed
+    if "test_results" in results:
+        logger.info(
+            f"Test results computed and saved for {feature_source} {mode} "
+            f"(h={history_horizon}, m={forecast_horizon})"
+        )
+    else:
+        logger.warning(
+            f"No test results computed for {feature_source} {mode} "
+            f"(h={history_horizon}, m={forecast_horizon}). "
+            f"Test trials available: {len(test_trials) > 0}"
+        )
+
     results_base = Path(config.results.results_dir)
-    save_dir = results_base / run_ts / f"h{history_horizon}_m{forecast_horizon}"
+
+    if mode == "prediction":
+        save_dir = results_base / run_ts
+    else:
+        save_dir = results_base / run_ts / f"h{history_horizon}_m{forecast_horizon}"
+
     save_dir.mkdir(parents=True, exist_ok=True)
 
-    with open(save_dir / f"LDA_{feature_source}_{mode}.pkl", "wb") as f:
+    save_path = save_dir / f"LDA_{feature_source}_{mode}.pkl"
+    with open(save_path, "wb") as f:
         pickle.dump(results, f)
 
 
@@ -167,20 +238,31 @@ def run_all_classifications(config: Any) -> None:
         history_horizons = config.classification.get("h")
         forecast_horizons = config.classification.get("m")
 
+        logger.info("Running prediction classification (entire trial, h/m ignored)")
+        run_classification(
+            logger,
+            config,
+            "prediction",
+            config.classification.get("prediction_feature_source", "Xp"),
+            history_horizon=None,
+            forecast_horizon=None,
+            variant_dir=project_root / "results" / config.run.variant,
+            run_ts=config.run.run_ts,
+        )
+
         for hh in history_horizons:
             for fh in forecast_horizons:
-                for mode in ["prediction", "forecast"]:
-                    logger.info(f"Running {mode} classification with h={hh}s, m={fh}s")
-                    run_classification(
-                        logger,
-                        config,
-                        mode,
-                        config.classification.get(f"{mode}_feature_source", "Xp"),
-                        history_horizon=hh,
-                        forecast_horizon=fh,
-                        variant_dir=project_root / "results" / config.run.variant,
-                        run_ts=config.run.run_ts,
-                    )
+                logger.info(f"Running forecast classification with h={hh}s, m={fh}s")
+                run_classification(
+                    logger,
+                    config,
+                    "forecast",
+                    config.classification.get("forecast_feature_source", "Xp"),
+                    history_horizon=hh,
+                    forecast_horizon=fh,
+                    variant_dir=project_root / "results" / config.run.variant,
+                    run_ts=config.run.run_ts,
+                )
 
 
 def verify_test_results(logger: Any, project_root: Path, config: Any) -> None:

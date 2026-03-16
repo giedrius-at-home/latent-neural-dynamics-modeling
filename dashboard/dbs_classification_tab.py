@@ -1,6 +1,8 @@
 import streamlit as st
 import numpy as np
 import plotly.graph_objects as go
+import plotly.express as px
+from plotly.subplots import make_subplots
 from pathlib import Path
 from typing import Dict, Any, Optional, Callable, Tuple
 import pickle
@@ -30,7 +32,6 @@ from dashboard.subtabs import (
     reevaluate_against_history,
     has_roc_data,
 )
-from dashboard.backbone import render_styled_table
 from sklearn.metrics import confusion_matrix
 from utils.classification import (
     load_all_splits,
@@ -280,7 +281,7 @@ def render_fold_results(fold_results: list, key: str) -> None:
         "Bal Acc",
     ]
 
-    render_styled_table(display_df, key=f"tbl_fold_perf_{key}")
+    st.dataframe(display_df, use_container_width=True, key=f"tbl_fold_perf_{key}")
 
     fig = go.Figure()
     fig.add_trace(
@@ -424,10 +425,10 @@ def render_classification_results(
             "Feature Source", options=all_feats, key=f"det_feat_{mode}_{run_ts}"
         )
 
-    # Only show h/m selectors if we have labeled windows
-    if all_h or all_m:
+    if mode == "prediction":
+        sel_h, sel_m = None, None
+    elif all_h or all_m:
         with col2:
-            # Add "Standard" or "N/A" if there are files without h/m
             h_options = all_h + (
                 ["Standard"] if any(r["h"] is None for r in file_records) else []
             )
@@ -444,9 +445,10 @@ def render_classification_results(
     else:
         sel_h, sel_m = "Standard", "Standard"
 
-    # Filter records based on selection
     def matches(r):
         feat_match = r["feature"] == sel_feat
+        if mode == "prediction":
+            return feat_match
         h_val = r["h"] if r["h"] is not None else "Standard"
         m_val = r["m"] if r["m"] is not None else "Standard"
         return feat_match and h_val == sel_h and m_val == sel_m
@@ -462,22 +464,26 @@ def render_classification_results(
         display_name = f"{r['clf']} - {r['feature']} features"
 
         st.markdown(f"### {display_name}")
-        if r["h"] is not None:
+        if mode != "prediction" and r["h"] is not None:
             st.caption(f"Window: h={r['h']}s, m={r['m']}s")
 
         results = load_single_result(result_file)
         if results:
             if eval_target == "history_label":
-                pred_file = result_file.parent / result_file.name.replace(
-                    "_forecast", "_prediction"
-                )
+                # Predictions are saved in run_ts directory, not in h/m subdirectories
+                if mode == "forecast":
+                    pred_file = result_file.parent.parent / result_file.name.replace(
+                        "_forecast", "_prediction"
+                    )
+                else:
+                    pred_file = result_file.parent / result_file.name.replace(
+                        "_forecast", "_prediction"
+                    )
                 if pred_file.exists():
                     pred_res = load_single_result(pred_file)
                     if pred_res:
                         if reevaluate_against_history(results, pred_res):
-                            n = len(
-                                results["y_pred"]
-                            )  # Use forecast predictions length
+                            n = len(results["y_pred"])
                             st.info(
                                 f"Evaluating {n} forecast samples against historical predictions."
                             )
@@ -501,68 +507,695 @@ def render_classification_from_predictions(variant_dir: Path, run_ts: str) -> No
     results_dir = variant_dir / run_ts
     if results_dir.exists():
         all_results = load_classification_results(results_dir, mode="prediction")
-        # Show summary if we have multiple windows OR multiple features
         n_configs = sum(len(res) for res in all_results.values())
         if n_configs > 1 or len(all_results) > 1:
             st.markdown("## Prediction Performance Summary")
-            render_classification_summary(all_results, f"pred_{run_ts}")
+            render_prediction_summary(all_results, f"pred_{run_ts}")
             st.markdown("---")
 
     render_classification_results(variant_dir, run_ts, mode="prediction")
 
 
-def render_classification_summary(
+def _render_prediction_feature_summary(
+    feature_source: str,
+    feat_results: Dict[Tuple[float, float], Dict[str, Any]],
+    key_prefix: str,
+) -> None:
+    """Render summary table for a single feature source in predictions."""
+    st.markdown(f"### Feature Source: {feature_source}")
+
+    # Show summary table
+    summary_rows = create_summary_table(feat_results, include_hm=False)
+    if summary_rows:
+        df = pd.DataFrame(summary_rows)
+        render_styled_table(df, key=f"pred_summary_{feature_source}_{key_prefix}")
+
+        # Create caption with metrics from table
+        row = summary_rows[0]
+        metrics_parts = []
+        if "CV Score" in row and not pd.isna(row["CV Score"]):
+            metrics_parts.append(f"CV Score: {row['CV Score']:.4f}")
+        if "Balanced Acc" in row and not pd.isna(row["Balanced Acc"]):
+            metrics_parts.append(f"Balanced Accuracy: {row['Balanced Acc']:.4f}")
+        if "Test Acc" in row and not pd.isna(row["Test Acc"]):
+            metrics_parts.append(f"Test Accuracy: {row['Test Acc']:.4f}")
+        if "p-value" in row and not pd.isna(row["p-value"]):
+            metrics_parts.append(f"p-value: {row['p-value']:.4f}")
+
+        if metrics_parts:
+            st.caption(" | ".join(metrics_parts))
+
+    st.markdown("---")
+
+
+def _create_roc_heatmap(
+    results: Dict[Tuple[float, float], Dict[str, Any]],
+    feature_source: str,
+) -> go.Figure:
+    """Create a heatmap showing ROC AUC across h and m values."""
+    if not results:
+        return go.Figure()
+
+    # Extract unique h and m values (filter out None for predictions)
+    h_values = sorted(set(hm[0] for hm in results.keys() if hm[0] is not None))
+    m_values = sorted(set(hm[1] for hm in results.keys() if hm[1] is not None))
+
+    if not h_values or not m_values:
+        return go.Figure()
+
+    # Build the z-matrix for ROC AUC
+    z_matrix = np.full((len(m_values), len(h_values)), np.nan)
+
+    for (h, m), res in results.items():
+        if h is None or m is None:
+            continue
+        h_idx = h_values.index(h)
+        m_idx = m_values.index(m)
+
+        # Get ROC AUC from test_results if available, otherwise from top level
+        roc_auc = None
+        if "test_results" in res and "roc_auc" in res["test_results"]:
+            roc_auc = res["test_results"]["roc_auc"]
+        elif "roc_auc" in res:
+            roc_auc = res["roc_auc"]
+
+        if roc_auc is not None:
+            z_matrix[m_idx, h_idx] = roc_auc
+
+    # Find best cell
+    if not np.isnan(z_matrix).all():
+        best_idx = np.nanargmax(z_matrix)
+        best_m_idx, best_h_idx = np.unravel_index(best_idx, z_matrix.shape)
+        best_h = h_values[best_h_idx]
+        best_m = m_values[best_m_idx]
+    else:
+        best_m_idx = best_h_idx = None
+
+    # Create heatmap
+    fig = go.Figure()
+
+    fig.add_trace(
+        go.Heatmap(
+            z=z_matrix,
+            x=[f"{h:.1f}" for h in h_values],
+            y=[f"{m:.1f}" for m in m_values],
+            colorscale=[
+                [0.0, "white"],
+                [1.0, PALETTE.strawberry_red],
+            ],
+            colorbar=dict(
+                title=dict(
+                    text="ROC<br>AUC",
+                    font=dict(
+                        size=PLOT_STYLE.axis_label_size, family=PLOT_STYLE.font_family
+                    ),
+                ),
+                tickfont=dict(size=PLOT_STYLE.tick_label_size),
+            ),
+            hovertemplate="h=%{x}s, m=%{y}s<br>ROC AUC=%{z:.3f}<extra></extra>",
+            zmin=0.5,  # Chance level
+            zmax=1.0,
+        )
+    )
+
+    # Add annotation for best cell
+    if best_m_idx is not None and best_h_idx is not None:
+        fig.add_annotation(
+            x=f"{h_values[best_h_idx]:.1f}",
+            y=f"{m_values[best_m_idx]:.1f}",
+            text="★",
+            showarrow=False,
+            font=dict(size=20, color="white"),
+        )
+
+    fig.update_layout(
+        xaxis=dict(
+            title=dict(
+                text="History h (seconds)",
+                font=dict(
+                    size=PLOT_STYLE.axis_label_size, family=PLOT_STYLE.font_family
+                ),
+            ),
+            tickfont=dict(size=PLOT_STYLE.tick_label_size),
+        ),
+        yaxis=dict(
+            title=dict(
+                text="Forecast Horizon m (seconds)",
+                font=dict(
+                    size=PLOT_STYLE.axis_label_size, family=PLOT_STYLE.font_family
+                ),
+            ),
+            tickfont=dict(size=PLOT_STYLE.tick_label_size),
+        ),
+        template="plotly_white",
+        font=dict(family=PLOT_STYLE.font_family, color=PALETTE.ink_black),
+        margin=dict(l=60, r=100, t=20, b=60),
+    )
+
+    return fig
+
+
+def _render_balanced_acc_heatmap_subplot(
+    all_results: Dict[str, Dict[Tuple[float, float], Dict[str, Any]]],
+    key_prefix: str,
+) -> None:
+    """Create a subplot with Balanced Accuracy heatmaps for all feature sources."""
+    st.markdown("### Balanced Accuracy Heatmaps")
+
+    n_features = len(all_results)
+    if n_features == 0:
+        return
+
+    # Determine subplot layout: try to make it roughly square
+    n_cols = int(np.ceil(np.sqrt(n_features)))
+    n_rows = int(np.ceil(n_features / n_cols))
+
+    fig = make_subplots(
+        rows=n_rows,
+        cols=n_cols,
+        subplot_titles=[fs for fs in all_results.keys()],
+        horizontal_spacing=0.15,
+        vertical_spacing=0.12,
+    )
+
+    for idx, (feature_source, feat_results) in enumerate(all_results.items()):
+        row = (idx // n_cols) + 1
+        col = (idx % n_cols) + 1
+
+        # Extract unique h and m values
+        h_values = sorted(set(hm[0] for hm in feat_results.keys() if hm[0] is not None))
+        m_values = sorted(set(hm[1] for hm in feat_results.keys() if hm[1] is not None))
+
+        if not h_values or not m_values:
+            continue
+
+        # Build the z-matrix for Balanced Accuracy
+        z_matrix = np.full((len(m_values), len(h_values)), np.nan)
+
+        for (h, m), res in feat_results.items():
+            if h is None or m is None:
+                continue
+            h_idx = h_values.index(h)
+            m_idx = m_values.index(m)
+
+            # Get Balanced Accuracy from test_results if available, otherwise from top level
+            balanced_acc = None
+            if "test_results" in res and "balanced_accuracy" in res["test_results"]:
+                balanced_acc = res["test_results"]["balanced_accuracy"]
+            elif "balanced_accuracy" in res:
+                balanced_acc = res["balanced_accuracy"]
+
+            if balanced_acc is not None:
+                z_matrix[m_idx, h_idx] = balanced_acc
+
+        # Add heatmap to subplot
+        fig.add_trace(
+            go.Heatmap(
+                z=z_matrix,
+                x=[f"{h:.1f}" for h in h_values],
+                y=[f"{m:.1f}" for m in m_values],
+                colorscale=[
+                    [0.0, "white"],
+                    [1.0, PALETTE.strawberry_red],
+                ],
+                hovertemplate="h=%{x}s, m=%{y}s<br>Balanced Acc=%{z:.3f}<extra></extra>",
+                zmin=0.5,
+                zmax=1.0,
+                showscale=(idx == 0),  # Only show colorbar for first subplot
+                colorbar=(
+                    dict(
+                        title=dict(
+                            text="Balanced<br>Accuracy",
+                            font=dict(
+                                size=PLOT_STYLE.axis_label_size,
+                                family=PLOT_STYLE.font_family,
+                            ),
+                        ),
+                        tickfont=dict(size=PLOT_STYLE.tick_label_size),
+                        len=0.6,
+                    )
+                    if idx == 0
+                    else None
+                ),
+            ),
+            row=row,
+            col=col,
+        )
+
+        # Update axes for this subplot
+        fig.update_xaxes(
+            title_text="h (s)" if row == n_rows else "",
+            tickfont=dict(size=PLOT_STYLE.tick_label_size),
+            row=row,
+            col=col,
+        )
+        fig.update_yaxes(
+            title_text="m (s)" if col == 1 else "",
+            tickfont=dict(size=PLOT_STYLE.tick_label_size),
+            row=row,
+            col=col,
+        )
+
+    # Update overall layout
+    fig.update_layout(
+        template="plotly_white",
+        font=dict(family=PLOT_STYLE.font_family, color=PALETTE.ink_black),
+        height=300 * n_rows,
+        margin=dict(l=60, r=60, t=60, b=60),
+        showlegend=False,
+    )
+
+    st.plotly_chart(
+        fig, use_container_width=True, key=f"balanced_acc_heatmap_subplot_{key_prefix}"
+    )
+    st.caption(
+        "Balanced Accuracy across History (h) and Forecast Horizon (m) for all feature sources"
+    )
+    st.markdown("---")
+
+
+def _render_roc_heatmap_subplot(
+    all_results: Dict[str, Dict[Tuple[float, float], Dict[str, Any]]],
+    key_prefix: str,
+) -> None:
+    """Create a subplot with ROC AUC heatmaps for all feature sources."""
+    # Check if any feature has ROC data
+    has_any_roc = any(
+        any(has_roc_data(res) for res in feat_results.values())
+        for feat_results in all_results.values()
+    )
+
+    if not has_any_roc:
+        return
+
+    st.markdown("### ROC AUC Heatmaps")
+
+    n_features = len(all_results)
+    if n_features == 0:
+        return
+
+    # Determine subplot layout: try to make it roughly square
+    n_cols = int(np.ceil(np.sqrt(n_features)))
+    n_rows = int(np.ceil(n_features / n_cols))
+
+    fig = make_subplots(
+        rows=n_rows,
+        cols=n_cols,
+        subplot_titles=[fs for fs in all_results.keys()],
+        horizontal_spacing=0.15,
+        vertical_spacing=0.12,
+    )
+
+    for idx, (feature_source, feat_results) in enumerate(all_results.items()):
+        row = (idx // n_cols) + 1
+        col = (idx % n_cols) + 1
+
+        # Extract unique h and m values
+        h_values = sorted(set(hm[0] for hm in feat_results.keys() if hm[0] is not None))
+        m_values = sorted(set(hm[1] for hm in feat_results.keys() if hm[1] is not None))
+
+        if not h_values or not m_values:
+            continue
+
+        # Build the z-matrix for ROC AUC
+        z_matrix = np.full((len(m_values), len(h_values)), np.nan)
+
+        for (h, m), res in feat_results.items():
+            if h is None or m is None:
+                continue
+            h_idx = h_values.index(h)
+            m_idx = m_values.index(m)
+
+            # Get ROC AUC from test_results if available, otherwise from top level
+            roc_auc = None
+            if "test_results" in res and "roc_auc" in res["test_results"]:
+                roc_auc = res["test_results"]["roc_auc"]
+            elif "roc_auc" in res:
+                roc_auc = res["roc_auc"]
+
+            if roc_auc is not None:
+                z_matrix[m_idx, h_idx] = roc_auc
+
+        # Add heatmap to subplot
+        fig.add_trace(
+            go.Heatmap(
+                z=z_matrix,
+                x=[f"{h:.1f}" for h in h_values],
+                y=[f"{m:.1f}" for m in m_values],
+                colorscale=[
+                    [0.0, "white"],
+                    [1.0, PALETTE.strawberry_red],
+                ],
+                hovertemplate="h=%{x}s, m=%{y}s<br>ROC AUC=%{z:.3f}<extra></extra>",
+                zmin=0.5,
+                zmax=1.0,
+                showscale=(idx == 0),  # Only show colorbar for first subplot
+                colorbar=(
+                    dict(
+                        title=dict(
+                            text="ROC<br>AUC",
+                            font=dict(
+                                size=PLOT_STYLE.axis_label_size,
+                                family=PLOT_STYLE.font_family,
+                            ),
+                        ),
+                        tickfont=dict(size=PLOT_STYLE.tick_label_size),
+                        len=0.6,
+                    )
+                    if idx == 0
+                    else None
+                ),
+            ),
+            row=row,
+            col=col,
+        )
+
+        # Update axes for this subplot
+        fig.update_xaxes(
+            title_text="h (s)" if row == n_rows else "",
+            tickfont=dict(size=PLOT_STYLE.tick_label_size),
+            row=row,
+            col=col,
+        )
+        fig.update_yaxes(
+            title_text="m (s)" if col == 1 else "",
+            tickfont=dict(size=PLOT_STYLE.tick_label_size),
+            row=row,
+            col=col,
+        )
+
+    # Update overall layout
+    fig.update_layout(
+        template="plotly_white",
+        font=dict(family=PLOT_STYLE.font_family, color=PALETTE.ink_black),
+        height=300 * n_rows,
+        margin=dict(l=60, r=60, t=60, b=60),
+        showlegend=False,
+    )
+
+    st.plotly_chart(
+        fig, use_container_width=True, key=f"roc_heatmap_subplot_{key_prefix}"
+    )
+    st.caption(
+        "ROC AUC across History (h) and Forecast Horizon (m) for all feature sources"
+    )
+    st.markdown("---")
+
+
+def _create_roc_heatmap(
+    results: Dict[Tuple[float, float], Dict[str, Any]],
+    feature_source: str,
+) -> go.Figure:
+    """Create a heatmap showing ROC AUC across h and m values."""
+    if not results:
+        return go.Figure()
+
+    # Extract unique h and m values (filter out None for predictions)
+    h_values = sorted(set(hm[0] for hm in results.keys() if hm[0] is not None))
+    m_values = sorted(set(hm[1] for hm in results.keys() if hm[1] is not None))
+
+    if not h_values or not m_values:
+        return go.Figure()
+
+    # Build the z-matrix for ROC AUC
+    z_matrix = np.full((len(m_values), len(h_values)), np.nan)
+
+    for (h, m), res in results.items():
+        if h is None or m is None:
+            continue
+        h_idx = h_values.index(h)
+        m_idx = m_values.index(m)
+
+        # Get ROC AUC from test_results if available, otherwise from top level
+        roc_auc = None
+        if "test_results" in res and "roc_auc" in res["test_results"]:
+            roc_auc = res["test_results"]["roc_auc"]
+        elif "roc_auc" in res:
+            roc_auc = res["roc_auc"]
+
+        if roc_auc is not None:
+            z_matrix[m_idx, h_idx] = roc_auc
+
+    # Find best cell
+    if not np.isnan(z_matrix).all():
+        best_idx = np.nanargmax(z_matrix)
+        best_m_idx, best_h_idx = np.unravel_index(best_idx, z_matrix.shape)
+        best_h = h_values[best_h_idx]
+        best_m = m_values[best_m_idx]
+    else:
+        best_m_idx = best_h_idx = None
+
+    # Create heatmap
+    fig = go.Figure()
+
+    fig.add_trace(
+        go.Heatmap(
+            z=z_matrix,
+            x=[f"{h:.1f}" for h in h_values],
+            y=[f"{m:.1f}" for m in m_values],
+            colorscale=[
+                [0.0, "white"],
+                [1.0, PALETTE.strawberry_red],
+            ],
+            colorbar=dict(
+                title=dict(
+                    text="ROC<br>AUC",
+                    font=dict(
+                        size=PLOT_STYLE.axis_label_size, family=PLOT_STYLE.font_family
+                    ),
+                ),
+                tickfont=dict(size=PLOT_STYLE.tick_label_size),
+            ),
+            hovertemplate="h=%{x}s, m=%{y}s<br>ROC AUC=%{z:.3f}<extra></extra>",
+            zmin=0.5,  # Chance level
+            zmax=1.0,
+        )
+    )
+
+    # Add annotation for best cell
+    if best_m_idx is not None and best_h_idx is not None:
+        fig.add_annotation(
+            x=f"{h_values[best_h_idx]:.1f}",
+            y=f"{m_values[best_m_idx]:.1f}",
+            text="★",
+            showarrow=False,
+            font=dict(size=20, color="white"),
+        )
+
+    fig.update_layout(
+        xaxis=dict(
+            title=dict(
+                text="History h (seconds)",
+                font=dict(
+                    size=PLOT_STYLE.axis_label_size, family=PLOT_STYLE.font_family
+                ),
+            ),
+            tickfont=dict(size=PLOT_STYLE.tick_label_size),
+        ),
+        yaxis=dict(
+            title=dict(
+                text="Forecast Horizon m (seconds)",
+                font=dict(
+                    size=PLOT_STYLE.axis_label_size, family=PLOT_STYLE.font_family
+                ),
+            ),
+            tickfont=dict(size=PLOT_STYLE.tick_label_size),
+        ),
+        template="plotly_white",
+        font=dict(family=PLOT_STYLE.font_family, color=PALETTE.ink_black),
+        margin=dict(l=60, r=100, t=20, b=60),
+    )
+
+    return fig
+
+
+def _render_forecast_feature_summary(
+    feature_source: str,
+    feat_results: Dict[Tuple[float, float], Dict[str, Any]],
+    key_prefix: str,
+) -> None:
+    """Render h/m plots for a single feature source in forecasts."""
+    st.markdown(f"### Feature Source: {feature_source}")
+    single_feat_results = {feature_source: feat_results}
+    metric = "balanced_accuracy"
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.plotly_chart(
+            create_line_plot_by_history(
+                single_feat_results, metric=metric, use_training_only=False
+            ),
+            use_container_width=True,
+            key=f"h_plot_{feature_source}_{key_prefix}",
+        )
+        st.caption("Accuracy vs History Length")
+    with col2:
+        st.plotly_chart(
+            create_line_plot_by_future(
+                single_feat_results, metric=metric, use_training_only=False
+            ),
+            use_container_width=True,
+            key=f"m_plot_{feature_source}_{key_prefix}",
+        )
+        st.caption("Accuracy vs Forecast Horizon")
+    st.markdown("---")
+
+
+def render_prediction_summary(
     all_results: Dict[str, Dict[Tuple[float, float], Dict[str, Any]]], key_prefix: str
 ) -> None:
-    """DRY function to render line plots grouped by feature source."""
+    """Render summary for predictions."""
     if not all_results:
         return
 
-    # Check if any feature has test_results with balanced_accuracy
-    if not any(
-        any(
-            "test_results" in v
-            and v.get("test_results") is not None
-            and "balanced_accuracy" in v.get("test_results", {})
-            for v in res.values()
+    # Test results are computed on-the-go when test data exists
+    # If test results don't exist, we'll just skip showing them in the summary
+
+    # Create combined ROC plot with all feature sources
+    has_any_roc = False
+    fig = go.Figure()
+
+    # Add ROC curves for each feature source
+    colors = px.colors.qualitative.Plotly
+
+    for idx, (feature_source, feat_results) in enumerate(all_results.items()):
+        # Get the result (predictions have only one result with key (None, None))
+        result = None
+        for key, res in feat_results.items():
+            result = res
+            break
+
+        if result and has_roc_data(result):
+            has_any_roc = True
+            fig.add_trace(
+                go.Scatter(
+                    x=result["fpr"],
+                    y=result["tpr"],
+                    name=f"{feature_source} (AUC = {result['roc_auc']:.4f})",
+                    mode="lines",
+                    line=dict(
+                        color=colors[idx % len(colors)],
+                        width=PLOT_STYLE.line_width_normal,
+                    ),
+                )
+            )
+
+    # Add random baseline line
+    if has_any_roc:
+        fig.add_trace(
+            go.Scatter(
+                x=[0, 1],
+                y=[0, 1],
+                mode="lines",
+                name="Random",
+                line=dict(
+                    color=PALETTE.strawberry_red,
+                    dash="dash",
+                    width=PLOT_STYLE.line_width_normal,
+                ),
+            )
         )
-        for res in all_results.values()
-    ):
-        st.warning(
-            "No test set results available. Test set balanced accuracy requires test results to be computed."
+
+        fig.update_layout(
+            xaxis=dict(
+                title=dict(
+                    text="False Positive Rate (FPR)",
+                    font=dict(
+                        size=PLOT_STYLE.axis_label_size, family=PLOT_STYLE.font_family
+                    ),
+                ),
+                tickfont=dict(size=PLOT_STYLE.tick_label_size),
+                range=[0, 1],
+                showgrid=True,
+                gridcolor="#F0F0F0",
+                showline=True,
+                linecolor="black",
+                linewidth=1,
+                mirror=True,
+                dtick=0.2,
+                constrain="domain",
+            ),
+            yaxis=dict(
+                title=dict(
+                    text="True Positive Rate (TPR)",
+                    font=dict(
+                        size=PLOT_STYLE.axis_label_size, family=PLOT_STYLE.font_family
+                    ),
+                ),
+                tickfont=dict(size=PLOT_STYLE.tick_label_size),
+                range=[0, 1],
+                showgrid=True,
+                gridcolor="#F0F0F0",
+                showline=True,
+                linecolor="black",
+                linewidth=1,
+                mirror=True,
+                dtick=0.2,
+                constrain="domain",
+            ),
+            height=400,
+            width=None,
+            template="plotly_white",
+            plot_bgcolor="white",
+            font=dict(
+                family=PLOT_STYLE.font_family,
+                size=PLOT_STYLE.tick_label_size,
+                color="black",
+            ),
+            legend=dict(
+                font=dict(size=10, family=PLOT_STYLE.font_family),
+                bgcolor="rgba(255,255,255,0.8)",
+                bordercolor="#E5E5E5",
+                borderwidth=1,
+            ),
+            margin=dict(l=60, r=40, t=60, b=60),
         )
+        st.plotly_chart(
+            fig, use_container_width=True, key=f"pred_roc_combined_{key_prefix}"
+        )
+
+        # Create caption with aggregated metrics from all feature sources
+        all_metrics = []
+        for feature_source, feat_results in all_results.items():
+            summary_rows = create_summary_table(feat_results, include_hm=False)
+            if summary_rows:
+                row = summary_rows[0]
+                feat_metrics = [f"{feature_source}:"]
+                if "CV Score" in row and not pd.isna(row["CV Score"]):
+                    feat_metrics.append(f"CV={row['CV Score']:.4f}")
+                if "Balanced Acc" in row and not pd.isna(row["Balanced Acc"]):
+                    feat_metrics.append(f"BalAcc={row['Balanced Acc']:.4f}")
+                if "Test Acc" in row and not pd.isna(row["Test Acc"]):
+                    feat_metrics.append(f"Test={row['Test Acc']:.4f}")
+                if "p-value" in row and not pd.isna(row["p-value"]):
+                    feat_metrics.append(f"p={row['p-value']:.4f}")
+                all_metrics.append(" ".join(feat_metrics))
+
+        if all_metrics:
+            st.caption(" | ".join(all_metrics))
+        else:
+            st.caption("ROC curves for all feature sources")
+
+
+def render_forecast_summary(
+    all_results: Dict[str, Dict[Tuple[float, float], Dict[str, Any]]], key_prefix: str
+) -> None:
+    """Render summary for forecasts with h/m plots."""
+    if not all_results:
         return
 
-    # Use test set balanced accuracy only (no dropdown, single metric)
-    metric = "balanced_accuracy"
+    # Test results are computed on-the-go when test data exists
+    # If test results don't exist, we'll just skip showing them in the summary
 
-    # Render a separate section for each feature source
+    # Create Balanced Accuracy heatmap subplot for all feature sources
+    _render_balanced_acc_heatmap_subplot(all_results, key_prefix)
+
+    # Create ROC AUC heatmap subplot for all feature sources
+    _render_roc_heatmap_subplot(all_results, key_prefix)
+
+    # Render individual feature summaries
     for feature_source, feat_results in all_results.items():
-        st.markdown(f"### Feature Source: {feature_source}")
-
-        # Pass a single-feature Dict to maintain plotting logic but isolate the section
-        single_feat_results = {feature_source: feat_results}
-
-        col1, col2 = st.columns(2)
-        with col1:
-            st.plotly_chart(
-                create_line_plot_by_history(
-                    single_feat_results, metric=metric, use_training_only=False
-                ),
-                use_container_width=True,
-                key=f"h_plot_{feature_source}_{key_prefix}",
-            )
-            st.caption("Accuracy vs History Length")
-        with col2:
-            st.plotly_chart(
-                create_line_plot_by_future(
-                    single_feat_results, metric=metric, use_training_only=False
-                ),
-                use_container_width=True,
-                key=f"m_plot_{feature_source}_{key_prefix}",
-            )
-            st.caption("Accuracy vs Forecast Horizon")
-        st.markdown("---")
+        _render_forecast_feature_summary(feature_source, feat_results, key_prefix)
 
 
 def render_classification_from_forecasts(variant_dir: Path, run_ts: str) -> None:
@@ -588,7 +1221,7 @@ def render_classification_from_forecasts(variant_dir: Path, run_ts: str) -> None
         n_configs = sum(len(res) for res in all_results.values())
         if n_configs > 1 or len(all_results) > 1:
             st.markdown("## Forecast Performance Summary")
-            render_classification_summary(all_results, f"forecast_{run_ts}")
+            render_forecast_summary(all_results, f"forecast_{run_ts}")
             st.markdown("---")
 
     render_classification_results(
@@ -619,7 +1252,10 @@ def dbs_classification_tab(
         st.info("No runs found for this variant yet. Train a model first.")
         return
 
-    run_ts = st.selectbox("Run timestamp", options=runs, key="class_run")
+    # Default to the latest (most recent) timestamp
+    run_ts = st.selectbox(
+        "Run timestamp", options=runs, index=len(runs) - 1, key="class_run"
+    )
     cfg_path = config_for_variant(project_root, variant)
 
     if cfg_path is None:
@@ -684,7 +1320,7 @@ def dbs_classification_tab(
             )
         else:
             st.markdown("### Flipped Performance Summary")
-            render_classification_summary(flipped_results, f"flipped_{run_ts}")
+            render_forecast_summary(flipped_results, f"flipped_{run_ts}")
 
             st.markdown("---")
             st.markdown("### Detailed Flipped Analysis")

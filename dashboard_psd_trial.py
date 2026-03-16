@@ -93,6 +93,7 @@ else:
                 f"Loaded: P{selected_participant_id} S{selected_session} B{selected_block}"
             )
 
+
 def get_channels_from_data(data):
     if data is None:
         return [], []
@@ -120,10 +121,10 @@ def get_channels_from_data(data):
 # Trial Level PSD Analysis
 if "block_data" in st.session_state:
     block_data = st.session_state["block_data"]
-    
+
     if block_data is not None and not block_data.is_empty():
         lfp_channels, ecog_channels = get_channels_from_data(block_data)
-        
+
         trials_in_block = sorted(block_data["trial"].unique().to_list())
         selected_trial = st.selectbox(
             "Select a Trial to Render",
@@ -148,12 +149,12 @@ if "block_data" in st.session_state:
 
             st.subheader(metadata_str)
 
-            psd_tab, avg_psd_tab = st.tabs(
-                ["PSD Heatmap", "Average PSD"]
-            )
+            psd_tab, avg_psd_tab = st.tabs(["PSD Heatmap", "Average PSD"])
 
             with psd_tab:
-                render_psd_heatmap_tab(trial_data, lfp_channels, ecog_channels, metadata_str)
+                render_psd_heatmap_tab(
+                    trial_data, lfp_channels, ecog_channels, metadata_str
+                )
 
             with avg_psd_tab:
                 st.markdown("### Trial-level Average PSD")

@@ -97,6 +97,7 @@ else:
 block_data = st.session_state.get("block_data", None)
 if block_data is not None and not block_data.is_empty():
     from dashboard.utils import get_channel_lists
+
     lfp_channels, ecog_channels, motion_channels = get_channel_lists(block_data)
 else:
     # Try to discover channels from participant data

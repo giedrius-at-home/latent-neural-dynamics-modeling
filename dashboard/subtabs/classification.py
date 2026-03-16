@@ -2,6 +2,7 @@ import streamlit as st
 import numpy as np
 import pickle
 import re
+import copy
 from pathlib import Path
 from typing import Dict, Any, List, Tuple, Optional
 import plotly.graph_objects as go
@@ -167,22 +168,39 @@ def reevaluate_against_history(res: Dict[str, Any], pred_res: Dict[str, Any]) ->
 
     # Compute standard classification metrics
     metrics = compute_classification_metrics(y_true, y_pred)
-    res.update(metrics)
+    # Update metrics, overwriting existing ones
+    for key, value in metrics.items():
+        res[key] = value
 
-    # Compute ROC metrics if probability scores are available
+    # Extract y_proba from test_results before removing it, or check top level
+    # y_proba is needed for ROC metrics computation
+    y_proba = None
     if "y_proba" in res:
         y_proba = res["y_proba"]
+    elif "test_results" in res and "y_proba" in res["test_results"]:
+        y_proba = res["test_results"]["y_proba"]
+
+    # Compute ROC metrics if probability scores are available
+    if y_proba is not None:
         # Truncate y_proba to match the length if needed
         if len(y_proba) > len(y_true):
             y_proba = truncate_to_match_length(y_proba, len(y_true), from_end=True)
 
         if len(y_proba) == len(y_true):
             roc_metrics = compute_roc_metrics(y_true, y_proba)
-            res.update(roc_metrics)
+            # Update ROC metrics, overwriting existing ones
+            for key, value in roc_metrics.items():
+                res[key] = value
 
-    if "best_cv_score" not in res:
-        res["best_cv_score"] = res["balanced_accuracy"]
+    # Update best_cv_score to use the new balanced_accuracy
+    res["best_cv_score"] = res["balanced_accuracy"]
+
+    # Remove test_results since we're evaluating against history, not test set
     res.pop("test_results", None)
+
+    # Also update y_true to reflect that we're using history predictions as ground truth
+    res["y_true"] = y_true
+
     return True
 
 
@@ -276,24 +294,16 @@ def load_classification_results(
     """
     Loads all classification results, grouping them by FEATURE SOURCE.
     Returns: { feature_source: { (h, m): result_dict } }
+    For predictions: h and m are None (entire trial, no h/m parameters)
+    For forecasts: h and m are the actual values from directory names
     """
     all_results = {}
     hm_pattern = re.compile(r"^h([\d.]+)_m([\d.]+)$")
 
-    # Traverse h/m directories
-    for d in results_dir.iterdir():
-        if not d.is_dir():
-            continue
-
-        hm_match = hm_pattern.match(d.name)
-        if not hm_match:
-            continue
-
-        h_val, m_val = float(hm_match.group(1)), float(hm_match.group(2))
-
-        # Find pkl files for the given mode (prediction, forecast, flipped)
+    # For predictions: check directly in results_dir (no h/m subdirectories)
+    if mode == "prediction":
         pattern_str = f"*_{mode}.pkl"
-        pkl_files = list(d.glob(pattern_str))
+        pkl_files = list(results_dir.glob(pattern_str))
 
         for pkl_file in pkl_files:
             filename = pkl_file.stem
@@ -315,24 +325,80 @@ def load_classification_results(
             try:
                 with open(pkl_file, "rb") as f:
                     res = pickle.load(f)
-
-                if eval_target == "history_label" and mode == "forecast":
-                    pred_file = pkl_file.parent / pkl_file.name.replace(
-                        "_forecast", "_prediction"
-                    )
-                    if pred_file.exists():
-                        try:
-                            with open(pred_file, "rb") as fp:
-                                pred_res = pickle.load(fp)
-                            reevaluate_against_history(res, pred_res)
-                        except Exception as e:
-                            st.warning(
-                                f"Failed to load history prediction for {pkl_file.name}: {e}"
-                            )
-
-                all_results[feature_source][(h_val, m_val)] = res
+                # Predictions use entire trial, so h/m are None
+                all_results[feature_source][(None, None)] = res
             except Exception as e:
                 st.warning(f"Failed to load {pkl_file}: {e}")
+
+    else:
+        for d in results_dir.iterdir():
+            if not d.is_dir():
+                continue
+
+            hm_match = hm_pattern.match(d.name)
+            if not hm_match:
+                continue
+
+            h_val, m_val = float(hm_match.group(1)), float(hm_match.group(2))
+
+            # Find pkl files for the given mode (prediction, forecast, flipped)
+            pattern_str = f"*_{mode}.pkl"
+            pkl_files = list(d.glob(pattern_str))
+
+            for pkl_file in pkl_files:
+                filename = pkl_file.stem
+                parts = filename.split("_")
+
+                # Extract feature source: everything between LDA and mode/flipped
+                suffixes = {"prediction", "forecast", "flipped", "epoch", "overlap"}
+                feature_parts = []
+                for p in parts[1:]:
+                    if any(p.startswith(s) for s in suffixes):
+                        break
+                    feature_parts.append(p)
+
+                feature_source = "_".join(feature_parts) if feature_parts else "Default"
+
+                if feature_source not in all_results:
+                    all_results[feature_source] = {}
+
+                try:
+                    with open(pkl_file, "rb") as f:
+                        res = pickle.load(f)
+
+                    # Always create a deep copy to avoid modifying the original loaded results
+                    # This ensures that switching between eval_targets doesn't affect each other
+                    res = copy.deepcopy(res)
+
+                    if eval_target == "history_label" and mode == "forecast":
+                        # Predictions are saved in the parent directory (run_ts), not in h/m subdirectories
+                        pred_file = pkl_file.parent.parent / pkl_file.name.replace(
+                            "_forecast", "_prediction"
+                        )
+                        if pred_file.exists():
+                            try:
+                                with open(pred_file, "rb") as fp:
+                                    pred_res = pickle.load(fp)
+                                if not reevaluate_against_history(res, pred_res):
+                                    st.warning(
+                                        f"Failed to re-evaluate against history for {pkl_file.name}"
+                                    )
+                                # Re-evaluation successful - no need to show info message for every file
+                            except Exception as e:
+                                st.warning(
+                                    f"Failed to load history prediction for {pkl_file.name}: {e}"
+                                )
+                        else:
+                            # Prediction file doesn't exist for this feature source
+                            # This can happen if predictions were only run for a subset of feature sources
+                            # Skip re-evaluation but still include the forecast results
+                            # (they just won't have history_label evaluation)
+                            pass
+                    # For eval_target == "dbs_stim", use the original results as-is (already loaded from disk)
+
+                    all_results[feature_source][(h_val, m_val)] = res
+                except Exception as e:
+                    st.warning(f"Failed to load {pkl_file}: {e}")
 
     return all_results
 
@@ -348,14 +414,19 @@ def create_heatmap_figure(
     if not results:
         return go.Figure()
 
-    # Extract unique h and m values
-    h_values = sorted(set(hm[0] for hm in results.keys()))
-    m_values = sorted(set(hm[1] for hm in results.keys()))
+    # Extract unique h and m values (filter out None for predictions)
+    h_values = sorted(set(hm[0] for hm in results.keys() if hm[0] is not None))
+    m_values = sorted(set(hm[1] for hm in results.keys() if hm[1] is not None))
+
+    if not h_values or not m_values:
+        return go.Figure()
 
     # Build the z-matrix
     z_matrix = np.full((len(m_values), len(h_values)), np.nan)
 
     for (h, m), res in results.items():
+        if h is None or m is None:
+            continue
         h_idx = h_values.index(h)
         m_idx = m_values.index(m)
 
@@ -451,8 +522,8 @@ def create_line_plot_by_history(
 
     color_idx = 0
     for feature_source, results in all_results.items():
-        h_values = sorted(set(hm[0] for hm in results.keys()))
-        m_values = sorted(set(hm[1] for hm in results.keys()))
+        h_values = sorted(set(hm[0] for hm in results.keys() if hm[0] is not None))
+        m_values = sorted(set(hm[1] for hm in results.keys() if hm[1] is not None))
 
         for m in m_values:
             y_vals = []
@@ -497,8 +568,8 @@ def create_line_plot_by_future(
 
     color_idx = 0
     for feature_source, results in all_results.items():
-        h_values = sorted(set(hm[0] for hm in results.keys()))
-        m_values = sorted(set(hm[1] for hm in results.keys()))
+        h_values = sorted(set(hm[0] for hm in results.keys() if hm[0] is not None))
+        m_values = sorted(set(hm[1] for hm in results.keys() if hm[1] is not None))
 
         for h in h_values:
             y_vals = []
@@ -641,16 +712,19 @@ def create_timeline_visualization(
 
 def create_summary_table(
     results: Dict[Tuple[float, float], Dict[str, Any]],
+    include_hm: bool = True,
 ) -> List[Dict[str, Any]]:
     """Create a summary table of all h/m results."""
     rows = []
     for (h, m), res in sorted(results.items()):
-        row = {
-            "h (s)": h,
-            "m (s)": m,
-            "CV Score": res.get("best_cv_score", np.nan),
-            "Balanced Acc": res.get("balanced_accuracy", np.nan),
-        }
+        row = {}
+
+        if include_hm:
+            row["h (s)"] = h if h is not None else "N/A"
+            row["m (s)"] = m if m is not None else "N/A"
+
+        row["CV Score"] = res.get("best_cv_score", np.nan)
+        row["Balanced Acc"] = res.get("balanced_accuracy", np.nan)
 
         if "test_results" in res:
             row["Test Acc"] = res["test_results"].get("balanced_accuracy", np.nan)

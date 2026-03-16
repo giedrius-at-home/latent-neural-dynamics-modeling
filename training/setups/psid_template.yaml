@@ -4,8 +4,6 @@ model:
   n1: null # Behavior-prioritized latent dimensions
   i: null # Input dimensions
   time_first: null # Boolean
-  alpha_Q: null # Regularization for Q
-  alpha_R: null # Regularization for R
   backward_kalman: null # Boolean
   augment_x_with_z_noise: null # Boolean
   forecast:
@@ -21,7 +19,6 @@ data:
     is_behavioral_neural: null # Boolean
     neural_input: [] # Y channels
     output: [] # Z channels
-    input_lag: null # Number of samples to lag the input channels
   split:
     within_session_split: null # Boolean
     train: 0.6 # Proportion of data to use for training

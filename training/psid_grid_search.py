@@ -65,22 +65,45 @@ def max_cross_correlation(
     return (max_r, float(best_lag)) if max_r > -1 else (np.nan, np.nan)
 
 
-def compute_mean_coherence(
-    true: np.ndarray, pred: np.ndarray, fs: float = 60.0
-) -> float:
+def compute_mean_plv(true: np.ndarray, pred: np.ndarray) -> float:
+    """Phase Locking Value via Hilbert transform, averaged across channels."""
     if len(true) < 32 or len(pred) < 32:
         return np.nan
     if true.ndim > 1:
-        cohs = []
+        plvs = []
         for i in range(true.shape[1]):
-            _, Cxy = signal.coherence(
-                true[:, i], pred[:, i], fs=fs, nperseg=min(len(true), 128)
-            )
-            cohs.append(np.mean(Cxy))
-        return np.mean(cohs)
+            phase_true = np.angle(signal.hilbert(true[:, i]))
+            phase_pred = np.angle(signal.hilbert(pred[:, i]))
+            plv = np.abs(np.mean(np.exp(1j * (phase_true - phase_pred))))
+            plvs.append(plv)
+        return float(np.mean(plvs))
     else:
-        _, Cxy = signal.coherence(true, pred, fs=fs, nperseg=min(len(true), 128))
-        return np.mean(Cxy)
+        phase_true = np.angle(signal.hilbert(true))
+        phase_pred = np.angle(signal.hilbert(pred))
+        return float(np.abs(np.mean(np.exp(1j * (phase_true - phase_pred)))))
+
+
+def compute_mean_csd_phase_consistency(
+    true: np.ndarray, pred: np.ndarray, fs: float = 80.0
+) -> float:
+    """Mean resultant length of CSD phase angles, averaged across channels and frequencies."""
+    nperseg = min(len(true), 128)
+    if len(true) < 32 or len(pred) < 32:
+        return np.nan
+    if true.ndim > 1:
+        consistencies = []
+        for i in range(true.shape[1]):
+            _, Pxy = signal.csd(
+                true[:, i], pred[:, i], fs=fs, nperseg=nperseg
+            )
+            phases = np.angle(Pxy)
+            mrl = np.abs(np.mean(np.exp(1j * phases)))
+            consistencies.append(mrl)
+        return float(np.mean(consistencies))
+    else:
+        _, Pxy = signal.csd(true, pred, fs=fs, nperseg=nperseg)
+        phases = np.angle(Pxy)
+        return float(np.abs(np.mean(np.exp(1j * phases))))
 
 
 # ---------------------------------------------------------------------------
@@ -200,6 +223,23 @@ def compute_session_metrics(val_dir: Path) -> dict:
                         if ch_xcorrs:
                             xcorr_trials.append(np.mean(ch_xcorrs))
                             xcorr_lag_trials.append(np.mean(ch_lags))
+
+            if "Y_future_true" in df.columns and "Y_future_pred" in df.columns:
+                y_t = df["Y_future_true"].item()
+                y_p = df["Y_future_pred"].item()
+                if y_t is not None and y_p is not None:
+                    y_t_arr = np.array(y_t)
+                    y_p_arr = np.array(y_p)
+                    if y_t_arr.ndim >= 1 and len(y_t_arr) > 0:
+                        y_t_flat = (
+                            np.vstack(y_t_arr) if y_t_arr.dtype == object else y_t_arr
+                        )
+                        y_p_flat = (
+                            np.vstack(y_p_arr) if y_p_arr.dtype == object else y_p_arr
+                        )
+                        y_true_all.append(y_t_flat)
+                        y_pred_all.append(y_p_flat)
+
         except Exception:
             continue
 
@@ -229,21 +269,31 @@ def compute_session_metrics(val_dir: Path) -> dict:
                 (np.median(valid_lags) / fs) * 1000.0
             )
 
-    # Coherence on concatenated Z
+    # RMSE and phase metrics on concatenated Z
     if z_true_all:
         z_true_cat = np.concatenate(z_true_all, axis=0)
         z_pred_cat = np.concatenate(z_pred_all, axis=0)
-        coh_z = compute_mean_coherence(z_true_cat, z_pred_cat)
-        if not np.isnan(coh_z):
-            metrics["coherence_Z_mean"] = float(coh_z)
+        rmse_z = float(np.sqrt(np.mean((z_true_cat - z_pred_cat) ** 2)))
+        metrics["rmse_Z"] = rmse_z
+        plv_z = compute_mean_plv(z_true_cat, z_pred_cat)
+        if not np.isnan(plv_z):
+            metrics["plv_Z_mean"] = float(plv_z)
+        csd_z = compute_mean_csd_phase_consistency(z_true_cat, z_pred_cat)
+        if not np.isnan(csd_z):
+            metrics["csd_phase_Z_mean"] = float(csd_z)
 
-    # Coherence on concatenated Y
+    # RMSE and phase metrics on concatenated Y
     if y_true_all:
         y_true_cat = np.concatenate(y_true_all, axis=0)
         y_pred_cat = np.concatenate(y_pred_all, axis=0)
-        coh_y = compute_mean_coherence(y_true_cat, y_pred_cat)
-        if not np.isnan(coh_y):
-            metrics["coherence_Y_mean"] = float(coh_y)
+        rmse_y = float(np.sqrt(np.mean((y_true_cat - y_pred_cat) ** 2)))
+        metrics["rmse_Y"] = rmse_y
+        plv_y = compute_mean_plv(y_true_cat, y_pred_cat)
+        if not np.isnan(plv_y):
+            metrics["plv_Y_mean"] = float(plv_y)
+        csd_y = compute_mean_csd_phase_consistency(y_true_cat, y_pred_cat)
+        if not np.isnan(csd_y):
+            metrics["csd_phase_Y_mean"] = float(csd_y)
 
     return metrics
 
@@ -269,8 +319,6 @@ def extract_config_from_metadata(run_dir: Path) -> dict:
         for key in [
             "nx",
             "n1",
-            "alpha_Q",
-            "alpha_R",
             "backward_kalman",
             "rescale_states",
             "max_eigenvalue",
@@ -538,8 +586,6 @@ def main():
                 for k in [
                     "nx",
                     "n1",
-                    "alpha_Q",
-                    "alpha_R",
                     "backward_kalman",
                     "rescale_states",
                     "max_eigenvalue",

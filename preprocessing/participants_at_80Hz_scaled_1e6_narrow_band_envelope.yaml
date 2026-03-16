@@ -1,0 +1,48 @@
+name: "package_recordings"
+root_directory: "/home/bobby/repos/latent-neural-dynamics-modeling"
+data_directory: "{root_directory}/data"
+save_directory: "{root_directory}/resampled_recordings"
+logger_directory: "{root_directory}/logs"
+participants_table_name: "participants.tsv"
+participants_intermediate_table_name: "participants_2"
+output_participants_table_name: "participants_at_80Hz_scaled_1e6_narrow_band_envelope"
+ieeg_process:
+  resampled_dir: "{save_directory}/resampled_mat_recordings"
+  chunk_margin: 2
+  resampled_freq: 80
+  notch_freqs: []
+  scale_factor: 1e6
+  compute_average: true
+  drop_lfp: true
+  max_pause_seconds: 2.0
+  raw_bands:
+    delta_05_raw: [0.5, 1.0]
+    delta_1_raw: [1.0, 2.0]
+    delta_2_raw: [2.0, 3.0]
+    delta_3_raw: [3.0, 4.0]
+    delta_4_raw: [4.0, 5.0]
+    theta_5_raw: [5.0, 6.0]
+    theta_6_raw: [6.0, 7.0]
+    theta_7_raw: [7.0, 8.0]
+    theta_8_raw: [8.0, 9.0]
+    alpha_9_raw: [9.0, 10.0]
+    alpha_10_raw: [10.0, 11.0]
+    alpha_11_raw: [11.0, 12.0]
+  envelope_bands:
+    beta_13_env: [13, 14]
+    beta_14_env: [14, 15]
+    beta_15_env: [15, 16]
+    beta_16_env: [16, 17]
+    beta_17_env: [17, 18]
+    beta_18_env: [18, 19]
+    beta_19_env: [19, 20]
+    beta_20_env: [20, 21]
+    beta_21_env: [21, 22]
+    beta_22_env: [22, 23]
+    beta_23_env: [23, 24]
+    beta_24_env: [24, 25]
+    beta_25_env: [25, 26]
+    beta_26_env: [26, 27]
+    beta_27_env: [27, 28]
+    beta_28_env: [28, 29]
+    beta_29_env: [29, 30]

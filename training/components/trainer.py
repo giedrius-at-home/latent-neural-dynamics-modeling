@@ -159,6 +159,12 @@ class Trainer:
                 maintain_order=True,
             )
 
+            cols_to_keep = [
+                c for c in trial.columns
+                if c == "n_epochs" or not c.endswith("_epochs")
+            ]
+            trial = trial.select(cols_to_keep)
+
             if self.data_params.blocks != "all":
                 trial = trial.filter(pl.col("block").is_in(self.data_params.blocks))
 
@@ -700,8 +706,6 @@ class Trainer:
                     "nx": self.model_params.nx,
                     "n1": self.model_params.n1,
                     "i": getattr(self.model_params, "i", None),
-                    "alpha_Q": getattr(self.model_params, "alpha_Q", None),
-                    "alpha_R": getattr(self.model_params, "alpha_R", None),
                     "backward_kalman": getattr(
                         self.model_params, "backward_kalman", False
                     ),

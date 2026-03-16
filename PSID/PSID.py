@@ -165,8 +165,6 @@ def PSID(
     remove_mean_Z=True,
     zscore_Y=False,
     zscore_Z=False,
-    alpha_Q=0.0,  # Modified by Giedrius
-    alpha_R=0.0,  # Modified by Giedrius
     backward_kalman=False,  # Modified by Giedrius
     rescale_states=True,  # Modified by Giedrius
     max_eigenvalue=0.995,  # Modified by Giedrius
@@ -478,25 +476,6 @@ def PSID(
 
     Q = (Q + Q.T) / 2  # Make precisely symmetric
     R = (R + R.T) / 2  # Make precisely symmetric
-
-    # Regularize R using the eigenvalues of the Neural data (Y) # Modified by Giedrius
-    if alpha_R > 0:  # Modified by Giedrius
-        Y_all = (
-            np.concatenate(Y, axis=0) if isinstance(Y, (list, tuple)) else Y
-        )  # Modified by Giedrius
-        if not time_first:
-            Y_all = Y_all.T  # Modified by Giedrius
-        eig_Y = np.max(np.real(
-            np.linalg.eigvals(np.cov(Y_all, rowvar=False))
-        ))  # Modified by Giedrius
-        R = R + (alpha_R * eig_Y * np.eye(R.shape[0]))  # Modified by Giedrius
-
-    # Regularize Q using the eigenvalues of the estimated states (X) # Modified by Giedrius
-    if alpha_Q > 0:  # Modified by Giedrius
-        eig_X = np.max(np.real(
-            np.linalg.eigvals(np.cov(Xk, rowvar=True))
-        ))  # Xk is (nx, N) # Modified by Giedrius
-        Q = Q + (alpha_Q * eig_X * np.eye(Q.shape[0]))  # Modified by Giedrius
 
     s = LSSM.LSSM(
         params={

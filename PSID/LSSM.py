@@ -39,6 +39,9 @@ class LSSM:
         self.output_dim = output_dim
         self.state_dim = state_dim
         self.input_dim = input_dim
+        # Modified by Giedrius
+        self.A_powers_cache = []  # Cache for precomputed A matrix powers
+        self.max_m_precomputed = 0  # Maximum m for which A powers are computed
         self.setParams(params)
 
     def setParams(self, params={}):
@@ -495,15 +498,29 @@ class LSSM:
 
         return allZp, allYp, allXp
 
-    def forecast(
-        self,
-        m,
-        Y_past=None,
-        U_past=None,
-        U_future=None,
-        add_process_noise=False,  # Kept for API compatibility; no longer used (no Q in forecast)
-    ):
-        import numpy as np
+    def forecast(self, m, Y_past=None, U_past=None, U_future=None):
+        # Modified by Giedrius
+        """Forecasts the model m steps into the future using deterministic state propagation.
+
+        The forecast works by:
+        1. Get initial state from Kalman filter on past data
+        2. Propagate state forward: X_{t+1} = A @ X_t
+        3. Compute outputs: Y_t = C @ X_t, Z_t = Cz @ X_t
+
+        Args:
+            m (int): The number of steps to forecast.
+            Y_past (np.ndarray or list, optional): Past neural data to initialize
+                the state. (time x dim) or list of segments.
+            U_past (np.ndarray or list, optional): Past input data (for IPSID)
+                to initialize the state. (time x dim) or list of segments.
+            U_future (np.ndarray or list, optional): Future input data (for IPSID)
+                required for forecasting. Must have m steps. (m x dim) or list.
+
+        Returns:
+            allZp (np.ndarray or list): m-step forecast of behavior Z.
+            allYp (np.ndarray or list): m-step forecast of neural data Y.
+            allXp (np.ndarray or list): m-step forecast of latent state X.
+        """        
 
         if isinstance(Y_past, (list, tuple)):
             outs = []
@@ -516,7 +533,6 @@ class LSSM:
                     Y_past=Y_past[i],
                     U_past=U_past_seg,
                     U_future=U_future_seg,
-                    add_process_noise=add_process_noise,
                 )
                 if i == 0:
                     outs = [[o] for o in trial_outs]
@@ -524,61 +540,50 @@ class LSSM:
                     outs = [outs[oi] + [o] for oi, o in enumerate(trial_outs)]
             return tuple(outs)
 
-        # Iterative one-step-ahead: extend history with predicted observation each step,
-        # run Kalman, take 1-step-ahead state and observation. No process noise (Q) in forecast.
-        Y_ext = np.asarray(Y_past, dtype=float).copy()
-        if Y_ext.ndim == 1:
-            Y_ext = Y_ext.reshape(-1, 1)
-        if self.input_dim > 0:
-            if U_past is not None:
-                U_ext = np.asarray(U_past, dtype=float)
-                if U_ext.ndim == 1:
-                    U_ext = U_ext.reshape(-1, self.input_dim)
-            else:
-                U_ext = np.zeros((Y_ext.shape[0], self.input_dim))
-        else:
-            U_ext = None
+        # Get initial states from Kalman filter
+        allXp, _, allXf = self.kalman(Y_past, U=U_past)
+        
+        # Extract state-space matrices
+        A = np.array(self.A)
+        
+        # Start from filtered state X(t|t) - the best estimate after seeing all past observations
+        # This avoids discontinuity at the start of forecast
+        Xf_last = allXf[-1:].T  # Last filtered state (column vector) - this is X(t|t)
+        # Initialize predicted state for first forecast step: X(t+1|t) = A @ X(t|t)
+        Xp = A @ Xf_last
+        Cy = np.array(self.C)
+        Cz = np.array(self.Cz) if hasattr(self, 'Cz') and self.Cz is not None else None
 
-        x_forecast = np.zeros((m, self.state_dim))
+        # Initialize forecast arrays
+        nx = Xp.shape[0]
+        ny = Cy.shape[0]
+        nz = Cz.shape[0] if Cz is not None else 0
 
-        for i in range(m):
-            _, _, allXf = self.kalman(Y_ext, U=U_ext)[0:3]
-            x_filt = allXf[-1, :]
-            if x_filt.shape[0] != self.state_dim:
-                raise ValueError(
-                    f"Filtered state has wrong dimension {x_filt.shape}. "
-                    f"Expected {self.state_dim}."
-                )
-            # One-step-ahead state: x(t+1|t) = A @ x(t|t); forecast steps use zero input
-            x_next = self.A @ x_filt
-            x_forecast[i, :] = x_next
-            y_next = self.generateObservationFromStates(
-                x_next.reshape(1, -1),
-                u=None,
-                param_names=["C", "D"],
-                prep_model_param="YPrepModel",
-            )
-            y_next_row = np.atleast_2d(y_next)[0, :]
-            Y_ext = np.vstack([Y_ext, y_next_row[np.newaxis, :]])
-            if self.input_dim > 0:
-                U_ext = np.vstack([U_ext, np.zeros((1, self.input_dim))])
+        Xf = np.zeros((m, nx))
+        Yf = np.zeros((m, ny))
+        Zf = np.zeros((m, nz)) if nz > 0 else None
 
-        y_forecast = self.generateObservationFromStates(
-            x_forecast,
-            u=None,
-            param_names=["C", "D"],
-            prep_model_param="YPrepModel",
-        )
+        # Forecast m steps ahead using deterministic state propagation
+        for step in range(m):
+            # Store forecasted state
+            Xf[step] = Xp.flatten()
+            
+            # Predict observation
+            Yp = Cy @ Xp
+            Yf[step] = Yp.flatten()
+            
+            if Zf is not None:
+                Zf[step] = (Cz @ Xp).flatten()
 
-        z_forecast = None
-        if (hasattr(self, "Cz") and self.Cz is not None) or (
-            hasattr(self, "Dz") and self.Dz is not None
-        ):
-            z_forecast = self.generateObservationFromStates(
-                x_forecast,
-                u=None,
-                param_names=["Cz", "Dz"],
-                prep_model_param="ZPrepModel",
-            )
+            # Propagate state forward for next step
+            Xp = A @ Xp
 
-        return z_forecast, y_forecast, x_forecast
+            # Handle future inputs if provided (for IPSID)
+            if U_future is not None and hasattr(self, 'B') and self.B is not None and self.B.size > 0:
+                if step < U_future.shape[0]:
+                    ui = U_future[step:step+1, :].T
+                    if hasattr(self, "UPrepModel") and self.UPrepModel is not None:
+                        ui = self.UPrepModel.apply(ui, time_first=False)
+                    Xp = Xp + self.B @ ui
+
+        return Zf, Yf, Xf

@@ -33,7 +33,6 @@ data:
       "tracing_acceleration_y",
       "tracing_acceleration_magnitude"
     ]
-    input_lag: null
   split:
     within_session_split: true
     train: 0.6
@@ -43,7 +42,6 @@ data:
   batch_size: 32
   sampling_frequency: 80
   dbs_condition: "off"
-  jitter: 0
 
 results:
   save_dir: "results/{model.name}"

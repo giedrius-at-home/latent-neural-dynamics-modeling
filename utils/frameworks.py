@@ -8,6 +8,9 @@ import numpy as np
 import sys
 from pathlib import Path
 import pandas as pd
+from sklearn.linear_model import Ridge
+import statsmodels.api as sm
+from statsmodels.tsa.api import VAR
 
 psid_path = Path(__file__).parent.parent / "PSID"
 if str(psid_path.parent) not in sys.path:
@@ -19,6 +22,41 @@ if str(dpad_path) not in sys.path:
 
 Array2D = NDArray[np.float64]
 TrialList = List[Array2D]
+
+
+def _apply_hamming_trial_edge_taper(data: np.ndarray, n_taper: int) -> np.ndarray:
+    """
+    Apply Hamming-shaped edge taper to the first and last n_taper samples of a trial.
+    Reduces power at segment boundaries so concatenated trials have smooth transitions.
+
+    Parameters
+    ----------
+    data : (T, K) array
+        Per-trial data (e.g. z-scored).
+    n_taper : int
+        Number of samples to taper at each end (0 = no taper).
+
+    Returns
+    -------
+    (T, K) array
+        Data with first and last n_taper samples scaled by Hamming ramps (0->1, 1->0).
+    """
+    if n_taper <= 0:
+        return data
+    T, K = data.shape
+    if T <= 2 * n_taper:
+        n_taper = max(0, (T - 1) // 2)
+        if n_taper <= 0:
+            return data
+    out = np.array(data, copy=True, dtype=np.float64)
+    # Hamming-shaped ramp 0 -> 1 over first n_taper samples (first half of Hamming(2*n_taper) normalized)
+    h = np.hamming(2 * n_taper)
+    ramp_up = (h[:n_taper] - h[0]) / (h[n_taper - 1] - h[0])
+    ramp_down = (h[n_taper:] - h[-1]) / (h[n_taper] - h[-1])
+    for ch in range(K):
+        out[:n_taper, ch] *= ramp_up
+        out[-n_taper:, ch] *= ramp_down
+    return out
 
 
 class BaseFramework:
@@ -79,6 +117,22 @@ class PSIDWrapper:
         with open(model_path, "rb") as f:
             self.idSys = pickle.load(f)
         self.logger.info("PSID model loaded successfully")
+        if (
+            hasattr(self.idSys, "A")
+            and self.idSys.A is not None
+            and len(self.idSys.A_powers_cache) == 0
+        ):
+            A = np.array(self.idSys.A)
+            # Precompute up to 200 (2 seconds * 80 Hz = 160, 200 is reasonable)
+            max_m = 200
+
+            self.idSys.A_powers_cache = [A.copy()]
+            for i in range(2, max_m + 1):
+                self.idSys.A_powers_cache.append(self.idSys.A_powers_cache[-1] @ A)
+            self.idSys.max_m_precomputed = max_m
+            self.logger.info(
+                f"Precomputed A matrix powers up to m={max_m} after loading model"
+            )
         return self.idSys
 
     def train(self, Y: TrialList, Z: Optional[TrialList] = None):
@@ -88,39 +142,42 @@ class PSIDWrapper:
         n1: int = self.config.model.n1
         i: int = self.config.model.i
         time_first: bool = self.config.model.time_first
-        alpha_Q: float = float(getattr(self.config.model, "alpha_Q", 0.0))
-        alpha_R: float = float(getattr(self.config.model, "alpha_R", 0.0))
+
         backward_kalman: bool = getattr(self.config.model, "backward_kalman", False)
         rescale_states: bool = getattr(self.config.model, "rescale_states", True)
         max_eigenvalue = getattr(self.config.model, "max_eigenvalue", 0.995)
-        # Handle YAML null which becomes None
         if max_eigenvalue is None:
             max_eigenvalue = 1.0
         else:
             max_eigenvalue = float(max_eigenvalue)
+
         self.logger.info(
             f"Calling PSID.PSID with nx={nx}, n1={n1}, i={i}, time_first={time_first}, "
-            f"alpha_Q={alpha_Q}, alpha_R={alpha_R}, backward_kalman={backward_kalman}, "
+            f"backward_kalman={backward_kalman}, "
             f"rescale_states={rescale_states}, max_eigenvalue={max_eigenvalue}"
         )
 
-        self.idSys = PSIDClass(
-            Y,
-            Z,
-            nx,
-            n1,
-            i,
-            zscore_Y=True,
-            zscore_Z=True,
-            remove_mean_Y=True,
-            remove_mean_Z=True,
-            time_first=time_first,
-            alpha_Q=alpha_Q,
-            alpha_R=alpha_R,
-            backward_kalman=backward_kalman,
-            rescale_states=rescale_states,
-            max_eigenvalue=max_eigenvalue,
-        )
+        psid_kwargs = {
+            "zscore_Y": True,
+            "zscore_Z": True,
+            "remove_mean_Y": True,
+            "remove_mean_Z": True,
+            "time_first": time_first,
+            "backward_kalman": backward_kalman,
+            "rescale_states": rescale_states,
+            "max_eigenvalue": max_eigenvalue,
+        }
+
+        self.idSys = PSIDClass(Y, Z, nx, n1, i, **psid_kwargs)
+        if hasattr(self.idSys, "A") and self.idSys.A is not None:
+            A = np.array(self.idSys.A)
+            max_m = 200
+
+            self.idSys.A_powers_cache = [A.copy()]
+            for i in range(2, max_m + 1):
+                self.idSys.A_powers_cache.append(self.idSys.A_powers_cache[-1] @ A)
+            self.idSys.max_m_precomputed = max_m
+            self.logger.info(f"Precomputed A matrix powers up to m={max_m}")
         return self.idSys
 
     def predict(self, Y: TrialList, Z: Optional[TrialList] = None):
@@ -147,9 +204,98 @@ class PSIDWrapper:
     def test(self, Y: TrialList) -> Dict[str, Any]:
         return self.validate(Y)
 
-    def forecast(self, m: int, Y_past: Array2D):
-        add_noise = getattr(self.config.model, "add_process_noise_in_forecast", False)
-        return self.idSys.forecast(m, Y_past, add_process_noise=add_noise)
+    def forecast(
+        self,
+        m: int,
+        Y_past: Array2D,
+    ):
+        """
+        Efficient m-step ahead forecast using state-space model.
+
+        Complexity: O(len(Y_past) + m) instead of O(m * (len(Y_past) + m))
+
+        Algorithm:
+        1. Run Kalman filter once on Y_past to get initial state estimate
+        2. Iterate state equation forward m times: x_{t+1} = A @ x_t
+        3. Compute outputs: y_t = C @ x_t, z_t = Cz @ x_t
+        """
+        if self.idSys is None:
+            raise ValueError(
+                "Model not initialized. Call train() or load_from_file() first."
+            )
+
+        # Step 1: Get initial state estimate by running Kalman filter once on past data
+        # Use backward Kalman smoothing if available for better initial state estimate
+        use_smoothing = getattr(self.idSys, "backward_kalman", False)
+        # Convert Y_past to list format expected by predict
+        Y_past_list = [Y_past]
+        Zp_past, Yp_past, Xp_past = self.idSys.predict(
+            Y_past_list, U=None, useSmoothing=use_smoothing
+        )
+
+        # Extract the final state estimate (last time step)
+        if Xp_past is None or len(Xp_past) == 0:
+            raise ValueError("Could not extract state estimate from past data")
+
+        Xp_past_array = np.asarray(Xp_past[0]) if isinstance(Xp_past, list) else Xp_past
+        if Xp_past_array.shape[0] == 0:
+            raise ValueError("State estimate is empty")
+
+        x0 = Xp_past_array[-1, :]  # Final state estimate: shape (nx,)
+
+        # Get state-space matrices
+        A = np.array(self.idSys.A)  # State transition matrix: (nx, nx)
+        C = np.array(self.idSys.C)  # Output matrix for Y: (ny, nx)
+        Cz = (
+            np.array(self.idSys.Cz)
+            if hasattr(self.idSys, "Cz") and self.idSys.Cz is not None
+            else None
+        )  # Output matrix for Z: (nz, nx)
+
+        nx = A.shape[0]
+        ny = C.shape[0]
+        nz = Cz.shape[0] if Cz is not None else 0
+
+        # Step 2: Iterate state equation forward m times
+        # Use precomputed A powers if available for efficiency
+        use_cache = (
+            hasattr(self.idSys, "A_powers_cache")
+            and len(self.idSys.A_powers_cache) > 0
+            and hasattr(self.idSys, "max_m_precomputed")
+            and m <= self.idSys.max_m_precomputed
+        )
+
+        if use_cache:
+            # Efficient: compute all states at once using A^m powers
+            # A_powers_cache[0] = A^1, A_powers_cache[1] = A^2, ..., A_powers_cache[t-1] = A^t
+            # For state at step t: x_t = A^t @ x0
+            Xf = np.zeros((m, nx))
+            for t in range(1, m + 1):
+                if t <= len(self.idSys.A_powers_cache):
+                    # A_powers_cache[t-1] is A^t
+                    Xf[t - 1, :] = self.idSys.A_powers_cache[t - 1] @ x0
+                else:
+                    # Fallback to iterative if beyond cache (shouldn't happen if m <= max_m_precomputed)
+                    if t == 1:
+                        Xf[t - 1, :] = A @ x0
+                    else:
+                        Xf[t - 1, :] = A @ Xf[t - 2, :]
+        else:
+            # Iterative forward propagation
+            Xf = np.zeros((m, nx))
+            x_current = x0.copy()
+            for t in range(m):
+                x_current = A @ x_current
+                Xf[t, :] = x_current
+
+        # Step 3: Compute outputs from states
+        Yf = Xf @ C.T  # (m, nx) @ (nx, ny) -> (m, ny)
+
+        Zf = None
+        if Cz is not None and nz > 0:
+            Zf = Xf @ Cz.T  # (m, nx) @ (nx, nz) -> (m, nz)
+
+        return Zf, Yf, Xf
 
     def validate_forecast(
         self,
@@ -172,22 +318,6 @@ class PSIDWrapper:
             Yp_val = Yp_val_local
             Zp_val = Zp_val_local
 
-        all_residuals = []
-        for y_true, y_pred in zip(Y_list, Yp_val):
-            if y_pred is not None:
-                residuals = y_true - y_pred
-                all_residuals.append(residuals)
-
-        if all_residuals:
-            all_residuals_concat = np.concatenate(all_residuals, axis=0)
-            residual_mean = np.mean(all_residuals_concat, axis=0)
-            residual_std = np.std(all_residuals_concat, axis=0)
-        else:
-            residual_mean = 0.0
-            residual_std = 0.0
-
-        # TODO: Check Gaussian assumption for behavioral (Z) residuals and apply probabilistic forecasting if valid
-
         results = {
             "m": m,
             "Y_future_true": [],
@@ -199,16 +329,6 @@ class PSIDWrapper:
             "X_future_pred": [],
             "pearson_per_channel": [],
             "pearson_per_channel_Z": [],
-            "residual_mean": (
-                residual_mean.tolist()
-                if isinstance(residual_mean, np.ndarray)
-                else residual_mean
-            ),
-            "residual_std": (
-                residual_std.tolist()
-                if isinstance(residual_std, np.ndarray)
-                else residual_std
-            ),
         }
 
         for idx, Y in enumerate(Y_list):
@@ -710,7 +830,7 @@ class DPADFramework(BaseFramework):
 
 class VARMAOLSWrapper:
     """
-    VARMA(p, q) estimation via OLS using a Long-VAR residual proxy.
+    VARMA(p, q) estimation via Ridge regression using a Long-VAR residual proxy.
 
     All channels (neural + behavioral) are modeled jointly in one multivariate
     system, capturing cross-channel dynamics bidirectionally.
@@ -718,7 +838,7 @@ class VARMAOLSWrapper:
     Algorithm:
         1. Fit a high-order VAR to approximate the process and recover residuals.
         2. Build a design matrix: [intercept, AR lags of data, MA lags of residuals].
-        3. Solve via OLS (lstsq) — no iterations, always converges.
+        3. Solve via Ridge regression (alpha=0.01) — regularized fit per output channel.
         4. Forecast recursively: feed predictions back, future errors = 0.
     """
 
@@ -730,18 +850,27 @@ class VARMAOLSWrapper:
         self.p = getattr(config.model, "p", 20)
         self.q = getattr(config.model, "q", 1)
         self.long_ar_lags = getattr(config.model, "long_ar_lags", 30)
-        self.ridge_alpha = getattr(config.model, "ridge_alpha", 100.0)
 
         # Forecast horizon (seconds) and history length (samples) for validate_forecast
         self.forecast_m = getattr(config.model.forecast, "m", 2.0)
         self.forecast_history = getattr(config.model.forecast, "history", 5.0)
         self.sampling_freq = getattr(config.data, "sampling_frequency", 80)
+        # Trial edge taper (seconds) at boundaries when concatenating; 0 = no taper
+        self.trial_edge_taper_sec = getattr(config.model, "trial_edge_taper_sec", 0.0)
 
-        # Fitted state: beta_ols maps regressors -> K outputs; K = n_channels_Y + n_channels_Z
-        self.beta_ols = None
+        # Fitted state: beta maps regressors -> K outputs; K = n_channels_Y + n_channels_Z
+        self.beta = None
         self.n_channels_Y = None
         self.n_channels_Z = None
         self.K = None
+
+        # Per-channel normalization: store as dicts for clarity
+        # Keys are channel indices (0, 1, 2, ...), values are mean/std for that channel
+        self.channel_means = {}  # {channel_idx: mean_value}
+        self.channel_stds = {}  # {channel_idx: std_value}
+        self.channel_idx_to_type = {}  # {channel_idx: 'Y' or 'Z'} for reference
+
+        # Keep old attributes for backward compatibility, but compute from dicts
         self.Y_mean = None
         self.Y_std = None
         self.Z_mean = None
@@ -761,45 +890,191 @@ class VARMAOLSWrapper:
         self.__dict__.update(state)
         self.logger = get_logger()
 
-    def train(self, Y: TrialList, Z: Optional[TrialList] = None):
-        import statsmodels.api as sm
-        from statsmodels.tsa.api import VAR
+    def _normalize_trial(
+        self, data: np.ndarray, channel_offset: int, n_channels: int
+    ) -> np.ndarray:
+        """
+        Apply per-channel z-scoring to a trial's data.
 
-        self.logger.info("Training VARMA-OLS model...")
+        Parameters
+        ----------
+        data : (T, n_channels) array
+        channel_offset : int
+            Starting channel index in global channel numbering
+        n_channels : int
+            Number of channels to normalize
+
+        Returns
+        -------
+        data_zscored : (T, n_channels) normalized array
+        """
+        data_zscored = np.zeros_like(data)
+        for ch_idx in range(n_channels):
+            global_ch_idx = channel_offset + ch_idx
+            mean_ch = self.channel_means[global_ch_idx]
+            std_ch = self.channel_stds[global_ch_idx]
+            data_zscored[:, ch_idx] = (data[:, ch_idx] - mean_ch) / std_ch
+        return data_zscored
+
+    def _denormalize_trial(
+        self, data_zscored: np.ndarray, channel_offset: int, n_channels: int
+    ) -> np.ndarray:
+        """
+        Reverse per-channel z-scoring.
+
+        Parameters
+        ----------
+        data_zscored : (T, n_channels) normalized array
+        channel_offset : int
+            Starting channel index in global channel numbering
+        n_channels : int
+            Number of channels to denormalize
+
+        Returns
+        -------
+        data : (T, n_channels) denormalized array
+        """
+        data = np.zeros_like(data_zscored)
+        for ch_idx in range(n_channels):
+            global_ch_idx = channel_offset + ch_idx
+            mean_ch = self.channel_means[global_ch_idx]
+            std_ch = self.channel_stds[global_ch_idx]
+            data[:, ch_idx] = data_zscored[:, ch_idx] * std_ch + mean_ch
+        return data
+
+    def _build_design_matrix(
+        self,
+        effective_data: np.ndarray,
+        resid_proxy: np.ndarray,
+        p: int,
+        q: int,
+        offset: int,
+    ) -> np.ndarray:
+        """
+        Build VARMA design matrix: [const, AR lags, MA lags].
+
+        Parameters
+        ----------
+        effective_data : (T, K) data after Long-VAR burn-in
+        resid_proxy : (T, K) residual proxy
+        p : int
+            AR order
+        q : int
+            MA order
+        offset : int
+            Offset for building lags
+
+        Returns
+        -------
+        X_matrix : (T-offset, 1+p*K+q*K) design matrix with constant
+        """
+        X_list = []
+        for i in range(1, p + 1):
+            lag_start = offset - i
+            lag_end = len(effective_data) - i
+            X_list.append(effective_data[lag_start:lag_end])
+        for i in range(1, q + 1):
+            lag_start = offset - i
+            lag_end = len(resid_proxy) - i
+            X_list.append(resid_proxy[lag_start:lag_end])
+
+        X_matrix = np.concatenate(X_list, axis=1)
+        X_matrix = sm.add_constant(X_matrix)
+        return X_matrix
+
+    def train(self, Y: TrialList, Z: Optional[TrialList] = None):
+        self.logger.info("Training VARMA-Ridge model (per-channel z-scoring)...")
 
         p = self.p
         q = self.q
         long_ar_lags = self.long_ar_lags
 
-        # Normalization: compute mean/std over all trials for z-scoring (avoid div-by-zero later)
+        # Normalization: compute mean/std per channel over all trials
         Y_concat = np.concatenate(Y, axis=0)
         self.n_channels_Y = Y_concat.shape[1] if Y_concat.ndim == 2 else 1
-        self.Y_mean = np.mean(Y_concat, axis=0, keepdims=True)
-        self.Y_std = np.std(Y_concat, axis=0, keepdims=True)
-        self.Y_std[self.Y_std < 1e-10] = 1.0
 
+        # Compute per-channel stats for Y
+        Y_mean_per_ch = np.mean(Y_concat, axis=0)
+        Y_std_per_ch = np.std(Y_concat, axis=0)
+        Y_std_per_ch[Y_std_per_ch < 1e-10] = 1.0
+
+        # Store in dict: Y channels are 0 to n_channels_Y-1
+        for ch_idx in range(self.n_channels_Y):
+            self.channel_means[ch_idx] = float(Y_mean_per_ch[ch_idx])
+            self.channel_stds[ch_idx] = float(Y_std_per_ch[ch_idx])
+            self.channel_idx_to_type[ch_idx] = "Y"
+
+        # Normalize Z (behavioral/output channels)
         Z_concat = np.concatenate(Z, axis=0)
         self.n_channels_Z = Z_concat.shape[1] if Z_concat.ndim == 2 else 1
-        self.Z_mean = np.mean(Z_concat, axis=0, keepdims=True)
-        self.Z_std = np.std(Z_concat, axis=0, keepdims=True)
-        self.Z_std[self.Z_std < 1e-10] = 1.0
+
+        # Compute per-channel stats for Z
+        Z_mean_per_ch = np.mean(Z_concat, axis=0)
+        Z_std_per_ch = np.std(Z_concat, axis=0)
+        Z_std_per_ch[Z_std_per_ch < 1e-10] = 1.0
+
+        # Store in dict: Z channels start at n_channels_Y
+        for ch_idx in range(self.n_channels_Z):
+            global_ch_idx = self.n_channels_Y + ch_idx
+            self.channel_means[global_ch_idx] = float(Z_mean_per_ch[ch_idx])
+            self.channel_stds[global_ch_idx] = float(Z_std_per_ch[ch_idx])
+            self.channel_idx_to_type[global_ch_idx] = "Z"
+
         self.K = self.n_channels_Y + self.n_channels_Z
 
+        # Create arrays for backward compatibility (keepdims=True for broadcasting)
+        self.Y_mean = Y_mean_per_ch.reshape(1, -1)
+        self.Y_std = Y_std_per_ch.reshape(1, -1)
+        self.Z_mean = Z_mean_per_ch.reshape(1, -1)
+        self.Z_std = Z_std_per_ch.reshape(1, -1)
+
+        # Log normalization statistics per channel
         self.logger.info(
-            f"VARMA-OLS params: p={p}, q={q}, long_ar_lags={long_ar_lags}, "
+            f"VARMA-Ridge params: p={p}, q={q}, long_ar_lags={long_ar_lags}, "
             f"n_channels_Y={self.n_channels_Y}, n_channels_Z={self.n_channels_Z}, "
             f"K={self.K}"
         )
-
-        mean_concat = np.concatenate([self.Y_mean, self.Z_mean], axis=1)
-        std_concat = np.concatenate([self.Y_std, self.Z_std], axis=1)
-        data_concat = np.concatenate([Y_concat, Z_concat], axis=1)
-
-        data_concat_zscored = (data_concat - mean_concat) / std_concat
-
-        # Long-VAR: high-order VAR fit on pooled z-scored data; its residuals proxy MA innovations
         self.logger.info(
-            f"Training single Long-VAR on all trials concatenated (T={data_concat.shape[0]})"
+            f"Y normalization: mean range [{Y_mean_per_ch.min():.4f}, {Y_mean_per_ch.max():.4f}], "
+            f"std range [{Y_std_per_ch.min():.4f}, {Y_std_per_ch.max():.4f}]"
+        )
+        self.logger.info(
+            f"Z normalization: mean range [{Z_mean_per_ch.min():.4f}, {Z_mean_per_ch.max():.4f}], "
+            f"std range [{Z_std_per_ch.min():.4f}, {Z_std_per_ch.max():.4f}]"
+        )
+
+        # Option A: z-score each trial with raw means/stds, then apply Hamming edge taper (reduces power at boundaries)
+        n_taper = 0
+        if self.trial_edge_taper_sec > 0:
+            n_taper = max(1, int(round(self.sampling_freq * self.trial_edge_taper_sec)))
+            self.logger.info(
+                f"Trial edge taper: Hamming, {self.trial_edge_taper_sec}s -> n_taper={n_taper} samples"
+            )
+
+        tapered_trials: List[Array2D] = []
+        for trial_idx in range(len(Y)):
+            y_trial = Y[trial_idx]
+            y_trial_zscored = self._normalize_trial(
+                y_trial, channel_offset=0, n_channels=self.n_channels_Y
+            )
+
+            if Z is not None and trial_idx < len(Z):
+                z_trial = Z[trial_idx]
+                z_trial_zscored = self._normalize_trial(
+                    z_trial,
+                    channel_offset=self.n_channels_Y,
+                    n_channels=self.n_channels_Z,
+                )
+                data_trial = np.concatenate([y_trial_zscored, z_trial_zscored], axis=1)
+            else:
+                data_trial = y_trial_zscored
+            data_trial = _apply_hamming_trial_edge_taper(data_trial, n_taper)
+            tapered_trials.append(data_trial)
+
+        # Long-VAR on concatenated tapered z-scored data
+        data_concat_zscored = np.concatenate(tapered_trials, axis=0)
+        self.logger.info(
+            f"Training single Long-VAR on all trials concatenated (T={data_concat_zscored.shape[0]})"
         )
         df_concat = pd.DataFrame(data_concat_zscored)
         long_model = VAR(df_concat)
@@ -807,19 +1082,12 @@ class VARMAOLSWrapper:
         self.long_var_coefs = long_results.coefs
         self.long_var_intercept = long_results.intercept
 
-        # Per-trial design matrices and targets; concatenated into X_full, Y_full for one global fit
+        # Per-trial design matrices and targets; use same tapered z-scored trials
         all_X = []
         all_target = []
 
-        for trial_idx in range(len(Y)):
-            y_trial = (Y[trial_idx] - self.Y_mean) / self.Y_std
-
-            if Z is not None and trial_idx < len(Z):
-                z_trial = (Z[trial_idx] - self.Z_mean) / self.Z_std
-                data_trial = np.concatenate([y_trial, z_trial], axis=1)
-            else:
-                data_trial = y_trial
-
+        for trial_idx in range(len(tapered_trials)):
+            data_trial = tapered_trials[trial_idx]
             T_trial = data_trial.shape[0]
             if T_trial <= long_ar_lags + max(p, q):
                 self.logger.warning(
@@ -836,19 +1104,10 @@ class VARMAOLSWrapper:
             offset = max(p, q)
             target = effective_data[offset:]
 
-            # Build regressors: [y(t-1), ..., y(t-p), e(t-1), ..., e(t-q)]; each lag is (n_times x K)
-            X_list = []
-            for i in range(1, p + 1):
-                lag_start = offset - i
-                lag_end = len(effective_data) - i
-                X_list.append(effective_data[lag_start:lag_end])
-            for i in range(1, q + 1):
-                lag_start = offset - i
-                lag_end = len(resid_proxy) - i
-                X_list.append(resid_proxy[lag_start:lag_end])
-
-            X_matrix = np.concatenate(X_list, axis=1)
-            X_matrix = sm.add_constant(X_matrix)
+            # Build design matrix
+            X_matrix = self._build_design_matrix(
+                effective_data, resid_proxy, p, q, offset
+            )
 
             all_X.append(X_matrix)
             all_target.append(target)
@@ -858,9 +1117,9 @@ class VARMAOLSWrapper:
             )
 
         if not all_X:
-            raise ValueError("No trials were long enough for VARMA-OLS fitting.")
+            raise ValueError("No trials were long enough for VARMA-Ridge fitting.")
 
-        # Single global fit: stack all trials; beta_ols shape (1 + p*K + q*K, K)
+        # Single global fit: stack all trials; beta shape (1 + p*K + q*K, K)
         X_full = np.concatenate(all_X, axis=0)
         Y_full = np.concatenate(all_target, axis=0)
 
@@ -868,26 +1127,20 @@ class VARMAOLSWrapper:
             f"Design matrix shape: {X_full.shape}, Target shape: {Y_full.shape}"
         )
 
-        if self.ridge_alpha > 0.0:
-            from sklearn.linear_model import Ridge
-
-            self.logger.info(
-                f"Solving via Ridge regression (alpha={self.ridge_alpha})..."
-            )
-            ridge = Ridge(alpha=self.ridge_alpha, fit_intercept=False)
-            ridge.fit(X_full, Y_full)
-            self.beta_ols = ridge.coef_.T
-        else:
-            self.beta_ols = np.linalg.lstsq(X_full, Y_full, rcond=None)[0]
+        # Fit Ridge for each output channel separately
+        self.beta = np.zeros((X_full.shape[1], self.K))
+        for ch_idx in range(self.K):
+            ridge = Ridge(alpha=0.01, fit_intercept=False)
+            ridge.fit(X_full, Y_full[:, ch_idx])
+            self.beta[:, ch_idx] = ridge.coef_
 
         self.logger.info(
-            f"VARMA-OLS training complete. "
-            f"Beta shape: {self.beta_ols.shape}, "
-            f"n_features={self.beta_ols.shape[0]}, K={self.beta_ols.shape[1]}"
+            f"VARMA-Ridge training complete. "
+            f"Beta shape: {self.beta.shape}, "
+            f"n_features={self.beta.shape[0]}, K={self.beta.shape[1]}"
         )
 
-        # Innovation covariance from OLS residuals; regularize if near-singular (for sampling in forecast)
-        pred_full = X_full @ self.beta_ols
+        pred_full = X_full @ self.beta
         resid_full = Y_full - pred_full
         sigma_e = np.cov(resid_full.T)
         if sigma_e.ndim == 0:
@@ -898,13 +1151,10 @@ class VARMAOLSWrapper:
             sigma_e = sigma_e + (1e-8 - min_eig) * np.eye(self.K)
         self.sigma_e = sigma_e
 
-        # Optional: scale AR coefficients so companion matrix eigenvalues have modulus <= max_root
-        stabilize = getattr(self.config.model, "stabilize_roots", False)
         max_root = float(getattr(self.config.model, "max_root", 0.999))
-        if stabilize and max_root < 1.0 and self.p > 0:
+        if self.p > 0:
             self._stabilize_ar_roots(max_root)
 
-        # Combined mean/std for full K-vector (used when un-z-scoring predictions/forecasts)
         if self.Z_mean is not None:
             self.mean_all = np.concatenate([self.Y_mean, self.Z_mean], axis=1)
             self.std_all = np.concatenate([self.Y_std, self.Z_std], axis=1)
@@ -914,30 +1164,48 @@ class VARMAOLSWrapper:
 
         return self
 
+    def _build_companion_matrix(self, beta, p, K) -> np.ndarray:
+        """Build companion matrix from beta AR coefficients."""
+        companion = np.zeros((p * K, p * K))
+        for i in range(p):
+            A_i_T = beta[1 + i * K : 1 + (i + 1) * K, :]
+            A_i = A_i_T.T  # AR matrix is the transpose of the coefficient block
+            companion[0:K, i * K : (i + 1) * K] = A_i
+        if p > 1:
+            companion[K:, :-K] = np.eye((p - 1) * K)
+        return companion
+
     def _stabilize_ar_roots(self, max_root: float) -> None:
-        """Scale AR coefficients so the companion matrix has all eigenvalues with modulus <= max_root."""
+        """
+        Scale AR coefficients so the companion matrix has all eigenvalues with modulus <= max_root.
+        Uses lag-dependent scaling (gamma^lag) to preserve relative importance of different lags,
+        """
         p, K = self.p, self.K
-        # Extract AR coefficient blocks from beta_ols (rows 1..p*K; col 0 is intercept)
-        Phi_list = []
-        for i in range(1, p + 1):
-            block = self.beta_ols[1 + (i - 1) * K : 1 + i * K, :]
-            Phi_list.append(block.T)
-        # Companion matrix F: top block row = [Phi_1 .. Phi_p], below = identity blocks
-        F = np.zeros((p * K, p * K))
-        for i in range(p):
-            F[:K, i * K : (i + 1) * K] = Phi_list[i]
-        for i in range(p - 1):
-            F[(i + 1) * K : (i + 2) * K, i * K : (i + 1) * K] = np.eye(K)
-        evals = np.linalg.eigvals(F)
-        rho = np.max(np.abs(evals))
-        if rho <= max_root:
+        if p == 0:
             return
-        scale = max_root / rho
-        for i in range(p):
-            Phi_list[i] = Phi_list[i] * scale
-        for i in range(1, p + 1):
-            self.beta_ols[1 + (i - 1) * K : 1 + i * K, :] = Phi_list[i - 1].T
-        self.logger.info(f"AR roots stabilized: max modulus {rho:.4f} -> {max_root}")
+
+        # Build companion matrix to check current eigenvalues
+        companion = self._build_companion_matrix(self.beta, p, K)
+        eigenvalues = np.linalg.eigvals(companion)
+        max_pole = np.max(np.abs(eigenvalues))
+
+        if max_pole > 0:
+            gamma = max_root / max_pole
+
+            # If gamma != 1, we multiply each AR(lag) matrix by gamma^lag
+            # This exactly shifts the largest pole to target_pole_radius
+            for i in range(p):
+                lag = i + 1
+                self.beta[1 + i * K : 1 + (i + 1) * K, :] *= gamma**lag
+
+            # Verify the stabilization worked
+            companion_reg = self._build_companion_matrix(self.beta, p, K)
+            eigenvalues_reg = np.linalg.eigvals(companion_reg)
+            max_pole_reg = np.max(np.abs(eigenvalues_reg))
+            self.logger.info(
+                f"AR roots stabilized: max modulus {max_pole:.4f} -> {max_pole_reg:.4f} "
+                f"(target: {max_root:.4f}, gamma: {gamma:.6f})"
+            )
 
     def load_from_file(self, model_path: str):
         import pickle
@@ -964,7 +1232,7 @@ class VARMAOLSWrapper:
 
     def _predict_trial(self, data_zscored: np.ndarray) -> np.ndarray:
         """
-        One-step-ahead prediction for a single trial using the fitted VARMA-OLS model.
+        One-step-ahead prediction for a single trial using the fitted VARMA-Ridge model.
 
         Parameters
         ----------
@@ -974,8 +1242,6 @@ class VARMAOLSWrapper:
         -------
         predictions : (T, K) one-step-ahead predictions (z-scored)
         """
-        import statsmodels.api as sm
-
         p = self.p
         q = self.q
         long_ar_lags = self.long_ar_lags
@@ -994,20 +1260,9 @@ class VARMAOLSWrapper:
         offset = max(p, q)
         n_predict = len(effective_data) - offset
 
-        X_list = []
-        for i in range(1, p + 1):
-            lag_start = offset - i
-            lag_end = len(effective_data) - i
-            X_list.append(effective_data[lag_start:lag_end])
-        for i in range(1, q + 1):
-            lag_start = offset - i
-            lag_end = len(resid_proxy) - i
-            X_list.append(resid_proxy[lag_start:lag_end])
+        X_matrix = self._build_design_matrix(effective_data, resid_proxy, p, q, offset)
 
-        X_matrix = np.concatenate(X_list, axis=1)
-        X_matrix = sm.add_constant(X_matrix)
-
-        predictions_segment = X_matrix @ self.beta_ols
+        predictions_segment = X_matrix @ self.beta
 
         predictions = np.zeros_like(data_zscored)
         # First index where we have full AR/MA history (after Long-VAR burn-in and offset)
@@ -1028,21 +1283,32 @@ class VARMAOLSWrapper:
     ) -> Tuple[Optional[TrialList], TrialList, None]:
         """
         One-step-ahead prediction for all trials.
+        Per-channel z-scoring applied.
         Returns (Zp, Yp, None) to match the interface.
         """
         all_Yp = []
         all_Zp = [] if self.n_channels_Z > 0 else None
 
         for trial_idx, y_trial in enumerate(Y):
-            y_zscored = (y_trial - self.Y_mean) / self.Y_std
+            # Apply per-channel z-scoring to Y
+            y_trial_zscored = self._normalize_trial(
+                y_trial, channel_offset=0, n_channels=self.n_channels_Y
+            )
 
             if self.n_channels_Z > 0:
                 # Use actual Z if provided, otherwise use zeros as placeholder
                 if Z is not None and trial_idx < len(Z) and Z[trial_idx] is not None:
                     z_trial = Z[trial_idx]
                     if z_trial.shape[0] == y_trial.shape[0]:
-                        z_zscored = (z_trial - self.Z_mean) / self.Z_std
-                        data_zscored = np.concatenate([y_zscored, z_zscored], axis=1)
+                        # Apply per-channel z-scoring to Z
+                        z_trial_zscored = self._normalize_trial(
+                            z_trial,
+                            channel_offset=self.n_channels_Y,
+                            n_channels=self.n_channels_Z,
+                        )
+                        data_zscored = np.concatenate(
+                            [y_trial_zscored, z_trial_zscored], axis=1
+                        )
                     else:
                         # Length mismatch, use zeros
                         self.logger.warning(
@@ -1050,24 +1316,33 @@ class VARMAOLSWrapper:
                         )
                         z_placeholder = np.zeros((y_trial.shape[0], self.n_channels_Z))
                         data_zscored = np.concatenate(
-                            [y_zscored, z_placeholder], axis=1
+                            [y_trial_zscored, z_placeholder], axis=1
                         )
                 else:
                     # Z not provided or None, use zeros as placeholder
                     z_placeholder = np.zeros((y_trial.shape[0], self.n_channels_Z))
-                    data_zscored = np.concatenate([y_zscored, z_placeholder], axis=1)
+                    data_zscored = np.concatenate(
+                        [y_trial_zscored, z_placeholder], axis=1
+                    )
             else:
-                data_zscored = y_zscored
+                data_zscored = y_trial_zscored
 
             preds_zscored = self._predict_trial(data_zscored)
 
+            # Un-scale per-channel
             Yp_zscored = preds_zscored[:, : self.n_channels_Y]
-            Yp = Yp_zscored * self.Y_std + self.Y_mean
+            Yp = self._denormalize_trial(
+                Yp_zscored, channel_offset=0, n_channels=self.n_channels_Y
+            )
             all_Yp.append(Yp)
 
             if self.n_channels_Z > 0:
                 Zp_zscored = preds_zscored[:, self.n_channels_Y :]
-                Zp = Zp_zscored * self.Z_std + self.Z_mean
+                Zp = self._denormalize_trial(
+                    Zp_zscored,
+                    channel_offset=self.n_channels_Y,
+                    n_channels=self.n_channels_Z,
+                )
                 all_Zp.append(Zp)
 
         return all_Zp, all_Yp, None
@@ -1096,7 +1371,6 @@ class VARMAOLSWrapper:
         history_data: np.ndarray,
         history_resid: np.ndarray,
         n_steps: int,
-        sample_future_ma_errors: bool = False,
     ) -> np.ndarray:
         """Recursive m-step forecast. Regressor order: const, y(t-1)..y(t-p), e(t-1)..e(t-q)."""
         p = self.p
@@ -1108,10 +1382,6 @@ class VARMAOLSWrapper:
         current_e = list(history_resid[-q:]) if q > 0 else []
 
         forecasts = []
-        sigma_e = getattr(self, "sigma_e", None)
-        use_sampling = (
-            sample_future_ma_errors and sigma_e is not None and sigma_e.size > 0
-        )
 
         for _ in range(n_steps):
             # Build row [1, y(t-1), ..., y(t-p), e(t-1), ..., e(t-q)] to match training design
@@ -1125,27 +1395,35 @@ class VARMAOLSWrapper:
                     regressors.extend(np.zeros(K))
 
             X_t = np.array(regressors)
-            y_next = X_t @ self.beta_ols
+            y_next = X_t @ self.beta
 
             forecasts.append(y_next)
             current_y.append(y_next)
-            # Future innovation: either zero (deterministic) or N(0, sigma_e)
-            if use_sampling:
-                current_e.append(np.random.multivariate_normal(np.zeros(K), sigma_e))
-            else:
-                current_e.append(np.zeros(K))
+            # Future innovation: always zero (deterministic forecast)
+            current_e.append(np.zeros(K))
 
         return np.array(forecasts)
 
     def forecast(
         self, m: int, Y_past: Array2D, Z_past: Optional[Array2D] = None
     ) -> Tuple[Optional[Array2D], Array2D, None]:
-        """Forecast m steps ahead given past (Y_past, Z_past). Returns (Zf, Yf, None) in original scale."""
-        Y_past_zscored = (Y_past - self.Y_mean) / self.Y_std
+        """
+        Forecast m steps ahead given past (Y_past, Z_past). Returns (Zf, Yf, None) in original scale.
+        Per-channel z-scoring applied.
+        """
+        # Apply per-channel z-scoring to Y_past
+        Y_past_zscored = self._normalize_trial(
+            Y_past, channel_offset=0, n_channels=self.n_channels_Y
+        )
 
         if self.n_channels_Z > 0:
             if Z_past is not None:
-                Z_past_zscored = (Z_past - self.Z_mean) / self.Z_std
+                # Apply per-channel z-scoring to Z_past
+                Z_past_zscored = self._normalize_trial(
+                    Z_past,
+                    channel_offset=self.n_channels_Y,
+                    n_channels=self.n_channels_Z,
+                )
                 data_zscored = np.concatenate([Y_past_zscored, Z_past_zscored], axis=1)
             else:
                 z_placeholder = np.zeros((Y_past.shape[0], self.n_channels_Z))
@@ -1153,33 +1431,52 @@ class VARMAOLSWrapper:
         else:
             data_zscored = Y_past_zscored
 
+        p = self.p
+        q = self.q
         long_ar_lags = self.long_ar_lags
-        required_len = long_ar_lags + max(self.p, self.q)
 
-        # Pad with repeated first sample if history shorter than needed (avoids flat forecast start from zeros)
-        padded_data = data_zscored
-        if data_zscored.shape[0] < required_len:
-            pad_len = required_len - data_zscored.shape[0]
-            first_row = data_zscored[0:1]
-            pad_arr = np.tile(first_row, (pad_len, 1))
-            padded_data = np.concatenate([pad_arr, data_zscored], axis=0)
+        # No padding - just use what we have
+        if data_zscored.shape[0] < p:
+            raise ValueError(
+                f"History too short: need at least {p} samples for AR order, got {data_zscored.shape[0]}"
+            )
 
-        resid_proxy = self._get_long_var_residuals(padded_data)
-        effective_data = padded_data[long_ar_lags:]
+        # Get the actual last p samples
+        history_data = data_zscored[-p:]
 
-        # With sample_future_ma_errors=False, future shocks are zero so the forecast can flatten toward the mean; True adds variance.
-        sample_future_ma = getattr(self.config.model, "sample_future_ma_errors", False)
+        # Compute residuals from the actual data (not padded)
+        # We need at least long_ar_lags samples to compute residuals
+        if data_zscored.shape[0] >= long_ar_lags:
+            resid_proxy = self._get_long_var_residuals(data_zscored)
+            # Get the last q residuals (like supervisor: history_resid[-q:])
+            if resid_proxy.shape[0] >= q:
+                history_resid = resid_proxy[-q:]
+            else:
+                # If not enough residuals, use zeros (like supervisor does for future errors)
+                history_resid = np.zeros((q, self.K))
+        else:
+            # If not enough data for long-VAR, use zeros for residuals
+            history_resid = np.zeros((q, self.K))
+
+        # Forecast using actual history (no padding, no effective_data slicing)
         forecasts_zscored = self._forecast_from_history(
-            effective_data, resid_proxy, m, sample_future_ma_errors=sample_future_ma
+            history_data, history_resid, m
         )
 
+        # Un-scale per-channel
         Yf_zscored = forecasts_zscored[:, : self.n_channels_Y]
-        Yf = Yf_zscored * self.Y_std + self.Y_mean
+        Yf = self._denormalize_trial(
+            Yf_zscored, channel_offset=0, n_channels=self.n_channels_Y
+        )
 
         Zf = None
         if self.n_channels_Z > 0:
             Zf_zscored = forecasts_zscored[:, self.n_channels_Y :]
-            Zf = Zf_zscored * self.Z_std + self.Z_mean
+            Zf = self._denormalize_trial(
+                Zf_zscored,
+                channel_offset=self.n_channels_Y,
+                n_channels=self.n_channels_Z,
+            )
 
         return Zf, Yf, None
 
