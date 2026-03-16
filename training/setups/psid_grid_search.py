@@ -294,8 +294,6 @@ def extract_config_from_metadata(run_dir: Path) -> dict:
         for key in [
             "nx",
             "n1",
-            "alpha_Q",
-            "alpha_R",
             "backward_kalman",
             "rescale_states",
             "max_eigenvalue",
@@ -563,8 +561,6 @@ def main():
                 for k in [
                     "nx",
                     "n1",
-                    "alpha_Q",
-                    "alpha_R",
                     "backward_kalman",
                     "rescale_states",
                     "max_eigenvalue",

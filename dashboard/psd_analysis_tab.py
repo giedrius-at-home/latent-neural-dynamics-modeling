@@ -272,7 +272,11 @@ def render_psd_band_statistics(
 
     df = pl.DataFrame(rows)
     st.markdown(f"**Session {session} Band Statistics - {channel}**")
-    st.dataframe(df.to_pandas(), use_container_width=True, key=f"tbl_psd_bands_{session}_{channel}")
+    st.dataframe(
+        df.to_pandas(),
+        use_container_width=True,
+        key=f"tbl_psd_bands_{session}_{channel}",
+    )
 
     return band_results
 

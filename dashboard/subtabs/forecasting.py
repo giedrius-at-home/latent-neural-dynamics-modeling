@@ -43,8 +43,20 @@ from utils.stats import (
     find_dominant_frequencies,
     spectral_correlation,
 )
+from training.psid_grid_search import compute_mean_csd_phase_consistency
 
 SAMPLING_FREQ = 60
+
+
+def _r2_1d(true: np.ndarray, pred: np.ndarray) -> float:
+    """R² for 1D true/pred arrays."""
+    true = np.asarray(true).flatten()
+    pred = np.asarray(pred).flatten()
+    ss_tot = np.sum((true - np.mean(true)) ** 2)
+    if ss_tot == 0:
+        return 0.0
+    ss_res = np.sum((true - pred) ** 2)
+    return float(1 - ss_res / ss_tot)
 
 
 def _block_trial_indices_by_block(split_res: Dict[str, Any]) -> Dict[Tuple, List[int]]:
@@ -384,6 +396,7 @@ def render_y_forecast_plot(
     baseline_name: str = "Baseline",
     model_name: str = "Model",
     baseline_r: Optional[float] = None,
+    fs: float = 80.0,
 ):
 
     n_chan = y_concat.shape[1] if y_concat.ndim == 2 else 1
@@ -429,10 +442,9 @@ def render_y_forecast_plot(
             )
         )
 
-        t_future_plot = t_abs_margined[Tpast - 1 : T]
-        last_hist_val = y_concat_c[Tpast - 1]
-        y_ft_plot = np.concatenate(([last_hist_val], y_ft_c))
-        y_fp_plot = np.concatenate(([last_hist_val], y_fp_c_rescaled))
+        t_future_plot = t_future
+        y_ft_plot = y_ft_c
+        y_fp_plot = y_fp_c_rescaled
     else:
         t_future_plot = t_future
         y_ft_plot = y_ft_c
@@ -461,12 +473,7 @@ def render_y_forecast_plot(
     )
 
     if baseline_y_fp_c_rescaled is not None:
-        if Tpast > 0:
-            baseline_fp_plot = np.concatenate(
-                ([last_hist_val], baseline_y_fp_c_rescaled)
-            )
-        else:
-            baseline_fp_plot = baseline_y_fp_c_rescaled
+        baseline_fp_plot = baseline_y_fp_c_rescaled
         fig.add_trace(
             go.Scatter(
                 x=t_future_plot,
@@ -493,12 +500,18 @@ def render_y_forecast_plot(
 
     st.plotly_chart(fig, use_container_width=True, key=f"y_forecast_{channel_name}")
     r_str = f"{r_fore_ch:.3f}" if not np.isnan(r_fore_ch) else "N/A"
-    caption_parts = [f"Neural Signal Forecast: {channel_name} ({model_name} r={r_str})"]
+    r2_model = _r2_1d(y_ft_c, y_fp_c)
+    csd_model = compute_mean_csd_phase_consistency(
+        y_ft_c.flatten(), y_fp_c.flatten(), fs=fs
+    )
+    csd_model_str = f"{csd_model:.3f}" if not np.isnan(csd_model) else "N/A"
+    caption_parts = [
+        f"Neural Signal Forecast: {channel_name} ({model_name} r={r_str} R²={r2_model:.3f} CSD_phase={csd_model_str})"
+    ]
     if baseline_y_fp_c_rescaled is not None:
         if baseline_r is not None and not np.isnan(baseline_r):
             baseline_r_str = f"{baseline_r:.3f}"
         else:
-            # Fallback: compute if not provided
             try:
                 computed_r = np.corrcoef(y_ft_c.flatten(), baseline_yp_c.flatten())[
                     0, 1
@@ -506,9 +519,16 @@ def render_y_forecast_plot(
                 baseline_r_str = (
                     f"{computed_r:.3f}" if not np.isnan(computed_r) else "N/A"
                 )
-            except:
+            except Exception:
                 baseline_r_str = "N/A"
-        caption_parts.append(f"{baseline_name} r={baseline_r_str}")
+        r2_base = _r2_1d(y_ft_c, baseline_yp_c)
+        csd_base = compute_mean_csd_phase_consistency(
+            y_ft_c.flatten(), np.asarray(baseline_yp_c).flatten(), fs=fs
+        )
+        csd_base_str = f"{csd_base:.3f}" if not np.isnan(csd_base) else "N/A"
+        caption_parts.append(
+            f"{baseline_name} r={baseline_r_str} R²={r2_base:.3f} CSD_phase={csd_base_str}"
+        )
 
     caption_parts.append(
         "*Forecast rescaled to match Y_true mean/std for visualization*"
@@ -533,6 +553,7 @@ def render_z_forecast_plot(
     baseline_name: str = "Baseline",
     model_name: str = "Model",
     baseline_r: Optional[float] = None,
+    fs: float = 80.0,
 ):
 
     nz_chan = z_future_true.shape[1] if z_future_true.ndim == 2 else 1
@@ -586,10 +607,9 @@ def render_z_forecast_plot(
                 )
             )
 
-            t_future_plot = t_abs_margined[Tpast - 1 : Tpast + len(z_ft_c)]
-            last_hist_val = z_concat_c[Tpast - 1]
-            z_ft_plot = np.concatenate(([last_hist_val], z_ft_c))
-            z_fp_plot = np.concatenate(([last_hist_val], z_fp_c_rescaled))
+            t_future_plot = t_future
+            z_ft_plot = z_ft_c
+            z_fp_plot = z_fp_c_rescaled
         else:
             t_future_plot = t_future
             z_ft_plot = z_ft_c
@@ -621,12 +641,7 @@ def render_z_forecast_plot(
     )
 
     if baseline_z_fp_c_rescaled is not None:
-        if Tpast > 0 and z_concat is not None and len(z_concat_c) >= Tpast:
-            baseline_fp_plot = np.concatenate(
-                ([z_concat_c[Tpast - 1]], baseline_z_fp_c_rescaled)
-            )
-        else:
-            baseline_fp_plot = baseline_z_fp_c_rescaled
+        baseline_fp_plot = baseline_z_fp_c_rescaled
         fig.add_trace(
             go.Scatter(
                 x=t_future_plot[: len(baseline_fp_plot)],
@@ -645,11 +660,7 @@ def render_z_forecast_plot(
         zp_1_rescaled = rescale_to_reference(zp_1, z_ft_c)
         fig.add_trace(
             go.Scatter(
-                x=(
-                    t_future_plot[-len(zp_1_rescaled) :]
-                    if Tpast == 0
-                    else t_future_plot[1:]
-                ),
+                x=t_future_plot,
                 y=zp_1_rescaled,
                 name=f"Zp_1 (beh) r={r_zp1:.3f}",
                 mode="lines",
@@ -665,11 +676,7 @@ def render_z_forecast_plot(
         zp_2_rescaled = rescale_to_reference(zp_2, z_ft_c)
         fig.add_trace(
             go.Scatter(
-                x=(
-                    t_future_plot[-len(zp_2_rescaled) :]
-                    if Tpast == 0
-                    else t_future_plot[1:]
-                ),
+                x=t_future_plot,
                 y=zp_2_rescaled,
                 name=f"Zp_2 (non-beh) r={r_zp2:.3f}",
                 mode="lines",
@@ -693,14 +700,28 @@ def render_z_forecast_plot(
 
     st.plotly_chart(fig, use_container_width=True, key=f"z_forecast_{channel_name}")
     r_str = f"{r_fore_z_ch:.3f}" if not np.isnan(r_fore_z_ch) else "N/A"
-    caption_parts = [f"Behavioral Forecast: {channel_name} (Pearson r={r_str})"]
+    r2_model = _r2_1d(z_ft_c, z_fp_c)
+    csd_model = compute_mean_csd_phase_consistency(
+        z_ft_c.flatten(), z_fp_c.flatten(), fs=fs
+    )
+    csd_model_str = f"{csd_model:.3f}" if not np.isnan(csd_model) else "N/A"
+    caption_parts = [
+        f"Behavioral Forecast: {channel_name} ({model_name} r={r_str} R²={r2_model:.3f} CSD_phase={csd_model_str})"
+    ]
     if baseline_z_fp_c_rescaled is not None:
         baseline_r_str = (
             f"{baseline_r:.3f}"
             if baseline_r is not None and not np.isnan(baseline_r)
             else "N/A"
         )
-        caption_parts.append(f"{baseline_name} r={baseline_r_str}")
+        r2_base = _r2_1d(z_ft_c, baseline_zp_c)
+        csd_base = compute_mean_csd_phase_consistency(
+            z_ft_c.flatten(), np.asarray(baseline_zp_c).flatten(), fs=fs
+        )
+        csd_base_str = f"{csd_base:.3f}" if not np.isnan(csd_base) else "N/A"
+        caption_parts.append(
+            f"{baseline_name} r={baseline_r_str} R²={r2_base:.3f} CSD_phase={csd_base_str}"
+        )
     caption_parts.append(
         "*Forecast rescaled to match Z_true mean/std for visualization*"
     )
@@ -750,15 +771,8 @@ def render_x_forecast_plot(
         )
 
         # Forecast
-        # Connect last history point to first forecast point
-        t_forecast_plot = (
-            np.concatenate(([t_past[-1]], t_future)) if Tpast > 0 else t_future
-        )
-        y_forecast_plot = (
-            np.concatenate(([x_history[-1, d]], x_future_pred[:, d]))
-            if Tpast > 0
-            else x_future_pred[:, d]
-        )
+        t_forecast_plot = t_future
+        y_forecast_plot = x_future_pred[:, d]
 
         fig.add_trace(
             go.Scatter(
@@ -954,18 +968,23 @@ def render_forecasting_tab(
             md_list = split_res.get("margined_duration", [])
             offsets = split_res.get("offset", [])
 
-            t_abs_margined = None
-            if meta_time_margined and len(meta_time_margined) > trial_idx:
-                t_margined_val = meta_time_margined[trial_idx]
-                if t_margined_val is not None:
-                    t_full = np.array(t_margined_val)
-                    if t_full.ndim > 0 and len(t_full) >= len(y_concat):
-                        t_abs_margined = t_full[: len(y_concat)]
+            # Get sampling frequency and forecast parameters from config
+            try:
+                cfg = get_config(str(cfg_path))
+                sampling_freq = getattr(cfg.data, "sampling_frequency", SAMPLING_FREQ)
+                history_seconds = getattr(cfg.model.forecast, "history", 5.0)
+                m_seconds = getattr(cfg.model.forecast, "m", 2.0)
+            except Exception:
+                sampling_freq = SAMPLING_FREQ
+                # Calculate from data: y_concat = [Y_past (history samples), Yf (m samples)]
+                history_samples = len(y_concat) - m
+                history_seconds = history_samples / sampling_freq
+                m_seconds = m / sampling_freq
 
-            if t_abs_margined is None:
-                t_abs_margined = np.linspace(
-                    0.0, len(y_concat) / SAMPLING_FREQ, len(y_concat)
-                )
+            # Compute time axis for the forecast window: [0 to history+m seconds]
+            # This ensures the time axis matches exactly the forecast window (history + m seconds)
+            total_seconds = history_seconds + m_seconds
+            t_abs_margined = np.linspace(0.0, total_seconds, len(y_concat))
 
             t_offset = (
                 float(offsets[trial_idx])
@@ -1057,6 +1076,7 @@ def render_forecasting_tab(
                 baseline_name=selected_baseline_name,
                 model_name=model_label,
                 baseline_r=baseline_r_f,
+                fs=fs,
             )
 
             # Y forecast analysis pipeline (shared)
@@ -1192,6 +1212,7 @@ def render_forecasting_tab(
                         baseline_name=selected_baseline_name,
                         model_name=model_label,
                         baseline_r=baseline_r_z_f,
+                        fs=fs,
                     )
 
                     # Z forecast analysis pipeline (shared, with rescale)

@@ -17,11 +17,9 @@ model:
     - 8
     - 12
     - 16
-    alpha_Q:
     - 1e-5
     - 1e-4
     - 1e-3
-    alpha_R:
     - 1e-3
     - 1e-2
     backward_kalman:
@@ -63,7 +61,6 @@ data:
     output_type: behavioral
     output:
     - tracing_velocity_magnitude
-    input_lag: null
   split:
     within_session_split: true
     train: 0.6
@@ -73,7 +70,6 @@ data:
   batch_size: 32
   sampling_frequency: 60
   dbs_condition: both
-  jitter: 0
 results:
   save_dir: results/psid_grid_search_part2
   log_dir: '{results.save_dir}/logs'

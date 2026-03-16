@@ -18,11 +18,9 @@ model:
     - 4
     - 8
     - 12
-    alpha_Q:
     - 1e-5
     - 1e-4
     - 1e-3
-    alpha_R:
     - 1e-3
     - 1e-2
     backward_kalman:
@@ -98,7 +96,6 @@ data:
     - tracing_velocity_magnitude
     - tracing_jerk_x
     - tracing_jerk_magnitude
-    input_lag: null
   split:
     within_session_split: true
     train: 0.6
@@ -108,7 +105,6 @@ data:
   batch_size: 32
   sampling_frequency: 80
   dbs_condition: both
-  jitter: 0
 results:
   save_dir: results/psid_grid_search_raw_env
   log_dir: '{results.save_dir}/logs'

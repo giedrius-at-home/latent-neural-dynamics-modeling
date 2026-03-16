@@ -48,6 +48,92 @@ from dashboard.backbone import (
 from utils.sync import interpolate_to_grid
 
 
+def detect_jumps(x, y, threshold_px=50.0):
+    """Detect spatial jumps (pen lifts) in x,y coordinate arrays.
+
+    Returns dict with jump_indices, distances, count.
+    """
+    dx = np.diff(x)
+    dy = np.diff(y)
+    dist = np.sqrt(dx**2 + dy**2)
+    jump_mask = dist > threshold_px
+    jump_indices = np.where(jump_mask)[0]
+    return {
+        "jump_indices": jump_indices,
+        "distances": dist[jump_mask],
+        "count": len(jump_indices),
+        "max_distance": float(dist.max()) if len(dist) > 0 else 0.0,
+    }
+
+
+def analyze_stationarity(x, y, dt_per_sample):
+    """Analyze stationary runs in x,y coordinate arrays.
+
+    Returns dict with runs list, total_pct, longest_pause_s, unique_pct.
+    """
+    n = len(x)
+    if n < 2:
+        return {
+            "runs": [],
+            "total_pct": 0.0,
+            "longest_pause_s": 0.0,
+            "unique_pct": 100.0,
+        }
+
+    runs = []
+    run_start = 0
+    for j in range(1, n):
+        if x[j] != x[j - 1] or y[j] != y[j - 1]:
+            if j - run_start > 1:
+                runs.append(
+                    {
+                        "start": run_start,
+                        "length": j - run_start,
+                        "duration_s": (j - run_start) * dt_per_sample,
+                        "x": float(x[run_start]),
+                        "y": float(y[run_start]),
+                    }
+                )
+            run_start = j
+    if n - run_start > 1:
+        runs.append(
+            {
+                "start": run_start,
+                "length": n - run_start,
+                "duration_s": (n - run_start) * dt_per_sample,
+                "x": float(x[run_start]),
+                "y": float(y[run_start]),
+            }
+        )
+
+    total_stationary = sum(r["length"] for r in runs)
+    total_pct = 100.0 * total_stationary / n
+    longest_pause_s = max((r["duration_s"] for r in runs), default=0.0)
+    unique_coords = len(np.unique(np.column_stack([x, y]), axis=0))
+    unique_pct = 100.0 * unique_coords / n
+
+    return {
+        "runs": runs,
+        "total_pct": total_pct,
+        "longest_pause_s": longest_pause_s,
+        "unique_pct": unique_pct,
+    }
+
+
+def compute_motion_quality(x, y, trial_duration):
+    """Combined motion quality analysis for a single trial."""
+    n = len(x)
+    dt = trial_duration / (n - 1) if n > 1 else 0.0
+    jumps = detect_jumps(x, y, threshold_px=50.0)
+    stationarity = analyze_stationarity(x, y, dt)
+    return {
+        **jumps,
+        **stationarity,
+        "n_points": n,
+        "dt_per_sample": dt,
+    }
+
+
 def compute_discrete_velocity(x, y, t):
     if x is None or y is None or t is None or len(x) < 2:
         return None, None
@@ -235,12 +321,53 @@ def render_behavioral_tab(trial_data, metadata_str):
             st.plotly_chart(fig_ts, use_container_width=True)
 
             if "position" in base.lower():
+                x_arr = coords_data[comps["x"]].to_numpy().astype(float)
+                y_arr = coords_data[comps["y"]].to_numpy().astype(float)
+                t_arr = coords_data[time_col].to_numpy().astype(float)
+                trial_dur = t_arr[-1] - t_arr[0] if len(t_arr) > 1 else 9.0
+
+                quality = compute_motion_quality(x_arr, y_arr, trial_dur)
+
                 fig_2d = plot_2d_trajectory(
                     coords_data,
                     x_col=comps["x"],
                     y_col=comps["y"],
+                    jump_indices=quality["jump_indices"],
+                    stationary_runs=quality["runs"],
                 )
                 st.plotly_chart(fig_2d, use_container_width=True)
+
+                with st.expander("Motion Quality Analysis"):
+                    jump_threshold = st.slider(
+                        "Jump threshold (px)",
+                        min_value=10,
+                        max_value=200,
+                        value=50,
+                        step=10,
+                        key=f"jump_thresh_{trial_data['trial'][0]}",
+                    )
+                    if jump_threshold != 50:
+                        quality_custom = detect_jumps(x_arr, y_arr, threshold_px=jump_threshold)
+                    else:
+                        quality_custom = quality
+
+                    c1, c2, c3, c4, c5 = st.columns(5)
+                    c1.metric("Jumps", quality_custom["count"])
+                    c2.metric("Max Jump", f"{quality_custom['max_distance']:.0f} px")
+                    c3.metric("Stationary", f"{quality['total_pct']:.0f}%")
+                    c4.metric("Longest Pause", f"{quality['longest_pause_s']:.1f}s")
+                    c5.metric("Unique Pos.", f"{quality['unique_pct']:.0f}%")
+
+                    if jump_threshold != 50:
+                        fig_custom = plot_2d_trajectory(
+                            coords_data,
+                            x_col=comps["x"],
+                            y_col=comps["y"],
+                            title=f"Trajectory (jump threshold = {jump_threshold}px)",
+                            jump_indices=quality_custom["jump_indices"],
+                            stationary_runs=quality["runs"],
+                        )
+                        st.plotly_chart(fig_custom, use_container_width=True)
 
         elif "value" in comps:
             fig_ts = plot_component_time_series(
@@ -312,7 +439,6 @@ def render_cross_trial_analysis(block_data):
         if var["col"] not in block_data.columns:
             continue
 
-        # Use participant-level function to show all sessions
         fig_session_avg = plot_participant_average_behavior(
             behavioral_col=var["col"], y_label=f"{var['name']} ({var['unit']})"
         )
@@ -321,6 +447,95 @@ def render_cross_trial_analysis(block_data):
         st.caption(
             f"{var['name']} — Participant average across sessions (DBS ON vs OFF)"
         )
+
+    if "x" in block_data.columns and "y" in block_data.columns:
+        _render_motion_quality_summary(block_data)
+
+
+def _render_motion_quality_summary(block_data):
+    st.markdown("### Motion Quality Summary")
+
+    if "x" not in block_data.columns or "y" not in block_data.columns:
+        st.info("No position data available for motion quality analysis.")
+        return
+
+    trials = sorted(block_data["trial"].unique().to_list())
+    rows = []
+    for trial_num in trials:
+        trial_row = block_data.filter(pl.col("trial") == trial_num)
+        x_raw = trial_row["x"][0]
+        y_raw = trial_row["y"][0]
+        if x_raw is None or y_raw is None:
+            continue
+        x = np.array(x_raw, dtype=float)
+        y = np.array(y_raw, dtype=float)
+
+        mt_raw = trial_row["motion_time"][0] if "motion_time" in trial_row.columns else None
+        if mt_raw is not None:
+            mt = np.array(mt_raw, dtype=float)
+            trial_dur = mt[-1] - mt[0] if len(mt) > 1 else 9.0
+        else:
+            trial_dur = 9.0
+
+        q = compute_motion_quality(x, y, trial_dur)
+        rows.append(
+            {
+                "Trial": trial_num,
+                "Points": q["n_points"],
+                "Jumps (>50px)": q["count"],
+                "Max Jump (px)": round(q["max_distance"], 1),
+                "Stationary %": round(q["total_pct"], 1),
+                "Longest Pause (s)": round(q["longest_pause_s"], 2),
+                "Unique Pos. %": round(q["unique_pct"], 1),
+            }
+        )
+
+    if not rows:
+        st.info("No trial data to analyze.")
+        return
+
+    summary_df = pl.DataFrame(rows)
+    st.dataframe(summary_df, use_container_width=True, hide_index=True)
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Bar(
+            x=[r["Trial"] for r in rows],
+            y=[r["Jumps (>50px)"] for r in rows],
+            name="Jumps (>50px)",
+            marker_color=PALETTE.strawberry_red,
+            yaxis="y",
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=[r["Trial"] for r in rows],
+            y=[r["Longest Pause (s)"] for r in rows],
+            name="Longest Pause (s)",
+            mode="lines+markers",
+            line=dict(color="orange", width=2),
+            marker=dict(size=6),
+            yaxis="y2",
+        )
+    )
+    fig.update_layout(
+        title="Motion Quality per Trial",
+        xaxis_title="Trial",
+        yaxis=dict(title="Jump Count", side="left"),
+        yaxis2=dict(title="Longest Pause (s)", side="right", overlaying="y"),
+        template="plotly_white",
+        height=350,
+        legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
+        margin=dict(l=60, r=60, t=50, b=40),
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+    total_seconds = len(rows) * 9
+    flagged = sum(1 for r in rows if r["Jumps (>50px)"] > 0 or r["Longest Pause (s)"] > 2.0)
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Total Trials", len(rows))
+    c2.metric("Total Duration", f"{total_seconds}s")
+    c3.metric("Flagged Trials", f"{flagged} / {len(rows)}")
 
 
 def render_neural_tab(trial_data, lfp_channels, ecog_channels, metadata_str):

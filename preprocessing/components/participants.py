@@ -11,9 +11,6 @@ from utils.logger import get_logger
 from utils.motion import (
     savgol_derivative,
     compute_magnitude,
-    compute_angle,
-    compute_cos,
-    compute_sin,
 )
 from utils.sync import interpolate_to_grid
 
@@ -92,11 +89,14 @@ def _add_full_data(
         strict=False,
     )
 
+    max_pause_seconds = getattr(config.ieeg_process, "max_pause_seconds", None)
+
     participants = _chunk_recordings(
         participants,
         all_band_channels,
         config.ieeg_process.chunk_margin,
         config.ieeg_process.resampled_freq,
+        max_pause_seconds=max_pause_seconds,
     )
 
     for channel in all_band_channels:
@@ -167,6 +167,18 @@ def construct_participants_table(
         participants = pl.read_parquet(p_partition_path)
         logger.info(f"Loaded participants from: {p_partition_path}")
 
+        if "is_fragmented" in participants.columns:
+            n_before = participants.height
+            participants = participants.filter(pl.col("is_fragmented") == False)
+            n_dropped = n_before - participants.height
+            if n_dropped > 0:
+                logger.info(f"Filtered {n_dropped} fragmented block(s)")
+            participants = participants.drop("is_fragmented")
+
+        if participants.is_empty():
+            logger.info(f"Skipping empty partition after fragmented filter: {p_partition_path}")
+            continue
+
         participants, all_band_channels = _add_full_data(participants, config)
 
         base_cols = [
@@ -218,17 +230,17 @@ def _compute_laplacian(lfp_k, lfp_k1, lfp_k2):
         return None
     if len(lfp_k) == 0 or len(lfp_k1) == 0 or len(lfp_k2) == 0:
         return None
-    
+
     lfp_k_arr = np.array(lfp_k, dtype=np.float64)
     lfp_k1_arr = np.array(lfp_k1, dtype=np.float64)
     lfp_k2_arr = np.array(lfp_k2, dtype=np.float64)
-    
+
     # Ensure all arrays have the same length
     min_len = min(len(lfp_k_arr), len(lfp_k1_arr), len(lfp_k2_arr))
     lfp_k_arr = lfp_k_arr[:min_len]
     lfp_k1_arr = lfp_k1_arr[:min_len]
     lfp_k2_arr = lfp_k2_arr[:min_len]
-    
+
     laplacian = lfp_k_arr - 2 * lfp_k1_arr + lfp_k2_arr
     return laplacian.tolist()
 
@@ -237,9 +249,9 @@ def _add_ieeg_data(
     participants: pl.DataFrame, config: Config
 ) -> tuple[pl.DataFrame, list[str]]:
     from utils.ieeg import process_all_bands
-    
+
     logger = get_logger()
-    
+
     # Load iEEG data
     participants_ = (
         participants.with_columns(
@@ -251,7 +263,16 @@ def _add_ieeg_data(
         .unnest("ieeg_data")
         .drop("sfreq")
     )
-    
+
+    drop_lfp = getattr(config.ieeg_process, "drop_lfp", False)
+    if drop_lfp:
+        lfp_cols_to_drop = [ch for ch in LFP_CHANNELS if ch in participants_.columns]
+        if lfp_cols_to_drop:
+            participants_ = participants_.drop(lfp_cols_to_drop)
+            logger.info(
+                f"Dropped {len(lfp_cols_to_drop)} LFP channels early (drop_lfp=True)"
+            )
+
     original_sfreq = 1000
     target_sfreq = config.ieeg_process.resampled_freq
     raw_bands = getattr(config.ieeg_process, "raw_bands", {})
@@ -259,20 +280,21 @@ def _add_ieeg_data(
     log_power_bands = getattr(config.ieeg_process, "log_power_bands", {})
     notch_freqs = config.ieeg_process.notch_freqs
     scale_factor = float(getattr(config.ieeg_process, "scale_factor", 1.0))
-    
+    compute_average = getattr(config.ieeg_process, "compute_average", False)
+
     all_band_names = (
         list(raw_bands.keys())
         + list(envelope_bands.keys())
         + list(log_power_bands.keys())
     )
     all_band_channels = []
-    
+
     # Process ECOG channels (ECOG_1 to ECOG_4)
     logger.info("Processing ECOG channels")
     for ecog_ch in ECOG_CHANNELS:
         if ecog_ch not in participants_.columns:
             continue
-            
+
         def _process_bands(r, ch_name=ecog_ch):
             if r is None or len(r) == 0:
                 return {band: [] for band in all_band_names}
@@ -286,13 +308,13 @@ def _add_ieeg_data(
                 target_sfreq=target_sfreq,
                 scale_factor=scale_factor,
             )
-        
+
         participants_ = participants_.with_columns(
             pl.col(ecog_ch)
             .map_elements(_process_bands, return_dtype=pl.Object)
             .alias(f"_bands_{ecog_ch}")
         )
-        
+
         for band_name in all_band_names:
             band_channel = f"{ecog_ch}_{band_name}"
             all_band_channels.append(band_channel)
@@ -303,91 +325,173 @@ def _add_ieeg_data(
                 )
                 .alias(band_channel)
             )
-        
+
         participants_ = participants_.drop(f"_bands_{ecog_ch}", ecog_ch)
-    
+
+    # Compute average across ECOG channels for each band if requested
+    if compute_average:
+        logger.info("Computing average across ECOG channels for each band")
+        for band_name in all_band_names:
+            # Collect all ECOG band channels for this band
+            ecog_band_cols = [
+                f"{ecog_ch}_{band_name}"
+                for ecog_ch in ECOG_CHANNELS
+                if f"{ecog_ch}_{band_name}" in participants_.columns
+            ]
+
+            if len(ecog_band_cols) > 0:
+                # Compute average across all ECOG channels for this band
+                avg_channel = f"ECOG_avg_{band_name}"
+                all_band_channels.append(avg_channel)
+
+                def _compute_ecog_avg(row, cols=ecog_band_cols):
+                    """Compute average across ECOG channels for a single band"""
+                    valid_signals = []
+                    for col in cols:
+                        signal = row[col]
+                        if signal is not None and len(signal) > 0:
+                            valid_signals.append(np.array(signal, dtype=np.float32))
+
+                    if len(valid_signals) == 0:
+                        return []
+
+                    # Ensure all signals have the same length
+                    min_len = min(len(s) for s in valid_signals)
+                    valid_signals = [s[:min_len] for s in valid_signals]
+
+                    # Compute average
+                    avg_signal = np.mean(valid_signals, axis=0)
+                    return avg_signal.tolist()
+
+                participants_ = participants_.with_columns(
+                    pl.struct(ecog_band_cols)
+                    .map_elements(_compute_ecog_avg, return_dtype=pl.List(pl.Float32))
+                    .alias(avg_channel)
+                )
+
     # Process LFP channels: Compute Laplacian for k ∈ {9, 10, 11, 12, 13, 14}
     # To double the number, we'll also include k ∈ {8, 15} if available
-    logger.info("Processing LFP channels with Laplacian")
-    laplacian_k_values = [8, 9, 10, 11, 12, 13, 14, 15]  # Doubled from original 6 to 8
-    
-    for k in laplacian_k_values:
-        lfp_k_name = f"LFP_{k}"
-        lfp_k1_name = f"LFP_{k+1}"
-        lfp_k2_name = f"LFP_{k+2}"
-        
-        # Check if all required channels exist
-        if not all(ch in participants_.columns for ch in [lfp_k_name, lfp_k1_name, lfp_k2_name]):
-            continue
-        
-        # Compute Laplacian using Polars expressions
-        # D_k(t) = LFP_k(t) - 2*LFP_{k+1}(t) + LFP_{k+2}(t)
-        def _laplacian_wrapper(s, k_name=lfp_k_name, k1_name=lfp_k1_name, k2_name=lfp_k2_name):
-            if s is None:
-                return None
-            return _compute_laplacian(s[k_name], s[k1_name], s[k2_name])
-        
-        participants_ = participants_.with_columns(
-            pl.struct([lfp_k_name, lfp_k1_name, lfp_k2_name])
-            .map_elements(_laplacian_wrapper, return_dtype=pl.List(pl.Float32))
-            .alias(f"_laplacian_{k}")
-        )
-        
-        # Process Laplacian signal through bands
-        def _process_bands_laplacian(r):
-            if r is None or len(r) == 0:
-                return {band: [] for band in all_band_names}
-            return process_all_bands(
-                r,
-                raw_bands=raw_bands,
-                envelope_bands=envelope_bands,
-                log_power_bands=log_power_bands,
-                notch_freqs=notch_freqs,
-                original_sfreq=original_sfreq,
-                target_sfreq=target_sfreq,
-                scale_factor=scale_factor,
+    if not drop_lfp:
+        logger.info("Processing LFP channels with Laplacian")
+        laplacian_k_values = [
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+        ]  # Doubled from original 6 to 8
+
+        for k in laplacian_k_values:
+            lfp_k_name = f"LFP_{k}"
+            lfp_k1_name = f"LFP_{k+1}"
+            lfp_k2_name = f"LFP_{k+2}"
+
+            # Check if all required channels exist
+            if not all(
+                ch in participants_.columns
+                for ch in [lfp_k_name, lfp_k1_name, lfp_k2_name]
+            ):
+                continue
+
+            # Compute Laplacian using Polars expressions
+            # D_k(t) = LFP_k(t) - 2*LFP_{k+1}(t) + LFP_{k+2}(t)
+            def _laplacian_wrapper(
+                s, k_name=lfp_k_name, k1_name=lfp_k1_name, k2_name=lfp_k2_name
+            ):
+                if s is None:
+                    return None
+                return _compute_laplacian(s[k_name], s[k1_name], s[k2_name])
+
+            participants_ = participants_.with_columns(
+                pl.struct([lfp_k_name, lfp_k1_name, lfp_k2_name])
+                .map_elements(_laplacian_wrapper, return_dtype=pl.List(pl.Float32))
+                .alias(f"_laplacian_{k}")
             )
-        
-        participants_ = participants_.with_columns(
-            pl.col(f"_laplacian_{k}")
-            .map_elements(_process_bands_laplacian, return_dtype=pl.Object)
-            .alias(f"_bands_laplacian_{k}")
-        )
-        
-        for band_name in all_band_names:
-            # Split band_name into band and feature (e.g., "delta_raw" -> band="delta", feature="raw")
-            # Handle different formats: "delta_raw", "lowbeta_env", "raw" (no underscore)
-            if "_" in band_name:
-                parts = band_name.rsplit("_", 1)
-                if len(parts) == 2:
-                    band, feature = parts
+
+            # Process Laplacian signal through bands
+            def _process_bands_laplacian(r):
+                if r is None or len(r) == 0:
+                    return {band: [] for band in all_band_names}
+                return process_all_bands(
+                    r,
+                    raw_bands=raw_bands,
+                    envelope_bands=envelope_bands,
+                    log_power_bands=log_power_bands,
+                    notch_freqs=notch_freqs,
+                    original_sfreq=original_sfreq,
+                    target_sfreq=target_sfreq,
+                    scale_factor=scale_factor,
+                )
+
+            participants_ = participants_.with_columns(
+                pl.col(f"_laplacian_{k}")
+                .map_elements(_process_bands_laplacian, return_dtype=pl.Object)
+                .alias(f"_bands_laplacian_{k}")
+            )
+
+            for band_name in all_band_names:
+                # Split band_name into band and feature (e.g., "delta_raw" -> band="delta", feature="raw")
+                # Handle different formats: "delta_raw", "lowbeta_env", "raw" (no underscore)
+                if "_" in band_name:
+                    parts = band_name.rsplit("_", 1)
+                    if len(parts) == 2:
+                        band, feature = parts
+                    else:
+                        band = band_name
+                        feature = "raw"
                 else:
                     band = band_name
                     feature = "raw"
-            else:
-                band = band_name
-                feature = "raw"
-            
-            # Create channel name: LAPLACIAN_k-{k+2}_LFP_{band}_{feature}
-            laplacian_channel = f"LAPLACIAN_{k}-{k+2}_LFP_{band}_{feature}"
-            all_band_channels.append(laplacian_channel)
-            participants_ = participants_.with_columns(
-                pl.col(f"_bands_laplacian_{k}")
-                .map_elements(
-                    lambda x, bn=band_name: x[bn], return_dtype=pl.List(pl.Float32)
+
+                # Create channel name: LAPLACIAN_k-{k+2}_LFP_{band}_{feature}
+                laplacian_channel = f"LAPLACIAN_{k}-{k+2}_LFP_{band}_{feature}"
+                all_band_channels.append(laplacian_channel)
+                participants_ = participants_.with_columns(
+                    pl.col(f"_bands_laplacian_{k}")
+                    .map_elements(
+                        lambda x, bn=band_name: x[bn], return_dtype=pl.List(pl.Float32)
+                    )
+                    .alias(laplacian_channel)
                 )
-                .alias(laplacian_channel)
+
+            participants_ = participants_.drop(
+                f"_laplacian_{k}", f"_bands_laplacian_{k}"
             )
-        
-        participants_ = participants_.drop(f"_laplacian_{k}", f"_bands_laplacian_{k}")
-    
-    # Drop all original LFP channels
-    lfp_cols_to_drop = [ch for ch in LFP_CHANNELS if ch in participants_.columns]
-    if lfp_cols_to_drop:
-        participants_ = participants_.drop(lfp_cols_to_drop)
-        logger.info(f"Dropped {len(lfp_cols_to_drop)} original LFP channels")
-    
+
+        # Drop all original LFP channels (if they weren't already dropped)
+        lfp_cols_to_drop = [ch for ch in LFP_CHANNELS if ch in participants_.columns]
+        if lfp_cols_to_drop:
+            participants_ = participants_.drop(lfp_cols_to_drop)
+            logger.info(f"Dropped {len(lfp_cols_to_drop)} original LFP channels")
+    else:
+        logger.info("Skipping LFP processing (drop_lfp=True)")
+
     return participants_, all_band_channels
+
+
+def _longest_stationary_run_seconds(x_list, y_list, trial_time):
+    """Return the duration (in seconds) of the longest run of identical (x,y) positions."""
+    if x_list is None or y_list is None or trial_time is None:
+        return None
+    x = np.array(x_list, dtype=np.float64)
+    y = np.array(y_list, dtype=np.float64)
+    n = len(x)
+    if n < 2 or trial_time <= 0:
+        return 0.0
+    dt = trial_time / (n - 1)
+    max_run = 1
+    cur_run = 1
+    for j in range(1, n):
+        if x[j] == x[j - 1] and y[j] == y[j - 1]:
+            cur_run += 1
+            if cur_run > max_run:
+                max_run = cur_run
+        else:
+            cur_run = 1
+    return float(max_run * dt)
 
 
 def _interpolate_to_grid_wrapper(kinematic_signal, motion_time, time_original):
@@ -407,6 +511,7 @@ def _chunk_recordings(
     all_band_channels: list[str],
     chunk_margin: int,
     sfreq: int,
+    max_pause_seconds: float = None,
 ) -> pl.DataFrame:
     logger = get_logger()
 
@@ -474,6 +579,27 @@ def _chunk_recordings(
         f"Null motion_time rows: {participants_.filter(pl.col('motion_time').is_null()).height}"
     )
 
+    if max_pause_seconds is not None and max_pause_seconds > 0:
+        participants_ = participants_.with_columns(
+            pl.struct("x", "y", "trial_time")
+            .map_elements(
+                lambda s: _longest_stationary_run_seconds(
+                    s["x"], s["y"], s["trial_time"]
+                ),
+                return_dtype=pl.Float64,
+            )
+            .alias("_max_pause_s")
+        )
+        n_before = participants_.height
+        participants_ = participants_.filter(
+            pl.col("_max_pause_s") <= max_pause_seconds
+        ).drop("_max_pause_s")
+        n_dropped = n_before - participants_.height
+        if n_dropped > 0:
+            logger.info(
+                f"Filtered {n_dropped} trial(s) with stationary pause > {max_pause_seconds}s"
+            )
+
     participants_ = _compute_kinematics(participants_, sfreq)
 
     return participants_
@@ -504,27 +630,6 @@ def _compute_kinematics(participants: pl.DataFrame, sfreq: int) -> pl.DataFrame:
                 return_dtype=pl.List(pl.Float64),
             )
             .alias(f"tracing_{deriv_name}_magnitude")
-        )
-
-        participants = participants.with_columns(
-            pl.struct(x_col, y_col)
-            .map_elements(
-                lambda s, xc=x_col, yc=y_col: compute_angle(s[xc], s[yc]),
-                return_dtype=pl.List(pl.Float64),
-            )
-            .alias(f"tracing_{deriv_name}_angle")
-        )
-
-        participants = participants.with_columns(
-            pl.col(f"tracing_{deriv_name}_angle")
-            .map_elements(compute_cos, return_dtype=pl.List(pl.Float64))
-            .alias(f"tracing_{deriv_name}_cos")
-        )
-
-        participants = participants.with_columns(
-            pl.col(f"tracing_{deriv_name}_angle")
-            .map_elements(compute_sin, return_dtype=pl.List(pl.Float64))
-            .alias(f"tracing_{deriv_name}_sin")
         )
 
     kinematic_cols = [c for c in participants.columns if c.startswith("tracing_")]

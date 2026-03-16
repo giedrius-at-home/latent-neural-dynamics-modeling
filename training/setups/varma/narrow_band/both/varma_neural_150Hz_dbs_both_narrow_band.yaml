@@ -57,7 +57,6 @@ data:
       "LAPLACIAN_14-16_LFP_beta_env",
       "LAPLACIAN_14-16_LFP_highbeta_env"
     ]
-    input_lag: null
   split:
     within_session_split: true
     train: 0.6
@@ -67,7 +66,6 @@ data:
   batch_size: 32
   sampling_frequency: 150
   dbs_condition: "both"
-  jitter: 0
 
 results:
   save_dir: "results/{model.name}"

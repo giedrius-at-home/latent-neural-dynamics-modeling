@@ -20,8 +20,6 @@ class TrialDataset(Dataset):
         self.data_params = data_params
         self.split = split
 
-        self.df = pl.read_parquet(self.parquet_path)
-
         self.neural_input = self.data_params.channels.neural_input
         self.behavioral_input = getattr(
             self.data_params.channels, "behavioral_input", None
@@ -30,6 +28,21 @@ class TrialDataset(Dataset):
         self.output_type = getattr(
             self.data_params.channels, "output_type", "behavioral"
         )
+
+        meta_cols = [
+            "participant_id", "session", "block", "trial", "time",
+            "chunk_margin", "margined_duration", "stim", "offset",
+        ]
+        needed_cols = list(meta_cols)
+        needed_cols.extend(self.neural_input)
+        needed_cols.extend(self.output_channels)
+        if self.behavioral_input:
+            needed_cols.extend(self.behavioral_input)
+
+        try:
+            self.df = pl.read_parquet(self.parquet_path, columns=needed_cols)
+        except Exception:
+            self.df = pl.read_parquet(self.parquet_path)
 
         logger = get_logger()
         logger.info(
@@ -42,23 +55,8 @@ class TrialDataset(Dataset):
         return len(self.df)
 
     def __getitem__(self, idx: int) -> Tuple[np.ndarray, Optional[np.ndarray], dict]:
-        input_lag = self.data_params.channels.input_lag
-        if input_lag is not None:
-            input_channel_names = self.neural_input + [
-                f"{ch}_lag{input_lag}" for ch in self.neural_input
-            ]
-        else:
-            input_channel_names = self.neural_input
-
         row = self.df[idx]
-        Y = self._extract_channels(row, input_channel_names)
-        if input_lag is not None:
-            Y = self._add_lagged_channels(Y)
-
-        jitter = float(getattr(self.data_params, "jitter", None))
-        if jitter is not None and self.split == "train":
-            noise = np.random.normal(0, jitter, Y.shape)
-            Y = Y + noise
+        Y = self._extract_channels(row, self.neural_input)
 
         Z = self._extract_channels(row, self.output_channels)
 
@@ -83,35 +81,14 @@ class TrialDataset(Dataset):
             "chunk_margin": chunk_margin,
             "margined_duration": margined_duration,
             "stim": stim,
-            "input_channels": input_channel_names,
-            "original_input_channels": self.neural_input,
+            "input_channels": self.neural_input,
             "behavioral_input_channels": self.behavioral_input,
             "output_channels": self.output_channels,
             "sampling_frequency": self.data_params.sampling_frequency,
             "chunk_margin_ts": chunk_margin_ts,
-            "input_lag": input_lag if input_lag else 0,
         }
 
         return Y, Z, metadata
-
-    def _add_lagged_channels(self, Y: np.ndarray) -> np.ndarray:
-        input_lag = getattr(self.data_params.channels, "input_lag", None)
-
-        if input_lag is None or input_lag == 0:
-            return Y
-
-        n_samples, n_channels = Y.shape
-        lagged_channels = []
-
-        for ch_idx in range(n_channels):
-            channel_data = Y[:, ch_idx : ch_idx + 1]
-            lagged_data = np.roll(channel_data, shift=input_lag, axis=0)
-            lagged_data[:input_lag] = 0
-            lagged_channels.append(lagged_data)
-
-        Y_with_lags = np.concatenate([Y] + lagged_channels, axis=1)
-
-        return Y_with_lags
 
     def _extract_channels(
         self, row: pl.DataFrame, channel_list: List[str]
