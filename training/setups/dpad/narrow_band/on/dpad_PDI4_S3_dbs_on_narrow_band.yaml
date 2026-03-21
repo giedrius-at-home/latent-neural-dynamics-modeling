@@ -1,0 +1,67 @@
+model:
+  name: "dpad_PDI4_S3_dbs_on_narrow_band"
+  nx: 65
+  n1: 10
+  method_code: "DPAD_uAKCzCy2HL32U"
+  epochs: 3000
+  fast: true
+  checkpoint_every: 100
+  steps_ahead: [1]
+  steps_ahead_loss_weights: [1.0]
+  forecast:
+    m: 2
+    history: 5
+
+data:
+  root: "resampled_recordings/participants_at_80Hz_scaled_1e6_narrow_band_envelope"
+  participant: "PDI4"
+  session: "3"
+  blocks: "all"
+  channels:
+    neural_input: [
+      "ECOG_1_delta_05_raw", "ECOG_2_delta_05_raw", "ECOG_3_delta_05_raw", "ECOG_4_delta_05_raw",
+      "ECOG_1_delta_1_raw", "ECOG_2_delta_1_raw", "ECOG_3_delta_1_raw", "ECOG_4_delta_1_raw",
+      "ECOG_1_delta_2_raw", "ECOG_2_delta_2_raw", "ECOG_3_delta_2_raw", "ECOG_4_delta_2_raw",
+      "ECOG_1_delta_3_raw", "ECOG_2_delta_3_raw", "ECOG_3_delta_3_raw", "ECOG_4_delta_3_raw",
+      "ECOG_1_delta_4_raw", "ECOG_2_delta_4_raw", "ECOG_3_delta_4_raw", "ECOG_4_delta_4_raw",
+      "ECOG_1_theta_5_raw", "ECOG_2_theta_5_raw", "ECOG_3_theta_5_raw", "ECOG_4_theta_5_raw",
+      "ECOG_1_theta_6_raw", "ECOG_2_theta_6_raw", "ECOG_3_theta_6_raw", "ECOG_4_theta_6_raw",
+      "ECOG_1_theta_7_raw", "ECOG_2_theta_7_raw", "ECOG_3_theta_7_raw", "ECOG_4_theta_7_raw",
+      "ECOG_1_theta_8_raw", "ECOG_2_theta_8_raw", "ECOG_3_theta_8_raw", "ECOG_4_theta_8_raw",
+      "ECOG_1_alpha_9_raw", "ECOG_2_alpha_9_raw", "ECOG_3_alpha_9_raw", "ECOG_4_alpha_9_raw",
+      "ECOG_1_alpha_10_raw", "ECOG_2_alpha_10_raw", "ECOG_3_alpha_10_raw", "ECOG_4_alpha_10_raw",
+      "ECOG_1_alpha_11_raw", "ECOG_2_alpha_11_raw", "ECOG_3_alpha_11_raw", "ECOG_4_alpha_11_raw",
+      "ECOG_1_beta_13_env", "ECOG_2_beta_13_env", "ECOG_3_beta_13_env", "ECOG_4_beta_13_env",
+      "ECOG_1_beta_14_env", "ECOG_2_beta_14_env", "ECOG_3_beta_14_env", "ECOG_4_beta_14_env",
+      "ECOG_1_beta_15_env", "ECOG_2_beta_15_env", "ECOG_3_beta_15_env", "ECOG_4_beta_15_env",
+      "ECOG_1_beta_16_env", "ECOG_2_beta_16_env", "ECOG_3_beta_16_env", "ECOG_4_beta_16_env",
+      "ECOG_1_beta_17_env", "ECOG_2_beta_17_env", "ECOG_3_beta_17_env", "ECOG_4_beta_17_env",
+      "ECOG_1_beta_18_env", "ECOG_2_beta_18_env", "ECOG_3_beta_18_env", "ECOG_4_beta_18_env",
+      "ECOG_1_beta_19_env", "ECOG_2_beta_19_env", "ECOG_3_beta_19_env", "ECOG_4_beta_19_env",
+      "ECOG_1_beta_20_env", "ECOG_2_beta_20_env", "ECOG_3_beta_20_env", "ECOG_4_beta_20_env",
+      "ECOG_1_beta_21_env", "ECOG_2_beta_21_env", "ECOG_3_beta_21_env", "ECOG_4_beta_21_env",
+      "ECOG_1_beta_22_env", "ECOG_2_beta_22_env", "ECOG_3_beta_22_env", "ECOG_4_beta_22_env",
+      "ECOG_1_beta_23_env", "ECOG_2_beta_23_env", "ECOG_3_beta_23_env", "ECOG_4_beta_23_env",
+      "ECOG_1_beta_24_env", "ECOG_2_beta_24_env", "ECOG_3_beta_24_env", "ECOG_4_beta_24_env",
+      "ECOG_1_beta_25_env", "ECOG_2_beta_25_env", "ECOG_3_beta_25_env", "ECOG_4_beta_25_env",
+      "ECOG_1_beta_26_env", "ECOG_2_beta_26_env", "ECOG_3_beta_26_env", "ECOG_4_beta_26_env",
+      "ECOG_1_beta_27_env", "ECOG_2_beta_27_env", "ECOG_3_beta_27_env", "ECOG_4_beta_27_env",
+      "ECOG_1_beta_28_env", "ECOG_2_beta_28_env", "ECOG_3_beta_28_env", "ECOG_4_beta_28_env",
+      "ECOG_1_beta_29_env", "ECOG_2_beta_29_env", "ECOG_3_beta_29_env", "ECOG_4_beta_29_env"
+    ]
+    output_type: "behavioral"
+    output: ["tracing_velocity_x", "tracing_acceleration_magnitude"]
+  split:
+    within_session_split: true
+    train: 0.7
+    val: 0.1
+    test: 0.2
+    min_train_epochs: 50
+  batch_size: 32
+  sampling_frequency: 80
+  dbs_condition: "on"
+
+results:
+  save_dir: "results/{model.name}"
+  log_dir: "{results.save_dir}/logs"
+  checkpoint_dir: "checkpoints"
