@@ -316,6 +316,106 @@ class Tester:
 
             self.results[split_name] = split_results
 
+    @staticmethod
+    def _trial_partition_dir(results_path: Path, meta: dict) -> Path:
+        return (
+            results_path
+            / f"participant_id={meta['participant_id']}"
+            / f"session={meta['session']}"
+            / f"block={meta['block']}"
+            / f"trial={meta['trial']}"
+        )
+
+    def _write_trial_partition(self, trial_result: dict, results_path: Path, meta: dict):
+        partition_dir = self._trial_partition_dir(results_path, meta)
+        partition_dir.mkdir(parents=True, exist_ok=True)
+
+        row = {}
+        for col_name, col_value in trial_result.items():
+            if col_name in ("participant_id", "session", "block", "trial"):
+                continue
+            if isinstance(col_value, list) and len(col_value) == 1:
+                if col_value[0] is None:
+                    row[col_name] = pl.Series(
+                        name=col_name, values=[None], dtype=pl.Float32
+                    )
+                else:
+                    row[col_name] = pl.Series(name=col_name, values=col_value)
+            elif isinstance(col_value, (np.ndarray, dict)):
+                continue
+            elif col_value is None:
+                row[col_name] = pl.Series(
+                    name=col_name, values=[None], dtype=pl.Float32
+                )
+            elif isinstance(col_value, list):
+                row[col_name] = pl.Series(name=col_name, values=[col_value])
+            else:
+                row[col_name] = pl.Series(name=col_name, values=[col_value])
+
+        df = pl.from_dict(row)
+        df.write_parquet(partition_dir / "0.parquet")
+
+    def run_predictions_incremental(self):
+        self._load_dataloaders()
+        self._load_model_for_run()
+
+        results_dir = Path(self.results_config.save_dir)
+
+        for split_name, loader in (
+            ("train", self.train_loader),
+            ("val", self.val_loader),
+            ("test", self.test_loader),
+        ):
+            Y_list, _z, meta_list = loader.get_full_dataset()
+            Y_list, Z_list, meta_list = self._slice_data(Y_list, _z, meta_list)
+            n_trials = len(Y_list)
+
+            results_path = (
+                results_dir / split_name / f"test_results_{self.run_timestamp}.parquet"
+            )
+
+            done = 0
+            for i in range(n_trials):
+                meta_i = meta_list[i]
+                partition_dir = self._trial_partition_dir(results_path, meta_i)
+
+                if partition_dir.exists():
+                    done += 1
+                    self.logger.info(
+                        f"Split={split_name}: trial {done}/{n_trials} "
+                        f"already done, skipping"
+                    )
+                    continue
+
+                Y_i = [Y_list[i]]
+                Z_i = [Z_list[i]] if Z_list is not None else None
+
+                Zp, Yp, Xp = self.framework._predict(Y_i, Z_i)
+
+                f_res = self.framework.model.validate_forecast(
+                    Y_i,
+                    Z_list=Z_i,
+                    margin=meta_i.get("chunk_margin"),
+                )
+
+                meta_dict = {k: [meta_i.get(k)] for k in meta_i}
+                trial_results = self._get_metrics(Y_i, Z_i, Yp, Zp, Xp, meta_dict)
+                trial_results.update(f_res)
+
+                self._write_trial_partition(trial_results, results_path, meta_i)
+
+                r_mean = trial_results.get("pearson_mean", [float("nan")])[0]
+                done += 1
+                self.logger.info(
+                    f"Split={split_name}: trial {done}/{n_trials} "
+                    f"(pearson_r={r_mean:.4f})"
+                )
+
+            self.logger.info(
+                f"Split={split_name}: all {n_trials} trials complete "
+                f"-> {results_path}"
+            )
+
     def save_results(self):
         results_dir = Path(self.results_config.save_dir)
         for k in self.results:
@@ -372,62 +472,73 @@ class Tester:
             else:
                 group.create_dataset(name, data=data)
 
+        idSys = self.framework.model.idSys
+        A = getattr(idSys, "A", None)
+        if A is None:
+            self.logger.info(
+                "Model has no linear A matrix (e.g. nonlinear DPAD). "
+                "Skipping stats export."
+            )
+            return
+
         results_dir = Path(self.results_config.save_dir)
         stats_path = results_dir / f"test_stats_{self.run_timestamp}.hdf5"
         with h5py.File(stats_path, "w") as f:
             f.attrs["model_name"] = self.model_params.name
             f.attrs["nx"] = self.model_params.nx
             f.attrs["n1"] = self.model_params.n1
-            f.attrs["i"] = self.model_params.i
+            f.attrs["i"] = getattr(self.model_params, "i", -1)
             f.attrs["run_timestamp"] = self.run_timestamp
-            A_Eigs = np.linalg.eig(self.framework.model.idSys.A)[0]
+            A_Eigs = np.linalg.eig(A)[0]
             isStable = np.max(np.abs(A_Eigs)) < 1
             f.attrs["is_stable"] = isStable
 
-            f.create_dataset("A", data=self.framework.model.idSys.A)
-            f.create_dataset("Cy", data=self.framework.model.idSys.C)
-            f.create_dataset("Cz", data=self.framework.model.idSys.Cz)
-            f.create_dataset("Q", data=self.framework.model.idSys.Q)
-            f.create_dataset("R", data=self.framework.model.idSys.R)
-            f.create_dataset("S", data=self.framework.model.idSys.S)
+            f.create_dataset("A", data=A)
+            create_dataset(f, "Cy", getattr(idSys, "C", None))
+            create_dataset(f, "Cz", getattr(idSys, "Cz", None))
+            create_dataset(f, "Q", getattr(idSys, "Q", None))
+            create_dataset(f, "R", getattr(idSys, "R", None))
+            create_dataset(f, "S", getattr(idSys, "S", None))
 
             prep_group = f.create_group("preprocessing")
-
+            YPrep = getattr(idSys, "YPrepModel", None)
+            ZPrep = getattr(idSys, "ZPrepModel", None)
             create_dataset(
-                prep_group, "Y_mean", self.framework.model.idSys.YPrepModel.mean
+                prep_group, "Y_mean", getattr(YPrep, "mean", None)
             )
             create_dataset(
-                prep_group, "Y_std", self.framework.model.idSys.YPrepModel.std
+                prep_group, "Y_std", getattr(YPrep, "std", None)
             )
             create_dataset(
-                prep_group, "Z_mean", self.framework.model.idSys.ZPrepModel.mean
+                prep_group, "Z_mean", getattr(ZPrep, "mean", None)
             )
             create_dataset(
-                prep_group, "Z_std", self.framework.model.idSys.ZPrepModel.std
+                prep_group, "Z_std", getattr(ZPrep, "std", None)
             )
 
             stats_group = f.create_group("analysis_stats")
+            n1 = self.model_params.n1
+            nx = self.model_params.nx
 
-            A_11 = self.framework.model.idSys.A[
-                0 : self.model_params.n1, 0 : self.model_params.n1
-            ]
-            stats_group.create_dataset("eigvals_relevant", data=np.linalg.eigvals(A_11))
+            A_11 = A[0:n1, 0:n1]
+            stats_group.create_dataset(
+                "eigvals_relevant", data=np.linalg.eigvals(A_11)
+            )
 
-            A_22 = self.framework.model.idSys.A[
-                self.model_params.n1 : self.model_params.nx,
-                self.model_params.n1 : self.model_params.nx,
-            ]
+            A_22 = A[n1:nx, n1:nx]
             stats_group.create_dataset(
                 "eigvals_irrelevant", data=np.linalg.eigvals(A_22)
             )
 
-            stats_group.create_dataset(
-                "z_readout_norm",
-                data=np.linalg.norm(
-                    self.framework.model.idSys.Cz[:, 0 : self.model_params.n1], axis=0
-                ),
-            )
-            stats_group.create_dataset(
-                "y_readout_norm",
-                data=np.linalg.norm(self.framework.model.idSys.C, axis=0),
-            )
+            Cz = getattr(idSys, "Cz", None)
+            if Cz is not None:
+                stats_group.create_dataset(
+                    "z_readout_norm",
+                    data=np.linalg.norm(Cz[:, 0:n1], axis=0),
+                )
+            C = getattr(idSys, "C", None)
+            if C is not None:
+                stats_group.create_dataset(
+                    "y_readout_norm",
+                    data=np.linalg.norm(C, axis=0),
+                )

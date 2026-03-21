@@ -506,7 +506,7 @@ def render_y_forecast_plot(
     )
     csd_model_str = f"{csd_model:.3f}" if not np.isnan(csd_model) else "N/A"
     caption_parts = [
-        f"Neural Signal Forecast: {channel_name} ({model_name} r={r_str} R²={r2_model:.3f} CSD_phase={csd_model_str})"
+        f"Neural Signal Forecast: {channel_name} ({model_name} r={r_str} R²={r2_model:.3f}"
     ]
     if baseline_y_fp_c_rescaled is not None:
         if baseline_r is not None and not np.isnan(baseline_r):
@@ -527,7 +527,7 @@ def render_y_forecast_plot(
         )
         csd_base_str = f"{csd_base:.3f}" if not np.isnan(csd_base) else "N/A"
         caption_parts.append(
-            f"{baseline_name} r={baseline_r_str} R²={r2_base:.3f} CSD_phase={csd_base_str}"
+            f"{baseline_name} r={baseline_r_str} R²={r2_base:.3f}"
         )
 
     caption_parts.append(
@@ -706,7 +706,7 @@ def render_z_forecast_plot(
     )
     csd_model_str = f"{csd_model:.3f}" if not np.isnan(csd_model) else "N/A"
     caption_parts = [
-        f"Behavioral Forecast: {channel_name} ({model_name} r={r_str} R²={r2_model:.3f} CSD_phase={csd_model_str})"
+        f"Behavioral Forecast: {channel_name} ({model_name} r={r_str} R²={r2_model:.3f}"
     ]
     if baseline_z_fp_c_rescaled is not None:
         baseline_r_str = (
@@ -720,7 +720,7 @@ def render_z_forecast_plot(
         )
         csd_base_str = f"{csd_base:.3f}" if not np.isnan(csd_base) else "N/A"
         caption_parts.append(
-            f"{baseline_name} r={baseline_r_str} R²={r2_base:.3f} CSD_phase={csd_base_str}"
+            f"{baseline_name} r={baseline_r_str} R²={r2_base:.3f}"
         )
     caption_parts.append(
         "*Forecast rescaled to match Z_true mean/std for visualization*"

@@ -5,6 +5,8 @@ from utils.logger import get_logger
 from utils.miscellaneous import state_shape
 from utils.stats import pearson_r_per_channel
 import numpy as np
+import math
+import json
 import sys
 from pathlib import Path
 import pandas as pd
@@ -417,6 +419,32 @@ class PSIDFramework(BaseFramework):
         return PSIDWrapper(self.config)
 
 
+def _make_dpad_epoch_callback(csv_path, checkpoint_dir, save_every):
+    import tensorflow as tf
+
+    class _Cb(tf.keras.callbacks.Callback):
+        def on_epoch_end(self, epoch, logs=None):
+            if not logs:
+                return
+            loss = logs.get("loss")
+            val_loss = logs.get("val_loss")
+            header = not csv_path.exists()
+            with open(csv_path, "a") as f:
+                if header:
+                    f.write("epoch,loss,val_loss,rmse,val_rmse\n")
+                rmse = math.sqrt(loss) if loss else ""
+                val_rmse = math.sqrt(val_loss) if val_loss else ""
+                f.write(f"{epoch},{loss},{val_loss},{rmse},{val_rmse}\n")
+
+            if save_every and (epoch + 1) % save_every == 0:
+                np.savez(
+                    checkpoint_dir / f"weights_epoch_{epoch + 1}.npz",
+                    *self.model.get_weights(),
+                )
+
+    return _Cb()
+
+
 class DPADWrapper:
     def __init__(self, config: Config):
         self.config = config
@@ -444,26 +472,8 @@ class DPADWrapper:
         n1: int = self.config.model.n1
         method_code: str = self.config.model.method_code
         epochs: int = self.config.model.epochs
-
-        def safe_cast(val, cast_type):
-            return cast_type(val) if val is not None else None
-
-        dropout = safe_cast(getattr(self.config.model, "dropout", None), float)
-        weight_decay = safe_cast(
-            getattr(self.config.model, "weight_decay", None), float
-        )
-        hidden_size = safe_cast(getattr(self.config.model, "hidden_size", None), int)
-        layers = safe_cast(getattr(self.config.model, "layers", None), int)
-        loss_name = getattr(self.config.model, "loss_name", None)
-
-        behavior_loss_weight = safe_cast(
-            getattr(self.config.model, "behavior_loss_weight", 1.0), float
-        )
-        recon_loss_weight = safe_cast(
-            getattr(self.config.model, "recon_loss_weight", 1.0), float
-        )
-        use_correlation_loss = getattr(self.config.model, "use_correlation_loss", True)
         fast = getattr(self.config.model, "fast", False)
+        checkpoint_every = getattr(self.config.model, "checkpoint_every", 100)
 
         self.logger.info(
             f"Training DPAD with nx={nx}, n1={n1}, method_code={method_code}, epochs={epochs}"
@@ -471,119 +481,15 @@ class DPADWrapper:
         Y_dpad = [y.T for y in Y]
         Z_dpad = [z.T for z in Z] if Z is not None else None
 
+        save_dir = Path(self.config.results.save_dir)
+        checkpoint_dir = save_dir / "checkpoints"
+        checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        csv_path = save_dir / "training_metrics.csv"
+
+        cb = _make_dpad_epoch_callback(csv_path, checkpoint_dir, checkpoint_every)
+
         self.idSys = DPADModel(log_dir=self.config.results.log_dir)
         args = DPADModel.prepare_args(method_code)
-
-        # Apply overrides from config
-        def update_arg_dict(d, key, val):
-            if isinstance(d, dict):
-                d[key] = val
-
-        # Handle top-level fit arguments
-        if dropout is not None:
-            for arg_name in [
-                "A1_args",
-                "K1_args",
-                "Cy1_args",
-                "Cz1_args",
-                "A2_args",
-                "K2_args",
-                "Cy2_args",
-                "Cz2_args",
-                "A_args",
-                "K_args",
-                "Cy_args",
-                "Cz_args",
-            ]:
-                if arg_name in args:
-                    update_arg_dict(args[arg_name], "dropout_rate", dropout)
-
-        if weight_decay is not None:
-            for arg_name in [
-                "A1_args",
-                "K1_args",
-                "Cy1_args",
-                "Cz1_args",
-                "A2_args",
-                "K2_args",
-                "Cy2_args",
-                "Cz2_args",
-                "A_args",
-                "K_args",
-                "Cy_args",
-                "Cz_args",
-            ]:
-                if arg_name in args:
-                    update_arg_dict(args[arg_name], "kernel_regularizer_name", "l2")
-                    update_arg_dict(
-                        args[arg_name], "kernel_regularizer_args", {"l": weight_decay}
-                    )
-
-        if hidden_size is not None and layers is not None:
-            for arg_name in [
-                "A1_args",
-                "K1_args",
-                "Cy1_args",
-                "Cz1_args",
-                "A2_args",
-                "K2_args",
-                "Cy2_args",
-                "Cz2_args",
-                "A_args",
-                "K_args",
-                "Cy_args",
-                "Cz_args",
-            ]:
-                if arg_name in args:
-                    update_arg_dict(args[arg_name], "units", [hidden_size] * layers)
-                    update_arg_dict(args[arg_name], "activation", "relu")
-                    update_arg_dict(args[arg_name], "use_bias", True)
-
-        parsed_loss = args.pop("loss_name", None)
-        final_loss = loss_name if loss_name is not None else parsed_loss
-        if not use_correlation_loss:
-            final_loss = None
-
-        parsed_bw = args.pop("behavior_loss_weight", 1.0)
-        final_bw = (
-            behavior_loss_weight
-            if getattr(self.config.model, "behavior_loss_weight", None) is not None
-            else parsed_bw
-        )
-
-        parsed_rw = args.pop("recon_loss_weight", 1.0)
-        final_rw = (
-            recon_loss_weight
-            if getattr(self.config.model, "recon_loss_weight", None) is not None
-            else parsed_rw
-        )
-
-        final_esm = getattr(
-            self.config.model,
-            "early_stopping_measure",
-            args.pop("early_stopping_measure", "val_loss"),
-        )
-        final_esp = getattr(
-            self.config.model,
-            "early_stopping_patience",
-            args.pop("early_stopping_patience", 16),
-        )
-        final_esmin = getattr(
-            self.config.model,
-            "start_from_epoch_rnn",
-            args.pop("start_from_epoch_rnn", 0),
-        )
-
-        final_use_cnn = getattr(
-            self.config.model,
-            "use_cnn_envelope",
-            args.pop("use_cnn_envelope", False),
-        )
-        final_cnn_args = getattr(
-            self.config.model,
-            "cnn_args",
-            args.pop("cnn_args", {}),
-        )
 
         self.idSys.fit(
             Y_dpad,
@@ -591,22 +497,47 @@ class DPADWrapper:
             nx=nx,
             n1=n1,
             epochs=epochs,
-            loss_name=final_loss,
-            behavior_loss_weight=final_bw,
-            recon_loss_weight=final_rw,
-            early_stopping_measure=final_esm,
-            early_stopping_patience=final_esp,
-            start_from_epoch_rnn=final_esmin,
             skip_predictions=fast,
-            use_cnn_envelope=final_use_cnn,
-            cnn_args=final_cnn_args,
+            callbacks=[cb],
             **args,
         )
+
+        self._save_training_history(save_dir)
         return self.idSys
 
-    def predict(self, Y: TrialList):
+    def _save_training_history(self, save_dir: Path):
+        logs = getattr(self.idSys, "logs", {})
+        if not logs:
+            return
+
+        history = {}
+        for stage_name, stage_log in logs.items():
+            if not isinstance(stage_log, dict):
+                continue
+            keras_hist = stage_log.get("history", {})
+            entry = {
+                "epochs": stage_log.get("epoch", []),
+                "fit_time_s": stage_log.get("fit_time"),
+            }
+            for metric_name in ("loss", "val_loss"):
+                values = keras_hist.get(metric_name, [])
+                entry[metric_name] = values
+                entry[metric_name.replace("loss", "rmse")] = [
+                    math.sqrt(v) if v is not None and not math.isnan(v) else None
+                    for v in values
+                ]
+            history[stage_name] = entry
+
+        history_path = save_dir / "training_history.json"
+        with open(history_path, "w") as f:
+            json.dump(history, f, indent=2, default=str)
+        self.logger.info(f"Saved training history to {history_path}")
+
+    def predict(self, Y: TrialList, Z: Optional[TrialList] = None):
         all_Zp, all_Yp, all_Xp = [], [], []
 
+        self.idSys.set_steps_ahead([1])
+        self.idSys.set_multi_step_with_data_gen(False)
         block_samples = self.idSys.block_samples
 
         for y_trial in Y:
@@ -620,18 +551,7 @@ class DPADWrapper:
             else:
                 y_trial_padded = y_trial
 
-            result = self.idSys.predict(y_trial_padded)
-
-            if len(result) == 3:
-                Zp, Yp, Xp = result
-            else:
-                self.logger.warning(
-                    f"Unexpected predict result length: {len(result)}, extracting first step only"
-                )
-                num_steps = len(result) // 3
-                Zp = result[0]
-                Yp = result[num_steps]
-                Xp = result[2 * num_steps]
+            Zp, Yp, Xp = self.idSys.predict(y_trial_padded)
 
             if remainder != 0:
                 Zp = Zp[:original_len] if Zp is not None else None
@@ -667,8 +587,6 @@ class DPADWrapper:
         self,
         m: int,
         Y_past: Array2D,
-        residual_mean: Optional[Array2D] = None,
-        residual_std: Optional[Array2D] = None,
     ) -> Tuple[Optional[Array2D], Optional[Array2D], Optional[Array2D]]:
         block_samples = self.idSys.block_samples
         ny = Y_past.shape[1]
@@ -712,26 +630,10 @@ class DPADWrapper:
         m = int(m_seconds * sampling_freq)
         history = int(history_seconds * sampling_freq)
 
-        self.idSys.set_steps_ahead([1])
-        self.idSys.set_multi_step_with_data_gen(False)
-
         if Yp_val is None:
             Zp_val_local, Yp_val_local, Xp_val_local = self.predict(Y_list)
             Yp_val = Yp_val_local
             Zp_val = Zp_val_local
-
-        all_residuals = []
-        for y_true, y_pred in zip(Y_list, Yp_val):
-            if y_pred is not None:
-                all_residuals.append(y_true - y_pred)
-
-        if all_residuals:
-            all_residuals_concat = np.concatenate(all_residuals, axis=0)
-            residual_mean = np.mean(all_residuals_concat, axis=0)
-            residual_std = np.std(all_residuals_concat, axis=0)
-        else:
-            residual_mean = None
-            residual_std = None
 
         results = {
             "m": m,
@@ -744,10 +646,6 @@ class DPADWrapper:
             "X_future_pred": [],
             "pearson_per_channel": [],
             "pearson_per_channel_Z": [],
-            "residual_mean": (
-                residual_mean.tolist() if residual_mean is not None else 0.0
-            ),
-            "residual_std": residual_std.tolist() if residual_std is not None else 0.0,
         }
 
         for idx, Y in enumerate(Y_list):
@@ -764,7 +662,7 @@ class DPADWrapper:
             Z_future_true = Z[history : history + m] if Z is not None else None
             Z_history = Z[:history] if Z is not None else None
 
-            Zf, Yf, Xf = self.forecast(m, Y_history, residual_mean, residual_std)
+            Zf, Yf, Xf = self.forecast(m, Y_history)
 
             if Yf is not None:
                 Y_concat = np.concatenate([Y_history, Yf], axis=0)

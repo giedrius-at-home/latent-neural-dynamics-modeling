@@ -5,7 +5,7 @@ from training.components.tester import Tester
 from utils.miscellaneous import get_latest_timestamp
 
 
-def test(config, run_timestamp=None):
+def test(config, run_timestamp=None, incremental=False):
     logger = get_logger()
     logger.info("Initializing tester...")
 
@@ -15,42 +15,49 @@ def test(config, run_timestamp=None):
 
     logger.info(f"Using run timestamp: {run_timestamp}")
     tester = Tester(config, run_timestamp=run_timestamp)
-    tester.run_predictions()
 
-    for split, res in tester.results.items():
-        # Log prediction correlations for Y
-        means = res.get("pearson_mean", [])
-        if len(means) > 0:
-            valid = [m for m in means if m == m]  # filter NaN
-            avg = sum(valid) / len(valid) if valid else float("nan")
-        else:
-            avg = float("nan")
-        logger.info(f"Split={split}: avg Pearson (Y predictions) over trials={avg:.4f}")
+    if incremental:
+        logger.info("Running incremental (trial-by-trial) predictions...")
+        tester.run_predictions_incremental()
+    else:
+        tester.run_predictions()
 
-        # Log prediction correlations for Z
-        means_z = res.get("pearson_mean_Z", [])
-        if means_z is not None and len(means_z) > 0:
-            valid_z = [m for m in means_z if m == m]  # filter NaN
-            avg_z = sum(valid_z) / len(valid_z) if valid_z else float("nan")
-            if avg_z == avg_z:  # check not NaN
+        for split, res in tester.results.items():
+            means = res.get("pearson_mean", [])
+            if len(means) > 0:
+                valid = [m for m in means if m == m]
+                avg = sum(valid) / len(valid) if valid else float("nan")
+            else:
+                avg = float("nan")
+            logger.info(
+                f"Split={split}: avg Pearson (Y predictions) over trials={avg:.4f}"
+            )
+
+            means_z = res.get("pearson_mean_Z", [])
+            if means_z is not None and len(means_z) > 0:
+                valid_z = [m for m in means_z if m == m]
+                avg_z = sum(valid_z) / len(valid_z) if valid_z else float("nan")
+                if avg_z == avg_z:
+                    logger.info(
+                        f"Split={split}: avg Pearson (Z predictions) over trials={avg_z:.4f}"
+                    )
+
+            forecast_y_mean = res.get("pearson_overall_mean", float("nan"))
+            if forecast_y_mean == forecast_y_mean:
                 logger.info(
-                    f"Split={split}: avg Pearson (Z predictions) over trials={avg_z:.4f}"
+                    f"Split={split}: Pearson (Y forecast)={forecast_y_mean:.4f}"
                 )
 
-        # Log forecast correlations for Y
-        forecast_y_mean = res.get("pearson_overall_mean", float("nan"))
-        if forecast_y_mean == forecast_y_mean:  # check not NaN
-            logger.info(f"Split={split}: Pearson (Y forecast)={forecast_y_mean:.4f}")
+            forecast_z_mean = res.get("pearson_overall_mean_Z", float("nan"))
+            if forecast_z_mean == forecast_z_mean:
+                logger.info(
+                    f"Split={split}: Pearson (Z forecast)={forecast_z_mean:.4f}"
+                )
 
-        # Log forecast correlations for Z
-        forecast_z_mean = res.get("pearson_overall_mean_Z", float("nan"))
-        if forecast_z_mean == forecast_z_mean:  # check not NaN
-            logger.info(f"Split={split}: Pearson (Z forecast)={forecast_z_mean:.4f}")
+        tester.save_results()
+        logger.info("Saved results.")
 
     logger.info("Testing completed successfully!")
-
-    tester.save_results()
-    logger.info("Saved results.")
     tester.compute_and_save_stats()
     logger.info("Saved statistics.")
 
@@ -61,7 +68,7 @@ def main(args):
 
     logger.info(f"Configuration loaded from: {args.config}")
     logger.info(f"Config content:\n{config}")
-    test(config, run_timestamp=args.run)
+    test(config, run_timestamp=args.run, incremental=args.incremental)
 
     logger.close()
 
@@ -78,6 +85,11 @@ if __name__ == "__main__":
         type=str,
         required=False,
         help="Run timestamp to load (e.g., 20251103_104200 or val_results_20251103_104200). If omitted, latest is used.",
+    )
+    parser.add_argument(
+        "--incremental",
+        action="store_true",
+        help="Process and save one trial at a time (resumable on crash).",
     )
     args = parser.parse_args()
 
