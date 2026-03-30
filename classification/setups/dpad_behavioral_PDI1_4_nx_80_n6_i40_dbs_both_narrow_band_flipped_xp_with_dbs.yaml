@@ -1,0 +1,43 @@
+name: dpad_behavioral_PDI1_4_nx_80_n6_i40_dbs_both_narrow_band_flipped_xp_with_dbs
+run:
+  dbs_on:
+    variant: dpad_PDI1_S4_dbs_on_narrow_band
+    run_ts: '20260317_235513'
+  dbs_off:
+    variant: dpad_PDI1_S4_dbs_off_narrow_band
+    run_ts: '20260318_002329'
+  dbs_both:
+    variant: dpad_PDI1_S4_dbs_both_narrow_band
+    run_ts: '20260317_231003'
+classification:
+  flipped: true
+  n_splits: 2
+  epoch_length: 0.5
+  epoch_overlap: 0.25
+  sampling_freq: 80
+  h:
+  - 0.5
+  - 1.5
+  - 2.5
+  - 3.5
+  - 4.5
+  m:
+  - 0.5
+  - 1.0
+  - 2.0
+  n1: 6
+  nx: 80
+  prediction_feature_source: Xp_with_dbs
+  forecast_feature_source: Xp_with_dbs
+  permutation_test: true
+  n_permutations: 100
+  param_grid:
+    LDA:
+      classifier__solver:
+      - lsqr
+      classifier__shrinkage:
+      - auto
+results:
+  project_root: /home/bobby/repos/latent-neural-dynamics-modeling
+  results_dir: '{results.project_root}/results/classification/{name}'
+  log_dir: '{results.project_root}/logs/classification'

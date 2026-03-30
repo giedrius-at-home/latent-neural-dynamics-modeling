@@ -3,6 +3,23 @@ from __future__ import annotations
 import numpy as np
 
 
+def reshape_future_z_time_first(z: np.ndarray) -> np.ndarray:
+    """
+    Normalize ``Z_future`` / ``Y_future`` arrays to shape ``(n_time_steps, n_channels)``.
+
+    Parquet rows may store either ``(steps, ch)`` or ``(ch, steps)``. The old rule only
+    transposed when ``ch <= 8``, so e.g. ``(9, 80)`` was mis-read as 9 forecast steps —
+    which distorts horizon curves (often looks artificially short / flat).
+    """
+    z = np.asarray(z, dtype=float)
+    if z.ndim != 2:
+        raise ValueError("Z future must be 2D")
+    r, c = z.shape
+    if r < c and r <= 64 and c >= 2 * r:
+        return z.T
+    return z
+
+
 def zscore_using_true_stats(true: np.ndarray, x: np.ndarray) -> np.ndarray:
     """
     Map `x` into z-scored units defined by the ground-truth trial `true`:
@@ -23,13 +40,23 @@ def z_true_and_preds(
     dpad: np.ndarray,
     varma: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Z-score true and all predictions on the true trial's mean/std."""
+    """Z-score true and all predictions on the true trial's mean/std.
+
+    Model traces that are all-NaN (missing trial) pass through unchanged.
+    """
     z_true = zscore_using_true_stats(true, true)
+
+    def _safe_zscore(arr: np.ndarray) -> np.ndarray:
+        a = np.asarray(arr, dtype=float).ravel()
+        if np.all(np.isnan(a)):
+            return a
+        return zscore_using_true_stats(true, arr)
+
     return (
         z_true,
-        zscore_using_true_stats(true, psid),
-        zscore_using_true_stats(true, dpad),
-        zscore_using_true_stats(true, varma),
+        _safe_zscore(psid),
+        _safe_zscore(dpad),
+        _safe_zscore(varma),
     )
 
 

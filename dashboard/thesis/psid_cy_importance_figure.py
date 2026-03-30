@@ -11,31 +11,29 @@ from plotly.graph_objects import Figure
 from plotly.subplots import make_subplots
 
 from dashboard.thesis.constants import (
+    COLOR_BETA_BORDER,
     FONT_FAMILY,
+    FONT_SIZE_BASE,
+    FONT_SIZE_TICK,
     ThesisTheme,
     grid_color,
     paper_colors,
     true_line_color,
 )
-from dashboard.thesis.psid_cy_importance import compute_panel
+from dashboard.thesis.psid_cy_importance import compute_cy_signed_heatmap, cy_heatmap_x_tick_labels
 from dashboard.thesis.specs import ThesisPsidCyImportanceSpec
 
 logger = logging.getLogger(__name__)
 
-# Sequential blue (matches neural band figure)
-_BLUE_SEQUENTIAL = [
-    [0.0, "rgb(250, 250, 250)"],
-    [0.35, "rgb(200, 215, 235)"],
-    [0.65, "rgb(100, 150, 205)"],
-    [1.0, "rgb(24, 95, 165)"],
+# Diverging blue–white–red (matches Cz figure)
+_DIVERGING_BWR = [
+    [0.0, "rgb(24, 95, 165)"],
+    [0.5, "rgb(250, 250, 250)"],
+    [1.0, "rgb(220, 50, 32)"],
 ]
 
 _Y_LABELS = ["ECoG 1", "ECoG 2", "ECoG 3", "ECoG 4"]
-_X = list(range(29))
-
-
-def _band_symbol(band: str) -> str:
-    return {"Delta": "δ", "Theta": "θ", "Alpha": "α", "Beta": "β"}.get(band, band)
+_X_IDX = list(range(29))
 
 
 def _empty_placeholder(fig: Figure, row: int, col: int) -> None:
@@ -102,14 +100,14 @@ def build_psid_cy_importance_figure(
 
             panel = row_spec.panels[ci - 1]
             try:
-                imp, _n1, _ch, layout = compute_panel(
+                z, _n1, _ch, layout = compute_cy_signed_heatmap(
                     results_root,
                     panel.psid_variant,
                     panel.psid_run_ts,
                     spec.split,
                 )
             except Exception as e:
-                logger.exception("Panel failed: %s", panel)
+                logger.warning("Panel failed: %s: %s", panel, e)
                 fig.add_annotation(
                     text=f"Error: {e}",
                     x=0.5,
@@ -123,28 +121,33 @@ def build_psid_cy_importance_figure(
                 )
                 continue
 
-            z = np.asarray(imp, dtype=float)
-            hm = go.Heatmap(
+            z = np.asarray(z, dtype=float)
+            x_lab = cy_heatmap_x_tick_labels(_ch)
+            if len(x_lab) < z.shape[1]:
+                x_lab = [f"col_{j}" for j in range(z.shape[1])]
+            else:
+                x_lab = x_lab[: z.shape[1]]
+            hm_kw = dict(
                 z=z,
-                x=_X,
+                x=_X_IDX,
                 y=_Y_LABELS,
-                colorscale=_BLUE_SEQUENTIAL,
-                zmin=0.0,
+                colorscale=_DIVERGING_BWR,
+                zmin=-1.0,
                 zmax=1.0,
                 showscale=not showscale_done,
-                colorbar=dict(
-                    title=dict(text="Norm. ‖Cy_rel‖₂", side="right"),
-                    len=0.55,
-                    thickness=14,
-                    tickfont=dict(size=10, family=FONT_FAMILY),
-                    titlefont=dict(size=11, family=FONT_FAMILY),
-                )
-                if not showscale_done
-                else False,
-                hovertemplate="%{y} · col %{x}<br>importance = %{z:.3f}<extra></extra>",
+                hovertemplate="%{y}<br>col %{x}<br>Cy (signed) = %{z:.3f}<extra></extra>",
                 xgap=1,
                 ygap=1,
             )
+            if not showscale_done:
+                hm_kw["colorbar"] = dict(
+                    title=dict(text="Norm. Cy (signed)", side="right", font=dict(size=11, family=FONT_FAMILY)),
+                    len=0.55,
+                    thickness=14,
+                    tickfont=dict(size=10, family=FONT_FAMILY),
+                    tickvals=[-1, -0.5, 0, 0.5, 1],
+                )
+            hm = go.Heatmap(**hm_kw)
             fig.add_trace(hm, row=ri, col=ci)
             showscale_done = True
 
@@ -155,7 +158,7 @@ def build_psid_cy_importance_figure(
                     x1=layout.beta_col_end,
                     y0=-0.5,
                     y1=3.5,
-                    line=dict(color="rgba(200, 60, 60, 0.95)", width=2, dash="dash"),
+                    line=dict(color=COLOR_BETA_BORDER, width=1.5, dash="dash"),
                     fillcolor="rgba(0,0,0,0)",
                     layer="above",
                     row=ri,
@@ -168,14 +171,14 @@ def build_psid_cy_importance_figure(
             if ri < nrows:
                 fig.update_xaxes(showticklabels=False, row=ri, col=ci)
 
-            if ri == nrows and layout.spans:
-                tickvals = [0.5 * (lo + hi) for (_b, lo, hi) in layout.spans]
-                ticktext = [_band_symbol(b) for (b, _lo, _hi) in layout.spans]
+            if ri == nrows:
                 fig.update_xaxes(
                     tickmode="array",
-                    tickvals=tickvals,
-                    ticktext=ticktext,
-                    tickfont=dict(size=12, family=FONT_FAMILY, color=fg),
+                    tickvals=_X_IDX,
+                    ticktext=x_lab,
+                    tickangle=-65,
+                    tickfont=dict(size=7, family=FONT_FAMILY, color=fg),
+                    automargin=True,
                     row=ri,
                     col=ci,
                 )
@@ -183,9 +186,8 @@ def build_psid_cy_importance_figure(
     fig.update_layout(
         paper_bgcolor=paper_bg,
         plot_bgcolor=plot_bg,
-        font=dict(family=FONT_FAMILY, color=fg, size=11),
-        margin=dict(l=100, r=110, t=70, b=70),
-        title=dict(text=spec.section_title, font=dict(size=15)),
+        font=dict(family=FONT_FAMILY, color=fg, size=FONT_SIZE_BASE),
+        margin=dict(l=100, r=110, t=50, b=96),
     )
 
     for ri in range(1, nrows + 1):

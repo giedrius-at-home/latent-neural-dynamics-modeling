@@ -28,13 +28,15 @@ def _session_key_from_trial_key(trial_key: Tuple) -> SessionKey:
 
 @dataclass
 class StripPanelData:
-    """Six cells: PSID/DPAD/VARMA × OFF/ON — session-mean RMSE values per cell."""
+    """Six cells: PSID/DPAD/VARMA × OFF/ON — session-mean and trial-level RMSE per cell."""
 
     panel_label: str
     triplet_label: str
     # Lists of session-mean RMSE (one float per session contributing to that cell)
     session_means: Tuple[List[float], List[float], List[float], List[float], List[float], List[float]]
     mean_line_y: Tuple[float, float, float, float, float, float]
+    # Individual trial RMSE values per cell (for box plots)
+    trial_rmse: Tuple[List[float], List[float], List[float], List[float], List[float], List[float]]
 
 
 @dataclass
@@ -52,32 +54,29 @@ def _one_panel_session_data(
     res_p = load_split_results(results_root, tri.psid_variant, tri.psid_run_ts, split)
     res_d = load_split_results(results_root, tri.dpad_variant, tri.dpad_run_ts, split)
     res_v = load_split_results(results_root, tri.varma_variant, tri.varma_run_ts, split)
-    if res_p is None or res_d is None or res_v is None:
+    if res_p is None or res_d is None:
         logger.warning(
-            "Strip panel %s: missing results (psid=%s, dpad=%s, varma=%s)",
-            tri.label,
-            res_p is not None,
-            res_d is not None,
-            res_v is not None,
+            "Strip panel %s: missing PSID or DPAD results (psid=%s, dpad=%s)",
+            tri.label, res_p is not None, res_d is not None,
         )
         return None
 
     mp = _key_index_map(res_p)
     md = _key_index_map(res_d)
-    mv = _key_index_map(res_v)
-    common = set(mp.keys()) & set(md.keys()) & set(mv.keys())
-    if not common:
+    mv = _key_index_map(res_v) if res_v is not None else {}
+    common_pd = set(mp.keys()) & set(md.keys())
+    if not common_pd:
         logger.warning(
-            "Strip panel %s: no overlapping trial keys across PSID/DPAD/VARMA.",
+            "Strip panel %s: no overlapping trial keys between PSID and DPAD.",
             tri.label,
         )
         return None
 
-    # bucket[(session_key, stim, model)] -> list of trial-level RMSE
     bucket: Dict[Tuple[SessionKey, str, str], List[float]] = {}
 
-    for k in common:
-        i_p, i_d, i_v = mp[k], md[k], mv[k]
+    for k in common_pd:
+        i_p, i_d = mp[k], md[k]
+        i_v = mv.get(k)
         stim = normalize_stim(res_p["stim"][i_p])
         if stim is None:
             continue
@@ -85,38 +84,34 @@ def _one_panel_session_data(
         try:
             r_p = trial_rmse_z_for_model(res_p, i_p, channel_idx)
             r_d = trial_rmse_z_for_model(res_d, i_d, channel_idx)
-            r_v = trial_rmse_z_for_model(res_v, i_v, channel_idx)
+            r_v = trial_rmse_z_for_model(res_v, i_v, channel_idx) if i_v is not None else None
         except Exception as e:
             logger.debug("Strip skip trial %s: %s", k, e)
             continue
 
         for model, rv in (("psid", r_p), ("dpad", r_d), ("varma", r_v)):
+            if rv is None:
+                continue
             key = (sk, stim, model)
             bucket.setdefault(key, []).append(rv)
 
     # Session mean per bucket (mean of trial RMSEs in that session × stim × model)
     session_means: List[List[float]] = [[] for _ in range(6)]
+    trial_rmse: List[List[float]] = [[] for _ in range(6)]
 
-    def append_cell(idx: int, vals: List[float]) -> None:
-        if not vals:
-            return
-        session_means[idx].append(float(np.mean(vals)))
+    def _cell_idx(stim: str, model: str) -> int:
+        off = stim == "off"
+        if model == "psid":
+            return 0 if off else 1
+        if model == "dpad":
+            return 2 if off else 3
+        return 4 if off else 5
 
     for (sk, stim, model), trial_rmses in bucket.items():
-        if stim == "off":
-            if model == "psid":
-                append_cell(0, trial_rmses)
-            elif model == "dpad":
-                append_cell(2, trial_rmses)
-            else:
-                append_cell(4, trial_rmses)
-        else:
-            if model == "psid":
-                append_cell(1, trial_rmses)
-            elif model == "dpad":
-                append_cell(3, trial_rmses)
-            else:
-                append_cell(5, trial_rmses)
+        idx = _cell_idx(stim, model)
+        if trial_rmses:
+            session_means[idx].append(float(np.mean(trial_rmses)))
+            trial_rmse[idx].extend([float(v) for v in trial_rmses if np.isfinite(v)])
 
     mean_line_y = tuple(
         float(np.mean(session_means[i])) if session_means[i] else float("nan") for i in range(6)
@@ -127,6 +122,7 @@ def _one_panel_session_data(
         triplet_label=tri.label,
         session_means=tuple(session_means[i] for i in range(6)),
         mean_line_y=mean_line_y,
+        trial_rmse=tuple(trial_rmse[i] for i in range(6)),
     )
 
 
@@ -152,9 +148,10 @@ def collect_strip_figure_data(
             triplet_label=p.triplet_label,
             session_means=p.session_means,
             mean_line_y=p.mean_line_y,
+            trial_rmse=p.trial_rmse,
         )
         panels.append(p)
-        for cell in p.session_means:
+        for cell in p.trial_rmse:
             for v in cell:
                 if np.isfinite(v):
                     all_vals.append(v)

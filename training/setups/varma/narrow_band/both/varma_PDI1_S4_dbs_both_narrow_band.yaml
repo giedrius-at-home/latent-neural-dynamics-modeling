@@ -55,9 +55,9 @@ data:
     ]
   split:
     within_session_split: true
-    train: 0.95
-    val: 0.05
-    test: 0
+    train: 0.70
+    val: 0.10
+    test: 0.20
     min_train_epochs: 50
   batch_size: 32
   sampling_frequency: 80

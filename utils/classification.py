@@ -48,6 +48,8 @@ __all__ = [
     "StandardScaler",
     "prepare_ground_truth_eval_data",
     "run_classification_pipeline",
+    "run_lda_fit_and_test_only",
+    "apply_lda_permutation_to_results",
     "load_precomputed_results",
     "load_all_splits",
 ]
@@ -158,6 +160,46 @@ def scope_features(
     return X
 
 
+def _dpad_idsys_forecast_latents(id_sys: Any, m: int, y_past: np.ndarray) -> np.ndarray:
+    """Multi-step latent forecast for DPAD checkpoints (DPADModel has no .forecast)."""
+    block_samples = id_sys.block_samples
+    ny = y_past.shape[1]
+
+    def _pad_to_block(arr: np.ndarray) -> np.ndarray:
+        remainder = arr.shape[0] % block_samples
+        if remainder != 0:
+            pad_len = block_samples - remainder
+            return np.concatenate([arr, np.zeros((pad_len, ny))], axis=0)
+        return arr
+
+    def _stack_last(steps_list):
+        out = [
+            arr[-1:, :] if arr is not None and len(arr.shape) == 2 else None
+            for arr in steps_list
+        ]
+        valid = [v for v in out if v is not None]
+        return np.vstack(valid) if valid else None
+
+    id_sys.set_steps_ahead(list(range(1, m + 1)))
+    id_sys.set_multi_step_with_data_gen(True, noise_samples=0)
+    preds = id_sys.predict(_pad_to_block(y_past))
+    xf = _stack_last(preds[2 * m : 3 * m])
+    if xf is None:
+        raise ValueError("DPAD predict returned no latent trajectory for forecast window")
+    return xf
+
+
+def _forecast_latent_trajectory(model: Any, m: int, y_past: np.ndarray) -> np.ndarray:
+    """PSID idSys exposes .forecast; DPAD pickles are raw DPADModel — use predict path."""
+    forecast_fn = getattr(model, "forecast", None)
+    if callable(forecast_fn):
+        _zf, _yf, xf = forecast_fn(m, y_past)
+        if xf is None:
+            raise ValueError("forecast() returned no latent trajectory (Xf is None)")
+        return np.asarray(xf)
+    return _dpad_idsys_forecast_latents(model, m, y_past)
+
+
 def _generate_flipped_latents(
     trial_observations: np.ndarray,
     model_on: Any,
@@ -175,8 +217,8 @@ def _generate_flipped_latents(
 
     for start in range(0, T_obs - history_samples + 1, step):
         y_past = trial_observations[start : start + history_samples]
-        _, _, x_on = model_on.forecast(forecast_samples, y_past)
-        _, _, x_off = model_off.forecast(forecast_samples, y_past)
+        x_on = _forecast_latent_trajectory(model_on, forecast_samples, y_past)
+        x_off = _forecast_latent_trajectory(model_off, forecast_samples, y_past)
 
         for label, x_traj, dtype in [
             (1, x_on, "flipped_on"),
@@ -672,7 +714,7 @@ def evaluate_on_test_set(
     }
 
 
-def run_classification_pipeline(
+def run_lda_fit_and_test_only(
     X_train: np.ndarray,
     y_train: np.ndarray,
     groups_train: np.ndarray,
@@ -686,8 +728,6 @@ def run_classification_pipeline(
     n_splits = config.classification.n_splits
     sampling_freq = config.classification.sampling_freq
     param_grid = config.classification.get("param_grid", {}).get("LDA")
-    permutation_test = config.classification.get("permutation_test", False)
-    n_permutations = config.classification.get("n_permutations", 100)
     flipped = config.classification.get("flipped", False)
 
     best_params, best_score, results = run_grid_search_cv(
@@ -709,23 +749,61 @@ def run_classification_pipeline(
             f"  {clf_name} Test Balanced Acc: {test_res['balanced_accuracy']:.4f}"
         )
 
-    if permutation_test:
-        chrono_cv = ChronoGroupsSplit(allow_mixed_label_groups=flipped)
-        p_mean, p_scores, p_val = run_permutation_test(
-            results["best_pipeline"],
-            X_train,
-            y_train,
-            groups_train,
-            chrono_cv,
-            n_permutations=n_permutations,
-            logger=logger,
-        )
-        results["permutation_test"] = {
-            "score": p_mean,
-            "pvalue": p_val,
-            "n_permutations": n_permutations,
-        }
+    return results
 
+
+def apply_lda_permutation_to_results(
+    results: Dict[str, Any],
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    groups_train: np.ndarray,
+    config: Any,
+    logger: Any,
+) -> None:
+    results.pop("permutation_test", None)
+    n_permutations = config.classification.get("n_permutations", 100)
+    flipped = config.classification.get("flipped", False)
+    chrono_cv = ChronoGroupsSplit(allow_mixed_label_groups=flipped)
+    p_mean, p_scores, p_val = run_permutation_test(
+        results["best_pipeline"],
+        X_train,
+        y_train,
+        groups_train,
+        chrono_cv,
+        n_permutations=n_permutations,
+        logger=logger,
+    )
+    results["permutation_test"] = {
+        "score": p_mean,
+        "pvalue": p_val,
+        "n_permutations": n_permutations,
+    }
+
+
+def run_classification_pipeline(
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    groups_train: np.ndarray,
+    X_test: Optional[np.ndarray],
+    y_test: Optional[np.ndarray],
+    config: Any,
+    logger: Any,
+    feature_source: str = "Xp",
+) -> Dict[str, Any]:
+    results = run_lda_fit_and_test_only(
+        X_train,
+        y_train,
+        groups_train,
+        X_test,
+        y_test,
+        config,
+        logger,
+        feature_source=feature_source,
+    )
+    if config.classification.get("permutation_test", False):
+        apply_lda_permutation_to_results(
+            results, X_train, y_train, groups_train, config, logger
+        )
     return results
 
 
@@ -745,18 +823,26 @@ def load_precomputed_results(
         except Exception as e:
             print(f"Warning: Could not load pickle cache: {e}")
 
-    legacy_parquet_path = variant_dir / f"{split}_results_{run_ts}"
     new_parquet_path = variant_dir / split / f"test_results_{run_ts}.parquet"
 
-    if new_parquet_path.exists():
-        results_path = new_parquet_path
-    elif legacy_parquet_path.exists():
-        results_path = legacy_parquet_path
-    else:
+    if not new_parquet_path.exists():
         return None
+    results_path = new_parquet_path
 
     try:
         df = pl.read_parquet(results_path)
+
+        # Partitioned parquet is read in filesystem order; sort to match trainer/dataloader order
+        # so trial_idx aligns with (participant_id, session, block, trial)
+        sort_cols = ["participant_id", "session", "block", "trial"]
+        if all(c in df.columns for c in sort_cols):
+            # Cast numeric partition cols from string (Hive style) for correct sort order
+            df = df.with_columns(
+                pl.col("session").cast(pl.Int64, strict=False),
+                pl.col("block").cast(pl.Int64, strict=False),
+                pl.col("trial").cast(pl.Int64, strict=False),
+            ).sort(sort_cols)
+
         n_trials = len(df)
         cols = df.columns
 

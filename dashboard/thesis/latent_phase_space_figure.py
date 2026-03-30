@@ -10,14 +10,28 @@ import plotly.graph_objects as go
 from plotly.graph_objects import Figure
 from plotly.subplots import make_subplots
 
-from dashboard.thesis.constants import FONT_FAMILY, ThesisTheme, grid_color, paper_colors, true_line_color
-from dashboard.thesis.latent_phase_space_data import kde_density_grid, load_panel_latent_data
+from dashboard.thesis.constants import (
+    COLOR_DBS_OFF,
+    COLOR_DBS_ON,
+    FONT_FAMILY,
+    FONT_SIZE_BASE,
+    FONT_SIZE_TICK,
+    ThesisTheme,
+    grid_color,
+    paper_colors,
+    true_line_color,
+)
+from dashboard.thesis.latent_phase_space_data import kde_on_fixed_grid, load_panel_latent_data
 from dashboard.thesis.specs import ThesisLatentPhaseSpec
 
 logger = logging.getLogger(__name__)
 
-_OFF_RGB = (83, 74, 183)
-_ON_RGB = (15, 110, 86)
+def _hex_to_rgb(h: str) -> tuple[int, int, int]:
+    h = h.lstrip("#")
+    return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+
+_OFF_RGB = _hex_to_rgb(COLOR_DBS_OFF)
+_ON_RGB = _hex_to_rgb(COLOR_DBS_ON)
 
 
 def _rgba(r: int, g: int, b: int, a: float) -> str:
@@ -39,7 +53,7 @@ def _kde_colorscale(
     def norm(t: float) -> float:
         return float(np.clip((t - zmin) / span, 0.0, 1.0))
 
-    a0, a1, a2 = 0.0, 0.18, 0.32
+    a0, a1, a2 = 0.0, 0.22, 0.38
     n_lo = norm(t_lo)
     n_hi = norm(t_hi)
     return (
@@ -56,35 +70,50 @@ def _kde_colorscale(
     )
 
 
-def _add_kde(
+def _common_xy_mesh(
+    pairs: List[Tuple[np.ndarray, np.ndarray]],
+    grid_n: int,
+    pad: float = 0.05,
+) -> Tuple[np.ndarray, np.ndarray]:
+    xs = np.concatenate([np.asarray(a, dtype=float).ravel() for a, _ in pairs])
+    ys = np.concatenate([np.asarray(b, dtype=float).ravel() for _, b in pairs])
+    m = np.isfinite(xs) & np.isfinite(ys)
+    xs, ys = xs[m], ys[m]
+    if xs.size == 0:
+        return np.linspace(0, 1, grid_n), np.linspace(0, 1, grid_n)
+    xmin, xmax = float(np.min(xs)), float(np.max(xs))
+    ymin, ymax = float(np.min(ys)), float(np.max(ys))
+    dx = xmax - xmin + 1e-9
+    dy = ymax - ymin + 1e-9
+    xmin -= pad * dx
+    xmax += pad * dx
+    ymin -= pad * dy
+    ymax += pad * dy
+    return np.linspace(xmin, xmax, grid_n), np.linspace(ymin, ymax, grid_n)
+
+
+def _add_kde_heatmap(
     fig: Figure,
     row: int,
     col: int,
-    x: np.ndarray,
-    y: np.ndarray,
-    grid_n: int,
+    xi: np.ndarray,
+    yi: np.ndarray,
+    zi: np.ndarray,
     p_lo: float,
     p_hi: float,
     rgb: Tuple[int, int, int],
     showlegend: bool,
     name: str,
+    opacity: float,
 ) -> None:
-    if len(x) < 2:
-        return
-    try:
-        xi, yi, zi = kde_density_grid(x, y, grid_n)
-    except Exception as e:
-        logger.warning("KDE skipped: %s", e)
-        return
     flat = zi[np.isfinite(zi)].ravel()
     if flat.size == 0:
         return
     t_lo = float(np.percentile(flat, p_lo))
     t_hi = float(np.percentile(flat, p_hi))
     cs, zmin, zmax = _kde_colorscale(zi, t_lo, t_hi, rgb)
-    r, g, b = rgb
     fig.add_trace(
-        go.Contour(
+        go.Heatmap(
             x=xi,
             y=yi,
             z=zi,
@@ -92,7 +121,7 @@ def _add_kde(
             zmax=zmax,
             colorscale=cs,
             showscale=False,
-            line=dict(width=0),
+            opacity=opacity,
             hoverinfo="skip",
             name=name,
             legendgroup=name,
@@ -101,6 +130,42 @@ def _add_kde(
         row=row,
         col=col,
     )
+
+
+def _add_dual_kde_heatmaps(
+    fig: Figure,
+    row: int,
+    col: int,
+    x_off: np.ndarray,
+    y_off: np.ndarray,
+    x_on: np.ndarray,
+    y_on: np.ndarray,
+    grid_n: int,
+    p_lo: float,
+    p_hi: float,
+    showlegend_off: bool,
+    showlegend_on: bool,
+) -> None:
+    pairs: List[Tuple[np.ndarray, np.ndarray]] = []
+    if len(x_off) >= 2:
+        pairs.append((x_off, y_off))
+    if len(x_on) >= 2:
+        pairs.append((x_on, y_on))
+    if not pairs:
+        return
+    xi, yi = _common_xy_mesh(pairs, grid_n)
+    if len(x_off) >= 2:
+        zo = kde_on_fixed_grid(x_off, y_off, xi, yi)
+        _add_kde_heatmap(
+            fig, row, col, xi, yi, zo, p_lo, p_hi, _OFF_RGB,
+            False, "DBS-OFF (density)", 0.52,
+        )
+    if len(x_on) >= 2:
+        zn = kde_on_fixed_grid(x_on, y_on, xi, yi)
+        _add_kde_heatmap(
+            fig, row, col, xi, yi, zn, p_lo, p_hi, _ON_RGB,
+            False, "DBS-ON (density)", 0.55,
+        )
 
 
 def _empty_cell(fig: Figure, row: int, col: int) -> None:
@@ -113,23 +178,30 @@ def _empty_cell(fig: Figure, row: int, col: int) -> None:
     fig.update_yaxes(visible=False, row=row, col=col)
 
 
-def _extend_range(
-    xr: Tuple[float, float],
-    yr: Tuple[float, float],
-    trajs: List[Tuple[np.ndarray, np.ndarray]],
+def _xy_range_from_points(
+    xs: List[np.ndarray],
+    ys: List[np.ndarray],
+    pad: float = 0.05,
 ) -> Tuple[Tuple[float, float], Tuple[float, float]]:
-    x_lo, x_hi = xr
-    y_lo, y_hi = yr
-    for tx, ty in trajs:
-        if len(tx) == 0:
-            continue
-        x_lo = min(x_lo, float(np.nanmin(tx)))
-        x_hi = max(x_hi, float(np.nanmax(tx)))
-        y_lo = min(y_lo, float(np.nanmin(ty)))
-        y_hi = max(y_hi, float(np.nanmax(ty)))
-    px = 0.05 * (x_hi - x_lo + 1e-9)
-    py = 0.05 * (y_hi - y_lo + 1e-9)
-    return (x_lo - px, x_hi + px), (y_lo - py, y_hi + py)
+    """Axis limits from scattered samples only (no trajectory polylines)."""
+    xa_parts: List[np.ndarray] = []
+    ya_parts: List[np.ndarray] = []
+    for xa, ya in zip(xs, ys):
+        xa = np.asarray(xa, dtype=float).ravel()
+        ya = np.asarray(ya, dtype=float).ravel()
+        m = np.isfinite(xa) & np.isfinite(ya)
+        if np.any(m):
+            xa_parts.append(xa[m])
+            ya_parts.append(ya[m])
+    if not xa_parts:
+        return (0.0, 1.0), (0.0, 1.0)
+    xa = np.concatenate(xa_parts)
+    ya = np.concatenate(ya_parts)
+    xmin, xmax = float(np.min(xa)), float(np.max(xa))
+    ymin, ymax = float(np.min(ya)), float(np.max(ya))
+    dx = xmax - xmin + 1e-9
+    dy = ymax - ymin + 1e-9
+    return (xmin - pad * dx, xmax + pad * dx), (ymin - pad * dy, ymax + pad * dy)
 
 
 def build_latent_phase_space_figure(
@@ -158,18 +230,16 @@ def build_latent_phase_space_figure(
                 else:
                     subplot_titles.append("")
 
-    row_titles: List[str] = []
-    for r in rows_spec:
-        row_titles.append(f"{r.participant_label} · PSID")
-    for r in rows_spec:
-        row_titles.append(f"{r.participant_label} · DPAD-RNN")
+    row_titles = [f"{r.participant_label} · PSID" for r in rows_spec] + [
+        f"{r.participant_label} · DPAD" for r in rows_spec
+    ]
 
     fig = make_subplots(
         rows=n_rows,
         cols=max_cols,
         subplot_titles=subplot_titles[: n_rows * max_cols] if subplot_titles else None,
-        vertical_spacing=0.06,
-        horizontal_spacing=0.07,
+        vertical_spacing=0.07,
+        horizontal_spacing=0.09,
         row_titles=row_titles,
     )
 
@@ -186,8 +256,6 @@ def build_latent_phase_space_figure(
                 spec.trajectory_seed,
             )
 
-    first_psid_panel = (1, 1)
-
     for ri in range(1, n_rows + 1):
         pi = (ri - 1) if (ri - 1) < n_p else (ri - 1 - n_p)
         is_psid = (ri - 1) < n_p
@@ -201,66 +269,24 @@ def build_latent_phase_space_figure(
             data = cache[(pi, ci - 1)]
 
             if is_psid:
-                xr, yr = data.x_range_psid, data.y_range_psid
-                xr, yr = _extend_range(
-                    xr,
-                    yr,
-                    data.traj_psid_off + data.traj_psid_on,
+                xr, yr = _xy_range_from_points(
+                    [data.x_psid_off, data.x_psid_on],
+                    [data.y_psid_off, data.y_psid_on],
                 )
-                if len(data.x_psid_off) >= 2:
-                    _add_kde(
-                        fig,
-                        ri,
-                        ci,
-                        data.x_psid_off,
-                        data.y_psid_off,
-                        spec.kde_grid,
-                        p_lo,
-                        p_hi,
-                        _OFF_RGB,
-                        (ri, ci) == first_psid_panel,
-                        "DBS-OFF (density)",
-                    )
-                if len(data.x_psid_on) >= 2:
-                    _add_kde(
-                        fig,
-                        ri,
-                        ci,
-                        data.x_psid_on,
-                        data.y_psid_on,
-                        spec.kde_grid,
-                        p_lo,
-                        p_hi,
-                        _ON_RGB,
-                        (ri, ci) == first_psid_panel,
-                        "DBS-ON (density)",
-                    )
-                for tx, ty in data.traj_psid_off:
-                    fig.add_trace(
-                        go.Scatter(
-                            x=tx,
-                            y=ty,
-                            mode="lines",
-                            line=dict(color=_rgba(*_OFF_RGB, 0.95), width=1.0),
-                            showlegend=False,
-                            hoverinfo="skip",
-                        ),
-                        row=ri,
-                        col=ci,
-                    )
-                for tx, ty in data.traj_psid_on:
-                    fig.add_trace(
-                        go.Scatter(
-                            x=tx,
-                            y=ty,
-                            mode="lines",
-                            line=dict(color=_rgba(*_ON_RGB, 0.95), width=1.0),
-                            showlegend=False,
-                            hoverinfo="skip",
-                        ),
-                        row=ri,
-                        col=ci,
-                    )
+                _add_dual_kde_heatmaps(
+                    fig,
+                    ri,
+                    ci,
+                    data.x_psid_off,
+                    data.y_psid_off,
+                    data.x_psid_on,
+                    data.y_psid_on,
+                    spec.kde_grid,
+                    p_lo,
+                    p_hi,
+                    False,
+                    False,
+                )
                 fig.update_xaxes(range=list(xr), row=ri, col=ci)
                 fig.update_yaxes(range=list(yr), row=ri, col=ci)
                 if ci == 1:
@@ -268,86 +294,45 @@ def build_latent_phase_space_figure(
                 if ri == n_p:
                     fig.update_xaxes(title_text="x₁", row=ri, col=ci)
             else:
-                xr, yr = data.x_range_dpad, data.y_range_dpad
-                xr, yr = _extend_range(
-                    xr,
-                    yr,
-                    data.traj_dpad_off + data.traj_dpad_on,
+                xr, yr = _xy_range_from_points(
+                    [data.x_dpad_off, data.x_dpad_on],
+                    [data.y_dpad_off, data.y_dpad_on],
                 )
-                if len(data.x_dpad_off) >= 2:
-                    _add_kde(
-                        fig,
-                        ri,
-                        ci,
-                        data.x_dpad_off,
-                        data.y_dpad_off,
-                        spec.kde_grid,
-                        p_lo,
-                        p_hi,
-                        _OFF_RGB,
-                        False,
-                        "DBS-OFF (density)",
-                    )
-                if len(data.x_dpad_on) >= 2:
-                    _add_kde(
-                        fig,
-                        ri,
-                        ci,
-                        data.x_dpad_on,
-                        data.y_dpad_on,
-                        spec.kde_grid,
-                        p_lo,
-                        p_hi,
-                        _ON_RGB,
-                        False,
-                        "DBS-ON (density)",
-                    )
-                for tx, ty in data.traj_dpad_off:
-                    fig.add_trace(
-                        go.Scatter(
-                            x=tx,
-                            y=ty,
-                            mode="lines",
-                            line=dict(color=_rgba(*_OFF_RGB, 0.95), width=1.0),
-                            showlegend=False,
-                            hoverinfo="skip",
-                        ),
-                        row=ri,
-                        col=ci,
-                    )
-                for tx, ty in data.traj_dpad_on:
-                    fig.add_trace(
-                        go.Scatter(
-                            x=tx,
-                            y=ty,
-                            mode="lines",
-                            line=dict(color=_rgba(*_ON_RGB, 0.95), width=1.0),
-                            showlegend=False,
-                            hoverinfo="skip",
-                        ),
-                        row=ri,
-                        col=ci,
-                    )
+                _add_dual_kde_heatmaps(
+                    fig,
+                    ri,
+                    ci,
+                    data.x_dpad_off,
+                    data.y_dpad_off,
+                    data.x_dpad_on,
+                    data.y_dpad_on,
+                    spec.kde_grid,
+                    p_lo,
+                    p_hi,
+                    False,
+                    False,
+                )
                 v1, v2 = data.pca_variance_ratio
-                fig.add_annotation(
-                    text=f"PC1: {v1:.0%} · PC2: {v2:.0%}",
-                    xref="x domain",
-                    yref="y domain",
-                    x=0.98,
-                    y=0.02,
-                    xanchor="right",
-                    yanchor="bottom",
-                    showarrow=False,
-                    font=dict(size=9, color=fg, family=FONT_FAMILY),
-                    row=ri,
-                    col=ci,
-                )
+                if v1 > 1e-9 or v2 > 1e-9:
+                    fig.add_annotation(
+                        text=f"PC1: {v1:.0%} · PC2: {v2:.0%}",
+                        xref="x domain",
+                        yref="y domain",
+                        x=0.98,
+                        y=0.02,
+                        xanchor="right",
+                        yanchor="bottom",
+                        showarrow=False,
+                        font=dict(size=9, color=fg, family=FONT_FAMILY),
+                        row=ri,
+                        col=ci,
+                    )
                 fig.update_xaxes(range=list(xr), row=ri, col=ci)
                 fig.update_yaxes(range=list(yr), row=ri, col=ci)
                 if ci == 1:
-                    fig.update_yaxes(title_text="PC2 of x⁽¹⁾", row=ri, col=ci)
+                    fig.update_yaxes(title_text="x₂", row=ri, col=ci)
                 if ri == n_rows:
-                    fig.update_xaxes(title_text="PC1 of x⁽¹⁾", row=ri, col=ci)
+                    fig.update_xaxes(title_text="x₁", row=ri, col=ci)
 
     for ri in range(1, n_rows + 1):
         for ci in range(1, max_cols + 1):
@@ -369,17 +354,9 @@ def build_latent_phase_space_figure(
     fig.update_layout(
         paper_bgcolor=paper_bg,
         plot_bgcolor=plot_bg,
-        font=dict(family=FONT_FAMILY, color=fg, size=11),
-        margin=dict(l=100, r=40, t=90, b=60),
-        title=dict(text=spec.section_title, font=dict(size=14)),
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            xanchor="right",
-            x=1,
-            font=dict(size=10),
-        ),
+        font=dict(family=FONT_FAMILY, color=fg, size=FONT_SIZE_BASE),
+        margin=dict(l=132, r=48, t=56, b=64),
+        showlegend=False,
     )
 
     cap = spec.caption or ""

@@ -1,19 +1,28 @@
-"""Bar + SEM + jittered trial RMSE dots; optional Wilcoxon brackets (vs VARMA)."""
+"""Bar + SEM + jittered trial RMSE dots; box-and-whisker variant; optional Wilcoxon brackets."""
 
 from __future__ import annotations
 
 import numpy as np
 import plotly.graph_objects as go
 from plotly.graph_objects import Figure
+from plotly.subplots import make_subplots
 
 from dashboard.thesis.aggregate_rmse import AggregateRmseData, p_to_stars
 from dashboard.thesis.constants import (
     COLOR_DPAD,
     COLOR_PSID,
+    COLOR_SEPARATOR,
     COLOR_VARMA,
+    DOT_SIZE,
+    PARTICIPANT_COLORS,
+    FIGURE_HEIGHT,
     FONT_FAMILY,
+    FONT_SIZE_BASE,
+    FONT_SIZE_LABEL,
+    FONT_SIZE_TICK,
     ThesisTheme,
     grid_color,
+    legend_bgcolor,
     paper_colors,
     true_line_color,
 )
@@ -27,12 +36,12 @@ DOT_ALPHA_ON = 0.4
 
 X_POS = np.arange(6, dtype=float)
 CATEGORY_LABELS = [
-    "PSID<br>DBS-OFF",
-    "PSID<br>DBS-ON",
-    "DPAD-RNN<br>DBS-OFF",
-    "DPAD-RNN<br>DBS-ON",
-    "VARMA<br>DBS-OFF",
-    "VARMA<br>DBS-ON",
+    "PSID OFF",
+    "PSID ON",
+    "DPAD OFF",
+    "DPAD ON",
+    "VARMA OFF",
+    "VARMA ON",
 ]
 
 
@@ -165,8 +174,8 @@ def build_rmse_distribution_figure(
                 x1=xv,
                 y0=0,
                 y1=y_max,
-                line=dict(color=fg, width=1, dash="dash"),
-                opacity=0.45,
+                line=dict(color=COLOR_SEPARATOR, width=0.7, dash="dash"),
+                opacity=0.5,
             )
         )
 
@@ -202,45 +211,269 @@ def build_rmse_distribution_figure(
         template="plotly_white" if theme == ThesisTheme.LIGHT else "plotly_dark",
         paper_bgcolor=paper_bg,
         plot_bgcolor=plot_bg,
-        font=dict(family=FONT_FAMILY, size=11, color=fg),
+        font=dict(family=FONT_FAMILY, size=FONT_SIZE_BASE, color=fg),
+        height=FIGURE_HEIGHT,
         xaxis=dict(
             tickmode="array",
             tickvals=list(X_POS),
             ticktext=CATEGORY_LABELS,
             title=dict(
-                text="model × DBS condition",
-                font=dict(size=12, family=FONT_FAMILY),
+                text="Model × DBS condition",
+                font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY),
+                standoff=14,
             ),
             showgrid=False,
             zeroline=False,
+            showline=True,
             linecolor=fg,
-            tickfont=dict(size=10),
+            linewidth=1,
+            mirror=False,
+            tickfont=dict(size=FONT_SIZE_TICK),
         ),
         yaxis=dict(
             title=dict(
-                text="RMSE (z-scored tracing speed)",
-                font=dict(size=12, family=FONT_FAMILY),
+                text="RMSE (z)",
+                font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY),
             ),
             range=[0, y_max * 1.02],
             showgrid=True,
             gridcolor=grid,
+            showline=True,
             linecolor=fg,
-            mirror=True,
+            linewidth=1,
+            mirror=False,
             zeroline=True,
             zerolinecolor=grid,
+            tickfont=dict(size=FONT_SIZE_TICK),
         ),
         legend=dict(
             orientation="h",
-            yanchor="bottom",
-            y=-0.18,
+            yanchor="top",
+            y=-0.12,
             xanchor="center",
             x=0.5,
-            font=dict(size=10),
+            font=dict(size=FONT_SIZE_TICK),
+            bgcolor=legend_bgcolor(),
         ),
-        margin=dict(l=72, r=32, t=48, b=140),
+        margin=dict(l=72, r=32, t=36, b=140),
         shapes=shapes,
         annotations=annotations,
         hovermode="closest",
+    )
+
+    return fig
+
+
+# Cell index -> (panel, model): (0,0)=PSID off, (1,0)=PSID on, (0,1)=DPAD off, ...
+_CELL_TO_MODEL = ["PSID", "PSID", "DPAD", "DPAD", "VARMA", "VARMA"]
+_MODEL_COLORS = {"PSID": COLOR_PSID, "DPAD": COLOR_DPAD, "VARMA": COLOR_VARMA}
+# DBS-OFF: cells 0,2,4 → PSID, DPAD, VARMA. DBS-ON: cells 1,3,5
+_OFF_CELLS = [0, 2, 4]
+_ON_CELLS = [1, 3, 5]
+
+
+def build_rmse_boxplot_figure(
+    data: AggregateRmseData,
+    theme: ThesisTheme,
+    rng: np.random.Generator,
+    jitter: float = 0.12,
+    title: str | None = None,
+) -> Figure:
+    """
+    Two-panel box + strip: DBS-OFF | DBS-ON.
+    Each panel: box-and-whisker (IQR, median, 5th–95th) per model + trial dots coloured by participant.
+    """
+    paper_bg, plot_bg = paper_colors(theme)
+    grid = grid_color(theme)
+    fg = true_line_color(theme)
+
+    models = ["PSID", "DPAD", "VARMA"]
+    model_colors = [COLOR_PSID, COLOR_DPAD, COLOR_VARMA]
+    x_positions = list(range(3))
+
+    fig = make_subplots(
+        rows=1,
+        cols=2,
+        subplot_titles=["DBS-OFF", "DBS-ON"],
+        shared_yaxes=True,
+        horizontal_spacing=0.06,
+    )
+
+    # Use trial_rmse_with_participant when available, else trial_rmse with "?" as participant
+    has_pid = (
+        hasattr(data, "trial_rmse_with_participant")
+        and len(data.trial_rmse_with_participant) == 6
+        and any(len(data.trial_rmse_with_participant[i]) > 0 for i in range(6))
+    )
+    if has_pid:
+        cells_with_pid = data.trial_rmse_with_participant
+    else:
+        cells_with_pid = tuple(
+            [(float(v), "?") for v in data.trial_rmse[i] if np.isfinite(v)]
+            for i in range(6)
+        )
+
+    def _get_vals(cell_idx: int, model_idx: int) -> tuple[list[float], list[str]]:
+        rows = cells_with_pid[cell_idx] if has_pid else [(v, "?") for v in data.trial_rmse[cell_idx]]
+        vals = [r[0] for r in rows if np.isfinite(r[0])]
+        pids = [str(r[1]) for r in rows if np.isfinite(r[0])]
+        return vals, pids
+
+    y_max = 0.0
+
+    for col_idx, (cond_label, cell_ids) in enumerate([("DBS-OFF", _OFF_CELLS), ("DBS-ON", _ON_CELLS)]):
+        for mi, (model, col) in enumerate(zip(models, model_colors)):
+            cell_idx = cell_ids[mi]
+            vals, pids = _get_vals(cell_idx, mi)
+            if not vals:
+                continue
+
+            arr = np.array(vals, dtype=float)
+            y_max = max(y_max, float(np.nanmax(arr)))
+
+            q1, med, q3 = np.percentile(arr, [25, 50, 75])
+            iqr = q3 - q1
+            w_lo = max(float(np.nanmin(arr)), q1 - 1.5 * iqr)
+            w_hi = min(float(np.nanmax(arr)), q3 + 1.5 * iqr)
+
+            # Box: IQR fill + median line (Plotly Box with boxpoints=False)
+            fig.add_trace(
+                go.Box(
+                    y=vals,
+                    x=[mi] * len(vals),
+                    name=model,
+                    marker_color=col,
+                    line=dict(color=col, width=1.2),
+                    fillcolor=_hex_to_rgba(col, 0.30),
+                    boxpoints=False,
+                    quartilemethod="exclusive",
+                    showlegend=(col_idx == 0),
+                    legendgroup=model,
+                ),
+                row=1,
+                col=col_idx + 1,
+            )
+
+            # Scatter: jittered points coloured by participant
+            jt = rng.uniform(-jitter, jitter, size=len(vals))
+            x_jittered = [mi + jt[i] for i in range(len(vals))]
+            colors = [PARTICIPANT_COLORS.get(p, "#888888") for p in pids]
+
+            fig.add_trace(
+                go.Scatter(
+                    x=x_jittered,
+                    y=vals,
+                    mode="markers",
+                    marker=dict(
+                        size=5,
+                        color=colors,
+                        line=dict(width=0),
+                        symbol="circle",
+                    ),
+                    name="trials" if (col_idx == 0 and mi == 0) else None,
+                    showlegend=(col_idx == 0 and mi == 0),
+                    legendgroup="trials",
+                    hovertext=[f"{p}<br>{v:.3f}" for p, v in zip(pids, vals)],
+                ),
+                row=1,
+                col=col_idx + 1,
+            )
+
+    y_max = max(y_max * 1.08, 0.85)
+
+    # Explicit participant colours in legend (dots use these; green ≈ PDI4, blue ≈ PDI1).
+    legend_pids: set[str] = set()
+    for i in range(6):
+        rows = cells_with_pid[i] if has_pid else [(v, "?") for v in data.trial_rmse[i]]
+        for r in rows:
+            if len(r) >= 2 and np.isfinite(r[0]):
+                legend_pids.add(str(r[1]))
+    for pid in sorted(legend_pids):
+        col = PARTICIPANT_COLORS.get(pid, "#888888")
+        fig.add_trace(
+            go.Scatter(
+                x=[None],
+                y=[None],
+                mode="markers",
+                marker=dict(size=11, color=col, line=dict(width=0)),
+                name=f"trial dot: {pid}",
+                showlegend=True,
+            ),
+            row=1,
+            col=1,
+        )
+
+    fig.update_layout(
+        template="plotly_white" if theme == ThesisTheme.LIGHT else "plotly_dark",
+        paper_bgcolor=paper_bg,
+        plot_bgcolor=plot_bg,
+        font=dict(family=FONT_FAMILY, size=FONT_SIZE_BASE, color=fg),
+        height=FIGURE_HEIGHT,
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=-0.2,
+            xanchor="center",
+            x=0.5,
+            font=dict(size=FONT_SIZE_TICK),
+            bgcolor=legend_bgcolor(),
+        ),
+        margin=dict(l=72, r=32, t=48, b=140),
+        hovermode="closest",
+        title=dict(
+            text=title or "Trial RMSE by model × DBS (box + jittered trials)",
+            font=dict(size=FONT_SIZE_LABEL + 1),
+            x=0.5,
+        ),
+    )
+
+    # X-axis: model names for each subplot
+    fig.update_xaxes(
+        ticktext=models,
+        tickvals=list(range(3)),
+        showgrid=False,
+        zeroline=False,
+        showline=True,
+        linecolor=fg,
+        tickfont=dict(size=FONT_SIZE_TICK),
+        row=1,
+        col=1,
+    )
+    fig.update_xaxes(
+        ticktext=models,
+        tickvals=list(range(3)),
+        showgrid=False,
+        zeroline=False,
+        showline=True,
+        linecolor=fg,
+        tickfont=dict(size=FONT_SIZE_TICK),
+        row=1,
+        col=2,
+    )
+    fig.update_yaxes(
+        title_text="RMSE (z)",
+        range=[0, y_max],
+        showgrid=True,
+        gridcolor=grid,
+        zeroline=True,
+        zerolinecolor=grid,
+        showline=True,
+        linecolor=fg,
+        tickfont=dict(size=FONT_SIZE_TICK),
+        row=1,
+        col=1,
+    )
+    fig.update_yaxes(
+        range=[0, y_max],
+        showgrid=True,
+        gridcolor=grid,
+        zeroline=True,
+        zerolinecolor=grid,
+        showline=True,
+        linecolor=fg,
+        tickfont=dict(size=FONT_SIZE_TICK),
+        row=1,
+        col=2,
     )
 
     return fig

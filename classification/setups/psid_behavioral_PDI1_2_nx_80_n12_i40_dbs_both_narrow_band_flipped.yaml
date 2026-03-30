@@ -23,11 +23,11 @@ classification:
   nx: 80
   prediction_feature_source: Xp
   forecast_feature_source: Xp
-  permutation_test: false
-  n_permutations: 0
+  permutation_test: true
+  n_permutations: 100
   param_grid:
     LDA:
-      classifier__solver: ["lsqr", "svd", "eigen"]
+      classifier__solver: ["lsqr"]
       classifier__shrinkage: ["auto"]
 
 results:

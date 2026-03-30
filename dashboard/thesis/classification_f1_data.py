@@ -10,17 +10,18 @@ from __future__ import annotations
 import pickle
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from dashboard.thesis.specs import ClassificationF1PickleRef, FeatureGroupF1
 
-GROUP_ORDER: Tuple[FeatureGroupF1, ...] = ("psid_xp", "dpad_xp", "raw_ecog")
+GROUP_ORDER: Tuple[FeatureGroupF1, ...] = ("xp", "xp_1", "xp_2", "xp_with_dbs")
 GROUP_DISPLAY = {
-    "psid_xp": "PSID latent states<br>(Xp)",
-    "dpad_xp": "DPAD-RNN latent states<br>(Xp)",
-    "raw_ecog": "Raw ECoG baseline<br>(116 narrowband)",
+    "xp": "Xp<br>(full latent)",
+    "xp_1": "Xp₁<br>(past-related)",
+    "xp_2": "Xp₂<br>(future-related)",
+    "xp_with_dbs": "Xp + DBS<br>(with state)",
 }
-GROUP_X = {"psid_xp": 0.0, "dpad_xp": 1.0, "raw_ecog": 2.0}
+GROUP_X = {"xp": 0.0, "xp_1": 1.0, "xp_2": 2.0, "xp_with_dbs": 3.0}
 
 
 @dataclass(frozen=True)
@@ -30,6 +31,7 @@ class ClassificationF1Point:
     group: FeatureGroupF1
     balanced_accuracy: float
     permutation_pvalue: Optional[float]
+    model_label: str = "PSID"
 
 
 def _extract_test_ba_and_perm(res: Dict[str, Any]) -> Tuple[float, Optional[float]]:
@@ -78,6 +80,7 @@ def collect_classification_f1_points(
                 group=ref.group,
                 balanced_accuracy=ba,
                 permutation_pvalue=pval,
+                model_label=getattr(ref, "model_label", "PSID"),
             )
         )
     return out
@@ -93,3 +96,56 @@ def group_star_flags(
         if pt.permutation_pvalue is not None and pt.permutation_pvalue < alpha:
             flags[pt.group] = True
     return flags
+
+
+# ---------------------------------------------------------------------------
+# ROC curve data
+# ---------------------------------------------------------------------------
+
+import numpy as _np
+
+
+@dataclass(frozen=True)
+class ClassificationRocCurve:
+    participant_label: str
+    session_label: str
+    group: FeatureGroupF1
+    fpr: Any   # np.ndarray
+    tpr: Any   # np.ndarray
+    roc_auc: float
+
+
+def collect_classification_roc_curves(
+    results_root: Path,
+    refs: Sequence[ClassificationF1PickleRef],
+    classification_parent: str = "classification",
+) -> List[ClassificationRocCurve]:
+    """Load per-session ROC curve (fpr, tpr, roc_auc) from test_results in each pickle."""
+    base = results_root / classification_parent
+    out: List[ClassificationRocCurve] = []
+    for ref in refs:
+        p = base / ref.pickle_relative_path
+        if not p.is_file():
+            continue
+        with open(p, "rb") as f:
+            res = pickle.load(f)
+        if not isinstance(res, dict):
+            continue
+        tr = res.get("test_results") or res
+        fpr = tr.get("fpr")
+        tpr = tr.get("tpr")
+        auc = tr.get("roc_auc", res.get("roc_auc", float("nan")))
+        if fpr is None or tpr is None:
+            continue
+        try:
+            out.append(ClassificationRocCurve(
+                participant_label=ref.participant_label,
+                session_label=ref.session_label,
+                group=ref.group,
+                fpr=_np.asarray(fpr, dtype=float),
+                tpr=_np.asarray(tpr, dtype=float),
+                roc_auc=float(auc),
+            ))
+        except Exception:
+            continue
+    return out

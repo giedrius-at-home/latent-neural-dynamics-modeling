@@ -210,6 +210,7 @@ class PSIDWrapper:
         self,
         m: int,
         Y_past: Array2D,
+        Z_past: Optional[Array2D] = None,
     ):
         """
         Efficient m-step ahead forecast using state-space model.
@@ -220,6 +221,10 @@ class PSIDWrapper:
         1. Run Kalman filter once on Y_past to get initial state estimate
         2. Iterate state equation forward m times: x_{t+1} = A @ x_t
         3. Compute outputs: y_t = C @ x_t, z_t = Cz @ x_t
+
+        ``Z_past`` must be passed when the fitted model uses behavioral inputs (same layout
+        as ``validate_forecast`` / ``idSys.predict(Y, U=Z)``). Omitting U made multi-step Z
+        forecasts nearly flat while one-step Zp remained well scaled.
         """
         if self.idSys is None:
             raise ValueError(
@@ -231,8 +236,9 @@ class PSIDWrapper:
         use_smoothing = getattr(self.idSys, "backward_kalman", False)
         # Convert Y_past to list format expected by predict
         Y_past_list = [Y_past]
+        U_list = [Z_past] if Z_past is not None else None
         Zp_past, Yp_past, Xp_past = self.idSys.predict(
-            Y_past_list, U=None, useSmoothing=use_smoothing
+            Y_past_list, U=U_list, useSmoothing=use_smoothing
         )
 
         # Extract the final state estimate (last time step)
@@ -351,7 +357,7 @@ class PSIDWrapper:
             Z_future_true = Z[history_end:forecast_end] if Z is not None else None
             Z_past = Z[start:history_end] if Z is not None else None
 
-            Zf, Yf, Xf = self.forecast(m, Y_past)
+            Zf, Yf, Xf = self.forecast(m, Y_past, Z_past)
 
             Y_concat = np.concatenate([Y_past, Yf], axis=0)
             Z_concat = (

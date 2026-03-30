@@ -643,7 +643,8 @@ class Trainer:
         ts = self.run_timestamp
         out_dir = Path(self.results_config.save_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
-        out_path = out_dir / f"{type}_results_{ts}"
+        out_path = out_dir / type / f"test_results_{ts}.parquet"
+        out_path.parent.mkdir(parents=True, exist_ok=True)
         metrics_df.write_parquet(
             out_path, partition_by=["participant_id", "session", "block", "trial"]
         )
@@ -688,8 +689,8 @@ class Trainer:
                     "n_channels_Y": self.framework.model.n_channels_Y,
                     "n_channels_Z": self.framework.model.n_channels_Z,
                     "beta_shape": (
-                        list(self.framework.model.beta_ols.shape)
-                        if self.framework.model.beta_ols is not None
+                        list(self.framework.model.beta.shape)
+                        if getattr(self.framework.model, "beta", None) is not None
                         else None
                     ),
                 }

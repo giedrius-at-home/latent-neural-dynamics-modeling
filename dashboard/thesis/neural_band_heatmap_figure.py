@@ -8,10 +8,15 @@ from plotly.graph_objects import Figure
 from plotly.subplots import make_subplots
 
 from dashboard.thesis.constants import (
+    COLOR_DBS_OFF,
+    COLOR_DBS_ON,
     COLOR_DPAD,
     COLOR_PSID,
     COLOR_VARMA,
+    FIGURE_HEIGHT,
     FONT_FAMILY,
+    FONT_SIZE_BASE,
+    FONT_SIZE_TICK,
     ThesisTheme,
     grid_color,
     paper_colors,
@@ -27,11 +32,8 @@ _BLUE_SEQUENTIAL = [
     [1.0, "rgb(24, 95, 165)"],
 ]
 
-_ZMIN = 0.4
+_ZMIN = 0.45
 _ZMAX = 1.0
-_TEXT_DARK = "#1a1a1a"
-_TEXT_LIGHT = "#ffffff"
-_R_TEXT_THRESHOLD = 0.7
 
 
 def _fmt_text(z: np.ndarray) -> list[list[str]]:
@@ -93,7 +95,8 @@ def build_neural_band_heatmap_figure(
             x=x_labels,
             y=row_labels,
             text=text_m,
-            texttemplate="",
+            texttemplate="%{text}",
+            textfont=dict(size=FONT_SIZE_BASE, family=FONT_FAMILY, color="white"),
             coloraxis="coloraxis",
             showscale=False,
             hovertemplate="%{y} · %{x}<br>r = %{z:.3f}<extra></extra>",
@@ -102,26 +105,8 @@ def build_neural_band_heatmap_figure(
         )
         fig.add_trace(hm, row=1, col=col)
 
-        xref = "x1" if col == 1 else "x2"
-        yref = "y1" if col == 1 else "y2"
-        for i in range(nrows):
-            for j in range(ncols):
-                v = z_mat[i, j]
-                if not np.isfinite(v):
-                    continue
-                tcol = _TEXT_LIGHT if v >= _R_TEXT_THRESHOLD else _TEXT_DARK
-                fig.add_annotation(
-                    x=x_labels[j],
-                    y=row_labels[i],
-                    text=text_m[i][j],
-                    showarrow=False,
-                    xref=xref,
-                    yref=yref,
-                    font=dict(color=tcol, size=13, family=FONT_FAMILY),
-                    xanchor="center",
-                    yanchor="middle",
-                )
-
+        xref = "x" if col == 1 else "x2"
+        yref = "y" if col == 1 else "y2"
         header_colors = (COLOR_PSID, COLOR_DPAD, COLOR_VARMA)
         for j, (lab, hc) in enumerate(zip(x_labels, header_colors)):
             fig.add_annotation(
@@ -131,7 +116,7 @@ def build_neural_band_heatmap_figure(
                 yref=f"{yref} domain",
                 text=f"<b>{lab}</b>",
                 showarrow=False,
-                font=dict(color=hc, size=13, family=FONT_FAMILY),
+                font=dict(color=hc, size=FONT_SIZE_BASE, family=FONT_FAMILY),
                 xanchor="center",
                 yanchor="bottom",
             )
@@ -143,7 +128,11 @@ def build_neural_band_heatmap_figure(
             yref=f"{yref} domain",
             text=f"<b>{title_badge}</b>",
             showarrow=False,
-            font=dict(color=fg, size=12, family=FONT_FAMILY),
+            font=dict(
+                color=COLOR_DBS_OFF if title_badge == "DBS-OFF" else COLOR_DBS_ON,
+                size=FONT_SIZE_BASE,
+                family=FONT_FAMILY,
+            ),
             xanchor="left",
             yanchor="top",
         )
@@ -151,8 +140,9 @@ def build_neural_band_heatmap_figure(
     fig.update_layout(
         paper_bgcolor=paper_bg,
         plot_bgcolor=plot_bg,
-        font=dict(family=FONT_FAMILY, color=fg),
-        margin=dict(l=80, r=40, t=90, b=110),
+        font=dict(family=FONT_FAMILY, size=FONT_SIZE_BASE, color=fg),
+        height=FIGURE_HEIGHT - 50,
+        margin=dict(l=80, r=40, t=50, b=100),
         coloraxis=dict(
             cmin=_ZMIN,
             cmax=_ZMAX,

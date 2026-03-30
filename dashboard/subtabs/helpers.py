@@ -76,12 +76,16 @@ def list_variants(results_root: Path) -> List[str]:
 
 
 def list_run_timestamps(variant_dir: Path) -> List[str]:
-
+    """Return only the latest run timestamp (no fallbacks to older runs)."""
     ts = set()
     for p in variant_dir.glob("val_results_*"):
         name = p.name
         if name.startswith("val_results_"):
             ts.add(name.replace("val_results_", ""))
+    val_dir = variant_dir / "val"
+    if val_dir.exists():
+        for p in val_dir.glob("test_results_*.parquet"):
+            ts.add(p.stem.replace("test_results_", ""))
     for p in variant_dir.glob("model_*.pkl"):
         name = p.name
         if name.startswith("model_") and name.endswith(".pkl"):
@@ -94,7 +98,8 @@ def list_run_timestamps(variant_dir: Path) -> List[str]:
     for p in variant_dir.iterdir():
         if p.is_dir() and ts_pattern.match(p.name):
             ts.add(p.name)
-    return sorted(list(ts))
+    sorted_ts = sorted(list(ts))
+    return [sorted_ts[-1]] if sorted_ts else []
 
 
 def config_for_variant(project_root: Path, variant_name: str) -> Optional[Path]:
@@ -115,14 +120,9 @@ def check_precomputed_results(variant_dir: Path, run_ts: str) -> Dict[str, bool]
 
     for split in ["train", "val", "test"]:
         pickle_path = run_dir / f"{split}_results.pkl"
-        legacy_parquet_path = variant_dir / f"{split}_results_{run_ts}"
         new_parquet_path = variant_dir / split / f"test_results_{run_ts}.parquet"
 
-        available[split] = (
-            pickle_path.exists()
-            or legacy_parquet_path.exists()
-            or new_parquet_path.exists()
-        )
+        available[split] = pickle_path.exists() or new_parquet_path.exists()
 
     return available
 

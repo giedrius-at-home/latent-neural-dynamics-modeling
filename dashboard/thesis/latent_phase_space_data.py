@@ -1,5 +1,5 @@
 """
-Load test-split Xp and stim labels; build PSID (x₁,x₂) and DPAD (PCA of x⁽¹⁾) coordinates for thesis panels.
+Load test-split Xp and stim labels; build PSID (x₁,x₂) and DPAD (first two X dimensions) for thesis panels.
 """
 
 from __future__ import annotations
@@ -51,14 +51,14 @@ class PanelLatentData:
     y_psid_on: np.ndarray
     traj_psid_off: List[Tuple[np.ndarray, np.ndarray]]
     traj_psid_on: List[Tuple[np.ndarray, np.ndarray]]
-    # DPAD: PCA of first n1 dims
+    # DPAD: first two dimensions of X (same latent state as training; comparable to PSID x₁,x₂)
     x_dpad_off: np.ndarray
     y_dpad_off: np.ndarray
     x_dpad_on: np.ndarray
     y_dpad_on: np.ndarray
     traj_dpad_off: List[Tuple[np.ndarray, np.ndarray]]
     traj_dpad_on: List[Tuple[np.ndarray, np.ndarray]]
-    pca_variance_ratio: Tuple[float, float]
+    pca_variance_ratio: Tuple[float, float]  # (0,0) when DPAD uses raw X dims (no PCA)
     x_range_psid: Tuple[float, float]
     y_range_psid: Tuple[float, float]
     x_range_dpad: Tuple[float, float]
@@ -168,28 +168,18 @@ def load_panel_latent_data(
     x_po, y_po = xy_psid(off_p)
     x_pn, y_pn = xy_psid(on_p)
 
-    # --- DPAD: PCA on combined test points ---
-    X_all_d = _stack_condition_points(Xp_d, list(range(len(Xp_d))), n_dpad)
+    # --- DPAD: first two columns of X (no PCA; aligns with PSID row for side-by-side comparison) ---
     X_off_d = _stack_condition_points(Xp_d, off_d, n_dpad)
     X_on_d = _stack_condition_points(Xp_d, on_d, n_dpad)
 
-    from sklearn.decomposition import PCA
+    def _xy_dpad(X_blk: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        if X_blk.shape[0] == 0:
+            return np.array([]), np.array([])
+        return X_blk[:, 0].copy(), X_blk[:, 1].copy()
 
-    if X_all_d.shape[0] < 4:
-        raise ValueError("Not enough DPAD points for PCA")
-    pca = PCA(n_components=2, svd_solver="full")
-    pca.fit(X_all_d)
-    pca_var = (float(pca.explained_variance_ratio_[0]), float(pca.explained_variance_ratio_[1]))
-    if X_off_d.shape[0]:
-        off_t = pca.transform(X_off_d)
-        x_do, y_do = off_t[:, 0], off_t[:, 1]
-    else:
-        x_do = y_do = np.array([])
-    if X_on_d.shape[0]:
-        on_t = pca.transform(X_on_d)
-        x_dn, y_dn = on_t[:, 0], on_t[:, 1]
-    else:
-        x_dn = y_dn = np.array([])
+    x_do, y_do = _xy_dpad(X_off_d)
+    x_dn, y_dn = _xy_dpad(X_on_d)
+    pca_var = (0.0, 0.0)
 
     traj_psid_off = _pick_trajectories(
         Xp_p, off_p, n_psid, n_traj, rng, "identity", None
@@ -199,10 +189,10 @@ def load_panel_latent_data(
     )
     rng2 = np.random.default_rng(traj_seed + 17)
     traj_dpad_off = _pick_trajectories(
-        Xp_d, off_d, n_dpad, n_traj, rng2, "pca", pca
+        Xp_d, off_d, n_dpad, n_traj, rng2, "identity", None
     )
     traj_dpad_on = _pick_trajectories(
-        Xp_d, on_d, n_dpad, n_traj, rng2, "pca", pca
+        Xp_d, on_d, n_dpad, n_traj, rng2, "identity", None
     )
 
     def _rng_xy(
@@ -284,11 +274,43 @@ def kde_density_grid(
     Xg, Yg = np.meshgrid(xi, yi, indexing="xy")
     try:
         kde = gaussian_kde(np.vstack([x, y]))
+        # Narrower bandwidth → sharper, more separable within-panel DBS modes (thesis viz).
+        kde.set_bandwidth(kde.factor * 0.72)
         zi = kde(np.vstack([Xg.ravel(), Yg.ravel()])).reshape(Xg.shape)
     except Exception as e:
         logger.warning("KDE failed (%s); adding tiny jitter", e)
         rng = np.random.default_rng(0)
         jitter = rng.normal(0, 1e-6, size=(2, len(x)))
         kde = gaussian_kde(np.vstack([x, y]) + jitter)
+        kde.set_bandwidth(kde.factor * 0.72)
         zi = kde(np.vstack([Xg.ravel(), Yg.ravel()])).reshape(Xg.shape)
     return xi, yi, zi
+
+
+def kde_on_fixed_grid(
+    x: np.ndarray,
+    y: np.ndarray,
+    xi: np.ndarray,
+    yi: np.ndarray,
+) -> np.ndarray:
+    """Evaluate a 2D KDE on an existing ``xi × yi`` mesh (same grid for stacked heatmaps)."""
+    from scipy.stats import gaussian_kde
+
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    m = np.isfinite(x) & np.isfinite(y)
+    x, y = x[m], y[m]
+    if len(x) < 2:
+        return np.full((len(yi), len(xi)), np.nan)
+    Xg, Yg = np.meshgrid(xi, yi, indexing="xy")
+    try:
+        kde = gaussian_kde(np.vstack([x, y]))
+        kde.set_bandwidth(kde.factor * 0.72)
+        return kde(np.vstack([Xg.ravel(), Yg.ravel()])).reshape(Xg.shape)
+    except Exception as e:
+        logger.warning("KDE on fixed grid failed (%s); jitter retry", e)
+        rng = np.random.default_rng(0)
+        jitter = rng.normal(0, 1e-6, size=(2, len(x)))
+        kde = gaussian_kde(np.vstack([x, y]) + jitter)
+        kde.set_bandwidth(kde.factor * 0.72)
+        return kde(np.vstack([Xg.ravel(), Yg.ravel()])).reshape(Xg.shape)

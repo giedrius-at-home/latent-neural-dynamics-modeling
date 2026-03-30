@@ -63,19 +63,20 @@ def _n_time_samples(split_res: Dict[str, Any], trial_idx: int, arr: np.ndarray) 
 def parse_parent_band(channel_name: str) -> Optional[str]:
     """
     Map a neural input channel name to a display band label (Delta–Beta only; gamma ignored).
-    Expects `ECOG_<n>_<band>_...` or `LFP_<n>_<band>_...`.
+    Expects `ECOG_<n>_<band>_...` or `LFP_<n>_<band>_...`; also scans other underscore tokens
+    (e.g. unusual middle fields before ``beta_13_env``).
     """
     parts = str(channel_name).split("_")
-    if len(parts) < 3:
-        return None
-    if parts[0].upper() not in ("ECOG", "LFP"):
-        return None
-    if not parts[1].isdigit():
-        return None
-    key = parts[2].lower()
-    if key not in _ALLOWED:
-        return None
-    return _BAND_DISPLAY[key]
+    if len(parts) >= 3:
+        if parts[0].upper() in ("ECOG", "LFP") and parts[1].isdigit():
+            key = parts[2].lower()
+            if key in _ALLOWED:
+                return _BAND_DISPLAY[key]
+    for p in parts:
+        pl = p.lower()
+        if pl in _ALLOWED:
+            return _BAND_DISPLAY[pl]
+    return None
 
 
 def _band_indices_for_channels(input_channels: List[str]) -> Dict[str, List[int]]:
@@ -146,12 +147,12 @@ def _band_mean_r(
 
 @dataclass
 class NeuralBandHeatmapData:
-    """Two panels (DBS-OFF / DBS-ON); columns PSID, DPAD-RNN, VARMA."""
+    """Two panels (DBS-OFF / DBS-ON); columns PSID, DPAD, VARMA."""
 
     z_off: np.ndarray  # (n_bands, 3)
     z_on: np.ndarray
     band_labels: List[str]
-    column_labels: Tuple[str, ...] = ("PSID", "DPAD-RNN", "VARMA")
+    column_labels: Tuple[str, ...] = ("PSID", "DPAD", "VARMA")
     n_triplets_used: int = 0
     n_trials_off: int = 0
     n_trials_on: int = 0
@@ -179,27 +180,24 @@ def collect_neural_band_pearson(
         res_p = load_split_results(results_root, tri.psid_variant, tri.psid_run_ts, split)
         res_d = load_split_results(results_root, tri.dpad_variant, tri.dpad_run_ts, split)
         res_v = load_split_results(results_root, tri.varma_variant, tri.varma_run_ts, split)
-        if res_p is None or res_d is None or res_v is None:
+        if res_p is None or res_d is None:
             logger.warning(
-                "Skipping triplet %s: missing results (psid=%s, dpad=%s, varma=%s)",
-                getattr(tri, "label", ""),
-                res_p is not None,
-                res_d is not None,
-                res_v is not None,
+                "Skipping triplet %s: missing PSID or DPAD results (psid=%s, dpad=%s)",
+                getattr(tri, "label", ""), res_p is not None, res_d is not None,
             )
             continue
 
         ch_p = list(res_p.get("input_channels") or [])
         ch_d = list(res_d.get("input_channels") or [])
-        ch_v = list(res_v.get("input_channels") or [])
-        if not ch_p or not _channels_match(ch_p, ch_d, ch_v):
-            logger.warning(
-                "Skipping triplet %s: input_channels missing or mismatch across models.",
-                getattr(tri, "label", ""),
+        ch_v = list(res_v.get("input_channels") or []) if res_v is not None else []
+        channels = ch_p or ch_d or ch_v
+        if not channels:
+            raise ValueError(
+                f"Triplet {getattr(tri, 'label', '')}: input_channels missing from all models "
+                f"(PSID={bool(ch_p)}, DPAD={bool(ch_d)}, VARMA={bool(ch_v)})"
             )
-            continue
 
-        band_indices = _band_indices_for_channels(ch_p)
+        band_indices = _band_indices_for_channels(channels)
         if not band_indices:
             logger.warning(
                 "Skipping triplet %s: no Delta–Beta channels in input_channels.",
@@ -209,18 +207,19 @@ def collect_neural_band_pearson(
 
         mp = _key_index_map_y(res_p)
         md = _key_index_map_y(res_d)
-        mv = _key_index_map_y(res_v)
-        common = set(mp.keys()) & set(md.keys()) & set(mv.keys())
-        if not common:
+        mv = _key_index_map_y(res_v) if res_v is not None else {}
+        common_pd = set(mp.keys()) & set(md.keys())
+        if not common_pd:
             logger.warning(
-                "Skipping triplet %s: no overlapping Y trial keys across PSID/DPAD/VARMA.",
+                "Skipping triplet %s: no overlapping Y trial keys between PSID and DPAD.",
                 getattr(tri, "label", ""),
             )
             continue
 
         n_triplets_used += 1
-        for k in sorted(common, key=lambda x: (str(x[0]), str(x[1]), str(x[2]), str(x[3]))):
-            i_p, i_d, i_v = mp[k], md[k], mv[k]
+        for k in sorted(common_pd, key=lambda x: (str(x[0]), str(x[1]), str(x[2]), str(x[3]))):
+            i_p, i_d = mp[k], md[k]
+            i_v = mv.get(k)
             stim = normalize_stim(res_p["stim"][i_p])
             if stim is None:
                 continue
@@ -230,11 +229,12 @@ def collect_neural_band_pearson(
             else:
                 n_on += 1
 
-            triple = (
+            triple = [
                 ("psid", res_p, i_p),
                 ("dpad", res_d, i_d),
-                ("varma", res_v, i_v),
-            )
+            ]
+            if i_v is not None and res_v is not None:
+                triple.append(("varma", res_v, i_v))
             for model_key, res, tidx in triple:
                 try:
                     yt, yp = _prepare_y_trial(res, tidx, res["Y"][tidx], res["Yp"][tidx])

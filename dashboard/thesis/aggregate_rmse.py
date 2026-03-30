@@ -12,7 +12,12 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
-from dashboard.thesis.loaders import load_split_results, trial_rmse_z_for_model
+from dashboard.thesis.loaders import (
+    ThesisDataError,
+    load_split_results_required,
+    load_split_results_with_fallback,
+    trial_rmse_z_for_model,
+)
 
 if TYPE_CHECKING:
     from dashboard.thesis.specs import AlignedTriplet
@@ -42,10 +47,10 @@ def _trial_key(split_res: Dict[str, Any], trial_idx: int) -> TrialKey:
     blk = split_res["block"][trial_idx]
     tri = split_res["trial"][trial_idx]
 
-    def _one(x: Any) -> Any:
+    def _one(x: Any) -> str:
         if isinstance(x, (list, tuple, np.ndarray)) and len(x) > 0:
-            return x[0]
-        return x
+            x = x[0]
+        return str(x)
 
     return (_one(pid), _one(sess), _one(blk), _one(tri))
 
@@ -118,20 +123,229 @@ class WilcoxonResults:
 
 
 @dataclass
+class WithinCrossRmseData:
+    """
+    Per-model, per-condition (OFF/ON), within and cross trial RMSE lists.
+    Structure: models = ["PSID", "DPAD", "VARMA"]; each has (within_vals, cross_vals) for OFF and ON.
+    """
+
+    psid_off_within: List[float] = field(default_factory=list)
+    psid_off_cross: List[float] = field(default_factory=list)
+    psid_on_within: List[float] = field(default_factory=list)
+    psid_on_cross: List[float] = field(default_factory=list)
+    dpad_off_within: List[float] = field(default_factory=list)
+    dpad_off_cross: List[float] = field(default_factory=list)
+    dpad_on_within: List[float] = field(default_factory=list)
+    dpad_on_cross: List[float] = field(default_factory=list)
+    varma_off_within: List[float] = field(default_factory=list)
+    varma_off_cross: List[float] = field(default_factory=list)
+    varma_on_within: List[float] = field(default_factory=list)
+    varma_on_cross: List[float] = field(default_factory=list)
+    n_triplets_used: int = 0
+
+
+def collect_within_cross_rmse(
+    results_root: Path,
+    triplet_specs: List["AlignedTriplet"],
+    channel_idx: int,
+    split: str = "test",
+) -> WithinCrossRmseData:
+    """
+    Collect trial RMSE for within (same-condition model) and cross (opposite-condition model).
+    Within OFF: dbs_off model on OFF trials. Cross OFF: dbs_on model eval on OFF trials.
+    """
+    from dashboard.thesis.specs import (
+        _variant_cross_eval,
+        _variant_off,
+        _variant_on,
+        triplet_branch_timestamp,
+    )
+
+    out = WithinCrossRmseData()
+    n_ok = 0
+
+    for tri in triplet_specs:
+        psid_off = load_split_results_required(
+            results_root, _variant_off(tri.psid_variant), triplet_branch_timestamp(tri, "psid", "off"), split
+        )
+        psid_on = load_split_results_required(
+            results_root, _variant_on(tri.psid_variant), triplet_branch_timestamp(tri, "psid", "on"), split
+        )
+        psid_on_eval_off = load_split_results_required(
+            results_root,
+            _variant_cross_eval(_variant_on(tri.psid_variant), "off"),
+            triplet_branch_timestamp(tri, "psid", "eval_off"),
+            split,
+        )
+        psid_off_eval_on = load_split_results_required(
+            results_root,
+            _variant_cross_eval(_variant_off(tri.psid_variant), "on"),
+            triplet_branch_timestamp(tri, "psid", "eval_on"),
+            split,
+        )
+        dpad_off = load_split_results_required(
+            results_root, _variant_off(tri.dpad_variant), triplet_branch_timestamp(tri, "dpad", "off"), split
+        )
+        dpad_on = load_split_results_required(
+            results_root, _variant_on(tri.dpad_variant), triplet_branch_timestamp(tri, "dpad", "on"), split
+        )
+        dpad_on_eval_off = load_split_results_required(
+            results_root,
+            _variant_cross_eval(_variant_on(tri.dpad_variant), "off"),
+            triplet_branch_timestamp(tri, "dpad", "eval_off"),
+            split,
+        )
+        dpad_off_eval_on = load_split_results_required(
+            results_root,
+            _variant_cross_eval(_variant_off(tri.dpad_variant), "on"),
+            triplet_branch_timestamp(tri, "dpad", "eval_on"),
+            split,
+        )
+        varma_off = load_split_results_required(
+            results_root, _variant_off(tri.varma_variant), triplet_branch_timestamp(tri, "varma", "off"), split
+        )
+        varma_on = load_split_results_required(
+            results_root, _variant_on(tri.varma_variant), triplet_branch_timestamp(tri, "varma", "on"), split
+        )
+        v_eval_off_var = _variant_cross_eval(_variant_on(tri.varma_variant), "off")
+        ts_ve_off = triplet_branch_timestamp(tri, "varma", "eval_off")
+        try:
+            varma_on_eval_off = load_split_results_required(
+                results_root, v_eval_off_var, ts_ve_off, split
+            )
+        except ThesisDataError:
+            varma_on_eval_off = load_split_results_with_fallback(
+                results_root, v_eval_off_var, ts_ve_off, split
+            )
+            if varma_on_eval_off is None:
+                raise
+        v_eval_on_var = _variant_cross_eval(_variant_off(tri.varma_variant), "on")
+        ts_ve_on = triplet_branch_timestamp(tri, "varma", "eval_on")
+        try:
+            varma_off_eval_on = load_split_results_required(
+                results_root, v_eval_on_var, ts_ve_on, split
+            )
+        except ThesisDataError:
+            varma_off_eval_on = load_split_results_with_fallback(
+                results_root, v_eval_on_var, ts_ve_on, split
+            )
+            if varma_off_eval_on is None:
+                raise
+
+        mp_off = _key_index_map(psid_off)
+        mp_on = _key_index_map(psid_on)
+        common_off = set(mp_off.keys())
+        common_on = set(mp_on.keys())
+
+        for k in sorted(common_off, key=lambda x: (str(x[0]), str(x[1]), str(x[2]), str(x[3]))):
+            i = mp_off[k]
+            try:
+                r = trial_rmse_z_for_model(psid_off, i, channel_idx)
+                out.psid_off_within.append(r)
+            except Exception:
+                continue
+            i_cross = _key_index_map(psid_on_eval_off).get(k) if psid_on_eval_off else None
+            if i_cross is not None:
+                try:
+                    out.psid_off_cross.append(trial_rmse_z_for_model(psid_on_eval_off, i_cross, channel_idx))
+                except Exception:
+                    pass
+
+            i_d = _key_index_map(dpad_off).get(k) if dpad_off else None
+            if i_d is not None:
+                try:
+                    out.dpad_off_within.append(trial_rmse_z_for_model(dpad_off, i_d, channel_idx))
+                except Exception:
+                    pass
+            i_d_cross = _key_index_map(dpad_on_eval_off).get(k) if dpad_on_eval_off else None
+            if i_d_cross is not None:
+                try:
+                    out.dpad_off_cross.append(trial_rmse_z_for_model(dpad_on_eval_off, i_d_cross, channel_idx))
+                except Exception:
+                    pass
+
+            i_v = _key_index_map(varma_off).get(k) if varma_off else None
+            if i_v is not None:
+                try:
+                    out.varma_off_within.append(trial_rmse_z_for_model(varma_off, i_v, channel_idx))
+                except Exception:
+                    pass
+            i_v_cross = _key_index_map(varma_on_eval_off).get(k) if varma_on_eval_off else None
+            if i_v_cross is not None:
+                try:
+                    out.varma_off_cross.append(trial_rmse_z_for_model(varma_on_eval_off, i_v_cross, channel_idx))
+                except Exception:
+                    pass
+
+        for k in sorted(common_on, key=lambda x: (str(x[0]), str(x[1]), str(x[2]), str(x[3]))):
+            i = mp_on[k]
+            try:
+                r = trial_rmse_z_for_model(psid_on, i, channel_idx)
+                out.psid_on_within.append(r)
+            except Exception:
+                continue
+            i_cross = _key_index_map(psid_off_eval_on).get(k) if psid_off_eval_on else None
+            if i_cross is not None:
+                try:
+                    out.psid_on_cross.append(trial_rmse_z_for_model(psid_off_eval_on, i_cross, channel_idx))
+                except Exception:
+                    pass
+
+            i_d = _key_index_map(dpad_on).get(k) if dpad_on else None
+            if i_d is not None:
+                try:
+                    out.dpad_on_within.append(trial_rmse_z_for_model(dpad_on, i_d, channel_idx))
+                except Exception:
+                    pass
+            i_d_cross = _key_index_map(dpad_off_eval_on).get(k) if dpad_off_eval_on else None
+            if i_d_cross is not None:
+                try:
+                    out.dpad_on_cross.append(trial_rmse_z_for_model(dpad_off_eval_on, i_d_cross, channel_idx))
+                except Exception:
+                    pass
+
+            i_v = _key_index_map(varma_on).get(k) if varma_on else None
+            if i_v is not None:
+                try:
+                    out.varma_on_within.append(trial_rmse_z_for_model(varma_on, i_v, channel_idx))
+                except Exception:
+                    pass
+            i_v_cross = _key_index_map(varma_off_eval_on).get(k) if varma_off_eval_on else None
+            if i_v_cross is not None:
+                try:
+                    out.varma_on_cross.append(trial_rmse_z_for_model(varma_off_eval_on, i_v_cross, channel_idx))
+                except Exception:
+                    pass
+
+        n_ok += 1
+
+    if n_ok == 0:
+        raise ThesisDataError(
+            "collect_within_cross_rmse: no triplets produced usable PSID off/on alignment."
+        )
+    out.n_triplets_used = n_ok
+    return out
+
+
+@dataclass
 class AggregateRmseData:
     """Six cells in order: PSID off, PSID on, DPAD off, DPAD on, VARMA off, VARMA on."""
 
     labels: Tuple[str, ...] = (
         "PSID DBS-OFF",
         "PSID DBS-ON",
-        "DPAD-RNN DBS-OFF",
-        "DPAD-RNN DBS-ON",
+        "DPAD DBS-OFF",
+        "DPAD DBS-ON",
         "VARMA DBS-OFF",
         "VARMA DBS-ON",
     )
     means: Tuple[float, ...] = (0.0,) * 6
     sems: Tuple[float, ...] = (0.0,) * 6
     trial_rmse: Tuple[List[float], ...] = tuple([] for _ in range(6))
+    # (rmse, participant_id) per cell for box-plot participant coloring
+    trial_rmse_with_participant: Tuple[List[Tuple[float, str]], ...] = tuple(
+        [] for _ in range(6)
+    )
     wilcoxon: WilcoxonResults = field(default_factory=WilcoxonResults)
     n_triplets_used: int = 0
 
@@ -148,41 +362,35 @@ def collect_pooled_rmse(
     for one participant/session slice.
     """
     cells: List[List[float]] = [[] for _ in range(6)]
+    cells_with_pid: List[List[Tuple[float, str]]] = [[] for _ in range(6)]
 
     paired_off_psid_varma: List[Tuple[float, float]] = []
     paired_on_psid_varma: List[Tuple[float, float]] = []
     paired_off_dpad_varma: List[Tuple[float, float]] = []
     paired_on_dpad_varma: List[Tuple[float, float]] = []
 
+    if not triplet_specs:
+        raise ThesisDataError("collect_pooled_rmse: triplet_specs is empty.")
+
     n_ok = 0
     for tri in triplet_specs:
-        res_p = load_split_results(results_root, tri.psid_variant, tri.psid_run_ts, split)
-        res_d = load_split_results(results_root, tri.dpad_variant, tri.dpad_run_ts, split)
-        res_v = load_split_results(results_root, tri.varma_variant, tri.varma_run_ts, split)
-        if res_p is None or res_d is None or res_v is None:
-            logger.warning(
-                "Skipping triplet %s: missing results (psid=%s, dpad=%s, varma=%s)",
-                getattr(tri, "label", ""),
-                res_p is not None,
-                res_d is not None,
-                res_v is not None,
-            )
-            continue
+        res_p = load_split_results_required(results_root, tri.psid_variant, tri.psid_run_ts, split)
+        res_d = load_split_results_required(results_root, tri.dpad_variant, tri.dpad_run_ts, split)
+        res_v = load_split_results_required(results_root, tri.varma_variant, tri.varma_run_ts, split)
 
         mp = _key_index_map(res_p)
         md = _key_index_map(res_d)
         mv = _key_index_map(res_v)
-        common = set(mp.keys()) & set(md.keys()) & set(mv.keys())
-        if not common:
-            logger.warning(
-                "Skipping triplet %s: no overlapping trial keys across PSID/DPAD/VARMA.",
-                getattr(tri, "label", ""),
+        common_pd = set(mp.keys()) & set(md.keys()) & set(mv.keys())
+        if not common_pd:
+            raise ThesisDataError(
+                f"Pooled RMSE triplet {tri.label!r}: no trial keys common to PSID, DPAD, and VARMA."
             )
-            continue
 
         n_ok += 1
-        for k in sorted(common, key=lambda x: (str(x[0]), str(x[1]), str(x[2]), str(x[3]))):
-            i_p, i_d, i_v = mp[k], md[k], mv[k]
+        for k in sorted(common_pd, key=lambda x: (str(x[0]), str(x[1]), str(x[2]), str(x[3]))):
+            i_p, i_d = mp[k], md[k]
+            i_v = mv[k]
             stim = normalize_stim(res_p["stim"][i_p])
             if stim is None:
                 continue
@@ -194,18 +402,34 @@ def collect_pooled_rmse(
                 logger.debug("Skip trial %s: %s", k, e)
                 continue
 
+            pid = str(k[0]) if k else "?"
             if stim == "off":
                 cells[0].append(r_p)
                 cells[2].append(r_d)
+                cells_with_pid[0].append((r_p, pid))
+                cells_with_pid[2].append((r_d, pid))
                 cells[4].append(r_v)
+                cells_with_pid[4].append((r_v, pid))
                 paired_off_psid_varma.append((r_p, r_v))
                 paired_off_dpad_varma.append((r_d, r_v))
             else:
                 cells[1].append(r_p)
                 cells[3].append(r_d)
+                cells_with_pid[1].append((r_p, pid))
+                cells_with_pid[3].append((r_d, pid))
                 cells[5].append(r_v)
+                cells_with_pid[5].append((r_v, pid))
                 paired_on_psid_varma.append((r_p, r_v))
                 paired_on_dpad_varma.append((r_d, r_v))
+
+    if n_ok == 0:
+        raise ThesisDataError(
+            "collect_pooled_rmse: no triplets produced aligned PSID/DPAD/VARMA trial keys."
+        )
+    if sum(len(c) for c in cells) == 0:
+        raise ThesisDataError(
+            "collect_pooled_rmse: no trial RMSE values after alignment (check stim and Z/Zp)."
+        )
 
     means = tuple(float(np.mean(c)) if len(c) else float("nan") for c in cells)
     sems = tuple(_sem(np.array(c)) if len(c) > 1 else float("nan") for c in cells)
@@ -229,6 +453,7 @@ def collect_pooled_rmse(
         means=means,
         sems=sems,
         trial_rmse=tuple(cells),
+        trial_rmse_with_participant=tuple(cells_with_pid),
         wilcoxon=w,
         n_triplets_used=n_ok,
     )
