@@ -213,6 +213,18 @@ class Tester:
             valid_end = min(y_end, z_end)
 
             if valid_end <= valid_start:
+                self.logger.warning(
+                    "Dropped trial participant=%s session=%s block=%s trial=%s: "
+                    "valid_end=%d <= valid_start=%d (n_samples=%d, chunk_margin_ts=%d)",
+                    meta.get("participant_id"),
+                    meta.get("session"),
+                    meta.get("block"),
+                    meta.get("trial"),
+                    valid_end,
+                    valid_start,
+                    n_samples,
+                    chunk_margin_ts,
+                )
                 continue
 
             Y_sliced = Y[
@@ -247,9 +259,16 @@ class Tester:
             _meta.append(new_meta)
 
         _Z = None if all([_z is None for _z in _Z]) else _Z
-        self.logger.info(
-            f"Sliced data: Y={length(_Y)}, Z={length(_Z)}, meta={length(_meta)}"
-        )
+        n_dropped = len(meta_list) - len(_Y)
+        if n_dropped > 0:
+            self.logger.info(
+                f"Sliced data: Y={length(_Y)}, Z={length(_Z)}, meta={length(_meta)} "
+                f"({n_dropped} trial(s) dropped)"
+            )
+        else:
+            self.logger.info(
+                f"Sliced data: Y={length(_Y)}, Z={length(_Z)}, meta={length(_meta)}"
+            )
         return _Y, _Z, _meta
 
     def run_predictions(self):
