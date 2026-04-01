@@ -53,7 +53,7 @@ def _kde_colorscale(
     def norm(t: float) -> float:
         return float(np.clip((t - zmin) / span, 0.0, 1.0))
 
-    a0, a1, a2 = 0.0, 0.22, 0.38
+    a0, a1, a2 = 0.0, 0.38, 0.62
     n_lo = norm(t_lo)
     n_hi = norm(t_hi)
     return (
@@ -63,7 +63,7 @@ def _kde_colorscale(
             [min(n_lo + 1e-6, 1.0), _rgba(r, g, b, a1)],
             [n_hi, _rgba(r, g, b, a1)],
             [min(n_hi + 1e-6, 1.0), _rgba(r, g, b, a2)],
-            [1.0, _rgba(r, g, b, a2 + 0.05)],
+            [1.0, _rgba(r, g, b, a2 + 0.08)],
         ],
         zmin,
         zmax,
@@ -340,6 +340,8 @@ def build_latent_phase_space_figure(
                 showticklabels=(ri == n_p or ri == n_rows),
                 gridcolor=grid,
                 zeroline=False,
+                showline=True, linecolor=fg, linewidth=1,
+                tickfont=dict(size=FONT_SIZE_TICK),
                 row=ri,
                 col=ci,
             )
@@ -347,6 +349,8 @@ def build_latent_phase_space_figure(
                 showticklabels=(ci == 1),
                 gridcolor=grid,
                 zeroline=False,
+                showline=True, linecolor=fg, linewidth=1,
+                tickfont=dict(size=FONT_SIZE_TICK),
                 row=ri,
                 col=ci,
             )
@@ -355,6 +359,7 @@ def build_latent_phase_space_figure(
         paper_bgcolor=paper_bg,
         plot_bgcolor=plot_bg,
         font=dict(family=FONT_FAMILY, color=fg, size=FONT_SIZE_BASE),
+        height=max(240 * n_rows + 80, 600),
         margin=dict(l=132, r=48, t=56, b=64),
         showlegend=False,
     )

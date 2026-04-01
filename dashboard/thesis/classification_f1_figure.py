@@ -96,26 +96,6 @@ def build_classification_f1_figure(
 
     fig = go.Figure()
 
-    # Median lines per group (behind points)
-    for g in GROUP_ORDER:
-        vals = [p.balanced_accuracy for p in points if p.group == g]
-        if not vals:
-            continue
-        med = float(np.median(vals))
-        x0 = GROUP_X[g]
-        fig.add_trace(
-            go.Scatter(
-                x=[x0 - 0.32, x0 + 0.32],
-                y=[med, med],
-                mode="lines",
-                line=dict(color="rgba(200,200,200,0.95)", width=WIDTH_MEAN),
-                name="median",
-                legendgroup="median",
-                showlegend=(g == GROUP_ORDER[0]),
-                hoverinfo="skip",
-            )
-        )
-
     def _p_order(s: str) -> int:
         if len(s) > 1 and s[0] == "P" and s[1:].isdigit():
             return int(s[1:])
@@ -215,6 +195,7 @@ def build_classification_f1_figure(
                 font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY),
             ),
             range=[spec.y_min, spec.y_max],
+            showgrid=True,
             gridcolor=grid,
             zeroline=False,
             showline=True,
@@ -263,6 +244,7 @@ def build_classification_grouped_bar_figure(
     points: List[ClassificationF1Point],
     theme: ThesisTheme = ThesisTheme.LIGHT,
     title: str | None = None,
+    exclude_groups: set[str] | None = None,
 ) -> Figure:
     """
     Grouped bar chart: one cluster per participant-session, bars per feature group.
@@ -271,6 +253,8 @@ def build_classification_grouped_bar_figure(
     paper_bg, plot_bg = paper_colors(theme)
     grid = grid_color(theme)
     fg = true_line_color(theme)
+
+    active_groups = [g for g in GROUP_ORDER if not (exclude_groups and g in exclude_groups)]
 
     # Build session order from points
     seen: dict[str, None] = {}
@@ -286,13 +270,13 @@ def build_classification_grouped_bar_figure(
         lookup[(key, pt.group)] = pt
 
     n_sessions = len(session_labels)
-    n_groups = len(GROUP_ORDER)
+    n_groups = len(active_groups)
     bar_width = 0.18
     cluster_width = n_groups * bar_width + 0.1
 
     fig = go.Figure()
 
-    for gi, grp in enumerate(GROUP_ORDER):
+    for gi, grp in enumerate(active_groups):
         xs: list[float] = []
         ys: list[float] = []
         hover: list[str] = []
@@ -349,11 +333,6 @@ def build_classification_grouped_bar_figure(
         font=dict(family=FONT_FAMILY, color=fg, size=FONT_SIZE_BASE),
         height=FIGURE_HEIGHT,
         barmode="group",
-        title=dict(
-            text=title or "DBS classification — balanced accuracy by session",
-            font=dict(size=FONT_SIZE_LABEL + 1),
-            x=0.5,
-        ),
         xaxis=dict(
             tickmode="array",
             tickvals=tick_xs,
@@ -376,6 +355,7 @@ def build_classification_grouped_bar_figure(
                 font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY),
             ),
             range=[0.0, 1.08],
+            showgrid=True,
             gridcolor=grid,
             zeroline=False,
             showline=True,

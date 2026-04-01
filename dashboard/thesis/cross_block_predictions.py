@@ -819,15 +819,7 @@ def build_cross_block_predictions_figure(
         plot_bgcolor=plot_bg,
         font=dict(family=FONT_FAMILY, size=FONT_SIZE_BASE, color=fg),
         height=int(min(960, max(380, 260 * n_rows + 180))),
-        margin=dict(l=80, r=28, t=96, b=120),
-        title=dict(
-            text=(
-                f"{spec.section_title} · "
-                f"{', '.join(fw.upper() for fw, _, _ in built)} · "
-                f"last OFF trial / first ON trial · {span:.1f} s window"
-            ),
-            font=dict(size=FONT_SIZE_TICK + 1, family=FONT_FAMILY, color=fg),
-        ),
+        margin=dict(l=80, r=28, t=56, b=120),
         legend=dict(
             orientation="h", yanchor="top", y=-0.08,
             xanchor="center", x=0.5,

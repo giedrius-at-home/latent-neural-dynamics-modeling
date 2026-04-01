@@ -8,6 +8,7 @@ from typing import Any, Dict, Optional, Tuple
 import numpy as np
 
 from dashboard.thesis.aggregate_rmse import _key_index_map, _trial_key, normalize_stim
+from dashboard.thesis.constants import zscore_axis_label
 from dashboard.thesis.exemplar_trials import resolve_off_on_indices_from_spec
 from dashboard.thesis.figure import (
     ThesisPanelData,
@@ -293,7 +294,7 @@ def compose_thesis_figure(spec: ThesisFigureSpec, results_root: Path):
             ch_name, used_decl = resolve_output_channel_display(
                 res_p, spec.channel_idx, declared_outputs=THESIS_DECLARED_BEHAVIORAL_OUTPUTS
             )
-    y_axis_label = f"{ch_name} (z-scored)"
+    y_axis_label = zscore_axis_label(ch_name)
     caption = thesis_exemplar_tagline(
         res_p, i_off, i_on, ch_name, participant_label=spec.participant_label
     )
@@ -483,7 +484,7 @@ def compose_thesis_neural_figure(spec: ThesisNeuralTimeseriesSpec, results_root:
         spec.neural_y_channel_idx,
         neural_y_feature_name=spec.neural_y_feature_name,
     )
-    y_axis_label = f"{y_meta} (z-scored)"
+    y_axis_label = zscore_axis_label(y_meta)
 
     caption = thesis_exemplar_tagline(
         res_p, i_off, i_on, y_meta, participant_label=spec.participant_label

@@ -228,14 +228,15 @@ def compute_cy_signed_heatmap(
         )
 
     resh = cy_rel.reshape(_N_CONTACTS, _N_BAND_COLS, n1)
-    cy_signed = resh.sum(axis=2).copy()  # (4, 29), signed sum across latent dims
-
-    for i in range(_N_CONTACTS):
-        row_max = float(np.max(np.abs(cy_signed[i])))
+    # (n1, 4_contacts): norm of Cy over 29 bands for each (latent_dim, contact) pair
+    # Transpose to (n1, 4): y=latent dims, x=ECoG contacts
+    cy_per_dim_contact = np.linalg.norm(resh, axis=1).T  # (n1, 4_contacts)
+    for j in range(cy_per_dim_contact.shape[0]):
+        row_max = float(np.max(np.abs(cy_per_dim_contact[j])))
         if row_max > 0:
-            cy_signed[i] /= row_max
+            cy_per_dim_contact[j] /= row_max
 
-    return cy_signed, n1, channels, layout
+    return cy_per_dim_contact, n1, channels, layout
 
 
 def compute_cz_heatmap(id_sys: Any) -> Tuple[np.ndarray, int, List[str]]:

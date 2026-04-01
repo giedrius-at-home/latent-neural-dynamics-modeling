@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import html
 import logging
+import math
 import os
 from contextlib import contextmanager
 from pathlib import Path
@@ -50,6 +51,7 @@ from dashboard.thesis.neural_band_heatmap_figure import build_neural_band_heatma
 from dashboard.thesis.neural_band_pearson import collect_neural_band_pearson
 from dashboard.thesis.psid_cy_importance_figure import build_psid_cy_importance_figure
 from dashboard.thesis.psid_cz_figure import build_psid_cz_figure
+from dashboard.thesis.constants import rmse_axis_label
 from dashboard.thesis.rmse_distribution_figure import (
     build_rmse_distribution_figure,
     build_rmse_boxplot_figure,
@@ -61,13 +63,20 @@ from dashboard.thesis.fig_within_cross import (
     build_within_cross_boxplot_figure,
 )
 from dashboard.thesis.fig_appendix import (
+    build_preprocessing_pipeline_figure,
     build_psd_dbs_comparison_figure,
     build_tracing_speed_dbs_comparison_figure,
     build_grid_search_pearson_figure,
     build_grid_search_rmse_figure,
+    build_grid_search_neural_rmse_figure,
     build_grid_search_lag_figure,
     build_trial_count_summary_figure,
 )
+from dashboard.thesis.dpad_training_curves_figure import (
+    build_dpad_training_curves_figure,
+    build_dpad_training_time_figure,
+)
+from dashboard.thesis.data_efficiency_figure import build_data_efficiency_figure
 from dashboard.thesis.aggregate_rmse import collect_within_cross_rmse
 import dashboard.thesis.specs as thesis_specs
 from dashboard.thesis.specs import (
@@ -90,12 +99,13 @@ _CSS = """
 :root {
   --bg: #ffffff;
   --fg: #2c2c2a;
-  --muted: #666660;
+  --muted: #555550;
   --rule: #e0e0dc;
   --err-bg: #fce8e8;
   --err-fg: #b91c1c;
   --warn-bg: #fef3cd;
   --warn-fg: #856404;
+  --cap-bg: #f8f8f6;
 }
 * { box-sizing: border-box; }
 body {
@@ -103,7 +113,7 @@ body {
   font-family: system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   background: var(--bg);
   color: var(--fg);
-  line-height: 1.5;
+  line-height: 1.55;
 }
 main {
   max-width: 1100px;
@@ -120,7 +130,15 @@ h2 {
 }
 h2:first-of-type { border-top: none; padding-top: 0; }
 h3 { font-size: 1rem; font-weight: 600; margin: 1.25rem 0 0.5rem; }
-p.caption, .caption { font-size: 0.84rem; color: var(--muted); margin: 0.4rem 0 0.75rem; }
+p.caption, .caption {
+  font-size: 0.84rem;
+  color: var(--muted);
+  margin: 0.25rem 0 1.2rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--cap-bg);
+  border-left: 3px solid var(--rule);
+  line-height: 1.55;
+}
 p.error {
   background: var(--err-bg);
   color: var(--err-fg);
@@ -139,7 +157,7 @@ p.warning {
   margin: 0.5rem 0 1rem;
   font-size: 0.88rem;
 }
-.figure-wrap { margin: 0.5rem 0 1rem; width: 100%; overflow-x: auto; }
+.figure-wrap { margin: 0.5rem 0 0.25rem; width: 100%; overflow-x: auto; }
 .rmse-label { font-weight: 600; margin: 0.75rem 0 0.35rem; font-size: 0.9rem; }
 table.rmse-table {
   border-collapse: collapse;
@@ -169,8 +187,10 @@ def _p_warning(msg: object) -> str:
     return f'<p class="warning">{_escape(msg)}</p>'
 
 
-def _p_caption(text: str) -> str:
-    return f'<p class="caption">{_escape(text)}</p>'
+def _p_caption(text: str, *, raw: bool = False) -> str:
+    """Caption paragraph. Use raw=True when text already contains safe HTML."""
+    body = text if raw else _escape(text)
+    return f'<p class="caption">{body}</p>'
 
 
 def _df_to_html(df: pd.DataFrame) -> str:
@@ -298,7 +318,7 @@ def _build_thesis_html_document_body(
     parts.append("<head>")
     parts.append('<meta charset="utf-8">')
     parts.append('<meta name="viewport" content="width=device-width, initial-scale=1">')
-    parts.append("<title>Results</title>")
+    parts.append("<title>Thesis Results</title>")
     parts.append(f"<style>{_CSS}</style>")
     parts.append("</head>")
     parts.append("<body>")
@@ -308,16 +328,121 @@ def _build_thesis_html_document_body(
     c2_z_specs = [s for s in THESIS_C2_FORECASTS if s.forecast_target != "Y"]
 
     # ===================================================================
-    # GROUP RESULTS — Per-session RMSE box plots (first section)
+    # Data and Preprocessing
     # ===================================================================
-    parts.append('<hr class="section">')
-    parts.append("<h2>Per-session RMSE box plots (model × DBS)</h2>")
-    parts.append(
-        _p_caption(
-            "One box plot per participant-session. Each figure uses only the trials from "
-            "that single session. Box: IQR. Whiskers: 1.5×IQR. Dots: individual trials."
+
+    # Preprocessing pipeline flowchart
+    parts.append('<h2>Data and Preprocessing</h2>')
+    try:
+        fig_pp = build_preprocessing_pipeline_figure()
+        add_fig(fig_pp)
+        parts.append(
+            _p_caption(
+                "<b>Preprocessing pipeline.</b> "
+                "Raw BIDS data \u2192 spectral decomposition \u2192 80 Hz resampling \u2192 "
+                "kinematics extraction \u2192 trial segmentation \u2192 model input.",
+                raw=True,
+            )
         )
-    )
+    except Exception as e:
+        parts.append(_p_error(f"Failed to build preprocessing pipeline figure: {e}"))
+
+    # Trial count per session and DBS condition
+    parts.append('<hr class="section">')
+    try:
+        fig_tc = build_trial_count_summary_figure()
+        add_fig(fig_tc)
+        parts.append(
+            _p_caption(
+                "<b>Trial count per session and DBS condition.</b> "
+                "Number of trials per participant-session and DBS condition after preprocessing.",
+                raw=True,
+            )
+        )
+    except Exception as e:
+        parts.append(_p_error(f"Failed to build trial count figure: {e}"))
+
+    # ECoG PSD: DBS-ON vs DBS-OFF
+    parts.append('<hr class="section">')
+    try:
+        fig_psd = build_psd_dbs_comparison_figure()
+        add_fig(fig_psd)
+        parts.append(
+            _p_caption(
+                "<b>ECoG PSD: DBS-ON vs DBS-OFF.</b> "
+                "Filled ribbons = \u00b11 SEM across trials. Lines = mean PSD. "
+                "Vertical dashed lines = 13\u201329 Hz beta band.",
+                raw=True,
+            )
+        )
+    except Exception as e:
+        parts.append(_p_error(f"Failed to build PSD figure: {e}"))
+
+    # Tracing speed: DBS-ON vs DBS-OFF
+    parts.append('<hr class="section">')
+    try:
+        fig_ts = build_tracing_speed_dbs_comparison_figure()
+        add_fig(fig_ts)
+        parts.append(
+            _p_caption(
+                "<b>Tracing speed: DBS-ON vs DBS-OFF.</b> "
+                "Mean z-scored tracing speed per DBS condition, averaged across trials.",
+                raw=True,
+            )
+        )
+    except Exception as e:
+        parts.append(_p_error(f"Failed to build tracing speed figure: {e}"))
+
+    # ===================================================================
+    # Model Comparison
+    # ===================================================================
+
+    # Pooled behavioral RMSE bars
+    parts.append('<h2>Model Comparison</h2>')
+    for spec in THESIS_AGGREGATE_FIGURES:
+        ch_agg, _da = resolve_output_channel_display(
+            load_split_results_required(
+                results_root,
+                spec.triplets[0].psid_variant,
+                spec.triplets[0].psid_run_ts,
+                spec.split,
+            ),
+            spec.channel_idx,
+            declared_outputs=THESIS_DECLARED_BEHAVIORAL_OUTPUTS,
+        )
+        try:
+            agg = collect_pooled_rmse(
+                results_root,
+                spec.triplets,
+                spec.channel_idx,
+                split=spec.split,
+                run_wilcoxon=spec.run_wilcoxon,
+            )
+            rng = np.random.default_rng(spec.jitter_seed)
+            fig_b = build_rmse_distribution_figure(
+                agg,
+                spec.theme,
+                rng,
+                show_brackets=False,
+                y_axis_label=rmse_axis_label(ch_agg),
+            )
+            add_fig(fig_b)
+            n_off = sum(len(agg.trial_rmse[i]) for i in [0, 2, 4])
+            n_on = sum(len(agg.trial_rmse[i]) for i in [1, 3, 5])
+            parts.append(
+                _p_caption(
+                    f"<b>Pooled behavioral RMSE ({_escape(ch_agg)}).</b> "
+                    f"Bar height = mean RMSE(z) across {agg.n_triplets_used} participant-sessions "
+                    f"({n_off} OFF / {n_on} ON trials), error bars = \u00b11 SEM. "
+                    f"PSID, DPAD, and VARMA evaluated on identical held-out trials.",
+                    raw=True,
+                )
+            )
+        except Exception as e:
+            parts.append(_p_error(f"Failed to build aggregate figure: {e}"))
+
+    # Per-session RMSE bars
+    parts.append('<hr class="section">')
     for spec in THESIS_AGGREGATE_FIGURES:
         ch_ps, _dps = resolve_output_channel_display(
             load_split_results_required(
@@ -331,7 +456,6 @@ def _build_thesis_html_document_body(
         )
         for tri in spec.triplets:
             session_label = tri.label or "unknown"
-            parts.append(f"<h3>{_escape(session_label)} — {_escape(ch_ps)}</h3>")
             try:
                 agg_single = collect_pooled_rmse(
                     results_root,
@@ -341,119 +465,99 @@ def _build_thesis_html_document_body(
                     run_wilcoxon=False,
                 )
                 rng_s = np.random.default_rng(spec.jitter_seed)
-                fig_session = build_rmse_boxplot_figure(
+                fig_session = build_rmse_distribution_figure(
                     agg_single,
                     spec.theme,
                     rng_s,
-                    title=f"{session_label} — Trial RMSE by model × DBS ({ch_ps})",
+                    show_brackets=False,
+                    show_dots=False,
+                    y_axis_label=rmse_axis_label(ch_ps),
                 )
                 add_fig(fig_session)
-                n_trials = sum(len(c) for c in agg_single.trial_rmse)
+                n_off_s = sum(len(agg_single.trial_rmse[i]) for i in [0, 2, 4])
+                n_on_s = sum(len(agg_single.trial_rmse[i]) for i in [1, 3, 5])
+                stat_parts = []
+                model_labels = ["PSID", "PSID", "DPAD", "DPAD", "VARMA", "VARMA"]
+                cond_labels = ["OFF", "ON", "OFF", "ON", "OFF", "ON"]
+                for i in range(6):
+                    m_v = agg_single.means[i] if i < len(agg_single.means) else float("nan")
+                    s_v = agg_single.sems[i] if i < len(agg_single.sems) else float("nan")
+                    if math.isfinite(m_v):
+                        stat_parts.append(f"{model_labels[i]} {cond_labels[i]}: {m_v:.3f} \u00b1 {s_v:.3f}")
+                stat_str = ". ".join(stat_parts) + "." if stat_parts else ""
                 parts.append(
                     _p_caption(
-                        f"Session {session_label}: {n_trials} total trial RMSE values "
-                        f"(channel: {ch_ps})."
+                        f"<b>{_escape(session_label)}. Trial-level RMSE(z) \u2014 {_escape(ch_ps)}.</b> "
+                        f"{n_off_s} OFF / {n_on_s} ON held-out trials. "
+                        f"{_escape(stat_str)}",
+                        raw=True,
                     )
                 )
             except Exception as e:
                 parts.append(
-                    _p_error(f"Failed to build per-session box plot for {session_label}: {e}")
+                    _p_error(f"Failed to build per-session RMSE figure for {session_label}: {e}")
                 )
 
-    # ===================================================================
-    # GROUP RESULTS — Classification grouped bar chart (second section)
-    # ===================================================================
+    # Session-mean RMSE strip plots
     parts.append('<hr class="section">')
-    parts.append("<h2>DBS classification — balanced accuracy by session</h2>")
-    for f1_spec in THESIS_CLASSIFICATION_F1:
-        # Determine model label(s) from the spec points
-        model_labels = sorted({getattr(ref, "model_label", "PSID") for ref in f1_spec.points})
-        model_str = " / ".join(model_labels)
-        parts.append(f"<h3>{_escape(f1_spec.section_title)} ({_escape(model_str)} latent states)</h3>")
+    for strip_spec in THESIS_STRIP_PANELS:
         try:
-            cls_points = collect_classification_f1_points(
+            panel_triplets = [(e.panel_label, e.triplet) for e in strip_spec.panels]
+            strip_data = collect_strip_figure_data(
                 results_root,
-                f1_spec.points,
-                classification_parent=f1_spec.classification_parent,
+                panel_triplets,
+                strip_spec.channel_idx,
+                split=strip_spec.split,
             )
-            fig_cls_bar = build_classification_grouped_bar_figure(
-                cls_points,
-                theme=f1_spec.theme,
-                title=f"DBS classification — balanced accuracy by session ({model_str})",
+            if strip_data is None or not strip_data.panels:
+                raise ValueError("No panels produced.")
+            rng = np.random.default_rng(strip_spec.jitter_seed)
+            fig_s = build_session_strip_boxplot_figure(
+                strip_data,
+                ncols=strip_spec.ncols,
+                theme=strip_spec.theme,
+                rng=rng,
             )
-            add_fig(fig_cls_bar)
-            # Build stats caption from the data
-            cap_lines: list[str] = []
-            for pt in cls_points:
-                pval_str = f"p = {pt.permutation_pvalue:.4f}" if pt.permutation_pvalue is not None else "permutation test not run"
-                cap_lines.append(
-                    f"{pt.participant_label}_{pt.session_label} "
-                    f"{_FEAT_SHORT.get(pt.group, pt.group)}: "
-                    f"BA = {pt.balanced_accuracy:.3f} ({pval_str})"
-                )
+            add_fig(fig_s)
             parts.append(
                 _p_caption(
-                    f"CSP + LDA on {model_str} latent states. "
-                    "Balanced accuracy on held-out test set. "
-                    "Chance level = 0.5 (dashed red line). "
-                    + " | ".join(cap_lines)
+                    "<b>Session-mean RMSE strip plots.</b> "
+                    "Per-participant breakdown of model RMSE across sessions. "
+                    f"{_escape(strip_spec.caption or '')}",
+                    raw=True,
                 )
             )
         except Exception as e:
-            parts.append(_p_error(f"Failed to build classification grouped bar chart: {e}"))
+            parts.append(_p_error(f"Failed to build strip plot: {e}"))
 
     # ===================================================================
-    # GROUP RESULTS — Flipped classification heatmaps (h × m grid)
+    # Neural Reconstruction and Forecast
     # ===================================================================
-    parts.append('<hr class="section">')
-    parts.append("<h2>Flipped classification — balanced accuracy (h × m)</h2>")
-    parts.append(
-        _p_caption(
-            "Heatmap of balanced accuracy across history (h) and forecast (m) windows. "
-            "Flipped protocol: latent states from condition-specific models (DBS-OFF, DBS-ON) "
-            "are swapped to create a synthetic DBS mismatch. Chance level ≈ 0.5."
-        )
-    )
-    try:
-        from dashboard.thesis.classification_f1_figure import build_flipped_heatmap_figure
-        flipped_fig = build_flipped_heatmap_figure(results_root)
-        add_fig(flipped_fig)
-    except Exception as e:
-        parts.append(_p_error(f"Failed to build flipped classification heatmaps: {e}"))
+    # TODO: compare PSID forecast with backwards Kalman vs vanilla vs A-normalization disabled
+    # (user has implemented backwards Kalman; need to disable it and A normalization to compare)
 
-    # ===================================================================
-    # Individual figure sections follow
-    # ===================================================================
-    parts.append('<hr class="section">')
-    parts.append("<h2>Neural exemplars (Y vs Ŷ)</h2>")
-    if (DEFAULT_NEURAL_TS_CAPTION or "").strip():
-        parts.append(_p_caption(DEFAULT_NEURAL_TS_CAPTION))
+    # Neural reconstruction time series
+    parts.append('<h2>Neural Reconstruction and Forecast</h2>')
     for n_spec in THESIS_NEURAL_TIMESERIES:
-        parts.append(f"<h3>{_escape(n_spec.section_title)}</h3>")
         try:
             fig_n, rmse_n, cap_n = compose_thesis_neural_figure(n_spec, results_root)
             add_fig(fig_n)
-            parts.append('<p class="rmse-label">Per-trial RMSE on z-scored neural Y</p>')
             parts.append(_df_to_html(rmse_n))
-            parts.append(_p_caption(cap_n))
+            parts.append(
+                _p_caption(
+                    f"<b>Neural reconstruction ({_escape(n_spec.section_title)}).</b> "
+                    f"Observed ECoG (black) vs. model predictions. "
+                    f"Shaded ribbons = session-mean RMSE around each prediction. "
+                    f"{_escape(cap_n)}",
+                    raw=True,
+                )
+            )
         except Exception as e:
             parts.append(_p_error(f"Failed to build neural exemplar figure: {e}"))
 
+    # Neural forecast RMSE vs horizon
     parts.append('<hr class="section">')
-    parts.append("<h2>Figure C2 — Neural forecast (Y_future)</h2>")
-    for c2_spec in c2_neural_specs:
-        parts.append(f"<h3>{_escape(c2_spec.section_title)}</h3>")
-        try:
-            fig_c2, cap_c2 = build_c2_forecast_figure(c2_spec, results_root)
-            add_fig(fig_c2)
-            parts.append(_p_caption(cap_c2 or DEFAULT_C2_FORECAST_CAPTION))
-        except Exception as e:
-            parts.append(_p_error(f"Failed to build Figure C2: {e}"))
-
-    parts.append('<hr class="section">')
-    parts.append("<h2>Forecast RMSE vs horizon — neural Y</h2>")
     for fc_spec in THESIS_NEURAL_FORECAST_FIGURES:
-        parts.append(f"<h3>{_escape(fc_spec.section_title)}</h3>")
         try:
             fc_data = collect_forecast_horizon_rmse(
                 results_root,
@@ -465,11 +569,6 @@ def _build_thesis_html_document_body(
                 naive_rmse=fc_spec.naive_rmse,
                 forecast_target=fc_spec.forecast_target,
                 neural_y_feature_name=fc_spec.neural_y_feature_name,
-            )
-            parts.append(
-                _p_caption(
-                    f"Triplets: {fc_data.n_triplets_used} · trials OFF/ON: {fc_data.n_trials_off} / {fc_data.n_trials_on}."
-                )
             )
             res_fc = load_split_results_required(
                 results_root,
@@ -482,248 +581,86 @@ def _build_thesis_html_document_body(
             )
             inn = channels_as_str_list(res_fc.get("input_channels"))
             neu_lbl = inn[ch_ix] if ch_ix < len(inn) else f"Y column {ch_ix}"
-            y_fc_title = f"RMSE (z-scored {neu_lbl})"
+            y_fc_title = rmse_axis_label(neu_lbl)
             fig_fc = build_forecast_rmse_figure_or_empty(
                 fc_data, fc_spec.theme, y_axis_title=y_fc_title
             )
             add_fig(fig_fc)
-            parts.append(_p_caption(fc_spec.caption or DEFAULT_NEURAL_FORECAST_CAPTION))
-            parts.append(f"<h4>Global forecast RMSE at {fc_data.global_horizon_ms:.0f} ms</h4>")
-            try:
-                fig_fg = build_forecast_global_rmse_figure(
-                    fc_data,
-                    fc_spec.theme,
-                    rng=np.random.default_rng(42),
-                    y_axis_title=y_fc_title,
+            parts.append(
+                _p_caption(
+                    f"<b>Neural forecast RMSE vs. horizon ({_escape(neu_lbl)}).</b> "
+                    f"PSID and VARMA multi-step prediction error, "
+                    f"pooled across {fc_data.n_triplets_used} session(s) "
+                    f"({fc_data.n_trials_off} OFF / {fc_data.n_trials_on} ON trials). "
+                    f"Dashed line = na\u00efve (mean) baseline. Shaded bands = \u00b11 SEM.",
+                    raw=True,
                 )
-                add_fig(fig_fg)
-            except Exception as _eg:
-                parts.append(_p_error(f"Failed to build global neural forecast RMSE figure: {_eg}"))
+            )
         except Exception as e:
             parts.append(_p_error(f"Failed to build neural forecast RMSE figure: {e}"))
 
+    # Neural forecast exemplars
     parts.append('<hr class="section">')
-    parts.append("<h2>Time-series exemplars (behavioral Z)</h2>")
+    for c2_spec in c2_neural_specs:
+        try:
+            fig_c2, cap_c2 = build_c2_forecast_figure(c2_spec, results_root)
+            add_fig(fig_c2)
+            parts.append(
+                _p_caption(
+                    f"<b>Neural forecast exemplar ({_escape(c2_spec.section_title)}).</b> "
+                    f"Left = history window, right = multi-step forecast. "
+                    f"Shaded bands = session-mean RMSE. "
+                    f"{_escape(cap_c2 or '')}",
+                    raw=True,
+                )
+            )
+        except Exception as e:
+            parts.append(_p_error(f"Failed to build neural forecast figure: {e}"))
+
+    # ===================================================================
+    # Behavioral Decoding and Forecast
+    # ===================================================================
+
+    # Behavioral decoding time series
+    parts.append('<h2>Behavioral Decoding and Forecast</h2>')
     for spec in THESIS_FIGURES:
-        parts.append(f"<h3>{_escape(spec.section_title)}</h3>")
         try:
             fig, rmse_df, caption = compose_thesis_figure(spec, results_root)
         except Exception as e:
             parts.append(_p_error(f"Failed to build figure: {e}"))
             continue
         add_fig(fig)
-        parts.append('<p class="rmse-label">Per-trial RMSE (z-scored)</p>')
         parts.append(_df_to_html(rmse_df))
-        parts.append(_p_caption(caption))
+        parts.append(
+            _p_caption(
+                f"<b>Behavioral decoding ({_escape(spec.section_title)}).</b> "
+                f"Observed output (black) vs. model predictions. "
+                f"Ribbons = session-mean RMSE. RMSE table above. "
+                f"{_escape(caption)}",
+                raw=True,
+            )
+        )
 
+    # Behavioral forecast exemplars
     parts.append('<hr class="section">')
-    parts.append("<h2>Figure C2 — Behavioral forecast (Z_future)</h2>")
     for c2_spec in c2_z_specs:
-        parts.append(f"<h3>{_escape(c2_spec.section_title)}</h3>")
         try:
             fig_c2, cap_c2 = build_c2_forecast_figure(c2_spec, results_root)
             add_fig(fig_c2)
-            parts.append(_p_caption(cap_c2 or DEFAULT_C2_FORECAST_CAPTION))
-        except Exception as e:
-            parts.append(_p_error(f"Failed to build Figure C2: {e}"))
-
-    parts.append('<hr class="section">')
-    parts.append("<h2>Cross-block decoding (OFF↔ON trial stitches)</h2>")
-    parts.append(_p_caption("1 s segments around the OFF/ON block boundary; see each figure title for layout."))
-    for xb_spec in THESIS_CROSS_BLOCK:
-        parts.append(f"<h3>{_escape(xb_spec.section_title)}</h3>")
-        try:
-            fig_xb, cap_xb = build_cross_block_predictions_figure(xb_spec, results_root)
-            add_fig(fig_xb)
-            parts.append(_p_caption(cap_xb))
-        except Exception as e:
-            parts.append(_p_error(f"Failed to build cross-block figure: {e}"))
-
-    parts.append('<hr class="section">')
-    parts.append("<h2>Multi-step forecast — OFF / BOTH / ON checkpoints</h2>")
-    parts.append(
-        _p_caption(
-            "One column per DBS trial (same indices as cross-block); within each cell: three trained checkpoints."
-        )
-    )
-    for fc_ck_spec in THESIS_FORECAST_CHECKPOINT:
-        parts.append(f"<h3>{_escape(fc_ck_spec.section_title)}</h3>")
-        try:
-            fig_fc_ck, cap_fc_ck = build_forecast_checkpoint_compare_figure(fc_ck_spec, results_root)
-            add_fig(fig_fc_ck)
-            parts.append(_p_caption(cap_fc_ck or DEFAULT_FORECAST_CHECKPOINT_CAPTION))
-        except Exception as e:
-            parts.append(_p_error(f"Failed to build forecast checkpoint figure: {e}"))
-
-    parts.append('<hr class="section">')
-    parts.append("<h2>PSID — behaviourally relevant Cy importance</h2>")
-    for cy_spec in THESIS_PSID_CY_IMPORTANCE:
-        parts.append(f"<h3>{_escape(cy_spec.section_title)}</h3>")
-        n_cells = sum(len(r.panels) for r in cy_spec.rows)
-        parts.append(
-            _p_caption(
-                f"Panels in spec: {n_cells} (participant × session). "
-                "Edit PsidCyRow / PsidCyPanel in dashboard/thesis/specs.py."
-            )
-        )
-        try:
-            fig_cy, cap_cy = build_psid_cy_importance_figure(cy_spec, results_root)
-            add_fig(fig_cy)
-            parts.append(_p_caption(cap_cy or DEFAULT_PSID_CY_IMPORTANCE_CAPTION))
-        except Exception as e:
-            parts.append(_p_error(f"Failed to build PSID Cy importance figure: {e}"))
-
-    parts.append('<hr class="section">')
-    parts.append("<h2>PSID — Cz behavioural readout</h2>")
-    for cz_spec in THESIS_PSID_CZ_HEATMAP:
-        parts.append(f"<h3>{_escape(cz_spec.section_title)}</h3>")
-        n_cells = sum(len(r.panels) for r in cz_spec.rows)
-        parts.append(
-            _p_caption(
-                f"Panels in spec: {n_cells} (participant × session). "
-                "Edit ThesisPsidCzSpec in dashboard/thesis/specs.py."
-            )
-        )
-        try:
-            fig_cz, cap_cz = build_psid_cz_figure(cz_spec, results_root)
-            add_fig(fig_cz)
-            parts.append(_p_caption(cap_cz or DEFAULT_PSID_CZ_CAPTION))
-        except Exception as e:
-            parts.append(_p_error(f"Failed to build PSID Cz heatmap figure: {e}"))
-
-    parts.append('<hr class="section">')
-    parts.append("<h2>Latent phase space (PSID vs DPAD)</h2>")
-    for lp_spec in THESIS_LATENT_PHASE:
-        parts.append(f"<h3>{_escape(lp_spec.section_title)}</h3>")
-        n_cells = sum(len(r.panels) for r in lp_spec.rows)
-        parts.append(
-            _p_caption(
-                f"Panels: {n_cells} (participant × session). "
-                "Edit LatentPhaseRow / LatentPhasePanel in dashboard/thesis/specs.py."
-            )
-        )
-        try:
-            fig_lp, cap_lp = build_latent_phase_space_figure(lp_spec, results_root)
-            add_fig(fig_lp)
-            parts.append(_p_caption(cap_lp or DEFAULT_LATENT_PHASE_CAPTION))
-        except Exception as e:
-            parts.append(_p_error(f"Failed to build latent phase space figure: {e}"))
-
-    parts.append('<hr class="section">')
-    parts.append("<h2>DBS classification — Figure F1 (balanced accuracy)</h2>")
-    for f1_spec in THESIS_CLASSIFICATION_F1:
-        parts.append(f"<h3>{_escape(f1_spec.section_title)}</h3>")
-        n_pts = len(f1_spec.points)
-        parts.append(
-            _p_caption(
-                f"Pickle refs in spec: {n_pts}. "
-                "Edit ClassificationF1PickleRef in THESIS_CLASSIFICATION_F1 in dashboard/thesis/specs.py."
-            )
-        )
-        try:
-            fig_f1, cap_f1 = build_classification_f1_figure(f1_spec, results_root)
-            add_fig(fig_f1)
-            parts.append(_p_caption(cap_f1 or DEFAULT_CLASSIFICATION_F1_CAPTION))
-        except Exception as e:
-            parts.append(_p_error(f"Failed to build Figure F1: {e}"))
-
-    parts.append('<hr class="section">')
-    parts.append("<h2>Pooled test-set RMSE (model × DBS)</h2>")
-    for spec in THESIS_AGGREGATE_FIGURES:
-        parts.append(f"<h3>{_escape(spec.section_title)}</h3>")
-        ch_agg, _da = resolve_output_channel_display(
-            load_split_results_required(
-                results_root,
-                spec.triplets[0].psid_variant,
-                spec.triplets[0].psid_run_ts,
-                spec.split,
-            ),
-            spec.channel_idx,
-            declared_outputs=THESIS_DECLARED_BEHAVIORAL_OUTPUTS,
-        )
-        parts.append(
-            _p_caption(
-                f"Aligned triplets: {len(spec.triplets)}. "
-                f"RMSE uses output channel index {spec.channel_idx} ({ch_agg}), "
-                "z-scored per trial using true-trace statistics. "
-                "PSID, DPAD, and VARMA must share identical trial keys on the test split."
-            )
-        )
-        try:
-            agg = collect_pooled_rmse(
-                results_root,
-                spec.triplets,
-                spec.channel_idx,
-                split=spec.split,
-                run_wilcoxon=spec.run_wilcoxon,
-            )
             parts.append(
                 _p_caption(
-                    f"Triplets loaded successfully: {agg.n_triplets_used} "
-                    "(zero means no overlapping trial keys across PSID/DPAD/VARMA)."
-                )
-            )
-            cap = spec.caption or DEFAULT_AGGREGATE_CAPTION
-            rng = np.random.default_rng(spec.jitter_seed)
-            fig_b = build_rmse_distribution_figure(
-                agg,
-                spec.theme,
-                rng,
-                show_brackets=spec.show_brackets,
-            )
-            add_fig(fig_b)
-            parts.append(_p_caption(cap))
-            fig_box = build_rmse_boxplot_figure(agg, spec.theme, rng)
-            add_fig(fig_box)
-            parts.append(
-                _p_caption(
-                    "Box: IQR. Whiskers: 1.5×IQR. "
-                    "Dots: individual trials; colour = participant (see legend on the box plot: "
-                    "green ≈ PDI4, blue ≈ PDI1 in the default colour map)."
+                    f"<b>Behavioral forecast ({_escape(c2_spec.section_title)}).</b> "
+                    f"History window (left) and multi-step forecast (right). "
+                    f"{_escape(cap_c2 or '')}",
+                    raw=True,
                 )
             )
         except Exception as e:
-            parts.append(_p_error(f"Failed to build aggregate figure: {e}"))
+            parts.append(_p_error(f"Failed to build behavioral forecast figure: {e}"))
 
+    # Behavioral forecast RMSE vs horizon
     parts.append('<hr class="section">')
-    parts.append("<h2>Session-mean RMSE strip plots (per participant)</h2>")
-    for strip_spec in THESIS_STRIP_PANELS:
-        parts.append(f"<h3>{_escape(strip_spec.section_title)}</h3>")
-        parts.append(
-            _p_caption(
-                f"Panels in spec: {len(strip_spec.panels)}, grid: {strip_spec.ncols} columns. "
-                "Replace StripPanelEntry rows in dashboard/thesis/specs.py with real triplets per participant."
-            )
-        )
-        try:
-            panel_triplets = [(e.panel_label, e.triplet) for e in strip_spec.panels]
-            strip_data = collect_strip_figure_data(
-                results_root,
-                panel_triplets,
-                strip_spec.channel_idx,
-                split=strip_spec.split,
-            )
-            if strip_data is None or not strip_data.panels:
-                raise ValueError(
-                    "Strip plot: no panels (missing results or no overlapping trial keys across models)."
-                )
-            rng = np.random.default_rng(strip_spec.jitter_seed)
-            fig_s = build_session_strip_boxplot_figure(
-                strip_data,
-                ncols=strip_spec.ncols,
-                theme=strip_spec.theme,
-                rng=rng,
-            )
-            add_fig(fig_s)
-            parts.append(_p_caption(strip_spec.caption or DEFAULT_STRIP_CAPTION))
-        except Exception as e:
-            parts.append(_p_error(f"Failed to build strip plot: {e}"))
-
-    parts.append('<hr class="section">')
-    parts.append("<h2>Forecast RMSE vs horizon (PSID vs VARMA)</h2>")
     for fc_spec in THESIS_FORECAST_FIGURES:
-        parts.append(f"<h3>{_escape(fc_spec.section_title)}</h3>")
-        parts.append(_p_caption(f"Aligned triplets: {len(fc_spec.triplets)}."))
         try:
             fc_data = collect_forecast_horizon_rmse(
                 results_root,
@@ -736,12 +673,6 @@ def _build_thesis_html_document_body(
                 forecast_target=fc_spec.forecast_target,
                 neural_y_feature_name=fc_spec.neural_y_feature_name,
             )
-            parts.append(
-                _p_caption(
-                    f"Triplets loaded: {fc_data.n_triplets_used} · "
-                    f"trials OFF / ON: {fc_data.n_trials_off} / {fc_data.n_trials_on}."
-                )
-            )
             res_fc = load_split_results_required(
                 results_root,
                 fc_spec.triplets[0].psid_variant,
@@ -751,71 +682,111 @@ def _build_thesis_html_document_body(
             ch_fc, _dfc = resolve_output_channel_display(
                 res_fc, fc_spec.channel_idx, declared_outputs=THESIS_DECLARED_BEHAVIORAL_OUTPUTS
             )
-            y_fc_title = f"RMSE (z-scored {ch_fc})"
+            y_fc_title = rmse_axis_label(ch_fc)
             fig_fc = build_forecast_rmse_figure_or_empty(
                 fc_data, fc_spec.theme, y_axis_title=y_fc_title
             )
             add_fig(fig_fc)
-            parts.append(_p_caption(fc_spec.caption or DEFAULT_FORECAST_CAPTION))
-            parts.append(f"<h4>Global forecast RMSE at {fc_data.global_horizon_ms:.0f} ms</h4>")
-            try:
-                fig_fg = build_forecast_global_rmse_figure(
-                    fc_data,
-                    fc_spec.theme,
-                    rng=np.random.default_rng(42),
-                    y_axis_title=y_fc_title,
+            parts.append(
+                _p_caption(
+                    f"<b>Behavioral forecast RMSE vs. horizon ({_escape(ch_fc)}).</b> "
+                    f"Pooled across {fc_data.n_triplets_used} session(s) "
+                    f"({fc_data.n_trials_off} OFF / {fc_data.n_trials_on} ON trials). "
+                    f"Shaded bands = \u00b11 SEM. Dashed = na\u00efve baseline.",
+                    raw=True,
                 )
-                add_fig(fig_fg)
-            except Exception as _eg:
-                parts.append(_p_error(f"Failed to build global forecast RMSE figure: {_eg}"))
+            )
         except Exception as e:
             parts.append(_p_error(f"Failed to build forecast RMSE figure: {e}"))
 
-    parts.append('<hr class="section">')
-    parts.append("<h2>Neural self-prediction (band × model × DBS)</h2>")
-    for nb_spec in THESIS_NEURAL_BAND_HEATMAPS:
-        parts.append(f"<h3>{_escape(nb_spec.section_title)}</h3>")
-        parts.append(
-            _p_caption(
-                f"Aligned triplets: {len(nb_spec.triplets)}. "
-                "Requires Y and Ŷ and input_channels with ECoG/LFP narrow-band names in saved test parquets."
-            )
-        )
+    # ===================================================================
+    # DBS Classification
+    # ===================================================================
+
+    # TODO: rerun classification to populate permutation p-values
+    # (19 of 20 prediction pickles were created before permutation_test was enabled;
+    #  run `python -m classification.compute` for all sessions to regenerate)
+
+    # Classification grouped bar chart
+    parts.append('<h2>DBS Classification</h2>')
+    for f1_spec in THESIS_CLASSIFICATION_F1:
+        model_labels = sorted({getattr(ref, "model_label", "PSID") for ref in f1_spec.points})
+        model_str = " / ".join(model_labels)
         try:
-            nb_data = collect_neural_band_pearson(
+            cls_points = collect_classification_f1_points(
                 results_root,
-                nb_spec.triplets,
-                split=nb_spec.split,
-                band_row_order=nb_spec.band_row_order,
+                f1_spec.points,
+                classification_parent=f1_spec.classification_parent,
             )
+            fig_cls_bar = build_classification_grouped_bar_figure(
+                cls_points,
+                theme=f1_spec.theme,
+                exclude_groups={"xp_with_dbs"},
+            )
+            add_fig(fig_cls_bar)
+            cap_lines: list[str] = []
+            for pt in cls_points:
+                pval_str = f"p = {pt.permutation_pvalue:.4f}" if pt.permutation_pvalue is not None else "\u2014"
+                cap_lines.append(
+                    f"{pt.participant_label}_{pt.session_label} "
+                    f"{_FEAT_SHORT.get(pt.group, pt.group)}: "
+                    f"BA = {pt.balanced_accuracy:.3f} ({pval_str})"
+                )
             parts.append(
                 _p_caption(
-                    f"Triplets with data: {nb_data.n_triplets_used} · "
-                    f"trials pooled (OFF / ON): {nb_data.n_trials_off} / {nb_data.n_trials_on}."
+                    f"<b>DBS classification \u2014 balanced accuracy ({_escape(model_str)} latent states).</b> "
+                    f"CSP + LDA on held-out test set. Dashed red line = chance (0.5). "
+                    f"{' | '.join(_escape(c) for c in cap_lines)}",
+                    raw=True,
                 )
             )
-            if nb_data.n_triplets_used == 0:
-                raise ValueError(
-                    "Neural band heatmap: zero triplets passed filters (check Y/Ŷ overlap and input_channels)."
-                )
-            fig_nb = build_neural_band_heatmap_figure(nb_data, nb_spec.theme)
-            add_fig(fig_nb)
-            parts.append(_p_caption(nb_spec.caption or DEFAULT_NEURAL_BAND_CAPTION))
         except Exception as e:
-            parts.append(_p_error(f"Failed to build neural band heatmap: {e}"))
+            parts.append(_p_error(f"Failed to build classification grouped bar chart: {e}"))
 
+    # Flipped classification heatmaps
     parts.append('<hr class="section">')
-    parts.append("<h2>Within vs cross-condition decoding</h2>")
-    parts.append(
-        _p_caption(
-            "Neural-focused section order: band heatmaps above; here, RMSE summary first, then trial-level "
-            "behavioral decoding. Part B: RMSE box plot per model (within vs cross). "
-            "Part A: four panels (see caption under the figure for layout, time window, and RMSE). "
-            "Strict timestamps: each AlignedTriplet must set psid/dpad/varma *_run_ts_off and *_run_ts_on "
-            "plus joint timestamps for eval_* folders."
+    try:
+        from dashboard.thesis.classification_f1_figure import build_flipped_heatmap_figure
+        flipped_fig = build_flipped_heatmap_figure(results_root)
+        add_fig(flipped_fig)
+        parts.append(
+            _p_caption(
+                "<b>Flipped classification \u2014 balanced accuracy (h \u00d7 m).</b> "
+                "Rows = sessions, columns = feature groups. "
+                "Latent states from condition-specific models (DBS-OFF, DBS-ON) "
+                "are swapped to create a synthetic DBS mismatch. "
+                "Chance level \u2248 0.5.",
+                raw=True,
+            )
         )
-    )
-    parts.append("<h3>Part B — 1-step RMSE distribution</h3>")
+    except Exception as e:
+        parts.append(_p_error(f"Failed to build flipped classification heatmaps: {e}"))
+
+    # Classification dot plot
+    parts.append('<hr class="section">')
+    for f1_spec in THESIS_CLASSIFICATION_F1:
+        try:
+            fig_f1, cap_f1 = build_classification_f1_figure(f1_spec, results_root)
+            add_fig(fig_f1)
+            parts.append(
+                _p_caption(
+                    "<b>DBS classification \u2014 balanced accuracy dot plot.</b> "
+                    "Each dot = one participant-session. "
+                    "Horizontal lines = group median. "
+                    "Dashed red = chance (0.5). "
+                    f"{_escape(cap_f1 or '')}",
+                    raw=True,
+                )
+            )
+        except Exception as e:
+            parts.append(_p_error(f"Failed to build Figure F1: {e}"))
+
+    # ===================================================================
+    # Generalisation and Latent Analysis
+    # ===================================================================
+
+    # Within vs cross-condition RMSE
+    parts.append('<h2>Generalisation and Latent Analysis</h2>')
     try:
         wc_data = collect_within_cross_rmse(
             results_root,
@@ -825,46 +796,182 @@ def _build_thesis_html_document_body(
         )
         fig_b = build_within_cross_boxplot_figure(wc_data, theme=THESIS_WITHIN_CROSS.theme)
         add_fig(fig_b)
+        parts.append(
+            _p_caption(
+                "<b>Within vs. cross-condition RMSE.</b> "
+                "1-step RMSE distribution for models trained on the same (within) vs. opposite (cross) "
+                "DBS condition, evaluated on held-out test trials.",
+                raw=True,
+            )
+        )
     except Exception as e:
         parts.append(_p_error(f"Failed to build within-cross boxplot: {e}"))
-    parts.append("<h3>Part A — Trial-level decoding</h3>")
-    try:
-        fig_a, cap_within_cross_ts = build_within_cross_timeseries_figure(
-            THESIS_WITHIN_CROSS, results_root, theme=THESIS_WITHIN_CROSS.theme
-        )
-        add_fig(fig_a)
-        if cap_within_cross_ts:
-            parts.append(_p_caption(cap_within_cross_ts))
-    except Exception as e:
-        parts.append(_p_error(f"Failed to build within-cross timeseries: {e}"))
 
+    # Cross-block decoding
     parts.append('<hr class="section">')
-    parts.append("<h2>Appendix — Data characterisation and model selection</h2>")
+    for xb_spec in THESIS_CROSS_BLOCK:
+        try:
+            fig_xb, cap_xb = build_cross_block_predictions_figure(xb_spec, results_root)
+            add_fig(fig_xb)
+            parts.append(
+                _p_caption(
+                    "<b>Cross-block decoding.</b> "
+                    "1 s segments around the OFF/ON block boundary. "
+                    "Each row = one model; left = last OFF trial, right = first ON trial. "
+                    "Coloured lines = predictions from OFF-trained, BOTH-trained, and ON-trained checkpoints. "
+                    f"{_escape(cap_xb)}",
+                    raw=True,
+                )
+            )
+        except Exception as e:
+            parts.append(_p_error(f"Failed to build cross-block figure: {e}"))
+
+    # Multi-step forecast checkpoints
+    parts.append('<hr class="section">')
+    for fc_ck_spec in THESIS_FORECAST_CHECKPOINT:
+        try:
+            fig_fc_ck, cap_fc_ck = build_forecast_checkpoint_compare_figure(fc_ck_spec, results_root)
+            add_fig(fig_fc_ck)
+            parts.append(
+                _p_caption(
+                    f"<b>Multi-step forecast \u2014 OFF / BOTH / ON checkpoints ({_escape(fc_ck_spec.section_title)}).</b> "
+                    "Each row = one model; left = DBS-OFF trial, right = DBS-ON trial. "
+                    "Lines = multi-step predictions from three training checkpoints. "
+                    f"{_escape(cap_fc_ck or '')}",
+                    raw=True,
+                )
+            )
+        except Exception as e:
+            parts.append(_p_error(f"Failed to build forecast checkpoint figure: {e}"))
+
+    # Latent phase space
+    parts.append('<hr class="section">')
+    for lp_spec in THESIS_LATENT_PHASE:
+        try:
+            fig_lp, cap_lp = build_latent_phase_space_figure(lp_spec, results_root)
+            add_fig(fig_lp)
+            parts.append(
+                _p_caption(
+                    "<b>Latent phase space trajectories (PSID vs. DPAD).</b> "
+                    "KDE density contours with sample trial trajectories per DBS condition. "
+                    "PSID: x\u2081 vs x\u2082 (behaviourally relevant subspace). "
+                    "DPAD: PC1 vs PC2. "
+                    f"{_escape(cap_lp or '')}",
+                    raw=True,
+                )
+            )
+        except Exception as e:
+            parts.append(_p_error(f"Failed to build latent phase space figure: {e}"))
+
+    # Neural band heatmaps
+    parts.append('<hr class="section">')
+    for nb_spec in THESIS_NEURAL_BAND_HEATMAPS:
+        try:
+            nb_data = collect_neural_band_pearson(
+                results_root,
+                nb_spec.triplets,
+                split=nb_spec.split,
+                band_row_order=nb_spec.band_row_order,
+            )
+            if nb_data.n_triplets_used == 0:
+                raise ValueError("Zero triplets passed filters.")
+            fig_nb = build_neural_band_heatmap_figure(nb_data, nb_spec.theme)
+            add_fig(fig_nb)
+            parts.append(
+                _p_caption(
+                    "<b>Neural self-prediction (Pearson r by spectral band).</b> "
+                    f"Pooled across {nb_data.n_triplets_used} session(s) "
+                    f"({nb_data.n_trials_off} OFF / {nb_data.n_trials_on} ON trials). "
+                    f"{_escape(nb_spec.caption or '')}",
+                    raw=True,
+                )
+            )
+        except Exception as e:
+            parts.append(_p_error(f"Failed to build neural band heatmap: {e}"))
+
+    # PSID Cy importance
+    parts.append('<hr class="section">')
+    for cy_spec in THESIS_PSID_CY_IMPORTANCE:
+        try:
+            fig_cy, cap_cy = build_psid_cy_importance_figure(cy_spec, results_root)
+            add_fig(fig_cy)
+            parts.append(
+                _p_caption(
+                    "<b>PSID behaviourally relevant Cy importance.</b> "
+                    "Heatmap of \u2016Cy[:, :n\u2081]\u2016 across ECoG contacts and spectral bands. "
+                    f"{_escape(cap_cy or '')}",
+                    raw=True,
+                )
+            )
+        except Exception as e:
+            parts.append(_p_error(f"Failed to build PSID Cy importance figure: {e}"))
+
+    # PSID Cz readout
+    parts.append('<hr class="section">')
+    for cz_spec in THESIS_PSID_CZ_HEATMAP:
+        try:
+            fig_cz, cap_cz = build_psid_cz_figure(cz_spec, results_root)
+            add_fig(fig_cz)
+            parts.append(
+                _p_caption(
+                    "<b>PSID Cz behavioural readout matrix.</b> "
+                    f"{_escape(cap_cz or '')}",
+                    raw=True,
+                )
+            )
+        except Exception as e:
+            parts.append(_p_error(f"Failed to build PSID Cz heatmap figure: {e}"))
+
+    # ===================================================================
+    # Appendix
+    # ===================================================================
+    parts.append('<h2>Appendix</h2>')
     appendix_specs = [
         (
-            "ECoG PSD: DBS-ON vs DBS-OFF",
-            lambda: build_psd_dbs_comparison_figure(),
-            "Filled ribbons: ±1 SEM across trials in each DBS condition. Lines: mean PSD. "
-            "Vertical dashed lines: 13–29 Hz beta band edges.",
+            "PSID grid search: validation Pearson r",
+            lambda: build_grid_search_pearson_figure(),
+            "Hyperparameter grid search: Pearson correlation between predicted and true behavioural output on the validation set.",
         ),
         (
-            "Tracing speed: DBS-ON vs DBS-OFF",
-            lambda: build_tracing_speed_dbs_comparison_figure(),
-            "Solid lines only: mean z-scored tracing speed per DBS condition, averaged across trials in each panel "
-            "(inter-trial SEM is omitted here for clarity).",
+            "PSID grid search: validation RMSE (behavioral)",
+            lambda: build_grid_search_rmse_figure(),
+            "Hyperparameter grid search: behavioral RMSE on the validation set.",
         ),
-        ("PSID grid search: validation Pearson r", lambda: build_grid_search_pearson_figure(), None),
-        ("PSID grid search: validation RMSE", lambda: build_grid_search_rmse_figure(), None),
-        ("PSID grid search: validation lag (ms)", lambda: build_grid_search_lag_figure(), None),
-        ("Trial count per session × DBS condition", lambda: build_trial_count_summary_figure(), None),
+        (
+            "PSID grid search: validation RMSE (neural)",
+            lambda: build_grid_search_neural_rmse_figure(),
+            "Hyperparameter grid search: neural reconstruction RMSE on the validation set.",
+        ),
+        (
+            "PSID grid search: validation lag (ms)",
+            lambda: build_grid_search_lag_figure(),
+            "Hyperparameter grid search: peak cross-correlation lag on the validation set.",
+        ),
+        (
+            "DPAD training curves (4-stage loss)",
+            lambda: build_dpad_training_curves_figure(results_root),
+            "Train (solid) and validation (dotted) loss per epoch across all 4 DPAD training stages "
+            "(model1 \u2192 model1_Cy \u2192 model2 \u2192 model2_Cz). Vertical dashed lines mark stage boundaries. "
+            "One panel per participant-session.",
+        ),
+        (
+            "Data efficiency: PSID neural RMSE vs training set size",
+            lambda: build_data_efficiency_figure(results_root),
+            "PSID neural reconstruction RMSE as a function of the number of training trials, "
+            "across 7 participant-sessions. Shaded bands = \u00b11 SEM. "
+            "Rapid improvement up to ~20\u201330 trials suggests moderate data hungriness.",
+        ),
     ]
     for title, builder, cap_extra in appendix_specs:
         try:
             fig = builder()
-            parts.append(f"<h3>{_escape(title)}</h3>")
             add_fig(fig)
-            if cap_extra:
-                parts.append(_p_caption(cap_extra))
+            parts.append(
+                _p_caption(
+                    f"<b>{_escape(title)}.</b> {_escape(cap_extra)}",
+                    raw=True,
+                )
+            )
         except Exception as e:
             parts.append(_p_error(f"Failed to build {title}: {e}"))
 

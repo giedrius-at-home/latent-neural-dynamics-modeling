@@ -141,8 +141,8 @@ def build_neural_band_heatmap_figure(
         paper_bgcolor=paper_bg,
         plot_bgcolor=plot_bg,
         font=dict(family=FONT_FAMILY, size=FONT_SIZE_BASE, color=fg),
-        height=FIGURE_HEIGHT - 50,
-        margin=dict(l=80, r=40, t=50, b=100),
+        height=FIGURE_HEIGHT + 50,
+        margin=dict(l=100, r=40, t=70, b=120),
         coloraxis=dict(
             cmin=_ZMIN,
             cmax=_ZMAX,
@@ -181,6 +181,7 @@ def build_neural_band_heatmap_figure(
             gridcolor=grid,
             zeroline=False,
             showticklabels=(i == 1),
+            tickfont=dict(size=FONT_SIZE_TICK, family=FONT_FAMILY),
         )
 
     return fig

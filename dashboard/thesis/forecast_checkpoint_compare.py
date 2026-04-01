@@ -75,6 +75,7 @@ logger = logging.getLogger(__name__)
 _CONTEXT = "rgba(24, 95, 165, 0.05)"
 _FORECAST = "rgba(153, 60, 29, 0.05)"
 _RULE = "rgba(68, 68, 65, 0.5)"
+_DIVERGENCE_THRESHOLD = 50.0
 
 
 def _line_w(fw: Framework) -> float:
@@ -408,6 +409,28 @@ def build_forecast_checkpoint_compare_figure(
             if cell is None:
                 return
             t_abs, z_true, z_off, z_both, z_on, n_hist = cell
+
+            # DPAD multi-step forecasts can diverge (±10⁸ z-units); skip and annotate.
+            if fw == "dpad":
+                fc_arrays = [z_off[n_hist:], z_both[n_hist:], z_on[n_hist:]]
+                max_abs = max(
+                    (float(np.nanmax(np.abs(a))) for a in fc_arrays if np.any(np.isfinite(a))),
+                    default=0.0,
+                )
+                if max_abs > _DIVERGENCE_THRESHOLD:
+                    fig.add_annotation(
+                        text="<i>DPAD forecast diverged</i>",
+                        x=0.5,
+                        y=0.5,
+                        xref="x domain",
+                        yref="y domain",
+                        showarrow=False,
+                        font=dict(size=FONT_SIZE_TICK, family=FONT_FAMILY, color=fg),
+                        row=ri,
+                        col=ci,
+                    )
+                    return
+
             t_plot = _insert_hist_forecast_gap(np.asarray(t_abs, dtype=float).ravel(), n_hist)
             z_true = _insert_hist_forecast_gap(np.asarray(z_true, dtype=float).ravel(), n_hist)
             z_off = _insert_hist_forecast_gap(np.asarray(z_off, dtype=float).ravel(), n_hist)

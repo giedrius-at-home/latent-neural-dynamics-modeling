@@ -379,12 +379,18 @@ def build_within_cross_timeseries_figure(
     for col in (1, 2):
         fig.update_xaxes(
             title_text=THESIS_TIME_AXIS_TITLE,
+            title_font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY),
             showgrid=True, gridcolor=grid,
+            showline=True, linecolor=fg, linewidth=1,
+            tickfont=dict(size=FONT_SIZE_TICK),
             row=1, col=col,
         )
         fig.update_yaxes(
             title_text=y_ylab if col == 1 else "",
+            title_font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY),
             showgrid=True, gridcolor=grid,
+            showline=True, linecolor=fg, linewidth=1,
+            tickfont=dict(size=FONT_SIZE_TICK),
             row=1, col=col,
         )
 
@@ -402,6 +408,7 @@ def build_within_cross_timeseries_figure(
             xanchor="center",
             x=0.5,
             bgcolor=legend_bgcolor(),
+            font=dict(size=FONT_SIZE_TICK),
         ),
     )
 
@@ -530,11 +537,31 @@ def build_within_cross_boxplot_figure(
         paper_bgcolor=paper_bg, plot_bgcolor=plot_bg,
         font=dict(family=FONT_FAMILY, size=FONT_SIZE_BASE, color=fg),
         height=400, margin=dict(l=60, r=20, t=50, b=100),
-        legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5, bgcolor=legend_bgcolor()),
+        legend=dict(
+            orientation="h", yanchor="bottom", y=-0.2,
+            xanchor="center", x=0.5, bgcolor=legend_bgcolor(),
+            font=dict(size=FONT_SIZE_TICK),
+        ),
         yaxis=dict(range=[0, y_max]),
         yaxis2=dict(range=[0, y_max]),
     )
-    fig.update_yaxes(title_text="RMSE (z-scored)", row=1, col=1)
+    for col in (1, 2):
+        fig.update_xaxes(
+            showgrid=False, showline=True, linecolor=fg, linewidth=1,
+            tickfont=dict(size=FONT_SIZE_TICK),
+            row=1, col=col,
+        )
+        fig.update_yaxes(
+            showgrid=True, gridcolor=grid,
+            showline=True, linecolor=fg, linewidth=1,
+            tickfont=dict(size=FONT_SIZE_TICK),
+            row=1, col=col,
+        )
+    fig.update_yaxes(
+        title_text="RMSE (z-scored)",
+        title_font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY),
+        row=1, col=1,
+    )
 
     if save_path:
         fig.write_image(str(save_path))

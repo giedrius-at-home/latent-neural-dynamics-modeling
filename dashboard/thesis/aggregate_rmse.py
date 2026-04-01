@@ -120,6 +120,8 @@ class WilcoxonResults:
     psid_vs_varma_on_p: Optional[float] = None
     dpad_vs_varma_off_p: Optional[float] = None
     dpad_vs_varma_on_p: Optional[float] = None
+    psid_vs_dpad_off_p: Optional[float] = None
+    psid_vs_dpad_on_p: Optional[float] = None
 
 
 @dataclass
@@ -368,6 +370,8 @@ def collect_pooled_rmse(
     paired_on_psid_varma: List[Tuple[float, float]] = []
     paired_off_dpad_varma: List[Tuple[float, float]] = []
     paired_on_dpad_varma: List[Tuple[float, float]] = []
+    paired_off_psid_dpad: List[Tuple[float, float]] = []
+    paired_on_psid_dpad: List[Tuple[float, float]] = []
 
     if not triplet_specs:
         raise ThesisDataError("collect_pooled_rmse: triplet_specs is empty.")
@@ -412,6 +416,7 @@ def collect_pooled_rmse(
                 cells_with_pid[4].append((r_v, pid))
                 paired_off_psid_varma.append((r_p, r_v))
                 paired_off_dpad_varma.append((r_d, r_v))
+                paired_off_psid_dpad.append((r_p, r_d))
             else:
                 cells[1].append(r_p)
                 cells[3].append(r_d)
@@ -421,6 +426,7 @@ def collect_pooled_rmse(
                 cells_with_pid[5].append((r_v, pid))
                 paired_on_psid_varma.append((r_p, r_v))
                 paired_on_dpad_varma.append((r_d, r_v))
+                paired_on_psid_dpad.append((r_p, r_d))
 
     if n_ok == 0:
         raise ThesisDataError(
@@ -448,6 +454,12 @@ def collect_pooled_rmse(
         if paired_on_dpad_varma:
             x, y = zip(*paired_on_dpad_varma)
             w.dpad_vs_varma_on_p = _wilcoxon_paired(np.array(x), np.array(y))
+        if paired_off_psid_dpad:
+            x, y = zip(*paired_off_psid_dpad)
+            w.psid_vs_dpad_off_p = _wilcoxon_paired(np.array(x), np.array(y))
+        if paired_on_psid_dpad:
+            x, y = zip(*paired_on_psid_dpad)
+            w.psid_vs_dpad_on_p = _wilcoxon_paired(np.array(x), np.array(y))
 
     return AggregateRmseData(
         means=means,

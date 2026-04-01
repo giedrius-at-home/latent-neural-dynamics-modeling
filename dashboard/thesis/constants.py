@@ -28,25 +28,30 @@ COLOR_CHANCE = "#E24B4A"
 COLOR_BETA_BORDER = "#E24B4A"
 
 # PSID uncertainty band (light blue tint over white)
-COLOR_PSID_BAND_FILL = "rgba(24, 95, 165, 0.22)"
-COLOR_PSID_BAND_LINE = "rgba(24, 95, 165, 0.35)"
+COLOR_PSID_BAND_FILL = "rgba(24, 95, 165, 0.14)"
+COLOR_PSID_BAND_LINE = "rgba(24, 95, 165, 0.25)"
 # Session-mean RMSE ribbons around each model's ŷ (lighter tints)
-COLOR_DPAD_BAND_FILL = "rgba(153, 60, 29, 0.18)"
-COLOR_DPAD_BAND_LINE = "rgba(153, 60, 29, 0.28)"
-COLOR_VARMA_BAND_FILL = "rgba(136, 135, 128, 0.20)"
-COLOR_VARMA_BAND_LINE = "rgba(136, 135, 128, 0.32)"
+COLOR_DPAD_BAND_FILL = "rgba(153, 60, 29, 0.12)"
+COLOR_DPAD_BAND_LINE = "rgba(153, 60, 29, 0.20)"
+COLOR_VARMA_BAND_FILL = "rgba(136, 135, 128, 0.12)"
+COLOR_VARMA_BAND_LINE = "rgba(136, 135, 128, 0.22)"
 
 # Line widths (pt-style mapping via Plotly width)
 WIDTH_TRUE = 2.5
-WIDTH_PSID = 1.8
-WIDTH_DPAD = 1.8
-WIDTH_VARMA = 1.5
+WIDTH_PSID = 2.0
+WIDTH_DPAD = 2.0
+WIDTH_VARMA = 1.8
+
+# Trace opacity for prediction lines (< 1.0 to reduce overlap clutter)
+OPACITY_PSID = 0.85
+OPACITY_DPAD = 0.75
+OPACITY_VARMA = 0.70
 WIDTH_MEAN = 2.2
 
 FONT_FAMILY = "Arial, Helvetica, sans-serif"
-FONT_SIZE_BASE = 11
-FONT_SIZE_TICK = 10
-FONT_SIZE_LABEL = 11
+FONT_SIZE_BASE = 12
+FONT_SIZE_TICK = 11
+FONT_SIZE_LABEL = 13
 
 DOT_SIZE = 10
 
@@ -90,6 +95,20 @@ def grid_color(theme: ThesisTheme) -> str:
 
 def legend_bgcolor() -> str:
     return "rgba(0,0,0,0)"
+
+
+def rmse_axis_label(variable: str = "") -> str:
+    """Standard y-axis label for RMSE of a z-scored variable, e.g. 'RMSE(z) — tracing_velocity_x'."""
+    if variable:
+        return f"RMSE(z) \u2014 {variable}"
+    return "RMSE(z)"
+
+
+def zscore_axis_label(channel: str = "") -> str:
+    """Standard y-axis label for a z-scored signal, e.g. 'z-score \u2014 ECOG_1_delta_05_raw'."""
+    if channel:
+        return f"z-score \u2014 {channel}"
+    return "z-score"
 
 
 def dbs_badge_style(dbs_label: str) -> Tuple[str, str]:
