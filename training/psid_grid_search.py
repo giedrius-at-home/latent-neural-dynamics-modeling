@@ -299,11 +299,15 @@ def compute_session_metrics(val_dir: Path) -> dict:
 
 
 def find_latest_val_results(results_dir: Path) -> Path | None:
-    """Find the most recent val_results directory."""
+    """Find the most recent val_results directory or val/ directory with parquets."""
     val_dirs = list(results_dir.glob("val_results_*"))
-    if not val_dirs:
-        return None
-    return max(val_dirs, key=lambda p: p.stat().st_mtime)
+    if val_dirs:
+        return max(val_dirs, key=lambda p: p.stat().st_mtime)
+    # Fallback: check for val/ directory with test_results parquets
+    val_dir = results_dir / "val"
+    if val_dir.is_dir() and list(val_dir.glob("test_results_*.parquet")):
+        return val_dir
+    return None
 
 
 def extract_config_from_metadata(run_dir: Path) -> dict:

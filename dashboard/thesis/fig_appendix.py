@@ -547,6 +547,299 @@ def build_trial_count_summary_figure() -> Figure:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Ablation grid search, vanilla comparison, Laplacian LFP figures
+# ─────────────────────────────────────────────────────────────────────────────
+
+ABLATION_PARQUET = RESULTS_ROOT / "psid_ablation_narrow_band" / "results.parquet"
+
+_ABLATION_SESSIONS = [
+    ("PDI1", "2", "PDI1_S2", 80, 12),
+    ("PDI1", "4", "PDI1_S4", 80, 6),
+    ("PDI4", "2", "PDI4_S2", 80, 10),
+    ("PDI4", "3", "PDI4_S3", 65, 10),
+]
+
+
+def build_ablation_heatmap_figure(metric_col: str = "pearson_mean", title: str = "PSID ablation: Pearson r (Z)") -> Figure:
+    """Heatmap of nx × n1 ablation results for each session."""
+    try:
+        df = pl.read_parquet(ABLATION_PARQUET)
+    except Exception:
+        fig = go.Figure()
+        fig.add_annotation(text="Ablation results not found", x=0.5, y=0.5, showarrow=False)
+        return fig
+
+    ncols = 2
+    nrows = 2
+    subplot_titles = [s[2] for s in _ABLATION_SESSIONS]
+    fig = make_subplots(rows=nrows, cols=ncols, vertical_spacing=0.2, horizontal_spacing=0.1,
+                        subplot_titles=subplot_titles)
+
+    for pi, (pid, sess, label, final_nx, final_n1) in enumerate(_ABLATION_SESSIONS):
+        r, c = divmod(pi, ncols)
+        sdf = df.filter((pl.col("participant_id") == pid) & (pl.col("session") == sess))
+        # Deduplicate: keep latest run per nx/n1
+        sdf = sdf.sort("run_name", descending=True).unique(subset=["nx", "n1"], keep="first")
+
+        nx_vals = sorted(sdf["nx"].unique().to_list())
+        n1_vals = sorted(sdf["n1"].unique().to_list())
+
+        mat = np.full((len(n1_vals), len(nx_vals)), np.nan)
+        text_mat = np.empty_like(mat, dtype=object)
+        for row_data in sdf.iter_rows(named=True):
+            nx_i = nx_vals.index(row_data["nx"])
+            n1_i = n1_vals.index(row_data["n1"])
+            val = row_data.get(metric_col)
+            if val is not None and not (isinstance(val, float) and np.isnan(val)):
+                mat[n1_i, nx_i] = val
+                text_mat[n1_i, nx_i] = f"{val:.3f}"
+            else:
+                text_mat[n1_i, nx_i] = ""
+
+        # Skip invalid cells where n1 > nx
+        for n1_i, n1_v in enumerate(n1_vals):
+            for nx_i, nx_v in enumerate(nx_vals):
+                if n1_v > nx_v:
+                    mat[n1_i, nx_i] = np.nan
+                    text_mat[n1_i, nx_i] = ""
+
+        valid = mat[~np.isnan(mat)]
+        zmin = float(np.min(valid)) - 0.01 if len(valid) > 0 else 0
+        zmax = float(np.max(valid)) + 0.01 if len(valid) > 0 else 1
+
+        fig.add_trace(
+            go.Heatmap(
+                z=mat, x=list(range(len(nx_vals))), y=list(range(len(n1_vals))),
+                text=text_mat, texttemplate="%{text}",
+                colorscale="Blues", zmin=zmin, zmax=zmax,
+                showscale=(pi == 0),
+            ),
+            row=r + 1, col=c + 1,
+        )
+        fig.update_xaxes(
+            title_text="nx", tickmode="array",
+            tickvals=list(range(len(nx_vals))), ticktext=[str(v) for v in nx_vals],
+            row=r + 1, col=c + 1,
+        )
+        fig.update_yaxes(
+            title_text="n1" if c == 0 else "", tickmode="array",
+            tickvals=list(range(len(n1_vals))), ticktext=[str(v) for v in n1_vals],
+            row=r + 1, col=c + 1,
+        )
+        # Mark the final (selected) config
+        try:
+            bx = nx_vals.index(final_nx)
+            by = n1_vals.index(final_n1)
+            fig.add_shape(
+                type="rect",
+                x0=float(bx) - 0.5, x1=float(bx) + 0.5,
+                y0=float(by) - 0.5, y1=float(by) + 0.5,
+                line=dict(color="#C0392B", width=2.5),
+                fillcolor="rgba(0,0,0,0)", layer="above",
+                row=r + 1, col=c + 1,
+            )
+        except ValueError:
+            pass
+
+    fg = true_line_color(ThesisTheme.LIGHT)
+    fig.update_layout(
+        title=title,
+        font=dict(family=FONT_FAMILY, size=FONT_SIZE_BASE, color=fg),
+        height=700, paper_bgcolor=paper_colors(ThesisTheme.LIGHT)[0],
+        plot_bgcolor=paper_colors(ThesisTheme.LIGHT)[1],
+    )
+    fig.update_annotations(font=dict(size=FONT_SIZE_TICK, family=FONT_FAMILY))
+    return fig
+
+
+def build_ablation_pearson_figure() -> Figure:
+    return build_ablation_heatmap_figure("pearson_mean", "PSID ablation: Pearson r (behavioral Z)")
+
+
+def build_ablation_rmse_y_figure() -> Figure:
+    return build_ablation_heatmap_figure("rmse_Y", "PSID ablation: RMSE (neural Y)")
+
+
+def build_vanilla_comparison_figure() -> Figure:
+    """Grouped bar chart comparing improved vs vanilla PSID across sessions."""
+    import json as _json
+
+    fg = true_line_color(ThesisTheme.LIGHT)
+    grd = grid_color(ThesisTheme.LIGHT)
+
+    sessions = [
+        ("PDI1_S2", "psid_behavioral_PDI1_2_nx_80_n12_i40_dbs_both_narrow_band",
+         "psid_behavioral_PDI1_2_nx_80_n12_i40_vanilla_dbs_both_narrow_band"),
+        ("PDI1_S4", "psid_behavioral_PDI1_4_nx_80_n6_i40_dbs_both_narrow_band",
+         "psid_behavioral_PDI1_4_nx_80_n6_i40_vanilla_dbs_both_narrow_band"),
+        ("PDI4_S2", "psid_behavioral_PDI4_2_nx_80_n10_i40_dbs_both_narrow_band",
+         "psid_behavioral_PDI4_2_nx_80_n10_i40_vanilla_dbs_both_narrow_band"),
+        ("PDI4_S3", "psid_behavioral_PDI4_3_nx65_n10_i40_dbs_both_narrow_band",
+         "psid_behavioral_PDI4_3_nx65_n10_i40_vanilla_dbs_both_narrow_band"),
+    ]
+
+    labels, r_improved, r_vanilla, rmse_improved, rmse_vanilla = [], [], [], [], []
+    for label, improved_dir, vanilla_dir in sessions:
+        for name, result_dir, r_list, rmse_list in [
+            ("improved", improved_dir, r_improved, rmse_improved),
+            ("vanilla", vanilla_dir, r_vanilla, rmse_vanilla),
+        ]:
+            res_path = RESULTS_ROOT / result_dir
+            if not res_path.exists():
+                r_list.append(np.nan)
+                rmse_list.append(np.nan)
+                continue
+            # Find train test_results parquet
+            train_dir = res_path / "train"
+            parquets = list(train_dir.glob("test_results_*.parquet")) if train_dir.exists() else []
+            if not parquets:
+                r_list.append(np.nan)
+                rmse_list.append(np.nan)
+                continue
+            try:
+                tdf = pl.read_parquet(parquets[0])
+                # Try both column naming conventions
+                for col in ["metric_pearson_r_mean_Z", "pearson_mean_Z"]:
+                    if col in tdf.columns:
+                        vals = tdf[col].to_list()
+                        valid = [v for v in vals if v is not None and not (isinstance(v, float) and np.isnan(v))]
+                        r_list.append(float(np.mean(valid)) if valid else np.nan)
+                        break
+                else:
+                    r_list.append(np.nan)
+                # Compute RMSE from Z and Zp
+                z_true = np.array(tdf["Z"][0].to_list())
+                z_pred = np.array(tdf["Zp"][0].to_list())
+                rmse_val = float(np.sqrt(np.mean((z_true - z_pred) ** 2)))
+                rmse_list.append(rmse_val)
+            except Exception:
+                r_list.append(np.nan)
+                rmse_list.append(np.nan)
+        labels.append(label)
+
+    fig = make_subplots(rows=1, cols=2, subplot_titles=["Pearson r (Z)", "RMSE (Z)"],
+                        horizontal_spacing=0.12)
+
+    fig.add_trace(go.Bar(x=labels, y=r_improved, name="Improved (BK + rescale)",
+                          marker_color="#3b82f6", width=0.35), row=1, col=1)
+    fig.add_trace(go.Bar(x=labels, y=r_vanilla, name="Vanilla PSID",
+                          marker_color="#f97316", width=0.35), row=1, col=1)
+    fig.add_trace(go.Bar(x=labels, y=rmse_improved, name="Improved (BK + rescale)",
+                          marker_color="#3b82f6", width=0.35, showlegend=False), row=1, col=2)
+    fig.add_trace(go.Bar(x=labels, y=rmse_vanilla, name="Vanilla PSID",
+                          marker_color="#f97316", width=0.35, showlegend=False), row=1, col=2)
+
+    fig.update_layout(
+        barmode="group",
+        title="Improved PSID vs Vanilla (no backward Kalman, no A rescaling)",
+        font=dict(family=FONT_FAMILY, size=FONT_SIZE_BASE, color=fg),
+        height=400, paper_bgcolor=paper_colors(ThesisTheme.LIGHT)[0],
+        plot_bgcolor=paper_colors(ThesisTheme.LIGHT)[1],
+        legend=dict(orientation="h", font=dict(size=FONT_SIZE_TICK)),
+    )
+    fig.update_yaxes(title_text="Pearson r", showgrid=True, gridcolor=grd, row=1, col=1)
+    fig.update_yaxes(title_text="RMSE", showgrid=True, gridcolor=grd, row=1, col=2)
+    return fig
+
+
+def build_laplacian_prediction_figure() -> Figure:
+    """Summary bar chart of Laplacian LFP prediction quality across sessions."""
+    fg = true_line_color(ThesisTheme.LIGHT)
+    grd = grid_color(ThesisTheme.LIGHT)
+
+    lapl_sessions = [
+        ("PDI1_S2", "psid_laplacian_PDI1_2_nx_80_n12_i20_dbs_both_2hz_band"),
+        ("PDI1_S4", "psid_laplacian_PDI1_4_nx_80_n6_i20_dbs_both_2hz_band"),
+        ("PDI4_S2", "psid_laplacian_PDI4_2_nx_80_n10_i20_dbs_both_2hz_band"),
+        ("PDI4_S3", "psid_laplacian_PDI4_3_nx_65_n10_i20_dbs_both_2hz_band"),
+    ]
+
+    labels, r_y_vals, r_z_vals = [], [], []
+    for label, result_dir in lapl_sessions:
+        res_path = RESULTS_ROOT / result_dir / "train"
+        parquets = list(res_path.glob("test_results_*.parquet")) if res_path.exists() else []
+        if not parquets:
+            r_y_vals.append(np.nan)
+            r_z_vals.append(np.nan)
+            labels.append(label)
+            continue
+        try:
+            tdf = pl.read_parquet(parquets[0])
+            r_y_vals.append(float(tdf["metric_pearson_r_mean"][0]))
+            r_z_vals.append(float(tdf["metric_pearson_r_mean_Z"][0]))
+        except Exception:
+            r_y_vals.append(np.nan)
+            r_z_vals.append(np.nan)
+        labels.append(label)
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(x=labels, y=r_y_vals, name="Y (ECoG recon.)", marker_color="#3b82f6", width=0.35))
+    fig.add_trace(go.Bar(x=labels, y=r_z_vals, name="Z (Laplacian pred.)", marker_color="#ef4444", width=0.35))
+
+    fig.update_layout(
+        barmode="group",
+        title="PSID Laplacian LFP prediction: ECoG reconstruction vs depth Laplacian prediction",
+        font=dict(family=FONT_FAMILY, size=FONT_SIZE_BASE, color=fg),
+        height=400,
+        paper_bgcolor=paper_colors(ThesisTheme.LIGHT)[0],
+        plot_bgcolor=paper_colors(ThesisTheme.LIGHT)[1],
+        legend=dict(orientation="h", font=dict(size=FONT_SIZE_TICK)),
+        yaxis=dict(title_text="Pearson r", showgrid=True, gridcolor=grd,
+                   range=[0, 1.05]),
+    )
+    return fig
+
+
+def build_laplacian_timeseries_figure() -> Figure:
+    """Time series plot of Laplacian prediction for one example trial per session."""
+    fg = true_line_color(ThesisTheme.LIGHT)
+
+    lapl_sessions = [
+        ("PDI1_S2", "psid_laplacian_PDI1_2_nx_80_n12_i20_dbs_both_2hz_band"),
+        ("PDI1_S4", "psid_laplacian_PDI1_4_nx_80_n6_i20_dbs_both_2hz_band"),
+        ("PDI4_S2", "psid_laplacian_PDI4_2_nx_80_n10_i20_dbs_both_2hz_band"),
+        ("PDI4_S3", "psid_laplacian_PDI4_3_nx_65_n10_i20_dbs_both_2hz_band"),
+    ]
+
+    nrows = len(lapl_sessions)
+    fig = make_subplots(rows=nrows, cols=1, vertical_spacing=0.08,
+                        subplot_titles=[s[0] for s in lapl_sessions])
+
+    for ri, (label, result_dir) in enumerate(lapl_sessions, 1):
+        res_path = RESULTS_ROOT / result_dir / "train"
+        parquets = list(res_path.glob("test_results_*.parquet")) if res_path.exists() else []
+        if not parquets:
+            fig.add_annotation(text="No data", x=0.5, y=0.5, xref="x domain", yref="y domain",
+                               showarrow=False, row=ri, col=1)
+            continue
+        try:
+            tdf = pl.read_parquet(parquets[0])
+            z_true = np.array(tdf["Z"][0].to_list())
+            z_pred = np.array(tdf["Zp"][0].to_list())
+            # Plot first Laplacian channel (delta band)
+            t = np.arange(z_true.shape[0]) / 80.0
+            fig.add_trace(go.Scatter(x=t, y=z_true[:, 0], name="True" if ri == 1 else None,
+                                      line=dict(color="#2563eb", width=1),
+                                      showlegend=(ri == 1)), row=ri, col=1)
+            fig.add_trace(go.Scatter(x=t, y=z_pred[:, 0], name="Predicted" if ri == 1 else None,
+                                      line=dict(color="#dc2626", width=1, dash="dot"),
+                                      showlegend=(ri == 1)), row=ri, col=1)
+        except Exception:
+            fig.add_annotation(text="Error loading", x=0.5, y=0.5, xref="x domain", yref="y domain",
+                               showarrow=False, row=ri, col=1)
+
+    fig.update_layout(
+        title="Laplacian LFP prediction: LAPLACIAN_13-15 delta band (example trial)",
+        font=dict(family=FONT_FAMILY, size=FONT_SIZE_BASE, color=fg),
+        height=200 * nrows + 80,
+        paper_bgcolor=paper_colors(ThesisTheme.LIGHT)[0],
+        plot_bgcolor=paper_colors(ThesisTheme.LIGHT)[1],
+    )
+    fig.update_xaxes(title_text="Time (s)", row=nrows, col=1)
+    return fig
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Matplotlib plot_* functions (for PDF/PNG file export)
 # ─────────────────────────────────────────────────────────────────────────────
 

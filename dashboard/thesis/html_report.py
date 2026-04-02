@@ -71,6 +71,11 @@ from dashboard.thesis.fig_appendix import (
     build_grid_search_neural_rmse_figure,
     build_grid_search_lag_figure,
     build_trial_count_summary_figure,
+    build_ablation_pearson_figure,
+    build_ablation_rmse_y_figure,
+    build_vanilla_comparison_figure,
+    build_laplacian_prediction_figure,
+    build_laplacian_timeseries_figure,
 )
 from dashboard.thesis.dpad_training_curves_figure import (
     build_dpad_training_curves_figure,
@@ -889,6 +894,54 @@ def _build_thesis_html_document_body(
         except Exception as e:
             parts.append(_p_error(f"Failed to build neural band heatmap: {e}"))
 
+    # Vanilla vs Improved PSID comparison
+    parts.append('<hr class="section">')
+    try:
+        fig_vanilla = build_vanilla_comparison_figure()
+        add_fig(fig_vanilla)
+        parts.append(
+            _p_caption(
+                "<b>Improved PSID vs Vanilla.</b> "
+                "Comparison of PSID with backward Kalman filter and A-matrix eigenvalue rescaling (improved) "
+                "vs standard PSID without these enhancements (vanilla). "
+                "Left: Pearson r for behavioral output. Right: RMSE for behavioral output.",
+                raw=True,
+            )
+        )
+    except Exception as e:
+        parts.append(_p_error(f"Failed to build vanilla comparison figure: {e}"))
+
+    # PSID ablation: nx/n1 sensitivity
+    parts.append('<hr class="section">')
+    try:
+        fig_abl_r = build_ablation_pearson_figure()
+        add_fig(fig_abl_r)
+        parts.append(
+            _p_caption(
+                "<b>PSID ablation: behavioral Pearson r vs model complexity.</b> "
+                "Heatmaps of Pearson r (Z) for nx = {1, 2, 5, final} and n1 = {1, 2, 5, final}. "
+                "Red border = selected configuration. "
+                "Behavioral prediction is largely insensitive to model dimensionality.",
+                raw=True,
+            )
+        )
+    except Exception as e:
+        parts.append(_p_error(f"Failed to build ablation Pearson figure: {e}"))
+
+    try:
+        fig_abl_y = build_ablation_rmse_y_figure()
+        add_fig(fig_abl_y)
+        parts.append(
+            _p_caption(
+                "<b>PSID ablation: neural RMSE vs model complexity.</b> "
+                "Heatmaps of RMSE (Y) for the same grid. "
+                "Neural reconstruction slightly improves with larger nx.",
+                raw=True,
+            )
+        )
+    except Exception as e:
+        parts.append(_p_error(f"Failed to build ablation RMSE figure: {e}"))
+
     # PSID Cy importance
     parts.append('<hr class="section">')
     for cy_spec in THESIS_PSID_CY_IMPORTANCE:
@@ -921,6 +974,41 @@ def _build_thesis_html_document_body(
             )
         except Exception as e:
             parts.append(_p_error(f"Failed to build PSID Cz heatmap figure: {e}"))
+
+    # ===================================================================
+    # Laplacian LFP Prediction
+    # ===================================================================
+    parts.append('<h2>Laplacian LFP Prediction</h2>')
+    try:
+        fig_lapl_bar = build_laplacian_prediction_figure()
+        add_fig(fig_lapl_bar)
+        parts.append(
+            _p_caption(
+                "<b>Laplacian LFP prediction summary.</b> "
+                "Blue = ECoG self-reconstruction Pearson r (Y). "
+                "Red = depth Laplacian LFP prediction Pearson r (Z). "
+                "Surface ECoG contains limited information about depth LFP Laplacian "
+                "(best r = 0.195 for PDI1 S4).",
+                raw=True,
+            )
+        )
+    except Exception as e:
+        parts.append(_p_error(f"Failed to build Laplacian prediction figure: {e}"))
+
+    parts.append('<hr class="section">')
+    try:
+        fig_lapl_ts = build_laplacian_timeseries_figure()
+        add_fig(fig_lapl_ts)
+        parts.append(
+            _p_caption(
+                "<b>Laplacian LFP prediction time series (example trial).</b> "
+                "Blue = true Laplacian signal, red dashed = PSID prediction. "
+                "The model captures some low-frequency trends but misses fine oscillatory structure.",
+                raw=True,
+            )
+        )
+    except Exception as e:
+        parts.append(_p_error(f"Failed to build Laplacian time series figure: {e}"))
 
     # ===================================================================
     # Appendix
