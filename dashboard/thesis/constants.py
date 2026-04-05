@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Tuple
+from typing import TYPE_CHECKING, Tuple
+
+if TYPE_CHECKING:
+    from plotly.graph_objects import Figure
 
 
 class ThesisTheme(str, Enum):
@@ -52,6 +55,7 @@ FONT_FAMILY = "Arial, Helvetica, sans-serif"
 FONT_SIZE_BASE = 12
 FONT_SIZE_TICK = 11
 FONT_SIZE_LABEL = 13
+FONT_SIZE_ANNOTATION = 10  # small in-chart annotations, badges, etc.
 
 DOT_SIZE = 10
 
@@ -118,3 +122,79 @@ def dbs_badge_style(dbs_label: str) -> Tuple[str, str]:
     if dbs_label == "DBS-ON":
         return COLOR_DBS_ON, "rgba(15,110,86,0.15)"
     return COLOR_TRUE_DARK, "rgba(128,128,128,0.15)"
+
+
+def d_score_axis_label(signal: str, axis: str = "") -> str:
+    """Standard y-axis label for behavioral axes, e.g. ``d_score-tracing_velocity_x``."""
+    if axis:
+        return f"d_score-{signal}_{axis}"
+    return f"d_score-{signal}"
+
+
+def apply_thesis_style(
+    fig: Figure,
+    theme: ThesisTheme = ThesisTheme.LIGHT,
+    *,
+    height: int = FIGURE_HEIGHT,
+    margin: dict | None = None,
+    hovermode: str = "x unified",
+    legend_y: float = -0.16,
+    legend_orientation: str = "h",
+    show_legend: bool = True,
+) -> None:
+    """Apply the shared thesis figure skeleton to *fig* in-place.
+
+    Call this at the end of every ``build_*`` function instead of writing
+    inline ``update_layout`` / ``update_xaxes`` / ``update_yaxes`` blocks.
+    Figure-specific overrides (``barmode``, ``coloraxis``, extra annotations,
+    etc.) can be applied *after* this call.
+    """
+    paper_bg, plot_bg = paper_colors(theme)
+    grid = grid_color(theme)
+    fg = true_line_color(theme)
+
+    if margin is None:
+        margin = dict(l=72, r=40, t=36, b=100)
+
+    fig.update_layout(
+        template="plotly_white" if theme == ThesisTheme.LIGHT else "plotly_dark",
+        paper_bgcolor=paper_bg,
+        plot_bgcolor=plot_bg,
+        font=dict(family=FONT_FAMILY, size=FONT_SIZE_BASE, color=fg),
+        height=height,
+        margin=margin,
+        hovermode=hovermode,
+        showlegend=show_legend,
+        legend=dict(
+            orientation=legend_orientation,
+            yanchor="bottom",
+            y=legend_y,
+            xanchor="center",
+            x=0.5,
+            bgcolor=legend_bgcolor(),
+            font=dict(size=FONT_SIZE_TICK),
+            itemsizing="constant",
+            itemwidth=40,
+            tracegroupgap=8,
+        ),
+    )
+
+    fig.update_xaxes(
+        showgrid=True,
+        gridcolor=grid,
+        showline=True,
+        linewidth=1,
+        linecolor=fg,
+        mirror=False,
+        tickfont=dict(size=FONT_SIZE_TICK),
+    )
+
+    fig.update_yaxes(
+        showgrid=True,
+        gridcolor=grid,
+        showline=True,
+        linewidth=1,
+        linecolor=fg,
+        mirror=False,
+        tickfont=dict(size=FONT_SIZE_TICK),
+    )

@@ -39,7 +39,9 @@ from dashboard.thesis.constants import (
     FONT_SIZE_LABEL,
     FONT_SIZE_TICK,
     ThesisTheme,
+    apply_thesis_style,
     dbs_badge_style,
+    rmse_axis_label,
     grid_color,
     legend_bgcolor,
     paper_colors,
@@ -439,7 +441,7 @@ def build_session_grouped_figure(
     )
     fig.update_yaxes(
         range=[0, ymax_ab],
-        title_text="RMSE (z-scored)",
+        title_text=rmse_axis_label(),
         title_font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY),
         **_ykw_rmse,
         row=1, col=1,
@@ -452,7 +454,7 @@ def build_session_grouped_figure(
     )
     fig.update_yaxes(
         range=[0, ymax_fc * 1.05],
-        title_text="RMSE (z-scored)",
+        title_text=rmse_axis_label(),
         title_font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY),
         showgrid=True,
         gridcolor=grid,
@@ -475,23 +477,14 @@ def build_session_grouped_figure(
         )
 
     # ── Layout ───────────────────────────────────────────────────────────────
-    fig.update_layout(
-        paper_bgcolor=paper_bg,
-        plot_bgcolor=plot_bg,
-        font=dict(family=FONT_FAMILY, size=FONT_SIZE_BASE, color=fg),
+    apply_thesis_style(
+        fig,
+        theme,
         height=FIGURE_HEIGHT,
         margin=dict(l=70, r=30, t=20, b=110),
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=-0.28,
-            xanchor="center",
-            x=0.5,
-            font=dict(size=FONT_SIZE_TICK),
-            bgcolor=legend_bgcolor(),
-        ),
         hovermode="closest",
-        boxmode="overlay",
+        legend_y=-0.28,
     )
+    fig.update_layout(boxmode="overlay")
 
     return fig

@@ -25,12 +25,13 @@ from dashboard.thesis.constants import (
     FONT_SIZE_LABEL,
     FONT_SIZE_TICK,
     PARTICIPANT_COLORS,
+    ThesisTheme,
+    apply_thesis_style,
     grid_color,
     legend_bgcolor,
     paper_colors,
     true_line_color,
 )
-from dashboard.thesis.constants import ThesisTheme
 
 logger = logging.getLogger(__name__)
 
@@ -104,7 +105,7 @@ def build_data_efficiency_figure(
             x=0.5, y=0.5,
             xref="paper", yref="paper",
             showarrow=False,
-            font=dict(size=14, family=FONT_FAMILY),
+            font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY),
         )
         fig.update_layout(margin=dict(l=40, r=40, t=40, b=40))
         return fig
@@ -161,47 +162,26 @@ def build_data_efficiency_figure(
             )
         )
 
-    fig.update_layout(
-        paper_bgcolor=paper_bg,
-        plot_bgcolor=plot_bg,
-        font=dict(family=FONT_FAMILY, size=FONT_SIZE_BASE, color=fg),
+    apply_thesis_style(
+        fig,
+        theme,
         height=520,
-        xaxis=dict(
-            title=dict(
-                text="Training trials (n)",
-                font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY),
-            ),
-            showgrid=True,
-            gridcolor=grid,
-            zeroline=False,
-            showline=True,
-            linecolor=fg,
-            linewidth=1,
-            tickfont=dict(size=FONT_SIZE_TICK),
-        ),
-        yaxis=dict(
-            title=dict(
-                text="RMSE(z) \u2014 neural",
-                font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY),
-            ),
-            showgrid=True,
-            gridcolor=grid,
-            zeroline=False,
-            showline=True,
-            linecolor=fg,
-            linewidth=1,
-            tickfont=dict(size=FONT_SIZE_TICK),
-        ),
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=-0.22,
-            xanchor="center",
-            x=0.5,
-            bgcolor=legend_bgcolor(),
-            font=dict(size=FONT_SIZE_TICK, family=FONT_FAMILY),
-        ),
         margin=dict(l=72, r=24, t=36, b=80),
         hovermode="closest",
+        legend_y=-0.22,
+    )
+    fig.update_xaxes(
+        title=dict(
+            text="Training trials (n)",
+            font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY),
+        ),
+        zeroline=False,
+    )
+    fig.update_yaxes(
+        title=dict(
+            text="RMSE(z) \u2014 neural",
+            font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY),
+        ),
+        zeroline=False,
     )
     return fig

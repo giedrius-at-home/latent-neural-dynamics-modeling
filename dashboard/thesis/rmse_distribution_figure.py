@@ -21,9 +21,11 @@ from dashboard.thesis.constants import (
     FONT_SIZE_LABEL,
     FONT_SIZE_TICK,
     ThesisTheme,
+    apply_thesis_style,
     grid_color,
     legend_bgcolor,
     paper_colors,
+    rmse_axis_label,
     true_line_color,
 )
 
@@ -36,12 +38,12 @@ DOT_ALPHA_ON = 0.35
 
 X_POS = np.arange(6, dtype=float)
 CATEGORY_LABELS = [
-    "PSID OFF",
-    "PSID ON",
-    "DPAD OFF",
-    "DPAD ON",
-    "VARMA OFF",
-    "VARMA ON",
+    "PSID_OFF",
+    "PSID_ON",
+    "DPAD_OFF",
+    "DPAD_ON",
+    "VARMA_OFF",
+    "VARMA_ON",
 ]
 
 
@@ -103,7 +105,7 @@ def build_rmse_distribution_figure(
             ),
             marker=dict(color=bar_colors, line=dict(width=0)),
             width=0.52,
-            name="Mean ± SEM",
+            name="Mean",
             showlegend=True,
         )
     )
@@ -209,22 +211,19 @@ def build_rmse_distribution_figure(
                 yref="y",
                 text=f"<b>{stars}</b>",
                 showarrow=False,
-                font=dict(size=13, color=fg, family=FONT_FAMILY),
+                font=dict(size=FONT_SIZE_LABEL, color=fg, family=FONT_FAMILY),
             )
         )
 
-    fig.update_layout(
-        template="plotly_white" if theme == ThesisTheme.LIGHT else "plotly_dark",
-        paper_bgcolor=paper_bg,
-        plot_bgcolor=plot_bg,
-        font=dict(family=FONT_FAMILY, size=FONT_SIZE_BASE, color=fg),
+    apply_thesis_style(
+        fig,
+        theme,
         height=FIGURE_HEIGHT,
-        title=dict(
-            text="Model by DBS Condition",
-            font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY),
-            x=0.5,
-            xanchor="center",
-        ),
+        margin=dict(l=72, r=32, t=50, b=140),
+        hovermode="closest",
+        legend_y=-0.12,
+    )
+    fig.update_layout(
         xaxis=dict(
             tickmode="array",
             tickvals=list(X_POS),
@@ -236,11 +235,6 @@ def build_rmse_distribution_figure(
             ),
             showgrid=False,
             zeroline=False,
-            showline=True,
-            linecolor=fg,
-            linewidth=1,
-            mirror=False,
-            tickfont=dict(size=FONT_SIZE_TICK),
         ),
         yaxis=dict(
             title=dict(
@@ -248,31 +242,11 @@ def build_rmse_distribution_figure(
                 font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY),
             ),
             range=[0, y_max * 1.02],
-            showgrid=True,
-            gridcolor=grid,
-            showline=True,
-            linecolor=fg,
-            linewidth=1,
-            mirror=False,
             zeroline=True,
             zerolinecolor=grid,
-            tickfont=dict(size=FONT_SIZE_TICK),
         ),
-        legend=dict(
-            orientation="h",
-            yanchor="top",
-            y=-0.12,
-            xanchor="center",
-            x=0.5,
-            font=dict(size=FONT_SIZE_TICK),
-            bgcolor=legend_bgcolor(),
-            itemsizing="constant",
-            itemwidth=40,
-        ),
-        margin=dict(l=72, r=32, t=50, b=140),
         shapes=shapes,
         annotations=annotations,
-        hovermode="closest",
     )
 
     return fig
@@ -417,23 +391,13 @@ def build_rmse_boxplot_figure(
             col=1,
         )
 
-    fig.update_layout(
-        template="plotly_white" if theme == ThesisTheme.LIGHT else "plotly_dark",
-        paper_bgcolor=paper_bg,
-        plot_bgcolor=plot_bg,
-        font=dict(family=FONT_FAMILY, size=FONT_SIZE_BASE, color=fg),
+    apply_thesis_style(
+        fig,
+        theme,
         height=FIGURE_HEIGHT,
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=-0.2,
-            xanchor="center",
-            x=0.5,
-            font=dict(size=FONT_SIZE_TICK),
-            bgcolor=legend_bgcolor(),
-        ),
         margin=dict(l=72, r=32, t=28, b=140),
         hovermode="closest",
+        legend_y=-0.2,
     )
 
     # X-axis: model names for each subplot
@@ -460,7 +424,7 @@ def build_rmse_boxplot_figure(
         col=2,
     )
     fig.update_yaxes(
-        title_text="RMSE (z)",
+        title_text=rmse_axis_label(),
         range=[0, y_max],
         showgrid=True,
         gridcolor=grid,

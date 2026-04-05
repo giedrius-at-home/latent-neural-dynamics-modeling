@@ -65,6 +65,7 @@ from dashboard.thesis.constants import (
     WIDTH_PSID,
     WIDTH_TRUE,
     WIDTH_VARMA,
+    apply_thesis_style,
     legend_bgcolor,
     paper_colors,
     true_line_color,
@@ -245,11 +246,22 @@ def _build_checkpoint_cell(
     true_concat = np.concatenate([th, zt_fc])
     z_true_plot = zscore_using_true_stats(true_concat, true_concat)
 
+    # Detect scale mismatch: if predictions are already z-scored (small range)
+    # while true is in raw units (large range), rescale predictions to raw scale
+    # before the joint z-score so they don't collapse to flat lines.
+    _true_fc_std = np.nanstd(zt_fc) if zt_fc.size > 0 else 1.0
+    _true_fc_mean = np.nanmean(zt_fc) if zt_fc.size > 0 else 0.0
+
     def _pred_line(pred_fc: np.ndarray) -> np.ndarray:
         if pred_fc is None or np.all(np.isnan(pred_fc)):
             out = np.full(n_hist + m_fc, np.nan, dtype=float)
             return out
-        pred_full = np.concatenate([th, pred_fc])
+        pfc = np.asarray(pred_fc, dtype=float)
+        # Rescale if prediction range is much smaller than true range (pre-zscored data)
+        pred_range = np.nanstd(pfc) if pfc.size > 0 else 0.0
+        if _true_fc_std > 0 and pred_range > 0 and _true_fc_std / pred_range > 10:
+            pfc = (pfc - np.nanmean(pfc)) / pred_range * _true_fc_std + _true_fc_mean
+        pred_full = np.concatenate([th, pfc])
         z = zscore_using_true_stats(true_concat, pred_full)
         out = z.copy()
         out[:n_hist] = np.nan
@@ -471,7 +483,7 @@ def build_forecast_checkpoint_compare_figure(
                     x=t_plot,
                     y=z_true,
                     mode="lines",
-                    name="True (z)",
+                    name="y_true",
                     legendgroup="true",
                     line=dict(color=c_true, width=WIDTH_TRUE),
                     showlegend=show_leg,
@@ -536,29 +548,14 @@ def build_forecast_checkpoint_compare_figure(
         fig, n_rows=3, n_cols=2, theme=spec.theme, nticks=12, x_title=THESIS_TIME_AXIS_TITLE
     )
 
-    fig.update_layout(
-        paper_bgcolor=paper_bg,
-        plot_bgcolor=plot_bg,
-        font=dict(family=FONT_FAMILY, size=FONT_SIZE_BASE, color=fg),
+    apply_thesis_style(
+        fig,
+        spec.theme,
         height=int(min(1100, max(520, 320 * 3 + 140))),
-        margin=dict(l=72, r=24, t=100, b=128),
-        title=dict(
-            text=(
-                f"{spec.section_title} · trials {i_off} (OFF) / {i_on} (ON) · "
-                f"history {spec.history_ms:.0f} ms · horizon {spec.forecast_ms:.0f} ms"
-            ),
-            font=dict(size=FONT_SIZE_TICK + 1, family=FONT_FAMILY, color=fg),
-        ),
-        legend=dict(
-            orientation="h",
-            yanchor="top",
-            y=-0.08,
-            xanchor="center",
-            x=0.5,
-            bgcolor=legend_bgcolor(),
-            font=dict(size=FONT_SIZE_TICK, family=FONT_FAMILY),
-        ),
+        margin=dict(l=72, r=24, t=56, b=128),
+        legend_y=-0.08,
     )
+    # Title omitted — HTML report provides section headings
     fig.update_annotations(font=cross_block_annotation_font(theme=spec.theme))
 
     _ylab_override = (spec.y_axis_label or "").strip()
@@ -568,18 +565,21 @@ def build_forecast_checkpoint_compare_figure(
         och, _ = resolve_output_channel_display(
             res_psid, ch, declared_outputs=THESIS_DECLARED_BEHAVIORAL_OUTPUTS
         )
-        ylab = f"z-scored {och}"
+        from dashboard.thesis.constants import d_score_axis_label
+        ylab = d_score_axis_label(och)
+        feat = och
     else:
         feat_disp = neural_y_feature_label(
             meta_res,
             ch,
             neural_y_feature_name=spec.neural_y_feature_name,
         )
-        ylab = f"z-scored {feat_disp.replace('_', ' ')}"
+        ylab = feat_disp  # neural: raw feature name, no prefix
+        feat = feat_disp
 
     fig.update_yaxes(title_text=ylab, row=2, col=1)
 
-    feat = ylab.removeprefix("z-scored ").strip() or ylab
+    feat = feat  # already set above
     cap = thesis_exemplar_tagline(
         res_psid,
         i_off,

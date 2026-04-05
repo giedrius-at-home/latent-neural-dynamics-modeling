@@ -22,6 +22,7 @@ from dashboard.thesis.constants import (
     COLOR_SEPARATOR,
     FIGURE_HEIGHT,
     FONT_FAMILY,
+    FONT_SIZE_ANNOTATION,
     FONT_SIZE_BASE,
     FONT_SIZE_LABEL,
     FONT_SIZE_TICK,
@@ -51,7 +52,7 @@ def build_classification_f1_figure(
             x=0.5,
             y=0.5,
             showarrow=False,
-            font=dict(size=14, family=FONT_FAMILY),
+            font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY),
         )
         fig.update_layout(margin=dict(l=40, r=40, t=40, b=40))
         return fig, spec.caption or ""
@@ -72,7 +73,7 @@ def build_classification_f1_figure(
             x=0.5,
             y=0.5,
             showarrow=False,
-            font=dict(size=12, family=FONT_FAMILY),
+            font=dict(size=FONT_SIZE_BASE, family=FONT_FAMILY),
         )
         fig.update_layout(margin=dict(l=40, r=40, t=40, b=40))
         return fig, spec.caption or ""
@@ -380,15 +381,102 @@ def build_classification_grouped_bar_figure(
 
 
 # ---------------------------------------------------------------------------
+# Standard classification heatmap: sessions × feature groups
+# ---------------------------------------------------------------------------
+
+
+def build_standard_heatmap_figure(
+    points: List[ClassificationF1Point],
+    theme: ThesisTheme = ThesisTheme.LIGHT,
+) -> Figure:
+    """Sessions (rows) × feature groups (cols) balanced-accuracy heatmap."""
+    from plotly.subplots import make_subplots
+    from dashboard.thesis.constants import apply_thesis_style
+
+    paper_bg, plot_bg = paper_colors(theme)
+    fg = true_line_color(theme)
+
+    # Build session × group grid
+    seen: dict[str, None] = {}
+    for pt in points:
+        key = f"{pt.participant_label}_{pt.session_label}"
+        seen.setdefault(key, None)
+    session_labels = list(seen.keys())
+    feat_keys = list(GROUP_ORDER)
+    n_rows = len(session_labels)
+    n_cols = len(feat_keys)
+
+    grid = np.full((n_rows, n_cols), float("nan"))
+    for pt in points:
+        sess_key = f"{pt.participant_label}_{pt.session_label}"
+        ri = session_labels.index(sess_key) if sess_key in session_labels else -1
+        ci = feat_keys.index(pt.group) if pt.group in feat_keys else -1
+        if ri >= 0 and ci >= 0:
+            grid[ri, ci] = pt.balanced_accuracy
+
+    text_vals = [
+        [f"{v:.2f}" if np.isfinite(v) else "" for v in row] for row in grid
+    ]
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Heatmap(
+            z=grid,
+            x=[_FEAT_SHORT.get(f, f) for f in feat_keys],
+            y=session_labels,
+            colorscale="RdYlGn",
+            zmin=0.3,
+            zmax=0.9,
+            zmid=0.5,
+            text=text_vals,
+            texttemplate="%{text}",
+            textfont=dict(size=FONT_SIZE_ANNOTATION),
+            showscale=True,
+            colorbar=dict(
+                title=dict(text="BA", side="right"),
+                len=0.5,
+                thickness=12,
+                tickfont=dict(size=FONT_SIZE_TICK),
+            ),
+            hovertemplate="Session: %{y}<br>Feature: %{x}<br>BA=%{z:.3f}<extra></extra>",
+        )
+    )
+
+    apply_thesis_style(fig, theme, height=360, margin=dict(l=100, r=80, t=36, b=60))
+    fig.update_yaxes(autorange="reversed")
+    return fig
+
+
+# ---------------------------------------------------------------------------
 # Flipped classification heatmaps: h × m grid per session × feature
 # ---------------------------------------------------------------------------
 
-# Mapping from session label to flipped variant base + run_ts
-_FLIPPED_SESSIONS: dict[str, tuple[str, str]] = {
-    "PDI1_S2": ("psid_behavioral_PDI1_2_nx_80_n12_i40_dbs_both_narrow_band_flipped", "20260315_210934"),
-    "PDI1_S4": ("psid_behavioral_PDI1_4_nx_80_n6_i40_dbs_both_narrow_band_flipped", "20260315_215824"),
-    "PDI4_S2": ("psid_behavioral_PDI4_2_nx_80_n10_i40_dbs_both_narrow_band_flipped", "20260315_223343"),
-    "PDI4_S3": ("psid_behavioral_PDI4_3_nx65_n10_i40_dbs_both_narrow_band_flipped", "20260315_202707"),
+# Mapping from session label to flipped variant base + per-feature run timestamps
+_FLIPPED_SESSIONS: dict[str, tuple[str, dict[str, str]]] = {
+    "PDI1_S2": ("psid_behavioral_PDI1_2_nx_80_n12_i40_dbs_both_narrow_band_flipped", {
+        "xp": "20260315_210934",
+        "xp_1": "20260315_212227",
+        "xp_2": "20260315_212605",
+        "xp_with_dbs": "20260315_213629",
+    }),
+    "PDI1_S4": ("psid_behavioral_PDI1_4_nx_80_n6_i40_dbs_both_narrow_band_flipped", {
+        "xp": "20260315_215824",
+        "xp_1": "20260315_220623",
+        "xp_2": "20260315_220842",
+        "xp_with_dbs": "20260315_221545",
+    }),
+    "PDI4_S2": ("psid_behavioral_PDI4_2_nx_80_n10_i40_dbs_both_narrow_band_flipped", {
+        "xp": "20260315_223343",
+        "xp_1": "20260315_224234",
+        "xp_2": "20260315_224519",
+        "xp_with_dbs": "20260315_225241",
+    }),
+    "PDI4_S3": ("psid_behavioral_PDI4_3_nx65_n10_i40_dbs_both_narrow_band_flipped", {
+        "xp": "20260315_202707",
+        "xp_1": "20260315_203632",
+        "xp_2": "20260315_203936",
+        "xp_with_dbs": "20260315_204723",
+    }),
 }
 
 _FLIPPED_FEAT_SUFFIX: dict[str, tuple[str, str]] = {
@@ -465,9 +553,10 @@ def build_flipped_heatmap_figure(
     m_labels = [f"{m:.1f}" for m in _M_VALUES]
 
     for ri, sess_label in enumerate(session_keys):
-        var_base, run_ts = _FLIPPED_SESSIONS[sess_label]
+        var_base, ts_map = _FLIPPED_SESSIONS[sess_label]
         for ci, feat in enumerate(feat_keys):
             suffix, pkl_name = _FLIPPED_FEAT_SUFFIX[feat]
+            run_ts = ts_map.get(feat, ts_map.get("xp", ""))
             grid = _load_flipped_heatmap_data(
                 results_root, var_base, run_ts, suffix, pkl_name
             )
@@ -487,7 +576,7 @@ def build_flipped_heatmap_figure(
                     zmid=0.5,
                     text=text_vals,
                     texttemplate="%{text}",
-                    textfont=dict(size=8),
+                    textfont=dict(size=FONT_SIZE_ANNOTATION - 2),
                     showscale=is_last,
                     colorbar=dict(
                         title=dict(text="BA", side="right"),

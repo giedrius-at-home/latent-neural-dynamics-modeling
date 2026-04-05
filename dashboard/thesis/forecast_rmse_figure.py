@@ -15,10 +15,12 @@ from dashboard.thesis.constants import (
     COLOR_VARMA,
     FIGURE_HEIGHT,
     FONT_FAMILY,
+    FONT_SIZE_ANNOTATION,
     FONT_SIZE_BASE,
     FONT_SIZE_LABEL,
     FONT_SIZE_TICK,
     ThesisTheme,
+    rmse_axis_label,
     dbs_badge_style,
     grid_color,
     legend_bgcolor,
@@ -126,11 +128,12 @@ def build_forecast_rmse_figure(
     one_step_ms: float = 1000.0 / 60.0,
     x_max_ms: float = 1000.0,
     y_axis_title: str | None = None,
+    column_name: str = "",
 ) -> Figure:
     paper_bg, plot_bg = paper_colors(theme)
     grid = grid_color(theme)
     fg = true_line_color(theme)
-    y_title = y_axis_title or "RMSE (z-scored tracing speed)"
+    y_title = y_axis_title or rmse_axis_label()
 
     fig = make_subplots(
         rows=1,
@@ -139,7 +142,7 @@ def build_forecast_rmse_figure(
         horizontal_spacing=0.1,
     )
 
-    ymax = max(float(data.naive_rmse) * 1.12, 1.05)
+    ymax = float(data.naive_rmse) * 1.12
     for arr in (
         data.mean_psid_off,
         data.mean_varma_off,
@@ -193,8 +196,8 @@ def build_forecast_rmse_figure(
             _hex_rgba(COLOR_PSID, 0.15),
             row,
             col,
-            "±1 SEM (PSID)",
-            showlegend=(col == 1),
+            None,
+            showlegend=False,
         )
         _add_sem_band(
             fig,
@@ -204,18 +207,18 @@ def build_forecast_rmse_figure(
             _hex_rgba(COLOR_VARMA, 0.15),
             row,
             col,
-            "±1 SEM (VARMA)",
-            showlegend=(col == 1),
+            None,
+            showlegend=False,
         )
         _add_model_line(
-            fig, x, mean_p, COLOR_PSID, "PSID", None, "circle", row, col, showlegend=(col == 1)
+            fig, x, mean_p, COLOR_PSID, "y_hat_PSID", None, "circle", row, col, showlegend=(col == 1)
         )
         _add_model_line(
             fig,
             x,
             mean_v,
             COLOR_VARMA,
-            "VARMA",
+            "y_hat_VARMA",
             "dash",
             "square",
             row,
@@ -237,21 +240,6 @@ def build_forecast_rmse_figure(
             col=col,
         )
 
-        for xv in (250.0, 500.0):
-            if xv <= x_max_ms:
-                _add_vline(fig, xv, row, col)
-                fig.add_annotation(
-                    x=xv,
-                    y=1.0,
-                    xref=xaxis,
-                    yref=yaxis_d,
-                    text=f"{int(xv)} ms",
-                    showarrow=False,
-                    xanchor="center",
-                    yanchor="bottom",
-                    font=dict(size=9, color=_REF_TEXT),
-                )
-
         if crossover is not None and 0 < crossover < x_max_ms:
             fig.add_shape(
                 type="line",
@@ -271,7 +259,7 @@ def build_forecast_rmse_figure(
                 yref=yaxis_d,
                 text=f"crossover (~{crossover:.0f} ms)",
                 showarrow=False,
-                font=dict(size=9, color=_REF_TEXT),
+                font=dict(size=FONT_SIZE_ANNOTATION - 1, color=_REF_TEXT),
                 xanchor="center",
             )
 
@@ -298,7 +286,7 @@ def build_forecast_rmse_figure(
             yref=yaxis_d,
             text="← 1-step",
             showarrow=False,
-            font=dict(size=9, color=fg),
+            font=dict(size=FONT_SIZE_ANNOTATION - 1, color=fg),
             xanchor="left",
         )
 
@@ -359,23 +347,17 @@ def build_forecast_rmse_figure(
     )
     fig.update_yaxes(showticklabels=True, **_ykw, row=1, col=2)
 
-    fig.update_layout(
-        paper_bgcolor=paper_bg,
-        plot_bgcolor=plot_bg,
-        font=dict(family=FONT_FAMILY, size=FONT_SIZE_BASE, color=fg),
-        height=FIGURE_HEIGHT,
-        margin=dict(l=70, r=40, t=36, b=80),
-        legend=dict(
-            orientation="h",
-            yanchor="top",
-            y=-0.16,
-            xanchor="center",
-            x=0.5,
-            font=dict(size=FONT_SIZE_TICK),
-            bgcolor=legend_bgcolor(),
-        ),
-        hovermode="x unified",
+    from dashboard.thesis.constants import apply_thesis_style
+    apply_thesis_style(
+        fig, theme, height=FIGURE_HEIGHT,
+        margin=dict(l=70, r=40, t=56 if column_name else 36, b=80),
+        legend_y=-0.16,
     )
+    if column_name:
+        fig.update_layout(
+            title=column_name,
+            title_font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY),
+        )
 
     return fig
 
@@ -384,6 +366,7 @@ def build_forecast_rmse_figure_or_empty(
     data: ForecastHorizonRmseData | None,
     theme: ThesisTheme,
     y_axis_title: str | None = None,
+    column_name: str = "",
 ) -> Figure:
     if data is None or data.x_ms.size == 0:
         paper_bg, plot_bg = paper_colors(theme)
@@ -400,7 +383,7 @@ def build_forecast_rmse_figure_or_empty(
         )
         fig.update_layout(paper_bgcolor=paper_bg, plot_bgcolor=plot_bg)
         return fig
-    return build_forecast_rmse_figure(data, theme, y_axis_title=y_axis_title)
+    return build_forecast_rmse_figure(data, theme, y_axis_title=y_axis_title, column_name=column_name)
 
 
 def build_forecast_global_rmse_figure(
@@ -414,7 +397,7 @@ def build_forecast_global_rmse_figure(
     paper_bg, plot_bg = paper_colors(theme)
     grid = grid_color(theme)
     fg = true_line_color(theme)
-    y_title = y_axis_title or f"RMSE (z) at ~{data.global_horizon_ms:.0f} ms horizon"
+    y_title = y_axis_title or f"{rmse_axis_label()} at ~{data.global_horizon_ms:.0f} ms horizon"
 
     cells = [
         ("PSID\nOFF", data.trial_rmse_psid_off, COLOR_PSID, 0.85),
@@ -445,7 +428,7 @@ def build_forecast_global_rmse_figure(
             error_y=dict(type="data", array=sems, visible=True, thickness=1.5, color=fg),
             marker=dict(color=bar_colors, line=dict(width=0)),
             width=0.52,
-            name="Mean ± SEM",
+            name="Mean",
             showlegend=True,
         )
     )
@@ -479,33 +462,24 @@ def build_forecast_global_rmse_figure(
         line=dict(color=COLOR_SEPARATOR, width=0.7, dash="dash"), opacity=0.5,
     )
 
+    from dashboard.thesis.constants import apply_thesis_style
+    apply_thesis_style(
+        fig, theme, height=FIGURE_HEIGHT,
+        margin=dict(l=72, r=32, t=36, b=140),
+        legend_y=-0.12, hovermode="closest",
+    )
     fig.update_layout(
-        template="plotly_white" if theme == ThesisTheme.LIGHT else "plotly_dark",
-        paper_bgcolor=paper_bg,
-        plot_bgcolor=plot_bg,
-        font=dict(family=FONT_FAMILY, size=FONT_SIZE_BASE, color=fg),
-        height=FIGURE_HEIGHT,
         xaxis=dict(
             tickmode="array",
             tickvals=list(x_pos),
             ticktext=[c[0] for c in cells],
             title=dict(text="Model × DBS condition", font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY), standoff=14),
-            showgrid=False, zeroline=False, showline=True, linecolor=fg,
-            tickfont=dict(size=FONT_SIZE_TICK),
+            showgrid=False, zeroline=False,
         ),
         yaxis=dict(
             title=dict(text=y_title, font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY)),
             range=[0, y_max * 1.02],
-            showgrid=True, gridcolor=grid, showline=True, linecolor=fg,
-            tickfont=dict(size=FONT_SIZE_TICK),
         ),
-        legend=dict(
-            orientation="h", yanchor="top", y=-0.12,
-            xanchor="center", x=0.5,
-            font=dict(size=FONT_SIZE_TICK), bgcolor=legend_bgcolor(),
-        ),
-        margin=dict(l=72, r=32, t=36, b=140),
-        hovermode="closest",
     )
 
     return fig

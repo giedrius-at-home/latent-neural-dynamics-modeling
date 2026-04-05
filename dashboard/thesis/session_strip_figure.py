@@ -20,6 +20,7 @@ from dashboard.thesis.constants import (
     WIDTH_MEAN,
     rmse_axis_label,
     ThesisTheme,
+    apply_thesis_style,
     grid_color,
     legend_bgcolor,
     paper_colors,
@@ -184,7 +185,7 @@ def build_session_strip_figure(
             )
             if c == 1:
                 fig.update_yaxes(
-                    title_text="RMSE (z-scored tracing speed)",
+                    title_text=rmse_axis_label(),
                     title_font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY),
                     row=r,
                     col=c,
@@ -210,26 +211,13 @@ def build_session_strip_figure(
                     col=c,
                 )
 
-    fig.update_layout(
-        template="plotly_white" if theme == ThesisTheme.LIGHT else "plotly_dark",
-        paper_bgcolor=paper_bg,
-        plot_bgcolor=plot_bg,
-        font=dict(family=FONT_FAMILY, size=FONT_SIZE_BASE, color=fg),
+    apply_thesis_style(
+        fig,
+        theme,
         height=max(FIGURE_HEIGHT, 200 * nrows + 120),
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=-0.22,
-            xanchor="center",
-            x=0.5,
-            font=dict(size=FONT_SIZE_TICK),
-            bgcolor=legend_bgcolor(),
-            itemsizing="constant",
-            itemwidth=40,
-            tracegroupgap=6,
-        ),
         margin=dict(l=72, r=24, t=36, b=140),
         hovermode="closest",
+        legend_y=-0.22,
     )
 
     return fig
@@ -381,21 +369,14 @@ def build_session_strip_boxplot_figure(
                     row=r, col=c,
                 )
 
-    fig.update_layout(
-        template="plotly_white" if theme == ThesisTheme.LIGHT else "plotly_dark",
-        paper_bgcolor=paper_bg,
-        plot_bgcolor=plot_bg,
-        font=dict(family=FONT_FAMILY, size=FONT_SIZE_BASE, color=fg),
+    apply_thesis_style(
+        fig,
+        theme,
         height=max(FIGURE_HEIGHT, 180 * nrows + 120),
-        legend=dict(
-            orientation="h", yanchor="bottom", y=-0.22,
-            xanchor="center", x=0.5,
-            font=dict(size=FONT_SIZE_TICK), bgcolor=legend_bgcolor(),
-            itemsizing="constant", itemwidth=40, tracegroupgap=6,
-        ),
         margin=dict(l=72, r=24, t=36, b=140),
         hovermode="closest",
-        boxmode="overlay",
+        legend_y=-0.22,
     )
+    fig.update_layout(boxmode="overlay")
 
     return fig

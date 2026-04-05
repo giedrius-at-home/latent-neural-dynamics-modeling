@@ -127,7 +127,7 @@ def _add_self_prediction_stack_row(
     show_legend: bool,
     badge_text: str,
     prediction_line_dash: Optional[str],
-    true_series_name: str = "true",
+    true_series_name: str = "y_true",
 ) -> None:
     """Full-trial one-step-style row (matches A1 stacked exemplar traces)."""
     c_true = true_line_color(theme)
@@ -190,7 +190,7 @@ def _add_self_prediction_stack_row(
             COLOR_PSID_BAND_LINE,
             "PSID ± mean RMSE",
             "sp_psid",
-            show_legend,
+            False,
         )
         _band_row(
             zd,
@@ -199,7 +199,7 @@ def _add_self_prediction_stack_row(
             COLOR_DPAD_BAND_LINE,
             "DPAD ± mean RMSE",
             "sp_dpad",
-            show_legend,
+            False,
         )
         _band_row(
             zv,
@@ -208,7 +208,7 @@ def _add_self_prediction_stack_row(
             COLOR_VARMA_BAND_LINE,
             "VARMA ± mean RMSE",
             "sp_varma",
-            show_legend,
+            False,
         )
 
     fig.add_trace(
@@ -1116,7 +1116,7 @@ def build_c2_forecast_figure(
                 COLOR_PSID_BAND_LINE,
                 "PSID ± mean RMSE",
                 "s_rmse_p",
-                show_leg,
+                False,
             )
             _sess_band(
                 z_dpad,
@@ -1125,7 +1125,7 @@ def build_c2_forecast_figure(
                 COLOR_DPAD_BAND_LINE,
                 "DPAD ± mean RMSE",
                 "s_rmse_d",
-                show_leg,
+                False,
             )
             _sess_band(
                 z_varma,
@@ -1134,7 +1134,7 @@ def build_c2_forecast_figure(
                 COLOR_VARMA_BAND_LINE,
                 "VARMA ± mean RMSE",
                 "s_rmse_v",
-                show_leg,
+                False,
             )
 
         if spec.show_psid_sigma_band:
@@ -1150,9 +1150,9 @@ def build_c2_forecast_figure(
                         fillcolor=COLOR_PSID_BAND_FILL,
                         mode="lines",
                         line=dict(color=COLOR_PSID_BAND_LINE, width=0),
-                        name="PSID ±1σ (∝√m)" if row == 1 else None,
+                        name="PSID ±1σ (∝√m)",
                         legendgroup="band",
-                        showlegend=(row == 1),
+                        showlegend=False,
                         hoverinfo="skip",
                         connectgaps=False,
                     ),
@@ -1165,7 +1165,7 @@ def build_c2_forecast_figure(
                 x=t_plot,
                 y=z_true_p,
                 mode="lines",
-                name="True (z)",
+                name="y_true",
                 legendgroup="true",
                 line=dict(color=c_true, width=WIDTH_TRUE),
                 showlegend=(row == 1),
@@ -1183,7 +1183,7 @@ def build_c2_forecast_figure(
                     x=t_plot,
                     y=z_psid_p,
                     mode="lines",
-                    name="PSID",
+                    name="y_hat_PSID",
                     legendgroup="psid",
                     line=dict(color=COLOR_PSID, width=WIDTH_PSID),
                     showlegend=_show,
@@ -1198,7 +1198,7 @@ def build_c2_forecast_figure(
                     x=t_plot,
                     y=z_dpad_p,
                     mode="lines",
-                    name="DPAD",
+                    name="y_hat_DPAD",
                     legendgroup="dpad",
                     line=dict(color=COLOR_DPAD, width=WIDTH_DPAD),
                     showlegend=_show,
@@ -1213,7 +1213,7 @@ def build_c2_forecast_figure(
                     x=t_plot,
                     y=z_varma_p,
                     mode="lines",
-                    name="VARMA",
+                    name="y_hat_VARMA",
                     legendgroup="varma",
                     line=dict(color=COLOR_VARMA, width=WIDTH_VARMA, dash="8 2"),
                     showlegend=_show,
@@ -1251,7 +1251,7 @@ def build_c2_forecast_figure(
             show_legend=False,
             badge_text=f"One-step · trial {j_pred_off}",
             prediction_line_dash=None,
-            true_series_name="True (z)",
+            true_series_name="y_true",
         )
         _add_self_prediction_stack_row(
             fig,
@@ -1261,7 +1261,7 @@ def build_c2_forecast_figure(
             show_legend=False,
             badge_text=f"One-step · trial {j_pred_on}",
             prediction_line_dash=None,
-            true_series_name="True (z)",
+            true_series_name="y_true",
         )
 
     _x_title_kw = thesis_bottom_time_axis_title(theme=spec.theme)

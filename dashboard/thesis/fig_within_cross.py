@@ -31,16 +31,13 @@ from dashboard.thesis.constants import (
     COLOR_VARMA,
     DOT_SIZE,
     FONT_FAMILY,
-    FONT_SIZE_BASE,
     FONT_SIZE_LABEL,
     FONT_SIZE_TICK,
     ThesisTheme,
     WIDTH_TRUE,
     WIDTH_PSID,
-    grid_color,
-    legend_bgcolor,
-    paper_colors,
-    true_line_color,
+    apply_thesis_style,
+    rmse_axis_label,
 )
 from dashboard.thesis.specs import (
     THESIS_DECLARED_BEHAVIORAL_OUTPUTS,
@@ -217,10 +214,6 @@ def build_within_cross_timeseries_figure(
     map_cross_off = _key_index_map(res_cross_off)
     map_cross_on = _key_index_map(res_cross_on)
 
-    paper_bg, plot_bg = paper_colors(theme)
-    grid = grid_color(theme)
-    fg = true_line_color(theme)
-
     fig = make_subplots(
         rows=1,
         cols=2,
@@ -380,36 +373,18 @@ def build_within_cross_timeseries_figure(
         fig.update_xaxes(
             title_text=THESIS_TIME_AXIS_TITLE,
             title_font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY),
-            showgrid=True, gridcolor=grid,
-            showline=True, linecolor=fg, linewidth=1,
-            tickfont=dict(size=FONT_SIZE_TICK),
             row=1, col=col,
         )
         fig.update_yaxes(
             title_text=y_ylab if col == 1 else "",
             title_font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY),
-            showgrid=True, gridcolor=grid,
-            showline=True, linecolor=fg, linewidth=1,
-            tickfont=dict(size=FONT_SIZE_TICK),
             row=1, col=col,
         )
 
-    fig.update_layout(
-        template="plotly_white" if theme == ThesisTheme.LIGHT else "plotly_dark",
-        paper_bgcolor=paper_bg,
-        plot_bgcolor=plot_bg,
-        font=dict(family=FONT_FAMILY, size=FONT_SIZE_BASE, color=fg),
-        height=340,
+    apply_thesis_style(
+        fig, theme, height=340,
         margin=dict(l=60, r=20, t=50, b=72),
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=-0.18,
-            xanchor="center",
-            x=0.5,
-            bgcolor=legend_bgcolor(),
-            font=dict(size=FONT_SIZE_TICK),
-        ),
+        legend_y=-0.18,
     )
 
     cap = (
@@ -450,10 +425,6 @@ def build_within_cross_boxplot_figure(
     jitter_seed: int = 42,
 ) -> Figure:
     """Part B: 2 panels (DBS-OFF | DBS-ON), 3 model groups, within + cross bars each. Returns Plotly Figure."""
-    paper_bg, plot_bg = paper_colors(theme)
-    grid = grid_color(theme)
-    fg = true_line_color(theme)
-
     models = ["PSID", "DPAD", "VARMA"]
     model_colors = [COLOR_PSID, COLOR_DPAD, COLOR_VARMA]
     off_cells = [
@@ -532,33 +503,20 @@ def build_within_cross_boxplot_figure(
         )
 
     y_max = max(y_max * 1.08, 0.85)
+    apply_thesis_style(
+        fig, theme, height=400,
+        margin=dict(l=60, r=20, t=50, b=100),
+        legend_y=-0.2,
+    )
+    # Figure-specific overrides: y-axis ranges and x-axis grid off
     fig.update_layout(
-        template="plotly_white" if theme == ThesisTheme.LIGHT else "plotly_dark",
-        paper_bgcolor=paper_bg, plot_bgcolor=plot_bg,
-        font=dict(family=FONT_FAMILY, size=FONT_SIZE_BASE, color=fg),
-        height=400, margin=dict(l=60, r=20, t=50, b=100),
-        legend=dict(
-            orientation="h", yanchor="bottom", y=-0.2,
-            xanchor="center", x=0.5, bgcolor=legend_bgcolor(),
-            font=dict(size=FONT_SIZE_TICK),
-        ),
         yaxis=dict(range=[0, y_max]),
         yaxis2=dict(range=[0, y_max]),
     )
     for col in (1, 2):
-        fig.update_xaxes(
-            showgrid=False, showline=True, linecolor=fg, linewidth=1,
-            tickfont=dict(size=FONT_SIZE_TICK),
-            row=1, col=col,
-        )
-        fig.update_yaxes(
-            showgrid=True, gridcolor=grid,
-            showline=True, linecolor=fg, linewidth=1,
-            tickfont=dict(size=FONT_SIZE_TICK),
-            row=1, col=col,
-        )
+        fig.update_xaxes(showgrid=False, row=1, col=col)
     fig.update_yaxes(
-        title_text="RMSE (z-scored)",
+        title_text=rmse_axis_label(),
         title_font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY),
         row=1, col=1,
     )

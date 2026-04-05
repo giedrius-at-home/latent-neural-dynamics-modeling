@@ -12,9 +12,11 @@ from plotly.subplots import make_subplots
 
 from dashboard.thesis.constants import (
     FONT_FAMILY,
+    FONT_SIZE_ANNOTATION,
     FONT_SIZE_BASE,
     FONT_SIZE_TICK,
     ThesisTheme,
+    apply_thesis_style,
     grid_color,
     paper_colors,
     true_line_color,
@@ -133,7 +135,7 @@ def build_psid_cz_figure(
                     xref="x domain",
                     yref="y domain",
                     showarrow=False,
-                    font=dict(size=10, color=fg, family=FONT_FAMILY),
+                    font=dict(size=FONT_SIZE_ANNOTATION, color=fg, family=FONT_FAMILY),
                     row=ri,
                     col=ci,
                 )
@@ -200,25 +202,23 @@ def build_psid_cz_figure(
             if ci > 1:
                 fig.update_yaxes(showticklabels=False, row=ri, col=ci)
 
-    fig.update_layout(
-        paper_bgcolor=paper_bg,
-        plot_bgcolor=plot_bg,
-        font=dict(family=FONT_FAMILY, color=fg, size=FONT_SIZE_BASE),
+    apply_thesis_style(
+        fig,
+        theme,
         height=max(300 * nrows + 80, 500),
         margin=dict(l=100, r=110, t=56, b=96),
+        show_legend=False,
     )
 
     for ri in range(1, nrows + 1):
         for ci in range(1, max_cols + 1):
             fig.update_xaxes(
-                gridcolor=grid,
                 zeroline=False,
                 showgrid=False,
                 row=ri,
                 col=ci,
             )
             fig.update_yaxes(
-                gridcolor=grid,
                 zeroline=False,
                 showgrid=False,
                 row=ri,

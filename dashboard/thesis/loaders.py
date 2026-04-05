@@ -211,11 +211,11 @@ def resolve_output_channel_display(
     """
     meta = channels_as_str_list(split_res.get("output_channels"))
     if channel_idx < len(meta):
-        return meta[channel_idx].replace("_", " "), False
+        return meta[channel_idx], False
     if channel_idx < 0:
         raise ThesisDataError(f"Invalid channel_idx={channel_idx}")
     if channel_idx < len(declared_outputs):
-        return str(declared_outputs[channel_idx]).replace("_", " "), True
+        return str(declared_outputs[channel_idx]), True
     raise ThesisDataError(
         f"output_channels missing in results and channel_idx={channel_idx} "
         f"out of range for declared_outputs ({len(declared_outputs)} entries). "

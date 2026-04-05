@@ -168,7 +168,7 @@ def build_dpad_training_curves_figure(
                 name="Train loss",
                 legendgroup="train",
                 showlegend=show_leg,
-                line=dict(color=_COLOR_DPAD, width=1.4),
+                line=dict(color=_COLOR_DPAD, width=2.8),
                 connectgaps=False,
             ),
             row=row, col=col,
@@ -183,7 +183,7 @@ def build_dpad_training_curves_figure(
                     name="Val loss",
                     legendgroup="val",
                     showlegend=show_leg,
-                    line=dict(color=_COLOR_PSID, width=1.2, dash="dot"),
+                    line=dict(color=_COLOR_PSID, width=2.4, dash="dot"),
                     connectgaps=False,
                 ),
                 row=row, col=col,
@@ -231,22 +231,8 @@ def build_dpad_training_curves_figure(
 
     fig.update_annotations(font=dict(family=FONT_FAMILY, size=FONT_SIZE_TICK, color=fg))
 
-    fig.update_layout(
-        paper_bgcolor=paper_bg,
-        plot_bgcolor=plot_bg,
-        font=dict(family=FONT_FAMILY, size=FONT_SIZE_BASE, color=fg),
-        height=580,
-        margin=dict(l=72, r=24, t=72, b=80),
-        legend=dict(
-            orientation="h",
-            yanchor="top",
-            y=-0.10,
-            xanchor="center",
-            x=0.5,
-            bgcolor=legend_bgcolor(),
-            font=dict(size=FONT_SIZE_TICK, family=FONT_FAMILY),
-        ),
-    )
+    from dashboard.thesis.constants import apply_thesis_style
+    apply_thesis_style(fig, theme, height=720, margin=dict(l=72, r=24, t=72, b=80), legend_y=-0.08)
     return fig
 
 
@@ -319,11 +305,9 @@ def build_dpad_training_time_figure(
                 xanchor="center",
             )
 
+    from dashboard.thesis.constants import apply_thesis_style
+    apply_thesis_style(fig, theme, height=380, margin=dict(l=72, r=24, t=36, b=80), legend_y=-0.20)
     fig.update_layout(
-        paper_bgcolor=paper_bg,
-        plot_bgcolor=plot_bg,
-        font=dict(family=FONT_FAMILY, size=FONT_SIZE_BASE, color=fg),
-        height=380,
         barmode="group",
         xaxis=dict(
             tickmode="array",
@@ -331,32 +315,13 @@ def build_dpad_training_time_figure(
             ticktext=session_labels,
             showgrid=False,
             zeroline=False,
-            showline=True,
-            linecolor=fg,
-            linewidth=1,
-            tickfont=dict(size=FONT_SIZE_TICK),
         ),
         yaxis=dict(
             title=dict(
                 text="Training time (min)",
                 font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY),
             ),
-            gridcolor=grid,
             zeroline=False,
-            showline=True,
-            linecolor=fg,
-            linewidth=1,
-            tickfont=dict(size=FONT_SIZE_TICK),
         ),
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=-0.20,
-            xanchor="center",
-            x=0.5,
-            bgcolor=legend_bgcolor(),
-            font=dict(size=FONT_SIZE_TICK, family=FONT_FAMILY),
-        ),
-        margin=dict(l=72, r=24, t=36, b=80),
     )
     return fig

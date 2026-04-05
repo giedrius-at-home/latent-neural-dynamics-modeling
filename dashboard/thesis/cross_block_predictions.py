@@ -61,6 +61,7 @@ from dashboard.thesis.constants import (
     WIDTH_PSID,
     WIDTH_DPAD,
     WIDTH_VARMA,
+    apply_thesis_style,
     legend_bgcolor,
     paper_colors,
     true_line_color,
@@ -772,7 +773,7 @@ def build_cross_block_predictions_figure(
             fig.add_trace(
                 go.Scatter(
                     x=t_p, y=zt,
-                    name="True (z)", mode="lines",
+                    name="y_true", mode="lines",
                     line=dict(color=c_true, width=WIDTH_TRUE),
                     showlegend=show_leg, legendgroup="true",
                     connectgaps=False,
@@ -814,18 +815,12 @@ def build_cross_block_predictions_figure(
         fig, n_rows=n_rows, n_cols=2, theme=spec.theme, nticks=8, x_title=THESIS_TIME_AXIS_TITLE
     )
 
-    fig.update_layout(
-        paper_bgcolor=paper_bg,
-        plot_bgcolor=plot_bg,
-        font=dict(family=FONT_FAMILY, size=FONT_SIZE_BASE, color=fg),
+    apply_thesis_style(
+        fig,
+        spec.theme,
         height=int(min(960, max(380, 260 * n_rows + 180))),
         margin=dict(l=80, r=28, t=56, b=120),
-        legend=dict(
-            orientation="h", yanchor="top", y=-0.08,
-            xanchor="center", x=0.5,
-            bgcolor=legend_bgcolor(),
-            font=dict(size=FONT_SIZE_TICK, family=FONT_FAMILY),
-        ),
+        legend_y=-0.08,
     )
     fig.update_annotations(font=cross_block_annotation_font(theme=spec.theme))
 
@@ -836,17 +831,18 @@ def build_cross_block_predictions_figure(
         och, _ = resolve_output_channel_display(
             res_joint, ch, declared_outputs=THESIS_DECLARED_BEHAVIORAL_OUTPUTS
         )
-        ylab = f"z-scored {och}"
+        from dashboard.thesis.constants import d_score_axis_label
+        ylab = d_score_axis_label(och)
     else:
         feat_disp = neural_y_feature_label(
             res_joint, ch, neural_y_feature_name=spec.neural_y_feature_name,
         )
-        ylab = f"z-scored {feat_disp.replace('_', ' ')}"
+        ylab = feat_disp  # neural: raw feature name, no prefix
 
     y_title_row = max(1, (n_rows + 1) // 2)
     fig.update_yaxes(title_text=ylab, row=y_title_row, col=1)
 
-    feat = ylab.removeprefix("z-scored ").strip() or ylab
+    feat = och if y_mode == "Z" else feat_disp
     cap = thesis_exemplar_tagline(
         res_joint, i_off, i_on, feat, participant_label=spec.participant_label,
     )

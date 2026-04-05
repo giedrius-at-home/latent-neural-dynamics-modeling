@@ -43,6 +43,7 @@ from dashboard.thesis.forecast_rmse_figure import (
 from dashboard.thesis.loaders import (
     channels_as_str_list,
     load_split_results_required,
+    neural_y_feature_label,
     resolve_neural_y_channel_idx,
     resolve_output_channel_display,
 )
@@ -63,16 +64,10 @@ from dashboard.thesis.fig_within_cross import (
     build_within_cross_boxplot_figure,
 )
 from dashboard.thesis.fig_appendix import (
-    build_preprocessing_pipeline_figure,
-    build_psd_dbs_comparison_figure,
+    build_psd_dbs_comparison_figures,
     build_tracing_speed_dbs_comparison_figure,
-    build_grid_search_pearson_figure,
-    build_grid_search_rmse_figure,
-    build_grid_search_neural_rmse_figure,
-    build_grid_search_lag_figure,
+    build_classification_heatmap_figure,
     build_trial_count_summary_figure,
-    build_ablation_pearson_figure,
-    build_ablation_rmse_y_figure,
     build_vanilla_comparison_figure,
     build_laplacian_prediction_figure,
     build_laplacian_timeseries_figure,
@@ -336,21 +331,7 @@ def _build_thesis_html_document_body(
     # Data and Preprocessing
     # ===================================================================
 
-    # Preprocessing pipeline flowchart
     parts.append('<h2>Data and Preprocessing</h2>')
-    try:
-        fig_pp = build_preprocessing_pipeline_figure()
-        add_fig(fig_pp)
-        parts.append(
-            _p_caption(
-                "<b>Preprocessing pipeline.</b> "
-                "Raw BIDS data \u2192 spectral decomposition \u2192 80 Hz resampling \u2192 "
-                "kinematics extraction \u2192 trial segmentation \u2192 model input.",
-                raw=True,
-            )
-        )
-    except Exception as e:
-        parts.append(_p_error(f"Failed to build preprocessing pipeline figure: {e}"))
 
     # Trial count per session and DBS condition
     parts.append('<hr class="section">')
@@ -367,21 +348,22 @@ def _build_thesis_html_document_body(
     except Exception as e:
         parts.append(_p_error(f"Failed to build trial count figure: {e}"))
 
-    # ECoG PSD: DBS-ON vs DBS-OFF
+    # ECoG PSD: DBS-ON vs DBS-OFF (one figure per participant-session)
     parts.append('<hr class="section">')
     try:
-        fig_psd = build_psd_dbs_comparison_figure()
-        add_fig(fig_psd)
-        parts.append(
-            _p_caption(
-                "<b>ECoG PSD: DBS-ON vs DBS-OFF.</b> "
-                "Filled ribbons = \u00b11 SEM across trials. Lines = mean PSD. "
-                "Vertical dashed lines = 13\u201329 Hz beta band.",
-                raw=True,
+        psd_figures = build_psd_dbs_comparison_figures()
+        for psd_label, fig_psd in psd_figures:
+            add_fig(fig_psd)
+            parts.append(
+                _p_caption(
+                    f"<b>ECoG PSD \u2014 {_escape(psd_label)}.</b> "
+                    "Per-channel mean PSD \u00b11 SEM across trials. "
+                    "Vertical dashed lines = 13\u201329 Hz beta band.",
+                    raw=True,
+                )
             )
-        )
     except Exception as e:
-        parts.append(_p_error(f"Failed to build PSD figure: {e}"))
+        parts.append(_p_error(f"Failed to build PSD figures: {e}"))
 
     # Tracing speed: DBS-ON vs DBS-OFF
     parts.append('<hr class="section">')
@@ -585,10 +567,12 @@ def _build_thesis_html_document_body(
                 res_fc, fc_spec.neural_y_feature_name, fc_spec.channel_idx
             )
             inn = channels_as_str_list(res_fc.get("input_channels"))
-            neu_lbl = inn[ch_ix] if ch_ix < len(inn) else f"Y column {ch_ix}"
+            neu_lbl = inn[ch_ix] if ch_ix < len(inn) else neural_y_feature_label(
+                res_fc, ch_ix, neural_y_feature_name=fc_spec.neural_y_feature_name
+            )
             y_fc_title = rmse_axis_label(neu_lbl)
             fig_fc = build_forecast_rmse_figure_or_empty(
-                fc_data, fc_spec.theme, y_axis_title=y_fc_title
+                fc_data, fc_spec.theme, y_axis_title=y_fc_title, column_name=neu_lbl,
             )
             add_fig(fig_fc)
             parts.append(
@@ -689,7 +673,7 @@ def _build_thesis_html_document_body(
             )
             y_fc_title = rmse_axis_label(ch_fc)
             fig_fc = build_forecast_rmse_figure_or_empty(
-                fc_data, fc_spec.theme, y_axis_title=y_fc_title
+                fc_data, fc_spec.theme, y_axis_title=y_fc_title, column_name=ch_fc,
             )
             add_fig(fig_fc)
             parts.append(
@@ -760,31 +744,56 @@ def _build_thesis_html_document_body(
                 "Rows = sessions, columns = feature groups. "
                 "Latent states from condition-specific models (DBS-OFF, DBS-ON) "
                 "are swapped to create a synthetic DBS mismatch. "
-                "Chance level \u2248 0.5.",
+                "Chance level \u2248 0.5. "
+                "Only sessions with statistically significant non-flipped forecast results "
+                "are included (PDI1 S2, PDI4 S3). "
+                "PDI1 S4 and PDI4 S2 did not yield significant forecast classification "
+                "and are omitted.",
                 raw=True,
             )
         )
     except Exception as e:
         parts.append(_p_error(f"Failed to build flipped classification heatmaps: {e}"))
 
-    # Classification dot plot
+    # Standard classification heatmap (replaces dot plot)
     parts.append('<hr class="section">')
     for f1_spec in THESIS_CLASSIFICATION_F1:
         try:
-            fig_f1, cap_f1 = build_classification_f1_figure(f1_spec, results_root)
-            add_fig(fig_f1)
+            from dashboard.thesis.classification_f1_figure import build_standard_heatmap_figure
+            cls_pts = collect_classification_f1_points(
+                results_root,
+                f1_spec.points,
+                classification_parent=f1_spec.classification_parent,
+            )
+            fig_std_hm = build_standard_heatmap_figure(cls_pts, theme=f1_spec.theme)
+            add_fig(fig_std_hm)
             parts.append(
                 _p_caption(
-                    "<b>DBS classification \u2014 balanced accuracy dot plot.</b> "
-                    "Each dot = one participant-session. "
-                    "Horizontal lines = group median. "
-                    "Dashed red = chance (0.5). "
-                    f"{_escape(cap_f1 or '')}",
+                    "<b>Standard classification \u2014 balanced accuracy heatmap.</b> "
+                    "Rows = participant-sessions. Columns = feature groups. "
+                    "Chance level = 0.5.",
                     raw=True,
                 )
             )
         except Exception as e:
             parts.append(_p_error(f"Failed to build Figure F1: {e}"))
+
+    # ROC curves (standard + flipped)
+    parts.append('<hr class="section">')
+    try:
+        from dashboard.thesis.roc_curve_figure import build_roc_curve_figure
+        fig_roc = build_roc_curve_figure(results_root)
+        add_fig(fig_roc)
+        parts.append(
+            _p_caption(
+                "<b>ROC curves \u2014 standard and flipped classification.</b> "
+                "Mean ROC across sessions for each feature group. "
+                "Dashed red = chance diagonal.",
+                raw=True,
+            )
+        )
+    except Exception as e:
+        parts.append(_p_error(f"Failed to build ROC curve figure: {e}"))
 
     # ===================================================================
     # Generalisation and Latent Analysis
@@ -914,33 +923,19 @@ def _build_thesis_html_document_body(
     # PSID ablation: nx/n1 sensitivity
     parts.append('<hr class="section">')
     try:
-        fig_abl_r = build_ablation_pearson_figure()
-        add_fig(fig_abl_r)
+        fig_cls = build_classification_heatmap_figure()
+        add_fig(fig_cls)
         parts.append(
             _p_caption(
-                "<b>PSID ablation: behavioral Pearson r vs model complexity.</b> "
-                "Heatmaps of Pearson r (Z) for nx = {1, 2, 5, final} and n1 = {1, 2, 5, final}. "
-                "Red border = selected configuration. "
-                "Behavioral prediction is largely insensitive to model dimensionality.",
+                "<b>DBS classification accuracy vs latent dimensionality (n<sub>x</sub>, n<sub>1</sub>).</b> "
+                "Balanced accuracy (LDA, 5-fold chronological CV) on X<sub>p</sub>, X<sub>p,1</sub>, X<sub>p,2</sub> "
+                "across grid search (n<sub>x</sub> = 60\u201380) and ablation (n<sub>x</sub> = 1\u201380) runs. "
+                "Red border = selected configuration.",
                 raw=True,
             )
         )
     except Exception as e:
-        parts.append(_p_error(f"Failed to build ablation Pearson figure: {e}"))
-
-    try:
-        fig_abl_y = build_ablation_rmse_y_figure()
-        add_fig(fig_abl_y)
-        parts.append(
-            _p_caption(
-                "<b>PSID ablation: neural RMSE vs model complexity.</b> "
-                "Heatmaps of RMSE (Y) for the same grid. "
-                "Neural reconstruction slightly improves with larger nx.",
-                raw=True,
-            )
-        )
-    except Exception as e:
-        parts.append(_p_error(f"Failed to build ablation RMSE figure: {e}"))
+        parts.append(_p_error(f"Failed to build classification heatmap figure: {e}"))
 
     # PSID Cy importance
     parts.append('<hr class="section">')
@@ -1015,26 +1010,6 @@ def _build_thesis_html_document_body(
     # ===================================================================
     parts.append('<h2>Appendix</h2>')
     appendix_specs = [
-        (
-            "PSID grid search: validation Pearson r",
-            lambda: build_grid_search_pearson_figure(),
-            "Hyperparameter grid search: Pearson correlation between predicted and true behavioural output on the validation set.",
-        ),
-        (
-            "PSID grid search: validation RMSE (behavioral)",
-            lambda: build_grid_search_rmse_figure(),
-            "Hyperparameter grid search: behavioral RMSE on the validation set.",
-        ),
-        (
-            "PSID grid search: validation RMSE (neural)",
-            lambda: build_grid_search_neural_rmse_figure(),
-            "Hyperparameter grid search: neural reconstruction RMSE on the validation set.",
-        ),
-        (
-            "PSID grid search: validation lag (ms)",
-            lambda: build_grid_search_lag_figure(),
-            "Hyperparameter grid search: peak cross-correlation lag on the validation set.",
-        ),
         (
             "DPAD training curves (4-stage loss)",
             lambda: build_dpad_training_curves_figure(results_root),

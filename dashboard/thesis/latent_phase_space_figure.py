@@ -14,6 +14,7 @@ from dashboard.thesis.constants import (
     COLOR_DBS_OFF,
     COLOR_DBS_ON,
     FONT_FAMILY,
+    FONT_SIZE_ANNOTATION,
     FONT_SIZE_BASE,
     FONT_SIZE_TICK,
     ThesisTheme,
@@ -158,13 +159,13 @@ def _add_dual_kde_heatmaps(
         zo = kde_on_fixed_grid(x_off, y_off, xi, yi)
         _add_kde_heatmap(
             fig, row, col, xi, yi, zo, p_lo, p_hi, _OFF_RGB,
-            False, "DBS-OFF (density)", 0.52,
+            False, "DBS-OFF (density)", 0.40,
         )
     if len(x_on) >= 2:
         zn = kde_on_fixed_grid(x_on, y_on, xi, yi)
         _add_kde_heatmap(
             fig, row, col, xi, yi, zn, p_lo, p_hi, _ON_RGB,
-            False, "DBS-ON (density)", 0.55,
+            False, "DBS-ON (density)", 0.45,
         )
 
 
@@ -323,7 +324,7 @@ def build_latent_phase_space_figure(
                         xanchor="right",
                         yanchor="bottom",
                         showarrow=False,
-                        font=dict(size=9, color=fg, family=FONT_FAMILY),
+                        font=dict(size=FONT_SIZE_ANNOTATION - 1, color=fg, family=FONT_FAMILY),
                         row=ri,
                         col=ci,
                     )
@@ -355,13 +356,13 @@ def build_latent_phase_space_figure(
                 col=ci,
             )
 
-    fig.update_layout(
-        paper_bgcolor=paper_bg,
-        plot_bgcolor=plot_bg,
-        font=dict(family=FONT_FAMILY, color=fg, size=FONT_SIZE_BASE),
+    from dashboard.thesis.constants import apply_thesis_style
+    apply_thesis_style(
+        fig, theme,
         height=max(240 * n_rows + 80, 600),
         margin=dict(l=132, r=48, t=56, b=64),
-        showlegend=False,
+        show_legend=False,
+        hovermode="closest",
     )
 
     cap = spec.caption or ""

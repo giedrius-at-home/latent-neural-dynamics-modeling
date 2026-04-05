@@ -18,6 +18,7 @@ from dashboard.thesis.constants import (
     FONT_SIZE_BASE,
     FONT_SIZE_TICK,
     ThesisTheme,
+    apply_thesis_style,
     grid_color,
     paper_colors,
     true_line_color,
@@ -66,7 +67,7 @@ def build_neural_band_heatmap_figure(
             x=0.5,
             y=0.5,
             showarrow=False,
-            font=dict(color=fg, family=FONT_FAMILY, size=14),
+            font=dict(color=fg, family=FONT_FAMILY, size=FONT_SIZE_LABEL),
         )
         fig.update_layout(
             paper_bgcolor=paper_bg,
@@ -137,18 +138,20 @@ def build_neural_band_heatmap_figure(
             yanchor="top",
         )
 
-    fig.update_layout(
-        paper_bgcolor=paper_bg,
-        plot_bgcolor=plot_bg,
-        font=dict(family=FONT_FAMILY, size=FONT_SIZE_BASE, color=fg),
+    apply_thesis_style(
+        fig,
+        theme,
         height=FIGURE_HEIGHT + 50,
         margin=dict(l=100, r=40, t=70, b=120),
+        show_legend=False,
+    )
+    fig.update_layout(
         coloraxis=dict(
             cmin=_ZMIN,
             cmax=_ZMAX,
             colorscale=_BLUE_SEQUENTIAL,
             colorbar=dict(
-                title=dict(text="Pearson r", font=dict(size=12)),
+                title=dict(text="Pearson r", font=dict(size=FONT_SIZE_BASE)),
                 orientation="h",
                 x=0.5,
                 xanchor="center",
@@ -161,7 +164,6 @@ def build_neural_band_heatmap_figure(
                 tickfont=dict(color=fg),
             ),
         ),
-        showlegend=False,
     )
 
     for i in (1, 2):

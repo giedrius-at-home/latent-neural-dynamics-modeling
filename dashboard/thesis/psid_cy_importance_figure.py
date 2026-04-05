@@ -13,10 +13,12 @@ from plotly.subplots import make_subplots
 from dashboard.thesis.constants import (
     COLOR_BETA_BORDER,
     FONT_FAMILY,
+    FONT_SIZE_ANNOTATION,
     FONT_SIZE_BASE,
     FONT_SIZE_LABEL,
     FONT_SIZE_TICK,
     ThesisTheme,
+    apply_thesis_style,
     grid_color,
     paper_colors,
     true_line_color,
@@ -33,7 +35,7 @@ _DIVERGING_BWR = [
     [1.0, "rgb(220, 50, 32)"],
 ]
 
-_X_LABELS = ["ECoG 1", "ECoG 2", "ECoG 3", "ECoG 4"]
+_X_LABELS = ["ECoG_1", "ECoG_2", "ECoG_3", "ECoG_4"]
 _X_IDX = list(range(4))
 
 
@@ -116,7 +118,7 @@ def build_psid_cy_importance_figure(
                     xref="x domain",
                     yref="y domain",
                     showarrow=False,
-                    font=dict(size=10, color=fg, family=FONT_FAMILY),
+                    font=dict(size=FONT_SIZE_ANNOTATION, color=fg, family=FONT_FAMILY),
                     row=ri,
                     col=ci,
                 )
@@ -181,25 +183,23 @@ def build_psid_cy_importance_figure(
             if ci > 1:
                 fig.update_yaxes(showticklabels=False, row=ri, col=ci)
 
-    fig.update_layout(
-        paper_bgcolor=paper_bg,
-        plot_bgcolor=plot_bg,
-        font=dict(family=FONT_FAMILY, color=fg, size=FONT_SIZE_BASE),
+    apply_thesis_style(
+        fig,
+        theme,
         height=max(280 * nrows + 80, 500),
         margin=dict(l=100, r=110, t=56, b=96),
+        show_legend=False,
     )
 
     for ri in range(1, nrows + 1):
         for ci in range(1, max_cols + 1):
             fig.update_xaxes(
-                gridcolor=grid,
                 zeroline=False,
                 showgrid=False,
                 row=ri,
                 col=ci,
             )
             fig.update_yaxes(
-                gridcolor=grid,
                 zeroline=False,
                 showgrid=False,
                 row=ri,
