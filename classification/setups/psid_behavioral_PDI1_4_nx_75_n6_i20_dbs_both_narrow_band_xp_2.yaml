@@ -1,0 +1,27 @@
+run:
+  variant: "psid_behavioral_PDI1_4_nx_75_n6_i20_dbs_both_narrow_band"
+  run_ts: "20260403_120113"
+
+classification:
+  flipped: false
+  n_splits: 5
+  epoch_length: 0.5
+  epoch_overlap: 0.25
+  sampling_freq: 80
+  h: [0.5, 1.5, 2.5, 3.5, 4.5]
+  m: [0.5, 1.0, 2.0]
+  n1: 6
+  nx: 75
+  prediction_feature_source: Xp_2
+  forecast_feature_source: Xp_2
+  permutation_test: true
+  n_permutations: 100
+  param_grid:
+    LDA:
+      classifier__solver: ["lsqr"]
+      classifier__shrinkage: ["auto"]
+
+results:
+  project_root: "/home/bobby/repos/latent-neural-dynamics-modeling"
+  results_dir: "{results.project_root}/results/classification/{run.variant}"
+  log_dir: "{results.project_root}/logs/classification"

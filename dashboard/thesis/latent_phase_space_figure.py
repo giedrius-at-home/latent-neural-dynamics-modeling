@@ -14,6 +14,7 @@ from dashboard.thesis.constants import (
     COLOR_DBS_OFF,
     COLOR_DBS_ON,
     FONT_FAMILY,
+    FONT_SIZE_ANNOTATION,
     FONT_SIZE_BASE,
     FONT_SIZE_TICK,
     ThesisTheme,
@@ -53,7 +54,7 @@ def _kde_colorscale(
     def norm(t: float) -> float:
         return float(np.clip((t - zmin) / span, 0.0, 1.0))
 
-    a0, a1, a2 = 0.0, 0.22, 0.38
+    a0, a1, a2 = 0.0, 0.38, 0.62
     n_lo = norm(t_lo)
     n_hi = norm(t_hi)
     return (
@@ -63,7 +64,7 @@ def _kde_colorscale(
             [min(n_lo + 1e-6, 1.0), _rgba(r, g, b, a1)],
             [n_hi, _rgba(r, g, b, a1)],
             [min(n_hi + 1e-6, 1.0), _rgba(r, g, b, a2)],
-            [1.0, _rgba(r, g, b, a2 + 0.05)],
+            [1.0, _rgba(r, g, b, a2 + 0.08)],
         ],
         zmin,
         zmax,
@@ -158,13 +159,13 @@ def _add_dual_kde_heatmaps(
         zo = kde_on_fixed_grid(x_off, y_off, xi, yi)
         _add_kde_heatmap(
             fig, row, col, xi, yi, zo, p_lo, p_hi, _OFF_RGB,
-            False, "DBS-OFF (density)", 0.52,
+            False, "DBS-OFF (density)", 0.40,
         )
     if len(x_on) >= 2:
         zn = kde_on_fixed_grid(x_on, y_on, xi, yi)
         _add_kde_heatmap(
             fig, row, col, xi, yi, zn, p_lo, p_hi, _ON_RGB,
-            False, "DBS-ON (density)", 0.55,
+            False, "DBS-ON (density)", 0.45,
         )
 
 
@@ -323,7 +324,7 @@ def build_latent_phase_space_figure(
                         xanchor="right",
                         yanchor="bottom",
                         showarrow=False,
-                        font=dict(size=9, color=fg, family=FONT_FAMILY),
+                        font=dict(size=FONT_SIZE_ANNOTATION - 1, color=fg, family=FONT_FAMILY),
                         row=ri,
                         col=ci,
                     )
@@ -340,6 +341,8 @@ def build_latent_phase_space_figure(
                 showticklabels=(ri == n_p or ri == n_rows),
                 gridcolor=grid,
                 zeroline=False,
+                showline=True, linecolor=fg, linewidth=1,
+                tickfont=dict(size=FONT_SIZE_TICK),
                 row=ri,
                 col=ci,
             )
@@ -347,16 +350,19 @@ def build_latent_phase_space_figure(
                 showticklabels=(ci == 1),
                 gridcolor=grid,
                 zeroline=False,
+                showline=True, linecolor=fg, linewidth=1,
+                tickfont=dict(size=FONT_SIZE_TICK),
                 row=ri,
                 col=ci,
             )
 
-    fig.update_layout(
-        paper_bgcolor=paper_bg,
-        plot_bgcolor=plot_bg,
-        font=dict(family=FONT_FAMILY, color=fg, size=FONT_SIZE_BASE),
+    from dashboard.thesis.constants import apply_thesis_style
+    apply_thesis_style(
+        fig, theme,
+        height=max(240 * n_rows + 80, 600),
         margin=dict(l=132, r=48, t=56, b=64),
-        showlegend=False,
+        show_legend=False,
+        hovermode="closest",
     )
 
     cap = spec.caption or ""

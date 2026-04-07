@@ -13,14 +13,17 @@ from plotly.subplots import make_subplots
 from dashboard.thesis.constants import (
     COLOR_BETA_BORDER,
     FONT_FAMILY,
+    FONT_SIZE_ANNOTATION,
     FONT_SIZE_BASE,
+    FONT_SIZE_LABEL,
     FONT_SIZE_TICK,
     ThesisTheme,
+    apply_thesis_style,
     grid_color,
     paper_colors,
     true_line_color,
 )
-from dashboard.thesis.psid_cy_importance import compute_cy_signed_heatmap, cy_heatmap_x_tick_labels
+from dashboard.thesis.psid_cy_importance import compute_cy_signed_heatmap
 from dashboard.thesis.specs import ThesisPsidCyImportanceSpec
 
 logger = logging.getLogger(__name__)
@@ -32,8 +35,8 @@ _DIVERGING_BWR = [
     [1.0, "rgb(220, 50, 32)"],
 ]
 
-_Y_LABELS = ["ECoG 1", "ECoG 2", "ECoG 3", "ECoG 4"]
-_X_IDX = list(range(29))
+_X_LABELS = ["ECoG_1", "ECoG_2", "ECoG_3", "ECoG_4"]
+_X_IDX = list(range(4))
 
 
 def _empty_placeholder(fig: Figure, row: int, col: int) -> None:
@@ -85,8 +88,8 @@ def build_psid_cy_importance_figure(
         rows=nrows,
         cols=max_cols,
         subplot_titles=subplot_titles or None,
-        horizontal_spacing=0.06,
-        vertical_spacing=0.09,
+        horizontal_spacing=0.10,
+        vertical_spacing=0.14,
         row_titles=[rr.participant_label for rr in rows],
     )
 
@@ -115,92 +118,88 @@ def build_psid_cy_importance_figure(
                     xref="x domain",
                     yref="y domain",
                     showarrow=False,
-                    font=dict(size=10, color=fg, family=FONT_FAMILY),
+                    font=dict(size=FONT_SIZE_ANNOTATION, color=fg, family=FONT_FAMILY),
                     row=ri,
                     col=ci,
                 )
                 continue
 
             z = np.asarray(z, dtype=float)
-            x_lab = cy_heatmap_x_tick_labels(_ch)
-            if len(x_lab) < z.shape[1]:
-                x_lab = [f"col_{j}" for j in range(z.shape[1])]
+            # z shape: (n1, 4) — rows=latent dims, cols=ECoG contacts
+            # Limit to top dims by total norm to avoid unreadable 80-row heatmaps
+            max_display_dims = 8
+            if z.shape[0] > max_display_dims:
+                row_norms = np.linalg.norm(z, axis=1)
+                top_idx = np.argsort(row_norms)[::-1][:max_display_dims]
+                top_idx = np.sort(top_idx)  # keep original order
+                z = z[top_idx]
+                y_labels = [f"dim {i}" for i in top_idx]
             else:
-                x_lab = x_lab[: z.shape[1]]
+                y_labels = [f"dim {i}" for i in range(z.shape[0])]
+            n1_dims = z.shape[0]
             hm_kw = dict(
                 z=z,
                 x=_X_IDX,
-                y=_Y_LABELS,
+                y=y_labels,
                 colorscale=_DIVERGING_BWR,
                 zmin=-1.0,
                 zmax=1.0,
                 showscale=not showscale_done,
-                hovertemplate="%{y}<br>col %{x}<br>Cy (signed) = %{z:.3f}<extra></extra>",
-                xgap=1,
-                ygap=1,
+                hovertemplate="Latent %{y}<br>%{x}<br>|Cy| = %{z:.3f}<extra></extra>",
+                xgap=2,
+                ygap=2,
             )
             if not showscale_done:
                 hm_kw["colorbar"] = dict(
-                    title=dict(text="Norm. Cy (signed)", side="right", font=dict(size=11, family=FONT_FAMILY)),
+                    title=dict(text="Norm. |Cy|", side="right", font=dict(size=FONT_SIZE_TICK, family=FONT_FAMILY)),
                     len=0.55,
                     thickness=14,
-                    tickfont=dict(size=10, family=FONT_FAMILY),
+                    tickfont=dict(size=FONT_SIZE_TICK, family=FONT_FAMILY),
                     tickvals=[-1, -0.5, 0, 0.5, 1],
                 )
             hm = go.Heatmap(**hm_kw)
             fig.add_trace(hm, row=ri, col=ci)
             showscale_done = True
 
-            if spec.show_beta_box and layout.beta_col_end > layout.beta_col_start:
-                fig.add_shape(
-                    type="rect",
-                    x0=layout.beta_col_start,
-                    x1=layout.beta_col_end,
-                    y0=-0.5,
-                    y1=3.5,
-                    line=dict(color=COLOR_BETA_BORDER, width=1.5, dash="dash"),
-                    fillcolor="rgba(0,0,0,0)",
-                    layer="above",
-                    row=ri,
-                    col=ci,
-                )
-
+            fig.update_xaxes(
+                tickmode="array",
+                tickvals=_X_IDX,
+                ticktext=_X_LABELS,
+                tickangle=-30,
+                tickfont=dict(size=FONT_SIZE_TICK, family=FONT_FAMILY, color=fg),
+                row=ri,
+                col=ci,
+            )
+            fig.update_yaxes(
+                tickmode="array",
+                tickvals=list(range(n1_dims)),
+                ticktext=y_labels,
+                tickfont=dict(size=FONT_SIZE_TICK, family=FONT_FAMILY, color=fg),
+                title_text="Behav. rel. dim" if ci == 1 else "",
+                title_font=dict(size=FONT_SIZE_TICK, family=FONT_FAMILY),
+                row=ri,
+                col=ci,
+            )
             if ci > 1:
                 fig.update_yaxes(showticklabels=False, row=ri, col=ci)
 
-            if ri < nrows:
-                fig.update_xaxes(showticklabels=False, row=ri, col=ci)
-
-            if ri == nrows:
-                fig.update_xaxes(
-                    tickmode="array",
-                    tickvals=_X_IDX,
-                    ticktext=x_lab,
-                    tickangle=-65,
-                    tickfont=dict(size=7, family=FONT_FAMILY, color=fg),
-                    automargin=True,
-                    row=ri,
-                    col=ci,
-                )
-
-    fig.update_layout(
-        paper_bgcolor=paper_bg,
-        plot_bgcolor=plot_bg,
-        font=dict(family=FONT_FAMILY, color=fg, size=FONT_SIZE_BASE),
-        margin=dict(l=100, r=110, t=50, b=96),
+    apply_thesis_style(
+        fig,
+        theme,
+        height=max(280 * nrows + 80, 500),
+        margin=dict(l=100, r=110, t=56, b=96),
+        show_legend=False,
     )
 
     for ri in range(1, nrows + 1):
         for ci in range(1, max_cols + 1):
             fig.update_xaxes(
-                gridcolor=grid,
                 zeroline=False,
                 showgrid=False,
                 row=ri,
                 col=ci,
             )
             fig.update_yaxes(
-                gridcolor=grid,
                 zeroline=False,
                 showgrid=False,
                 row=ri,

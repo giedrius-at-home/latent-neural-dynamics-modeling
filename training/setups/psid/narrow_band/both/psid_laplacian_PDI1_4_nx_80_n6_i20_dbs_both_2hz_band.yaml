@@ -1,0 +1,130 @@
+model:
+  name: "psid_laplacian_PDI1_4_nx_80_n6_i20_dbs_both_2hz_band"
+  nx: 80
+  n1: 6
+  i: 20
+  time_first: true
+  fast: false
+  reuse_splits: false
+  backward_kalman: true
+  rescale_states: true
+  max_eigenvalue: 0.999
+  forecast:
+    m: 2
+    history: 5
+
+data:
+  root: "resampled_recordings/participants_at_80Hz_scaled_1e6_2hz_band_envelope_with_lfp"
+  participant: "PDI1"
+  session: "4"
+  blocks: "all"
+  channels:
+    neural_input: [
+      "ECOG_1_delta_1_raw",
+      "ECOG_1_delta_3_raw",
+      "ECOG_1_theta_5_raw",
+      "ECOG_1_theta_7_raw",
+      "ECOG_1_alpha_9_raw",
+      "ECOG_1_alpha_11_raw",
+      "ECOG_1_beta_13_env",
+      "ECOG_1_beta_15_env",
+      "ECOG_1_beta_17_env",
+      "ECOG_1_beta_19_env",
+      "ECOG_1_beta_21_env",
+      "ECOG_1_beta_23_env",
+      "ECOG_1_beta_25_env",
+      "ECOG_1_beta_27_env",
+      "ECOG_1_beta_29_env",
+      "ECOG_2_delta_1_raw",
+      "ECOG_2_delta_3_raw",
+      "ECOG_2_theta_5_raw",
+      "ECOG_2_theta_7_raw",
+      "ECOG_2_alpha_9_raw",
+      "ECOG_2_alpha_11_raw",
+      "ECOG_2_beta_13_env",
+      "ECOG_2_beta_15_env",
+      "ECOG_2_beta_17_env",
+      "ECOG_2_beta_19_env",
+      "ECOG_2_beta_21_env",
+      "ECOG_2_beta_23_env",
+      "ECOG_2_beta_25_env",
+      "ECOG_2_beta_27_env",
+      "ECOG_2_beta_29_env",
+      "ECOG_3_delta_1_raw",
+      "ECOG_3_delta_3_raw",
+      "ECOG_3_theta_5_raw",
+      "ECOG_3_theta_7_raw",
+      "ECOG_3_alpha_9_raw",
+      "ECOG_3_alpha_11_raw",
+      "ECOG_3_beta_13_env",
+      "ECOG_3_beta_15_env",
+      "ECOG_3_beta_17_env",
+      "ECOG_3_beta_19_env",
+      "ECOG_3_beta_21_env",
+      "ECOG_3_beta_23_env",
+      "ECOG_3_beta_25_env",
+      "ECOG_3_beta_27_env",
+      "ECOG_3_beta_29_env",
+      "ECOG_4_delta_1_raw",
+      "ECOG_4_delta_3_raw",
+      "ECOG_4_theta_5_raw",
+      "ECOG_4_theta_7_raw",
+      "ECOG_4_alpha_9_raw",
+      "ECOG_4_alpha_11_raw",
+      "ECOG_4_beta_13_env",
+      "ECOG_4_beta_15_env",
+      "ECOG_4_beta_17_env",
+      "ECOG_4_beta_19_env",
+      "ECOG_4_beta_21_env",
+      "ECOG_4_beta_23_env",
+      "ECOG_4_beta_25_env",
+      "ECOG_4_beta_27_env",
+      "ECOG_4_beta_29_env"
+    ]
+    output_type: "neural"
+    output: [
+      "LAPLACIAN_13-15_LFP_delta_1_raw",
+      "LAPLACIAN_13-15_LFP_delta_3_raw",
+      "LAPLACIAN_13-15_LFP_theta_5_raw",
+      "LAPLACIAN_13-15_LFP_theta_7_raw",
+      "LAPLACIAN_13-15_LFP_alpha_9_raw",
+      "LAPLACIAN_13-15_LFP_alpha_11_raw",
+      "LAPLACIAN_13-15_LFP_beta_13_env",
+      "LAPLACIAN_13-15_LFP_beta_15_env",
+      "LAPLACIAN_13-15_LFP_beta_17_env",
+      "LAPLACIAN_13-15_LFP_beta_19_env",
+      "LAPLACIAN_13-15_LFP_beta_21_env",
+      "LAPLACIAN_13-15_LFP_beta_23_env",
+      "LAPLACIAN_13-15_LFP_beta_25_env",
+      "LAPLACIAN_13-15_LFP_beta_27_env",
+      "LAPLACIAN_13-15_LFP_beta_29_env",
+      "LAPLACIAN_14-16_LFP_delta_1_raw",
+      "LAPLACIAN_14-16_LFP_delta_3_raw",
+      "LAPLACIAN_14-16_LFP_theta_5_raw",
+      "LAPLACIAN_14-16_LFP_theta_7_raw",
+      "LAPLACIAN_14-16_LFP_alpha_9_raw",
+      "LAPLACIAN_14-16_LFP_alpha_11_raw",
+      "LAPLACIAN_14-16_LFP_beta_13_env",
+      "LAPLACIAN_14-16_LFP_beta_15_env",
+      "LAPLACIAN_14-16_LFP_beta_17_env",
+      "LAPLACIAN_14-16_LFP_beta_19_env",
+      "LAPLACIAN_14-16_LFP_beta_21_env",
+      "LAPLACIAN_14-16_LFP_beta_23_env",
+      "LAPLACIAN_14-16_LFP_beta_25_env",
+      "LAPLACIAN_14-16_LFP_beta_27_env",
+      "LAPLACIAN_14-16_LFP_beta_29_env"
+    ]
+  split:
+    within_session_split: true
+    train: 0.7
+    val: 0.1
+    test: 0.2
+    min_train_epochs: 50
+  batch_size: 32
+  sampling_frequency: 80
+  dbs_condition: "both"
+
+results:
+  save_dir: "results/{model.name}"
+  log_dir: "{results.save_dir}/logs"
+  checkpoint_dir: "checkpoints"

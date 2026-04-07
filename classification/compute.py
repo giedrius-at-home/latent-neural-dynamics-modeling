@@ -494,9 +494,11 @@ def verify_test_results(logger: Any, project_root: Path, config: Any) -> None:
             (project_root / "training" / "setups").rglob(f"{config.run.variant}.yaml")
         )
         if not setup_paths:
-            raise FileNotFoundError(
-                f"Could not find training setup for variant: {config.run.variant}"
+            logger.warning(
+                f"No test results and no training setup found for variant: {config.run.variant}. "
+                f"Skipping test result generation — classification will use train/val only."
             )
+            return
         tester = Tester(
             get_config(str(setup_paths[0])),
             run_timestamp=config.run.run_ts,

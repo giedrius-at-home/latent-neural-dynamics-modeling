@@ -31,16 +31,13 @@ from dashboard.thesis.constants import (
     COLOR_VARMA,
     DOT_SIZE,
     FONT_FAMILY,
-    FONT_SIZE_BASE,
     FONT_SIZE_LABEL,
     FONT_SIZE_TICK,
     ThesisTheme,
     WIDTH_TRUE,
     WIDTH_PSID,
-    grid_color,
-    legend_bgcolor,
-    paper_colors,
-    true_line_color,
+    apply_thesis_style,
+    rmse_axis_label,
 )
 from dashboard.thesis.specs import (
     THESIS_DECLARED_BEHAVIORAL_OUTPUTS,
@@ -59,6 +56,51 @@ COLOR_CROSS = "#854F0B"
 _WC_CONTEXT = "rgba(24, 95, 165, 0.08)"
 _WC_LATE = "rgba(153, 60, 29, 0.07)"
 _WC_RULE = "rgba(68, 68, 65, 0.55)"
+
+# RMSE band fill/line colors (matching prediction figure style)
+_BAND_JOINT_FILL = "rgba(24, 95, 165, 0.14)"
+_BAND_JOINT_LINE = "rgba(24, 95, 165, 0.25)"
+_BAND_WITHIN_FILL = "rgba(153, 60, 29, 0.12)"
+_BAND_WITHIN_LINE = "rgba(153, 60, 29, 0.20)"
+_BAND_CROSS_FILL = "rgba(133, 79, 11, 0.12)"
+_BAND_CROSS_LINE = "rgba(133, 79, 11, 0.20)"
+
+
+def _add_rmse_band_wc(
+    fig: Figure,
+    t: np.ndarray,
+    y_pred: np.ndarray,
+    rmse_half: float,
+    fill_c: str,
+    line_c: str,
+    name: str,
+    legendgroup: str,
+    row: int,
+    col: int,
+    show_legend: bool = False,
+) -> None:
+    """Draw ŷ ± mean RMSE ribbon band, matching prediction figure style."""
+    if rmse_half is None or not np.isfinite(rmse_half) or rmse_half <= 0:
+        return
+    upper = y_pred + rmse_half
+    lower = y_pred - rmse_half
+    x_band = np.concatenate([t, t[::-1]])
+    y_band = np.concatenate([upper, lower[::-1]])
+    fig.add_trace(
+        go.Scatter(
+            x=x_band,
+            y=y_band,
+            fill="toself",
+            fillcolor=fill_c,
+            line=dict(color=line_c, width=0.5),
+            hoverinfo="skip",
+            name=name,
+            legendgroup=legendgroup,
+            showlegend=show_legend,
+        ),
+        row=row,
+        col=col,
+    )
 
 
 def _select_near_median_trials(
@@ -217,10 +259,6 @@ def build_within_cross_timeseries_figure(
     map_cross_off = _key_index_map(res_cross_off)
     map_cross_on = _key_index_map(res_cross_on)
 
-    paper_bg, plot_bg = paper_colors(theme)
-    grid = grid_color(theme)
-    fg = true_line_color(theme)
-
     fig = make_subplots(
         rows=1,
         cols=2,
@@ -296,6 +334,16 @@ def build_within_cross_timeseries_figure(
                 else None
             )
 
+            # Z-score all series using true signal statistics (matching prediction figure style)
+            mu_t = float(np.nanmean(zt_full))
+            sigma_t = max(float(np.nanstd(zt_full)), 1e-12)
+            zt_full = (zt_full - mu_t) / sigma_t
+            zj_full = (zj_full - mu_t) / sigma_t
+            if zu_full is not None:
+                zu_full = (zu_full - mu_t) / sigma_t
+            if zc_full is not None:
+                zc_full = (zc_full - mu_t) / sigma_t
+
             series_in = [zt_full, zj_full]
             if zu_full is not None:
                 series_in.append(zu_full)
@@ -319,6 +367,45 @@ def build_within_cross_timeseries_figure(
 
             show_leg = (trial_num == 0 and col == 1)
 
+            # Compute per-trial RMSE for bands and caption
+            rmse_both = _rmse_for_trace(res_joint, trial_idx, spec.channel_idx, use_zp=True)
+            rmse_within = float("nan")
+            rmse_cross = float("nan")
+            if stim == "off" and idx_off is not None and res_off:
+                rmse_within = _rmse_for_trace(res_off, idx_off, spec.channel_idx, use_zp=True)
+            if stim == "on" and idx_on is not None and res_on:
+                rmse_within = _rmse_for_trace(res_on, idx_on, spec.channel_idx, use_zp=True)
+            if stim == "off" and idx_cross_off is not None and res_cross_off:
+                rmse_cross = _rmse_for_trace(res_cross_off, idx_cross_off, spec.channel_idx, use_zp=True)
+            if stim == "on" and idx_cross_on is not None and res_cross_on:
+                rmse_cross = _rmse_for_trace(res_cross_on, idx_cross_on, spec.channel_idx, use_zp=True)
+
+            # RMSE ribbon bands (ŷ ± RMSE), drawn before line traces
+            _add_rmse_band_wc(
+                fig, t_rel, zj, rmse_both if np.isfinite(rmse_both) else None,
+                _BAND_JOINT_FILL, _BAND_JOINT_LINE,
+                "both ±RMSE", "both_rmse", row=1, col=col,
+                show_legend=(show_leg and trial_num == 0),
+            )
+            if zu is not None:
+                _add_rmse_band_wc(
+                    fig, t_rel, zu, rmse_within if np.isfinite(rmse_within) else None,
+                    _BAND_WITHIN_FILL, _BAND_WITHIN_LINE,
+                    "within ±RMSE", "within_rmse", row=1, col=col,
+                    show_legend=(show_leg and trial_num == 0),
+                )
+            if zc is not None:
+                valid_mask = ~np.isnan(zc)
+                if valid_mask.any():
+                    _add_rmse_band_wc(
+                        fig, t_rel[valid_mask], zc[valid_mask],
+                        rmse_cross if np.isfinite(rmse_cross) else None,
+                        _BAND_CROSS_FILL, _BAND_CROSS_LINE,
+                        "cross ±RMSE", "cross_rmse", row=1, col=col,
+                        show_legend=(show_leg and trial_num == 0),
+                    )
+
+            # Line traces (drawn on top of bands)
             fig.add_trace(
                 go.Scatter(
                     x=t_rel, y=zt, name="true", mode="lines",
@@ -332,7 +419,7 @@ def build_within_cross_timeseries_figure(
                 fig.add_trace(
                     go.Scatter(
                         x=t_rel, y=zu, name="within", mode="lines",
-                        line=dict(color=COLOR_WITHIN, width=1.35, dash="dash"),
+                        line=dict(color=COLOR_WITHIN, width=2.0, dash="dash"),
                         opacity=alpha, legendgroup="within",
                         showlegend=show_leg, connectgaps=False,
                     ),
@@ -342,7 +429,7 @@ def build_within_cross_timeseries_figure(
                 fig.add_trace(
                     go.Scatter(
                         x=t_rel, y=zc, name="cross", mode="lines",
-                        line=dict(color=COLOR_CROSS, width=1.45, dash="dot"),
+                        line=dict(color=COLOR_CROSS, width=2.0, dash="dot"),
                         opacity=alpha, legendgroup="cross",
                         showlegend=show_leg, connectgaps=False,
                     ),
@@ -358,18 +445,6 @@ def build_within_cross_timeseries_figure(
                 row=1, col=col,
             )
 
-            rmse_both = _rmse_for_trace(res_joint, trial_idx, spec.channel_idx, use_zp=True)
-            rmse_within = float("nan")
-            rmse_cross = float("nan")
-            if stim == "off" and idx_off is not None and res_off:
-                rmse_within = _rmse_for_trace(res_off, idx_off, spec.channel_idx, use_zp=True)
-            if stim == "on" and idx_on is not None and res_on:
-                rmse_within = _rmse_for_trace(res_on, idx_on, spec.channel_idx, use_zp=True)
-            if stim == "off" and idx_cross_off is not None and res_cross_off:
-                rmse_cross = _rmse_for_trace(res_cross_off, idx_cross_off, spec.channel_idx, use_zp=True)
-            if stim == "on" and idx_cross_on is not None and res_cross_on:
-                rmse_cross = _rmse_for_trace(res_cross_on, idx_cross_on, spec.channel_idx, use_zp=True)
-
             cond_lbl = "OFF" if stim == "off" else "ON"
             caption_rmse_lines.append(
                 f"{cond_lbl} trial {trial_num + 1} (row {trial_idx}): "
@@ -379,30 +454,19 @@ def build_within_cross_timeseries_figure(
     for col in (1, 2):
         fig.update_xaxes(
             title_text=THESIS_TIME_AXIS_TITLE,
-            showgrid=True, gridcolor=grid,
+            title_font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY),
             row=1, col=col,
         )
         fig.update_yaxes(
             title_text=y_ylab if col == 1 else "",
-            showgrid=True, gridcolor=grid,
+            title_font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY),
             row=1, col=col,
         )
 
-    fig.update_layout(
-        template="plotly_white" if theme == ThesisTheme.LIGHT else "plotly_dark",
-        paper_bgcolor=paper_bg,
-        plot_bgcolor=plot_bg,
-        font=dict(family=FONT_FAMILY, size=FONT_SIZE_BASE, color=fg),
-        height=340,
+    apply_thesis_style(
+        fig, theme, height=340,
         margin=dict(l=60, r=20, t=50, b=72),
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=-0.18,
-            xanchor="center",
-            x=0.5,
-            bgcolor=legend_bgcolor(),
-        ),
+        legend_y=-0.18,
     )
 
     cap = (
@@ -443,10 +507,6 @@ def build_within_cross_boxplot_figure(
     jitter_seed: int = 42,
 ) -> Figure:
     """Part B: 2 panels (DBS-OFF | DBS-ON), 3 model groups, within + cross bars each. Returns Plotly Figure."""
-    paper_bg, plot_bg = paper_colors(theme)
-    grid = grid_color(theme)
-    fg = true_line_color(theme)
-
     models = ["PSID", "DPAD", "VARMA"]
     model_colors = [COLOR_PSID, COLOR_DPAD, COLOR_VARMA]
     off_cells = [
@@ -525,16 +585,23 @@ def build_within_cross_boxplot_figure(
         )
 
     y_max = max(y_max * 1.08, 0.85)
+    apply_thesis_style(
+        fig, theme, height=400,
+        margin=dict(l=60, r=20, t=50, b=100),
+        legend_y=-0.2,
+    )
+    # Figure-specific overrides: y-axis ranges and x-axis grid off
     fig.update_layout(
-        template="plotly_white" if theme == ThesisTheme.LIGHT else "plotly_dark",
-        paper_bgcolor=paper_bg, plot_bgcolor=plot_bg,
-        font=dict(family=FONT_FAMILY, size=FONT_SIZE_BASE, color=fg),
-        height=400, margin=dict(l=60, r=20, t=50, b=100),
-        legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5, bgcolor=legend_bgcolor()),
         yaxis=dict(range=[0, y_max]),
         yaxis2=dict(range=[0, y_max]),
     )
-    fig.update_yaxes(title_text="RMSE (z-scored)", row=1, col=1)
+    for col in (1, 2):
+        fig.update_xaxes(showgrid=False, row=1, col=col)
+    fig.update_yaxes(
+        title_text=rmse_axis_label(),
+        title_font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY),
+        row=1, col=1,
+    )
 
     if save_path:
         fig.write_image(str(save_path))

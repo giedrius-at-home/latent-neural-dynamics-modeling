@@ -17,8 +17,8 @@ from dashboard.thesis.specs import ClassificationF1PickleRef, FeatureGroupF1
 GROUP_ORDER: Tuple[FeatureGroupF1, ...] = ("xp", "xp_1", "xp_2", "xp_with_dbs")
 GROUP_DISPLAY = {
     "xp": "Xp<br>(full latent)",
-    "xp_1": "Xp₁<br>(past-related)",
-    "xp_2": "Xp₂<br>(future-related)",
+    "xp_1": "Xp₁<br>(behav. relevant)",
+    "xp_2": "Xp₂<br>(behav. irrelevant)",
     "xp_with_dbs": "Xp + DBS<br>(with state)",
 }
 GROUP_X = {"xp": 0.0, "xp_1": 1.0, "xp_2": 2.0, "xp_with_dbs": 3.0}

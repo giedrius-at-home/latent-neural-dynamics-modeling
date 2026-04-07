@@ -12,8 +12,11 @@ from plotly.subplots import make_subplots
 
 from dashboard.thesis.constants import (
     FONT_FAMILY,
+    FONT_SIZE_ANNOTATION,
     FONT_SIZE_BASE,
+    FONT_SIZE_TICK,
     ThesisTheme,
+    apply_thesis_style,
     grid_color,
     paper_colors,
     true_line_color,
@@ -105,8 +108,8 @@ def build_psid_cz_figure(
         rows=nrows,
         cols=max_cols,
         subplot_titles=subplot_titles or None,
-        horizontal_spacing=0.06,
-        vertical_spacing=0.12,
+        horizontal_spacing=0.10,
+        vertical_spacing=0.16,
         row_titles=[rr.participant_label for rr in rows],
     )
 
@@ -132,7 +135,7 @@ def build_psid_cz_figure(
                     xref="x domain",
                     yref="y domain",
                     showarrow=False,
-                    font=dict(size=10, color=fg, family=FONT_FAMILY),
+                    font=dict(size=FONT_SIZE_ANNOTATION, color=fg, family=FONT_FAMILY),
                     row=ri,
                     col=ci,
                 )
@@ -142,7 +145,17 @@ def build_psid_cz_figure(
             y_labels = _load_output_channel_names(
                 results_root, panel.psid_variant, panel.psid_run_ts, spec.split, nz
             )
-            x_labels = [f"dim {k}" for k in range(n1)]
+            # Limit displayed latent dims to top-N by column norm
+            max_display_dims = 8
+            if n1 > max_display_dims:
+                col_norms = np.linalg.norm(cz_norm, axis=0)
+                top_idx = np.argsort(col_norms)[::-1][:max_display_dims]
+                top_idx = np.sort(top_idx)
+                cz_norm = cz_norm[:, top_idx]
+                x_labels = [f"dim {k}" for k in top_idx]
+                n1 = max_display_dims
+            else:
+                x_labels = [f"dim {k}" for k in range(n1)]
 
             hm_kw = dict(
                 z=cz_norm,
@@ -158,51 +171,54 @@ def build_psid_cz_figure(
             )
             if not showscale_done:
                 hm_kw["colorbar"] = dict(
-                    title=dict(text="Norm. Cz", side="right", font=dict(size=11, family=FONT_FAMILY)),
+                    title=dict(text="Norm. Cz", side="right", font=dict(size=FONT_SIZE_TICK, family=FONT_FAMILY)),
                     len=0.55,
                     thickness=14,
-                    tickfont=dict(size=10, family=FONT_FAMILY),
+                    tickfont=dict(size=FONT_SIZE_TICK, family=FONT_FAMILY),
                     tickvals=[-1, -0.5, 0, 0.5, 1],
                 )
             hm = go.Heatmap(**hm_kw)
             fig.add_trace(hm, row=ri, col=ci)
             showscale_done = True
 
+            fig.update_xaxes(
+                tickmode="array",
+                tickvals=list(range(n1)),
+                ticktext=x_labels,
+                tickangle=-45,
+                tickfont=dict(size=FONT_SIZE_TICK, family=FONT_FAMILY, color=fg),
+                title_text="Behav. rel. dim" if ri == nrows else "",
+                title_font=dict(size=FONT_SIZE_TICK, family=FONT_FAMILY),
+                automargin=True,
+                row=ri,
+                col=ci,
+            )
+            fig.update_yaxes(
+                tickfont=dict(size=FONT_SIZE_TICK, family=FONT_FAMILY, color=fg),
+                automargin=True,
+                row=ri,
+                col=ci,
+            )
             if ci > 1:
                 fig.update_yaxes(showticklabels=False, row=ri, col=ci)
 
-            if ri == nrows:
-                fig.update_xaxes(
-                    tickmode="array",
-                    tickvals=list(range(n1)),
-                    ticktext=x_labels,
-                    tickangle=-65,
-                    tickfont=dict(size=8, family=FONT_FAMILY, color=fg),
-                    automargin=True,
-                    row=ri,
-                    col=ci,
-                )
-            else:
-                fig.update_xaxes(showticklabels=False, row=ri, col=ci)
-
-    fig.update_layout(
-        paper_bgcolor=paper_bg,
-        plot_bgcolor=plot_bg,
-        font=dict(family=FONT_FAMILY, color=fg, size=FONT_SIZE_BASE),
-        margin=dict(l=100, r=110, t=50, b=96),
+    apply_thesis_style(
+        fig,
+        theme,
+        height=max(300 * nrows + 80, 500),
+        margin=dict(l=100, r=110, t=56, b=96),
+        show_legend=False,
     )
 
     for ri in range(1, nrows + 1):
         for ci in range(1, max_cols + 1):
             fig.update_xaxes(
-                gridcolor=grid,
                 zeroline=False,
                 showgrid=False,
                 row=ri,
                 col=ci,
             )
             fig.update_yaxes(
-                gridcolor=grid,
                 zeroline=False,
                 showgrid=False,
                 row=ri,

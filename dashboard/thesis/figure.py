@@ -23,6 +23,9 @@ from dashboard.thesis.constants import (
     FONT_SIZE_BASE,
     FONT_SIZE_LABEL,
     FONT_SIZE_TICK,
+    OPACITY_DPAD,
+    OPACITY_PSID,
+    OPACITY_VARMA,
     ThesisTheme,
     dbs_badge_style,
     grid_color,
@@ -98,7 +101,7 @@ def build_dbs_stacked_figure(
     caption: str = "",
     *,
     show_psid_sigma_band: bool = False,
-    true_series_name: str = "true",
+    true_series_name: str = "y_true",
     prediction_line_dash: Optional[str] = None,
     use_absolute_time: bool = True,
 ) -> go.Figure:
@@ -186,19 +189,19 @@ def build_dbs_stacked_figure(
 
         if has_session_bands:
             _add_rmse_band(
-                row, show_leg, t, zp, panel.band_rmse_psid,
+                row, False, t, zp, panel.band_rmse_psid,
                 COLOR_PSID_BAND_FILL, COLOR_PSID_BAND_LINE,
-                "PSID ± mean RMSE", "psid_sess_rmse",
+                "PSID ±1 SEM", "psid_sess_rmse",
             )
             _add_rmse_band(
-                row, show_leg, t, zd, panel.band_rmse_dpad,
+                row, False, t, zd, panel.band_rmse_dpad,
                 COLOR_DPAD_BAND_FILL, COLOR_DPAD_BAND_LINE,
-                "DPAD ± mean RMSE", "dpad_sess_rmse",
+                "DPAD ±1 SEM", "dpad_sess_rmse",
             )
             _add_rmse_band(
-                row, show_leg, t, zv, panel.band_rmse_varma,
+                row, False, t, zv, panel.band_rmse_varma,
                 COLOR_VARMA_BAND_FILL, COLOR_VARMA_BAND_LINE,
-                "VARMA ± mean RMSE", "varma_sess_rmse",
+                "VARMA ±1 SEM", "varma_sess_rmse",
             )
         elif (
             show_psid_sigma_band
@@ -220,7 +223,7 @@ def build_dbs_stacked_figure(
                     line=dict(color=COLOR_PSID_BAND_LINE, width=0.5),
                     name="PSID ±1σ",
                     legendgroup="psid_band",
-                    showlegend=show_leg,
+                    showlegend=False,
                     hoverinfo="skip",
                 ),
                 row=row,
@@ -248,13 +251,14 @@ def build_dbs_stacked_figure(
                     x=t,
                     y=zp,
                     mode="lines",
-                    name="PSID Ŷ" if prediction_line_dash else "PSID",
+                    name="y_hat_PSID",
                     legendgroup="psid",
                     line=dict(
                         color=COLOR_PSID,
                         width=WIDTH_PSID,
                         dash=_pd if _pd else None,
                     ),
+                    opacity=OPACITY_PSID,
                     showlegend=show_leg,
                 ),
                 row=row,
@@ -267,13 +271,14 @@ def build_dbs_stacked_figure(
                     x=t,
                     y=zd,
                     mode="lines",
-                    name="DPAD Ŷ" if prediction_line_dash else "DPAD",
+                    name="y_hat_DPAD",
                     legendgroup="dpad",
                     line=dict(
                         color=COLOR_DPAD,
                         width=WIDTH_DPAD,
                         dash=_pd if _pd else None,
                     ),
+                    opacity=OPACITY_DPAD,
                     showlegend=show_leg,
                 ),
                 row=row,
@@ -286,13 +291,14 @@ def build_dbs_stacked_figure(
                     x=t,
                     y=zv,
                     mode="lines",
-                    name="VARMA Ŷ" if prediction_line_dash else "VARMA",
+                    name="y_hat_VARMA",
                     legendgroup="varma",
                     line=dict(
                         color=COLOR_VARMA,
                         width=WIDTH_VARMA,
                         dash="8 2" if prediction_line_dash else "dash",
                     ),
+                    opacity=OPACITY_VARMA,
                     showlegend=show_leg,
                 ),
                 row=row,
@@ -385,13 +391,16 @@ def build_dbs_stacked_figure(
         legend=dict(
             orientation="h",
             yanchor="bottom",
-            y=-0.22,
+            y=-0.28,
             xanchor="center",
             x=0.5,
             bgcolor=legend_bgcolor(),
             font=dict(size=FONT_SIZE_TICK),
+            itemsizing="constant",
+            itemwidth=40,
+            tracegroupgap=8,
         ),
-        margin=dict(l=88, r=24, t=36, b=110),
+        margin=dict(l=88, r=24, t=36, b=140),
         hovermode="x unified",
     )
 
@@ -456,7 +465,7 @@ def build_combined_gap_exemplar_figure(
     gap_s: float = 0.1,
     side_extend_s: float = 0.0,
     show_psid_sigma_band: bool = False,
-    true_series_name: str = "true",
+    true_series_name: str = "y_true",
     prediction_line_dash: Optional[str] = None,
     use_absolute_time: bool = True,
 ) -> go.Figure:
@@ -568,7 +577,7 @@ def build_combined_gap_exemplar_figure(
         COLOR_PSID_BAND_LINE,
         "PSID ± mean RMSE",
         "bps",
-        True,
+        False,
     )
     _band_segment(
         x_on_cat,
@@ -588,7 +597,7 @@ def build_combined_gap_exemplar_figure(
         COLOR_DPAD_BAND_LINE,
         "DPAD ± mean RMSE",
         "bpd",
-        True,
+        False,
     )
     _band_segment(
         x_on_cat,
@@ -608,7 +617,7 @@ def build_combined_gap_exemplar_figure(
         COLOR_VARMA_BAND_LINE,
         "VARMA ± mean RMSE",
         "bv",
-        True,
+        False,
     )
     _band_segment(
         x_on_cat,
@@ -637,8 +646,9 @@ def build_combined_gap_exemplar_figure(
                 x=t_cat,
                 y=zp_c,
                 mode="lines",
-                name="PSID Ŷ" if _pd else "PSID",
+                name="y_hat_PSID",
                 line=dict(color=COLOR_PSID, width=WIDTH_PSID, dash=_pd if _pd else None),
+                opacity=OPACITY_PSID,
                 connectgaps=False,
             )
         )
@@ -648,8 +658,9 @@ def build_combined_gap_exemplar_figure(
                 x=t_cat,
                 y=zd_c,
                 mode="lines",
-                name="DPAD Ŷ" if _pd else "DPAD",
+                name="y_hat_DPAD",
                 line=dict(color=COLOR_DPAD, width=WIDTH_DPAD, dash=_pd if _pd else None),
+                opacity=OPACITY_DPAD,
                 connectgaps=False,
             )
         )
@@ -659,8 +670,9 @@ def build_combined_gap_exemplar_figure(
                 x=t_cat,
                 y=zv_c,
                 mode="lines",
-                name="VARMA Ŷ" if _pd else "VARMA",
+                name="y_hat_VARMA",
                 line=dict(color=COLOR_VARMA, width=WIDTH_VARMA, dash="8 2" if _pd else "dash"),
+                opacity=OPACITY_VARMA,
                 connectgaps=False,
             )
         )
@@ -789,7 +801,7 @@ def build_side_by_side_exemplar_figure(
     y_axis_label: str,
     *,
     segment_s: float = 1.0,
-    true_series_name: str = "true",
+    true_series_name: str = "y_true",
     prediction_line_dash: Optional[str] = None,
 ) -> go.Figure:
     """
@@ -885,12 +897,11 @@ def build_side_by_side_exemplar_figure(
                 go.Scatter(
                     x=xb, y=yb, fill="toself",
                     fillcolor=fc, line=dict(color=lc, width=0.5),
-                    name=name, legendgroup=lg, showlegend=show_leg,
+                    name=name, legendgroup=lg, showlegend=False,
                     hoverinfo="skip",
                 ),
                 row=1, col=col,
             )
-            show_leg = False  # only first band per col shows legend entry
 
         show_leg = col == 1
         fig.add_trace(
@@ -903,24 +914,27 @@ def build_side_by_side_exemplar_figure(
         )
         fig.add_trace(
             go.Scatter(
-                x=t, y=zp, name="PSID", mode="lines",
+                x=t, y=zp, name="y_hat_PSID", mode="lines",
                 line=dict(color=COLOR_PSID, width=WIDTH_PSID, dash=_pd),
+                opacity=OPACITY_PSID,
                 legendgroup="psid", showlegend=show_leg,
             ),
             row=1, col=col,
         )
         fig.add_trace(
             go.Scatter(
-                x=t, y=zd, name="DPAD", mode="lines",
+                x=t, y=zd, name="y_hat_DPAD", mode="lines",
                 line=dict(color=COLOR_DPAD, width=WIDTH_DPAD, dash=_pd),
+                opacity=OPACITY_DPAD,
                 legendgroup="dpad", showlegend=show_leg,
             ),
             row=1, col=col,
         )
         fig.add_trace(
             go.Scatter(
-                x=t, y=zv, name="VARMA", mode="lines",
+                x=t, y=zv, name="y_hat_VARMA", mode="lines",
                 line=dict(color=COLOR_VARMA, width=WIDTH_VARMA, dash=_pd),
+                opacity=OPACITY_VARMA,
                 legendgroup="varma", showlegend=show_leg,
             ),
             row=1, col=col,
@@ -937,13 +951,13 @@ def build_side_by_side_exemplar_figure(
     # Bottom axes: window-relative time (0 → segment_s)
     fig.update_xaxes(
         tickmode="array", tickvals=ticks_off, ticktext=win_text_off,
-        title_text=f"window time (s, last {segment_s:.1f} s)",
+        title_text="Time (s)",
         showgrid=True, gridcolor=grid,
         row=1, col=1,
     )
     fig.update_xaxes(
         tickmode="array", tickvals=ticks_on, ticktext=win_text_on,
-        title_text=f"window time (s, last {segment_s:.1f} s)",
+        title_text="Time (s)",
         showgrid=True, gridcolor=grid,
         row=1, col=2,
     )

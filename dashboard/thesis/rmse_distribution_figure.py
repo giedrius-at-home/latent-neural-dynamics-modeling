@@ -21,27 +21,29 @@ from dashboard.thesis.constants import (
     FONT_SIZE_LABEL,
     FONT_SIZE_TICK,
     ThesisTheme,
+    apply_thesis_style,
     grid_color,
     legend_bgcolor,
     paper_colors,
+    rmse_axis_label,
     true_line_color,
 )
 
 # Bar fill opacity: DBS-OFF vs DBS-ON (within same model hue)
-ALPHA_OFF = 0.85
-ALPHA_ON = 0.45
+ALPHA_OFF = 0.80
+ALPHA_ON = 0.40
 # Slightly lower for scatter so bars read first
-DOT_ALPHA_OFF = 0.75
-DOT_ALPHA_ON = 0.4
+DOT_ALPHA_OFF = 0.60
+DOT_ALPHA_ON = 0.35
 
 X_POS = np.arange(6, dtype=float)
 CATEGORY_LABELS = [
-    "PSID OFF",
-    "PSID ON",
-    "DPAD OFF",
-    "DPAD ON",
-    "VARMA OFF",
-    "VARMA ON",
+    "PSID_OFF",
+    "PSID_ON",
+    "DPAD_OFF",
+    "DPAD_ON",
+    "VARMA_OFF",
+    "VARMA_ON",
 ]
 
 
@@ -69,10 +71,13 @@ def build_rmse_distribution_figure(
     rng: np.random.Generator,
     jitter: float = 0.12,
     show_brackets: bool = True,
+    y_axis_label: str | None = None,
+    show_dots: bool = True,
 ) -> Figure:
     paper_bg, plot_bg = paper_colors(theme)
     grid = grid_color(theme)
     fg = true_line_color(theme)
+    y_label = y_axis_label or "RMSE(z)"
 
     means = np.array(data.means, dtype=float)
     sems = np.array(data.sems, dtype=float)
@@ -100,32 +105,33 @@ def build_rmse_distribution_figure(
             ),
             marker=dict(color=bar_colors, line=dict(width=0)),
             width=0.52,
-            name="Mean ± SEM",
+            name="Mean",
             showlegend=True,
         )
     )
 
-    for i in range(6):
-        pts = data.trial_rmse[i]
-        if not pts:
-            continue
-        jt = rng.uniform(-jitter, jitter, size=len(pts))
-        alpha = DOT_ALPHA_ON if _is_on_cell(i) else DOT_ALPHA_OFF
-        fig.add_trace(
-            go.Scatter(
-                x=X_POS[i] + jt,
-                y=pts,
-                mode="markers",
-                marker=dict(
-                    size=5,
-                    color=_hex_to_rgba(_model_color_for_index(i), alpha * 0.95),
-                    line=dict(width=0),
-                ),
-                name="Test trials" if i == 0 else None,
-                showlegend=i == 0,
-                legendgroup="dots",
+    if show_dots:
+        for i in range(6):
+            pts = data.trial_rmse[i]
+            if not pts:
+                continue
+            jt = rng.uniform(-jitter, jitter, size=len(pts))
+            alpha = DOT_ALPHA_ON if _is_on_cell(i) else DOT_ALPHA_OFF
+            fig.add_trace(
+                go.Scatter(
+                    x=X_POS[i] + jt,
+                    y=pts,
+                    mode="markers",
+                    marker=dict(
+                        size=5,
+                        color=_hex_to_rgba(_model_color_for_index(i), alpha * 0.95),
+                        line=dict(width=0),
+                    ),
+                    name="Test trials" if i == 0 else None,
+                    showlegend=i == 0,
+                    legendgroup="dots",
+                )
             )
-        )
 
     ymax_data = 0.0
     for i in range(6):
@@ -146,6 +152,8 @@ def build_rmse_distribution_figure(
             (2, 4, w.dpad_vs_varma_off_p, "DPAD vs VARMA (DBS-OFF)"),
             (1, 5, w.psid_vs_varma_on_p, "PSID vs VARMA (DBS-ON)"),
             (3, 5, w.dpad_vs_varma_on_p, "DPAD vs VARMA (DBS-ON)"),
+            (0, 2, w.psid_vs_dpad_off_p, "PSID vs DPAD (DBS-OFF)"),
+            (1, 3, w.psid_vs_dpad_on_p, "PSID vs DPAD (DBS-ON)"),
         ]
         for k, (xa, xb, p, _lab) in enumerate(pairs):
             stars = p_to_stars(p)
@@ -203,16 +211,19 @@ def build_rmse_distribution_figure(
                 yref="y",
                 text=f"<b>{stars}</b>",
                 showarrow=False,
-                font=dict(size=13, color=fg, family=FONT_FAMILY),
+                font=dict(size=FONT_SIZE_LABEL, color=fg, family=FONT_FAMILY),
             )
         )
 
-    fig.update_layout(
-        template="plotly_white" if theme == ThesisTheme.LIGHT else "plotly_dark",
-        paper_bgcolor=paper_bg,
-        plot_bgcolor=plot_bg,
-        font=dict(family=FONT_FAMILY, size=FONT_SIZE_BASE, color=fg),
+    apply_thesis_style(
+        fig,
+        theme,
         height=FIGURE_HEIGHT,
+        margin=dict(l=72, r=32, t=50, b=140),
+        hovermode="closest",
+        legend_y=-0.12,
+    )
+    fig.update_layout(
         xaxis=dict(
             tickmode="array",
             tickvals=list(X_POS),
@@ -224,41 +235,18 @@ def build_rmse_distribution_figure(
             ),
             showgrid=False,
             zeroline=False,
-            showline=True,
-            linecolor=fg,
-            linewidth=1,
-            mirror=False,
-            tickfont=dict(size=FONT_SIZE_TICK),
         ),
         yaxis=dict(
             title=dict(
-                text="RMSE (z)",
+                text=y_label,
                 font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY),
             ),
             range=[0, y_max * 1.02],
-            showgrid=True,
-            gridcolor=grid,
-            showline=True,
-            linecolor=fg,
-            linewidth=1,
-            mirror=False,
             zeroline=True,
             zerolinecolor=grid,
-            tickfont=dict(size=FONT_SIZE_TICK),
         ),
-        legend=dict(
-            orientation="h",
-            yanchor="top",
-            y=-0.12,
-            xanchor="center",
-            x=0.5,
-            font=dict(size=FONT_SIZE_TICK),
-            bgcolor=legend_bgcolor(),
-        ),
-        margin=dict(l=72, r=32, t=36, b=140),
         shapes=shapes,
         annotations=annotations,
-        hovermode="closest",
     )
 
     return fig
@@ -403,28 +391,13 @@ def build_rmse_boxplot_figure(
             col=1,
         )
 
-    fig.update_layout(
-        template="plotly_white" if theme == ThesisTheme.LIGHT else "plotly_dark",
-        paper_bgcolor=paper_bg,
-        plot_bgcolor=plot_bg,
-        font=dict(family=FONT_FAMILY, size=FONT_SIZE_BASE, color=fg),
+    apply_thesis_style(
+        fig,
+        theme,
         height=FIGURE_HEIGHT,
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=-0.2,
-            xanchor="center",
-            x=0.5,
-            font=dict(size=FONT_SIZE_TICK),
-            bgcolor=legend_bgcolor(),
-        ),
-        margin=dict(l=72, r=32, t=48, b=140),
+        margin=dict(l=72, r=32, t=28, b=140),
         hovermode="closest",
-        title=dict(
-            text=title or "Trial RMSE by model × DBS (box + jittered trials)",
-            font=dict(size=FONT_SIZE_LABEL + 1),
-            x=0.5,
-        ),
+        legend_y=-0.2,
     )
 
     # X-axis: model names for each subplot
@@ -451,7 +424,7 @@ def build_rmse_boxplot_figure(
         col=2,
     )
     fig.update_yaxes(
-        title_text="RMSE (z)",
+        title_text=rmse_axis_label(),
         range=[0, y_max],
         showgrid=True,
         gridcolor=grid,

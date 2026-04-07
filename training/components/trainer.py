@@ -61,7 +61,7 @@ class Trainer:
             combined_cols = []
             for col in base_cols:
                 combined_cols.append(pl.col(col))
-                is_neural = col.startswith("LFP") or col.startswith("ECOG")
+                is_neural = col.startswith("LFP") or col.startswith("ECOG") or col.startswith("LAPLACIAN")
                 is_input = col in self.data_params.channels.neural_input
                 output_type = getattr(
                     self.data_params.channels, "output_type", "behavioral"
