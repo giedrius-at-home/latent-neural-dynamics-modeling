@@ -394,7 +394,7 @@ def run_training_subprocess(
             [sys.executable, "-m", "training.train", "--config", temp_config_path],
             capture_output=True,
             text=True,
-            timeout=3600,
+            timeout=7200,
         )
 
         success = result.returncode == 0

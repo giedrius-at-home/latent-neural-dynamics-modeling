@@ -159,11 +159,14 @@ class PSIDWrapper:
             f"rescale_states={rescale_states}, max_eigenvalue={max_eigenvalue}"
         )
 
+        zscore_Z = getattr(self.config.model, "zscore_Z", True)
+        remove_mean_Z = getattr(self.config.model, "remove_mean_Z", True)
+
         psid_kwargs = {
             "zscore_Y": True,
-            "zscore_Z": True,
+            "zscore_Z": zscore_Z,
             "remove_mean_Y": True,
-            "remove_mean_Z": True,
+            "remove_mean_Z": remove_mean_Z,
             "time_first": time_first,
             "backward_kalman": backward_kalman,
             "rescale_states": rescale_states,
