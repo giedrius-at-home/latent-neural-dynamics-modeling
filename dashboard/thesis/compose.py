@@ -302,7 +302,7 @@ def compose_thesis_figure(spec: ThesisFigureSpec, results_root: Path):
     if ce:
         caption = f"{caption} · {ce}"
     if used_decl:
-        caption = f"{caption} · thesis default output label"
+        pass  # declared output names already included in caption via channel name
 
     if spec.exemplar_layout == "side_by_side":
         fig = build_side_by_side_exemplar_figure(

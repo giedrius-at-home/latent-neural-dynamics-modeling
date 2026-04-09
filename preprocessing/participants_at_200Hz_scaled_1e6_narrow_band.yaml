@@ -1,0 +1,33 @@
+name: "package_recordings"
+root_directory: "/home/bobby/repos/latent-neural-dynamics-modeling"
+data_directory: "{root_directory}/data"
+save_directory: "{root_directory}/resampled_recordings"
+logger_directory: "{root_directory}/logs"
+participants_table_name: "participants.tsv"
+participants_intermediate_table_name: "participants_2"
+output_participants_table_name: "participants_at_200Hz_scaled_1e6_narrow_band"
+ieeg_process:
+  resampled_dir: "{save_directory}/resampled_mat_recordings"
+  chunk_margin: 2
+  resampled_freq: 200
+  notch_freqs: []
+  scale_factor: 1e6
+  compute_average: false
+  drop_lfp: false
+  max_pause_seconds: 2.0
+  raw_bands:
+    theta_4_8_raw: [4, 8]
+    alpha_8_12_raw: [8, 12]
+    beta_12_17_raw: [12, 17]
+    beta_17_22_raw: [17, 22]
+    beta_22_27_raw: [22, 27]
+    beta_27_30_raw: [27, 30]
+    gamma_30_35_raw: [30, 35]
+    gamma_35_40_raw: [35, 40]
+    gamma_40_45_raw: [40, 45]
+    gamma_45_50_raw: [45, 50]
+    gamma_50_55_raw: [50, 55]
+    gamma_55_60_raw: [55, 60]
+    gamma_60_65_raw: [60, 65]
+    gamma_65_70_raw: [70, 75]
+    gamma_75_80_raw: [75, 80]

@@ -414,8 +414,8 @@ def _build_thesis_html_document_body(
                 y_axis_label=rmse_axis_label(ch_agg),
             )
             add_fig(fig_b)
-            n_off = sum(len(agg.trial_rmse[i]) for i in [0, 2, 4])
-            n_on = sum(len(agg.trial_rmse[i]) for i in [1, 3, 5])
+            n_off = len(agg.trial_rmse[0])  # unique OFF trials (same across models)
+            n_on = len(agg.trial_rmse[1])  # unique ON trials (same across models)
             parts.append(
                 _p_caption(
                     f"<b>Pooled behavioral RMSE ({_escape(ch_agg)}).</b> "
@@ -461,8 +461,8 @@ def _build_thesis_html_document_body(
                     y_axis_label=rmse_axis_label(ch_ps),
                 )
                 add_fig(fig_session)
-                n_off_s = sum(len(agg_single.trial_rmse[i]) for i in [0, 2, 4])
-                n_on_s = sum(len(agg_single.trial_rmse[i]) for i in [1, 3, 5])
+                n_off_s = len(agg_single.trial_rmse[0])  # unique OFF trials
+                n_on_s = len(agg_single.trial_rmse[1])  # unique ON trials
                 stat_parts = []
                 model_labels = ["PSID", "PSID", "DPAD", "DPAD", "VARMA", "VARMA"]
                 cond_labels = ["OFF", "ON", "OFF", "ON", "OFF", "ON"]
