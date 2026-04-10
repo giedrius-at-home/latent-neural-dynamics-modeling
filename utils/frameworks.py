@@ -7,20 +7,11 @@ from utils.stats import pearson_r_per_channel
 import numpy as np
 import math
 import json
-import sys
 from pathlib import Path
 import pandas as pd
 from sklearn.linear_model import Ridge
 import statsmodels.api as sm
 from statsmodels.tsa.api import VAR
-
-psid_path = Path(__file__).parent.parent / "PSID"
-if str(psid_path.parent) not in sys.path:
-    sys.path.insert(0, str(psid_path.parent))
-
-dpad_path = Path(__file__).parent.parent / "DPAD-main" / "source"
-if str(dpad_path) not in sys.path:
-    sys.path.insert(0, str(dpad_path))
 
 Array2D = NDArray[np.float64]
 TrialList = List[Array2D]
@@ -119,10 +110,17 @@ class PSIDWrapper:
         with open(model_path, "rb") as f:
             self.idSys = pickle.load(f)
         self.logger.info("PSID model loaded successfully")
+
+        # Retrofit scipy-DARE fix and Pf / Cs on legacy pickles that predate
+        # moving smoother parameters out of the vendored LSSM fork.
+        PSIDWrapper._refit_dare_if_needed(self.idSys)
+        if getattr(self.idSys, "Pf", None) is None or getattr(self.idSys, "Cs", None) is None:
+            PSIDWrapper._attach_smoother_params(self.idSys)
+
         if (
             hasattr(self.idSys, "A")
             and self.idSys.A is not None
-            and len(self.idSys.A_powers_cache) == 0
+            and len(getattr(self.idSys, "A_powers_cache", []) or []) == 0
         ):
             A = np.array(self.idSys.A)
             # Precompute up to 200 (2 seconds * 80 Hz = 160, 200 is reasonable)
@@ -138,25 +136,29 @@ class PSIDWrapper:
         return self.idSys
 
     def train(self, Y: TrialList, Z: Optional[TrialList] = None):
-        from PSID.PSID import PSID as PSIDClass
-
         nx: int = self.config.model.nx
         n1: int = self.config.model.n1
         i: int = self.config.model.i
         time_first: bool = self.config.model.time_first
 
-        backward_kalman: bool = getattr(self.config.model, "backward_kalman", False)
-        rescale_states: bool = getattr(self.config.model, "rescale_states", True)
+        backward_kalman: bool = bool(getattr(self.config.model, "backward_kalman", False))
         max_eigenvalue = getattr(self.config.model, "max_eigenvalue", 0.995)
         if max_eigenvalue is None:
             max_eigenvalue = 1.0
         else:
             max_eigenvalue = float(max_eigenvalue)
 
+        if getattr(self.config.model, "rescale_states", None) is not None:
+            self.logger.info(
+                "config.model.rescale_states is set but no longer used: "
+                "state rescaling is a similarity transform that does not affect predictions. "
+                "Ignoring."
+            )
+
         self.logger.info(
-            f"Calling PSID.PSID with nx={nx}, n1={n1}, i={i}, time_first={time_first}, "
-            f"backward_kalman={backward_kalman}, "
-            f"rescale_states={rescale_states}, max_eigenvalue={max_eigenvalue}"
+            f"Calling PSIDWrapper._psid_identify with nx={nx}, n1={n1}, i={i}, "
+            f"time_first={time_first}, backward_kalman={backward_kalman}, "
+            f"max_eigenvalue={max_eigenvalue}"
         )
 
         zscore_Z = getattr(self.config.model, "zscore_Z", True)
@@ -169,11 +171,16 @@ class PSIDWrapper:
             "remove_mean_Z": remove_mean_Z,
             "time_first": time_first,
             "backward_kalman": backward_kalman,
-            "rescale_states": rescale_states,
             "max_eigenvalue": max_eigenvalue,
         }
 
-        self.idSys = PSIDClass(Y, Z, nx, n1, i, **psid_kwargs)
+        self.idSys = PSIDWrapper._psid_identify(Y, Z, nx, n1, i, **psid_kwargs)
+
+        # Post-fit: attach smoother params and persist backward_kalman flag on
+        # the returned LSSM so predict/forecast can dispatch to the smoother.
+        PSIDWrapper._attach_smoother_params(self.idSys)
+        self.idSys.backward_kalman = backward_kalman
+
         if hasattr(self.idSys, "A") and self.idSys.A is not None:
             A = np.array(self.idSys.A)
             max_m = 200
@@ -186,8 +193,469 @@ class PSIDWrapper:
         return self.idSys
 
     def predict(self, Y: TrialList, Z: Optional[TrialList] = None):
-        use_smoothing = getattr(self.idSys, "backward_kalman", False)
-        return self.idSys.predict(Y, U=Z, useSmoothing=use_smoothing)
+        use_smoothing = bool(getattr(self.idSys, "backward_kalman", False))
+        if use_smoothing:
+            return self.smooth(Y)
+        return self.idSys.predict(Y, U=Z)
+
+    def smooth(self, Y):
+        """RTS smoother on top of the upstream LSSM Kalman filter.
+
+        Mirrors the behavior of the vendored `LSSM.smooth` method but reads
+        only stable attributes (`A`, `C`, `Cz`, `Cs`, `YPrepModel`, `ZPrepModel`)
+        from `self.idSys`, so it works against upstream PyPSID's LSSM with no
+        monkey-patching. Handles both a single trial (ndarray) and a list/tuple
+        of trials, matching the upstream `predict` signature.
+        """
+        if isinstance(Y, (list, tuple)):
+            trials = [self.smooth(trial) for trial in Y]
+            return tuple([t[i] for t in trials] for i in range(3))
+        return PSIDWrapper._rts_smooth(self.idSys, Y)
+
+    @staticmethod
+    def _refit_dare_if_needed(idSys):
+        """Workaround for the scipy >= 1.16 bug in `solve_discrete_are`.
+
+        Upstream PyPSID v1.2.6 calls::
+
+            linalg.solve_discrete_are(A.T, C.T, Q, R, s=S)
+
+        which on scipy >= 1.16 raises ``ValueError: Matrix e should be square``
+        because scipy now routes the ``s`` kwarg through the generalized DARE
+        path and constructs a default ``e`` matrix with the wrong shape. When
+        this happens, upstream silently sets ``Pp``, ``Kf``, ``K``, ``Kv``,
+        ``innovCov``, ``A_KC`` to NaN and the Kalman filter has to fall back
+        to non-steady-state (per-sample) mode — which also breaks the steady-
+        state RTS smoother because ``Cs`` depends on a finite ``Pp``.
+
+        This helper detects the NaN fallback and re-solves the DARE passing
+        ``e=None`` explicitly (which triggers scipy's correct codepath), then
+        recomputes ``innovCov``, ``K``, ``Kf``, ``Kv``, ``A_KC``, ``P2`` using
+        the same formulas as upstream ``LSSM.update_secondary_params``. When
+        ``scipy < 1.16`` or a future scipy fixes the bug, upstream will have
+        produced finite values and this helper is a no-op.
+        """
+        if getattr(idSys, "state_dim", 0) == 0:
+            return
+        Pp = getattr(idSys, "Pp", None)
+        if Pp is None or not np.any(np.isnan(Pp)):
+            return
+        A = np.asarray(idSys.A)
+        C = np.asarray(idSys.C)
+        Q = np.asarray(idSys.Q)
+        R = np.asarray(idSys.R)
+        S = np.asarray(idSys.S)
+        # Upstream only attempts the DARE when A is stable; skip otherwise.
+        eigs = np.linalg.eigvals(A)
+        if np.max(np.abs(eigs)) >= 1:
+            return
+        from scipy import linalg as _linalg
+
+        try:
+            Pp_new = _linalg.solve_discrete_are(
+                a=A.T, b=C.T, q=Q, r=R, e=None, s=S
+            )
+        except Exception:
+            return
+        innovCov = C @ Pp_new @ C.T + R
+        innovCov = (innovCov + innovCov.T) / 2
+        innovCovInv = np.linalg.pinv(innovCov)
+        K = (A @ Pp_new @ C.T + S) @ innovCovInv
+        Kf = Pp_new @ C.T @ innovCovInv
+        Kv = S @ innovCovInv
+        A_KC = A - K @ C
+
+        idSys.Pp = Pp_new
+        idSys.K = K
+        idSys.Kf = Kf
+        idSys.Kv = Kv
+        idSys.innovCov = innovCov
+        idSys.A_KC = A_KC
+        XCov = getattr(idSys, "XCov", None)
+        if XCov is not None and not np.any(np.isnan(np.asarray(XCov))):
+            idSys.P2 = np.asarray(XCov) - Pp_new
+
+    @staticmethod
+    def _attach_smoother_params(idSys):
+        """Compute Pf and Cs needed by the RTS smoother.
+
+        Ports the Giedrius additions in LSSM.setParams (vendored lines 178-182)
+        so we don't need a PSID fork. Safe to call multiple times and tolerant
+        of models where the DARE solve failed (Pp is nan).
+        """
+        Kf = getattr(idSys, "Kf", None)
+        Pp = getattr(idSys, "Pp", None)
+        A = getattr(idSys, "A", None)
+        C = getattr(idSys, "C", None)
+        if Kf is None or Pp is None or A is None or C is None:
+            return
+        if np.any(np.isnan(Pp)) or np.any(np.isnan(Kf)):
+            idSys.Pf = None
+            idSys.Cs = None
+            return
+        Pf = Pp - Kf @ C @ Pp
+        try:
+            Cs = Pf @ A.T @ np.linalg.pinv(Pp)
+        except np.linalg.LinAlgError:
+            Cs = None
+        idSys.Pf = Pf
+        idSys.Cs = Cs
+
+    @staticmethod
+    def _rts_smooth(idSys, Y):
+        """Steady-state RTS smoother backward sweep for a single trial.
+
+        Calls `idSys.kalman(Y)` directly (not `predict`) to get the filtered
+        states `allXf` and one-step predicted states `allXp`, then applies
+            x_s[t] = x_f[t] + Cs @ (x_s[t+1] - x_p[t+1])
+        using the smoother gain `Cs` attached by `_attach_smoother_params`.
+        Output observations are rebuilt via `generateObservationFromStates`,
+        which also applies the inverse of YPrepModel / ZPrepModel — matching
+        how upstream `predict` produces its returned arrays.
+        """
+        if getattr(idSys, "state_dim", 0) == 0:
+            allXp = np.zeros((Y.shape[0], idSys.state_dim))
+            allYp = np.zeros((Y.shape[0], idSys.output_dim))
+            return None, allYp, allXp
+
+        allXp, _allYp, allXf = idSys.kalman(Y)[0:3]
+
+        Cs = getattr(idSys, "Cs", None)
+        if Cs is None:
+            PSIDWrapper._attach_smoother_params(idSys)
+            Cs = getattr(idSys, "Cs", None)
+        if Cs is None:
+            raise RuntimeError(
+                "Cannot run RTS smoother: idSys.Cs is unavailable "
+                "(likely because the DARE solve failed during identification)."
+            )
+
+        N = allXf.shape[0]
+        allXs = np.zeros_like(allXf)
+        allXs[-1, :] = allXf[-1, :]
+        for t in range(N - 2, -1, -1):
+            allXs[t, :] = allXf[t, :] + Cs @ (allXs[t + 1, :] - allXp[t + 1, :])
+
+        allYs = idSys.generateObservationFromStates(
+            allXs, param_names=["C", "D"], prep_model_param="YPrepModel"
+        )
+        allZs = None
+        if (hasattr(idSys, "Cz") and idSys.Cz is not None) or (
+            hasattr(idSys, "Dz") and getattr(idSys, "Dz", None) is not None
+        ):
+            allZs = idSys.generateObservationFromStates(
+                allXs, param_names=["Cz", "Dz"], prep_model_param="ZPrepModel"
+            )
+
+        return allZs, allYs, allXs
+
+    @staticmethod
+    def _fit_cz_via_kf(s, Y, Z, time_first, use_smoothing=False):
+        """Fit Cz by regressing Z on Kalman-filtered (or smoothed) latent states.
+
+        Port of upstream `PSID.PSID.fitCzViaKFRegression` with an added
+        `use_smoothing` branch. When False, matches upstream exactly. When
+        True, runs the RTS backward sweep via `_rts_smooth` and projects Z
+        onto the smoothed states instead of the filtered ones.
+        """
+        from PSID.PSID import projOrth
+
+        def _states_for_trial(Y_trial):
+            if use_smoothing:
+                return PSIDWrapper._rts_smooth(s, Y_trial)[2]
+            return s.predict(Y_trial)[2]
+
+        if not isinstance(Y, (list, tuple)):
+            YTF = Y if time_first else Y.T
+            ZTF = Z if time_first else Z.T
+            xHat = _states_for_trial(YTF)
+        else:
+            xHat = None
+            ZTF = None
+            for yInd in range(len(Y)):
+                YTFThis = Y[yInd] if time_first else Y[yInd].T
+                ZTFThis = Z[yInd] if time_first else Z[yInd].T
+                xHatThis = _states_for_trial(YTFThis)
+                if yInd == 0:
+                    xHat = xHatThis
+                    ZTF = ZTFThis
+                else:
+                    xHat = np.concatenate((xHat, xHatThis), axis=0)
+                    ZTF = np.concatenate((ZTF, ZTFThis), axis=0)
+
+        Cz = projOrth(ZTF.T, xHat.T)[1]
+        return Cz
+
+    @staticmethod
+    def _psid_identify(
+        Y,
+        Z=None,
+        nx=None,
+        n1=0,
+        i=None,
+        WS=dict(),
+        return_WS=False,
+        fit_Cz_via_KF=True,
+        time_first=True,
+        remove_mean_Y=True,
+        remove_mean_Z=True,
+        zscore_Y=False,
+        zscore_Z=False,
+        backward_kalman=False,  # ADDED: Giedrius
+        max_eigenvalue=0.995,  # ADDED: Giedrius
+    ):
+        """PSID identification — copy of upstream `PSID.PSID.PSID` (v1.2.6).
+
+        Two additions vs upstream, both marked `# ADDED:`:
+          1. `max_eigenvalue` eigenvalue damping of A (between A assembly and
+             noise covariance derivation).
+          2. `backward_kalman` smoothing-aware Cz re-fit (dispatched via
+             `_fit_cz_via_kf` with `use_smoothing=backward_kalman`).
+
+        Upstream helpers (`projOrth`, `blkhankskip`, `getHSize`, `PrepModel`,
+        `LSSM`) are imported from the installed `PSID` package — only this
+        function's body is copied. When bumping upstream PSID, re-diff this
+        method against the new upstream `PSID()` and re-apply the `# ADDED:`
+        blocks by hand.
+        """
+        import warnings
+        from scipy import linalg
+        from PSID.PSID import projOrth, blkhankskip, getHSize
+        from PSID.LSSM import LSSM as LSSMClass
+        from PSID.PrepModel import PrepModel as PrepModelClass
+
+        YPrepModel = PrepModelClass()
+        YPrepModel.fit(Y, remove_mean=remove_mean_Y, zscore=zscore_Y, time_first=time_first)
+        Y = YPrepModel.apply(Y, time_first=time_first)
+
+        ZPrepModel = PrepModelClass()
+        if Z is not None:
+            ZPrepModel.fit(
+                Z, remove_mean=remove_mean_Z, zscore=zscore_Z, time_first=time_first
+            )
+            Z = ZPrepModel.apply(Z, time_first=time_first)
+
+        ny, ySamples, N, y1, NTot = getHSize(Y, i, time_first=time_first)
+        if Z is not None:
+            nz, zSamples, _, z1, NTot = getHSize(Z, i, time_first=time_first)
+        else:
+            nz, zSamples = 0, 0
+
+        if isinstance(N, list) and np.any(np.array(N) < 1):
+            warnings.warn(
+                "{} of the {} data segments will be discarded because they are too short for using with a horizon of {}.".format(
+                    np.sum(np.array(N) < 1), len(N), i
+                ),
+            )
+
+        if (
+            "NTot" in WS
+            and WS["NTot"] == NTot
+            and "N" in WS
+            and WS["N"] == N
+            and "i" in WS
+            and WS["i"] == i
+            and "ySamples" in WS
+            and WS["ySamples"] == ySamples
+            and "zSamples" in WS
+            and WS["zSamples"] == zSamples
+            and "Y1" in WS
+            and WS["Y1"] == y1
+            and (nz == 0 or ("Z1" in WS and WS["Z1"] == z1))
+        ):
+            # Have WS from previous call with the same data
+            pass
+        else:
+            WS = {"NTot": NTot, "N": N, "i": i, "ySamples": ySamples, "Y1": y1}
+            if nz > 0:
+                WS["zSamples"] = zSamples
+                WS["Z1"] = z1
+
+        if "Yp" not in WS or WS["Yp"] is None:
+            WS["Yp"] = blkhankskip(Y, i, N, time_first=time_first)
+            WS["Yii"] = blkhankskip(Y, 1, N, i, time_first=time_first)
+            if nz > 0:
+                WS["Zii"] = blkhankskip(Z, 1, N, i, time_first=time_first)
+
+        if n1 > nx:
+            n1 = nx  # n1 can at most be nx
+
+        # Stage 1
+        if n1 > 0 and nz > 0:
+            if n1 > i * nz:
+                raise (
+                    Exception(
+                        "n1 (currently {}) must be at most i*nz={}*{}={}. Use a larger horizon i.".format(
+                            n1, i, nz, i * nz
+                        )
+                    )
+                )
+            if "ZHat_U" not in WS or WS["ZHat_U"] is None:
+                Zf = blkhankskip(Z, i, N, i, time_first=time_first)
+                WS["ZHat"] = projOrth(Zf, WS["Yp"])[0]  # Eq. (10)
+                Yp_Plus = np.concatenate((WS["Yp"], WS["Yii"]))
+                Zf_Minus = Zf[nz:, :]
+                WS["ZHatMinus"] = projOrth(Zf_Minus, Yp_Plus)[0]  # Eq. (11)
+
+                # Take SVD of ZHat
+                WS["ZHat_U"], WS["ZHat_S"], ZHat_V = linalg.svd(
+                    WS["ZHat"], full_matrices=False, lapack_driver="gesvd"
+                )  # Eq. (12)
+
+            Sz = np.diag(WS["ZHat_S"][:n1])  # Eq. (12)
+            Uz = WS["ZHat_U"][:, :n1]  # Eq. (12)
+
+            Oz = Uz @ Sz ** (1 / 2)  # Eq. (13)
+            Oz_Minus = Oz[:-nz, :]  # Eq. (15)
+
+            Xk = np.linalg.pinv(Oz) @ WS["ZHat"]  # Eq. (14)
+            Xk_Plus1 = np.linalg.pinv(Oz_Minus) @ WS["ZHatMinus"]  # Eq. (16)
+        else:
+            n1 = 0
+            Xk = np.empty([0, NTot])
+            Xk_Plus1 = np.empty([0, NTot])
+
+        # Stage 2
+        n2 = nx - n1
+        if n2 > 0:
+            if nx > i * ny:
+                raise (
+                    Exception(
+                        "nx (currently {}) must be at most i*ny={}*{}={}. Use a larger horizon i.".format(
+                            nx, i, ny, i * ny
+                        )
+                    )
+                )
+            if (
+                "YHat_U" not in WS
+                or WS["YHat_U"] is None
+                or "n1" not in WS
+                or WS["n1"] != n1
+            ):
+                WS["n1"] = n1
+
+                Yf = blkhankskip(Y, i, N, i, time_first=time_first)
+                Yf_Minus = Yf[ny:, :]
+
+                if n1 > 0:
+                    # Remove the already predicted part of future y
+                    Oy1 = projOrth(Yf, Xk)[1]  # Eq. (18)
+                    Yf = Yf - Oy1 @ Xk  # Eq. (19)
+
+                    Oy1_Minus = Oy1[:-ny, :]  # Eq. (20)
+                    Yf_Minus = Yf_Minus - Oy1_Minus @ Xk_Plus1  # Eq. (21)
+
+                WS["YHat"] = projOrth(Yf, WS["Yp"])[0]
+                Yp_Plus = np.concatenate((WS["Yp"], WS["Yii"]))
+                WS["YHatMinus"] = projOrth(Yf_Minus, Yp_Plus)[0]  # Eq. (23)
+
+                # Take SVD of YHat
+                WS["YHat_U"], WS["YHat_S"], YHat_V = linalg.svd(
+                    WS["YHat"], full_matrices=False, lapack_driver="gesvd"
+                )  # Eq. (24)
+
+            S2 = np.diag(WS["YHat_S"][:n2])  # Eq. (24)
+            U2 = WS["YHat_U"][:, :n2]  # Eq. (24)
+
+            Oy = U2 @ S2 ** (1 / 2)  # Eq. (25)
+            Oy_Minus = Oy[:-ny, :]  # Eq. (27)
+
+            Xk2 = np.linalg.pinv(Oy) @ WS["YHat"]  # Eq. (26)
+            Xk2_Plus1 = np.linalg.pinv(Oy_Minus) @ WS["YHatMinus"]  # Eq. (28)
+
+            Xk = np.concatenate((Xk, Xk2))  # Eq. (29)
+            Xk_Plus1 = np.concatenate((Xk_Plus1, Xk2_Plus1))  # Eq. (29)
+
+        # Parameter identification
+        if n1 > 0:
+            # A associated with the z-related states
+            A = projOrth(Xk_Plus1[:n1, :], Xk[:n1, :])[1]  # Eq. (17)
+        else:
+            A = np.empty([0, 0])
+
+        if n2 > 0:
+            A23 = projOrth(Xk_Plus1[n1:, :], Xk)[1]  # Eq. (30)
+            if n1 > 0:
+                A10 = np.concatenate((A, np.zeros([n1, n2])), axis=1)
+                A = np.concatenate((A10, A23))  # Eq. (31)
+            else:
+                A = A23
+
+        # ADDED: Giedrius — eigenvalue damping for A-matrix stability.
+        # Clips |eig(A)| <= max_eigenvalue before Q, R, S are derived from
+        # residuals, so the returned LSSM is numerically stable even when the
+        # raw subspace identification produced a slightly unstable A.
+        if (
+            max_eigenvalue is not None
+            and max_eigenvalue < 1.0
+            and A.size > 0
+            and A.shape[0] == A.shape[1]
+        ):
+            eig_vals, eig_vecs = np.linalg.eig(A)
+            magnitudes = np.abs(eig_vals)
+            unstable_indices = magnitudes > max_eigenvalue
+            if np.any(unstable_indices):
+                eig_vals[unstable_indices] = (
+                    eig_vals[unstable_indices]
+                    / magnitudes[unstable_indices]
+                    * max_eigenvalue
+                )
+                A = np.real(eig_vecs @ np.diag(eig_vals) @ np.linalg.inv(eig_vecs))
+
+        if nz > 0:
+            Cz = projOrth(WS["Zii"], Xk)[1]  # Eq. (33)
+        else:
+            Cz = np.empty([0, nx])
+
+        Cy = projOrth(WS["Yii"], Xk)[1]  # Eq. (32)
+
+        w = Xk_Plus1 - A @ Xk  # Eq. (34)
+        v = WS["Yii"] - Cy @ Xk  # Eq. (34)
+
+        # Compute noise covariances
+        NA = w.shape[1]
+        Q = (w @ w.T) / NA  # Eq. (35)
+        S = (w @ v.T) / NA  # Eq. (35)
+        R = (v @ v.T) / NA  # Eq. (35)
+
+        Q = (Q + Q.T) / 2  # Make precisely symmetric
+        R = (R + R.T) / 2  # Make precisely symmetric
+
+        s = LSSMClass(
+            params={
+                "A": A,
+                "C": Cy,
+                "Q": Q,
+                "R": R,
+                "S": S,
+            }
+        )
+
+        # ADDED: Giedrius — scipy >= 1.16 DARE workaround. Upstream's LSSM
+        # passes S to solve_discrete_are without e=None, which now raises
+        # "Matrix e should be square" and leaves Pp/Kf/innovCov as NaN. This
+        # helper detects the NaN fallback and re-solves the DARE correctly.
+        PSIDWrapper._refit_dare_if_needed(s)
+
+        if fit_Cz_via_KF and nz > 0:
+            # ADDED: Giedrius — smoothing-aware Cz re-fit. Upstream's
+            # fitCzViaKFRegression always uses the Kalman filter; here we
+            # optionally run the RTS smoother instead when backward_kalman
+            # is True. The smoother branch needs Pf / Cs on `s`, so we attach
+            # them before the re-fit.
+            PSIDWrapper._attach_smoother_params(s)
+            Cz = PSIDWrapper._fit_cz_via_kf(
+                s, Y, Z, time_first, use_smoothing=backward_kalman
+            )
+        s.Cz = Cz
+
+        s.YPrepModel = YPrepModel
+        s.ZPrepModel = ZPrepModel
+
+        if not return_WS:
+            return s
+        else:
+            return s, WS
 
     def validate(self, Y: TrialList) -> Dict[str, Any]:
         Zp, Yp, Xp = self.idSys.predict(Y)
@@ -235,14 +703,14 @@ class PSIDWrapper:
             )
 
         # Step 1: Get initial state estimate by running Kalman filter once on past data
-        # Use backward Kalman smoothing if available for better initial state estimate
-        use_smoothing = getattr(self.idSys, "backward_kalman", False)
-        # Convert Y_past to list format expected by predict
+        # Use backward Kalman smoothing if configured; otherwise the one-step predict.
+        use_smoothing = bool(getattr(self.idSys, "backward_kalman", False))
         Y_past_list = [Y_past]
         U_list = [Z_past] if Z_past is not None else None
-        Zp_past, Yp_past, Xp_past = self.idSys.predict(
-            Y_past_list, U=U_list, useSmoothing=use_smoothing
-        )
+        if use_smoothing:
+            Zp_past, Yp_past, Xp_past = self.smooth(Y_past_list)
+        else:
+            Zp_past, Yp_past, Xp_past = self.idSys.predict(Y_past_list, U=U_list)
 
         # Extract the final state estimate (last time step)
         if Xp_past is None or len(Xp_past) == 0:
@@ -299,12 +767,19 @@ class PSIDWrapper:
                 x_current = A @ x_current
                 Xf[t, :] = x_current
 
-        # Step 3: Compute outputs from states
+        # Step 3: Compute outputs from states (in z-scored space)
         Yf = Xf @ C.T  # (m, nx) @ (nx, ny) -> (m, ny)
 
         Zf = None
         if Cz is not None and nz > 0:
             Zf = Xf @ Cz.T  # (m, nx) @ (nx, nz) -> (m, nz)
+
+        # Step 4: Un-z-score to original space (predict() does this internally via
+        # idSys.predict, but manual C @ x multiplication stays in z-scored space)
+        if hasattr(self.idSys, "YPrepModel") and self.idSys.YPrepModel is not None:
+            Yf = self.idSys.YPrepModel.apply_inverse(Yf)
+        if Zf is not None and hasattr(self.idSys, "ZPrepModel") and self.idSys.ZPrepModel is not None:
+            Zf = self.idSys.ZPrepModel.apply_inverse(Zf)
 
         return Zf, Yf, Xf
 
@@ -428,32 +903,6 @@ class PSIDFramework(BaseFramework):
         return PSIDWrapper(self.config)
 
 
-def _make_dpad_epoch_callback(csv_path, checkpoint_dir, save_every):
-    import tensorflow as tf
-
-    class _Cb(tf.keras.callbacks.Callback):
-        def on_epoch_end(self, epoch, logs=None):
-            if not logs:
-                return
-            loss = logs.get("loss")
-            val_loss = logs.get("val_loss")
-            header = not csv_path.exists()
-            with open(csv_path, "a") as f:
-                if header:
-                    f.write("epoch,loss,val_loss,rmse,val_rmse\n")
-                rmse = math.sqrt(loss) if loss else ""
-                val_rmse = math.sqrt(val_loss) if val_loss else ""
-                f.write(f"{epoch},{loss},{val_loss},{rmse},{val_rmse}\n")
-
-            if save_every and (epoch + 1) % save_every == 0:
-                np.savez(
-                    checkpoint_dir / f"weights_epoch_{epoch + 1}.npz",
-                    *self.model.get_weights(),
-                )
-
-    return _Cb()
-
-
 class DPADWrapper:
     def __init__(self, config: Config):
         self.config = config
@@ -482,7 +931,6 @@ class DPADWrapper:
         method_code: str = self.config.model.method_code
         epochs: int = self.config.model.epochs
         fast = getattr(self.config.model, "fast", False)
-        checkpoint_every = getattr(self.config.model, "checkpoint_every", 100)
 
         self.logger.info(
             f"Training DPAD with nx={nx}, n1={n1}, method_code={method_code}, epochs={epochs}"
@@ -491,11 +939,7 @@ class DPADWrapper:
         Z_dpad = [z.T for z in Z] if Z is not None else None
 
         save_dir = Path(self.config.results.save_dir)
-        checkpoint_dir = save_dir / "checkpoints"
-        checkpoint_dir.mkdir(parents=True, exist_ok=True)
-        csv_path = save_dir / "training_metrics.csv"
-
-        cb = _make_dpad_epoch_callback(csv_path, checkpoint_dir, checkpoint_every)
+        save_dir.mkdir(parents=True, exist_ok=True)
 
         self.idSys = DPADModel(log_dir=self.config.results.log_dir)
         args = DPADModel.prepare_args(method_code)
@@ -507,7 +951,6 @@ class DPADWrapper:
             n1=n1,
             epochs=epochs,
             skip_predictions=fast,
-            callbacks=[cb],
             **args,
         )
 
@@ -644,6 +1087,37 @@ class DPADWrapper:
             Yp_val = Yp_val_local
             Zp_val = Zp_val_local
 
+        # set_steps_ahead(1..m) rebuilds m output heads on the DPAD model, which
+        # is O(seconds) per call. Hoisting it out of the per-trial loop turns a
+        # multi-hour step into minutes.
+        self.idSys.set_steps_ahead(list(range(1, m + 1)))
+        self.idSys.set_multi_step_with_data_gen(True, noise_samples=0)
+        block_samples = self.idSys.block_samples
+
+        def _stack_last(steps_list):
+            out = [
+                arr[-1:, :] if arr is not None and len(arr.shape) == 2 else None
+                for arr in steps_list
+            ]
+            valid = [v for v in out if v is not None]
+            return np.vstack(valid) if valid else None
+
+        def _forecast_raw(Y_past):
+            ny = Y_past.shape[1]
+            remainder = Y_past.shape[0] % block_samples
+            if remainder != 0:
+                pad_len = block_samples - remainder
+                Y_padded = np.concatenate(
+                    [Y_past, np.zeros((pad_len, ny))], axis=0
+                )
+            else:
+                Y_padded = Y_past
+            preds = self.idSys.predict(Y_padded)
+            Zf = _stack_last(preds[:m])
+            Yf = _stack_last(preds[m : 2 * m])
+            Xf = _stack_last(preds[2 * m : 3 * m])
+            return Zf, Yf, Xf
+
         results = {
             "m": m,
             "Y_future_true": [],
@@ -657,55 +1131,65 @@ class DPADWrapper:
             "pearson_per_channel_Z": [],
         }
 
-        for idx, Y in enumerate(Y_list):
-            T = Y.shape[0]
-            if history + m > T:
-                raise ValueError(
-                    f"history + m ({history} + {m} = {history + m}) must not exceed trial length T={T}"
+        try:
+            for idx, Y in enumerate(Y_list):
+                T = Y.shape[0]
+                if history + m > T:
+                    raise ValueError(
+                        f"history + m ({history} + {m} = {history + m}) must not exceed trial length T={T}"
+                    )
+
+                Y_history = Y[:history]
+                Y_future_true = Y[history : history + m]
+
+                Z = Z_list[idx] if Z_list is not None and idx < len(Z_list) else None
+                Z_future_true = Z[history : history + m] if Z is not None else None
+                Z_history = Z[:history] if Z is not None else None
+
+                Zf, Yf, Xf = _forecast_raw(Y_history)
+
+                if Yf is not None:
+                    Y_concat = np.concatenate([Y_history, Yf], axis=0)
+                    r_list, _ = pearson_r_per_channel([Y_future_true], [Yf])
+                    r_list = r_list[0] if isinstance(r_list, list) else r_list
+                else:
+                    Y_concat = Y_history
+                    r_list = []
+
+                Z_concat = (
+                    np.concatenate([Z_history, Zf], axis=0)
+                    if Z_history is not None and Zf is not None
+                    else None
                 )
 
-            Y_history = Y[:history]
-            Y_future_true = Y[history : history + m]
+                if Z_future_true is not None and Zf is not None:
+                    r_list_Z, _ = pearson_r_per_channel([Z_future_true], [Zf])
+                    r_list_Z = r_list_Z[0] if isinstance(r_list_Z, list) else r_list_Z
+                else:
+                    r_list_Z = []
 
-            Z = Z_list[idx] if Z_list is not None and idx < len(Z_list) else None
-            Z_future_true = Z[history : history + m] if Z is not None else None
-            Z_history = Z[:history] if Z is not None else None
-
-            Zf, Yf, Xf = self.forecast(m, Y_history)
-
-            if Yf is not None:
-                Y_concat = np.concatenate([Y_history, Yf], axis=0)
-                r_list, _ = pearson_r_per_channel([Y_future_true], [Yf])
-                r_list = r_list[0] if isinstance(r_list, list) else r_list
-            else:
-                Y_concat = Y_history
-                r_list = []
-
-            Z_concat = (
-                np.concatenate([Z_history, Zf], axis=0)
-                if Z_history is not None and Zf is not None
-                else None
-            )
-
-            if Z_future_true is not None and Zf is not None:
-                r_list_Z, _ = pearson_r_per_channel([Z_future_true], [Zf])
-                r_list_Z = r_list_Z[0] if isinstance(r_list_Z, list) else r_list_Z
-            else:
-                r_list_Z = []
-
-            results["Y_future_true"].append(Y_future_true.tolist())
-            results["Y_future_pred"].append(Yf.tolist() if Yf is not None else None)
-            results["Y_concat_for_plot"].append(Y_concat.tolist())
-            results["Z_future_true"].append(
-                Z_future_true.tolist() if Z_future_true is not None else None
-            )
-            results["Z_future_pred"].append(Zf.tolist() if Zf is not None else None)
-            results["Z_concat_for_plot"].append(
-                Z_concat.tolist() if Z_concat is not None else None
-            )
-            results["X_future_pred"].append(Xf.tolist() if Xf is not None else None)
-            results["pearson_per_channel"].append(r_list)
-            results["pearson_per_channel_Z"].append(r_list_Z)
+                results["Y_future_true"].append(Y_future_true.tolist())
+                results["Y_future_pred"].append(
+                    Yf.tolist() if Yf is not None else None
+                )
+                results["Y_concat_for_plot"].append(Y_concat.tolist())
+                results["Z_future_true"].append(
+                    Z_future_true.tolist() if Z_future_true is not None else None
+                )
+                results["Z_future_pred"].append(
+                    Zf.tolist() if Zf is not None else None
+                )
+                results["Z_concat_for_plot"].append(
+                    Z_concat.tolist() if Z_concat is not None else None
+                )
+                results["X_future_pred"].append(
+                    Xf.tolist() if Xf is not None else None
+                )
+                results["pearson_per_channel"].append(r_list)
+                results["pearson_per_channel_Z"].append(r_list_Z)
+        finally:
+            self.idSys.set_steps_ahead([1])
+            self.idSys.set_multi_step_with_data_gen(False)
 
         flat_r = [
             v
