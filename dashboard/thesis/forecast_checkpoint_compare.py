@@ -38,6 +38,7 @@ from dashboard.thesis.exemplar_trials import (
     find_block_boundary_off_then_on_trial_indices,
 )
 from dashboard.thesis.loaders import (
+    load_split_results,
     load_split_results_required,
     neural_y_feature_label,
     resolve_neural_y_channel_idx_from_candidates,
@@ -294,9 +295,9 @@ def build_forecast_checkpoint_compare_figure(
     i_off, i_on = pair
 
     tri = spec.joint_triplet
-    res_d = load_split_results_required(
+    res_d = load_split_results(
         results_root, tri.dpad_variant, tri.dpad_run_ts, spec.split
-    )
+    ) if tri.dpad_run_ts else None
     res_v = load_split_results_required(
         results_root, tri.varma_variant, tri.varma_run_ts, spec.split
     )

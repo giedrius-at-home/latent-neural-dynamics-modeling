@@ -125,10 +125,13 @@ def dbs_badge_style(dbs_label: str) -> Tuple[str, str]:
 
 
 def d_score_axis_label(signal: str, axis: str = "") -> str:
-    """Standard y-axis label for behavioral axes, e.g. ``d_score-tracing_velocity_x``."""
-    if axis:
-        return f"d_score-{signal}_{axis}"
-    return f"d_score-{signal}"
+    """Standard y-axis label for z-scored behavioral axes, e.g. ``z-score — tracing_velocity_x``.
+
+    Note: name is historical; the data plotted is z-scored, so the label uses
+    ``z-score`` (matches :func:`zscore_axis_label`).
+    """
+    full = f"{signal}_{axis}" if axis else signal
+    return f"z-score \u2014 {full}"
 
 
 def apply_thesis_style(

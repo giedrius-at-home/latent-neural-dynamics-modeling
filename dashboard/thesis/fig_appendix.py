@@ -38,6 +38,8 @@ from dashboard.thesis.constants import (
     true_line_color,
 )
 from dashboard.thesis.loaders import channels_as_str_list, load_split_results
+from dashboard.thesis.specs import LAPLACIAN_SESSIONS
+from utils.thesis_result_timestamps import latest_run_timestamp_on_disk
 from dashboard.thesis.plot_config import (
     COLORS,
     RESULTS_ROOT,
@@ -47,7 +49,7 @@ from dashboard.thesis.plot_config import (
     load_results_for_triplet,
 )
 
-FS = 80
+FS = 200
 OUT_DIR = Path(__file__).resolve().parent / "figures"
 OUT_DIR.mkdir(exist_ok=True)
 
@@ -361,15 +363,16 @@ def build_tracing_speed_dbs_comparison_figure() -> Figure:
                     continue
                 mat = np.vstack(cond)
                 mean = np.nanmean(mat, axis=0)
+                # One legend entry per DBS condition: only emit on the first triplet's velocity row.
                 fig.add_trace(
                     go.Scatter(
                         x=t,
                         y=mean,
                         mode="lines",
                         line=dict(color=col_c, width=2.0),
-                        showlegend=(pi == 0),
-                        name=f"{label} · {metric_tag}",
-                        legendgroup=f"{label}_{metric_tag}",
+                        showlegend=(pi == 0 and metric_tag == "vel"),
+                        name=label,
+                        legendgroup=label,
                     ),
                     row=row_plot,
                     col=c + 1,
@@ -704,29 +707,23 @@ def build_laplacian_prediction_figure() -> Figure:
     fg = true_line_color(ThesisTheme.LIGHT)
     grd = grid_color(ThesisTheme.LIGHT)
 
-    lapl_sessions = [
-        ("PDI1_S2", "psid_laplacian_PDI1_2_nx_80_n12_i20_dbs_both_2hz_band"),
-        ("PDI1_S4", "psid_laplacian_PDI1_4_nx_80_n6_i20_dbs_both_2hz_band"),
-        ("PDI4_S2", "psid_laplacian_PDI4_2_nx_80_n10_i20_dbs_both_2hz_band"),
-        ("PDI4_S3", "psid_laplacian_PDI4_3_nx_65_n10_i20_dbs_both_2hz_band"),
-    ]
-
     labels, r_y_vals, r_z_vals = [], [], []
-    for label, result_dir in lapl_sessions:
-        res_path = RESULTS_ROOT / result_dir / "train"
-        parquets = list(res_path.glob("test_results_*.parquet")) if res_path.exists() else []
-        if not parquets:
+    for label, variant in LAPLACIAN_SESSIONS:
+        variant_dir = RESULTS_ROOT / variant
+        run_ts, _src = latest_run_timestamp_on_disk(variant_dir, split="test")
+        if run_ts is None:
             r_y_vals.append(np.nan)
             r_z_vals.append(np.nan)
             labels.append(label)
             continue
-        try:
-            tdf = pl.read_parquet(parquets[0])
-            r_y_vals.append(float(tdf["metric_pearson_r_mean"][0]))
-            r_z_vals.append(float(tdf["metric_pearson_r_mean_Z"][0]))
-        except Exception:
+        res = load_split_results(RESULTS_ROOT, variant, run_ts, "test")
+        if res is None:
             r_y_vals.append(np.nan)
             r_z_vals.append(np.nan)
+            labels.append(label)
+            continue
+        r_y_vals.append(float(res.get("pearson_overall_mean", res.get("pearson_overall", np.nan))))
+        r_z_vals.append(float(res.get("pearson_overall_mean_Z", res.get("pearson_overall_Z", np.nan))))
         labels.append(label)
 
     fig = go.Figure()
@@ -745,41 +742,36 @@ def build_laplacian_timeseries_figure() -> Figure:
     """Time series plot of Laplacian prediction for one example trial per session."""
     fg = true_line_color(ThesisTheme.LIGHT)
 
-    lapl_sessions = [
-        ("PDI1_S2", "psid_laplacian_PDI1_2_nx_80_n12_i20_dbs_both_2hz_band"),
-        ("PDI1_S4", "psid_laplacian_PDI1_4_nx_80_n6_i20_dbs_both_2hz_band"),
-        ("PDI4_S2", "psid_laplacian_PDI4_2_nx_80_n10_i20_dbs_both_2hz_band"),
-        ("PDI4_S3", "psid_laplacian_PDI4_3_nx_65_n10_i20_dbs_both_2hz_band"),
-    ]
-
-    nrows = len(lapl_sessions)
+    nrows = len(LAPLACIAN_SESSIONS)
     _c_true = true_line_color(ThesisTheme.LIGHT)
-    # Set colorway explicitly so it starts with our palette — prevents template override
     fig = make_subplots(rows=nrows, cols=1, vertical_spacing=0.08,
-                        subplot_titles=[s[0] for s in lapl_sessions])
+                        subplot_titles=[s[0] for s in LAPLACIAN_SESSIONS])
     fig.update_layout(colorway=[_c_true, COLOR_PSID])
 
-    for ri, (label, result_dir) in enumerate(lapl_sessions, 1):
-        res_path = RESULTS_ROOT / result_dir / "train"
-        parquets = list(res_path.glob("test_results_*.parquet")) if res_path.exists() else []
-        if not parquets:
+    for ri, (label, variant) in enumerate(LAPLACIAN_SESSIONS, 1):
+        variant_dir = RESULTS_ROOT / variant
+        run_ts, _src = latest_run_timestamp_on_disk(variant_dir, split="test")
+        res = load_split_results(RESULTS_ROOT, variant, run_ts or "", "test") if run_ts else None
+        if res is None:
             fig.add_annotation(text="No data", x=0.5, y=0.5, xref="x domain", yref="y domain",
                                showarrow=False, row=ri, col=1)
             continue
         try:
-            tdf = pl.read_parquet(parquets[0])
-            z_true = np.array(tdf["Z"][0].to_list())
-            z_pred = np.array(tdf["Zp"][0].to_list())
-            # Plot first Laplacian channel (delta band)
-            t = np.arange(z_true.shape[0]) / 80.0
+            z_list = res.get("Z")
+            zp_list = res.get("Zp")
+            if not z_list or not zp_list:
+                raise ValueError("Missing Z/Zp arrays")
+            z_true = np.asarray(z_list[0])
+            z_pred = np.asarray(zp_list[0])
+            t = np.arange(z_true.shape[0]) / 200.0
             _c_true = true_line_color(ThesisTheme.LIGHT)
-            fig.add_trace(go.Scatter(x=t, y=z_true[:, 0], name="y_true",
-                                      legendgroup="y_true",
+            fig.add_trace(go.Scatter(x=t, y=z_true[:, 0], name="z_true",
+                                      legendgroup="z_true",
                                       marker=dict(color=_c_true),
                                       line=dict(color=_c_true, width=1.8),
                                       showlegend=(ri == 1)), row=ri, col=1)
-            fig.add_trace(go.Scatter(x=t, y=z_pred[:, 0], name="y_hat_PSID",
-                                      legendgroup="y_hat_PSID",
+            fig.add_trace(go.Scatter(x=t, y=z_pred[:, 0], name="z_hat_PSID",
+                                      legendgroup="z_hat_PSID",
                                       marker=dict(color=COLOR_PSID),
                                       line=dict(color=COLOR_PSID, width=2.0, dash="dash"),
                                       showlegend=(ri == 1)), row=ri, col=1)

@@ -16,6 +16,7 @@ from dashboard.thesis.constants import (
     FIGURE_HEIGHT,
     FONT_FAMILY,
     FONT_SIZE_BASE,
+    FONT_SIZE_LABEL,
     FONT_SIZE_TICK,
     ThesisTheme,
     apply_thesis_style,

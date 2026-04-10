@@ -286,6 +286,11 @@ class Tester:
             Y_list, _z, meta_list = loader.get_full_dataset()
             Y_list, Z_list, meta_list = self._slice_data(Y_list, _z, meta_list)
 
+            if not meta_list:
+                self.logger.warning(f"Skipping {split_name}: no trials after slicing")
+                self.results[split_name] = {}
+                continue
+
             Zp, Yp, Xp = self.framework._predict(Y_list, Z_list)
 
             chunk_margin = meta_list[0].get("chunk_margin")
@@ -320,6 +325,11 @@ class Tester:
             loader = loader_map[split_name]
             Y_list, _z, meta_list = loader.get_full_dataset()
             Y_list, Z_list, meta_list = self._slice_data(Y_list, _z, meta_list)
+
+            if not meta_list:
+                self.logger.warning(f"Skipping {split_name}: no trials after slicing")
+                self.results[split_name] = {}
+                continue
 
             Zp, Yp, Xp = self.framework._predict(Y_list, Z_list)
 
@@ -438,6 +448,9 @@ class Tester:
     def save_results(self):
         results_dir = Path(self.results_config.save_dir)
         for k in self.results:
+            if not self.results[k]:
+                self.logger.warning(f"Skipping save for empty split '{k}'")
+                continue
             results_path = (
                 results_dir / k / f"test_results_{self.run_timestamp}.parquet"
             )

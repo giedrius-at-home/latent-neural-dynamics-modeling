@@ -131,26 +131,52 @@ def _require_latest_ts(variant_dir: Path, *, split: str) -> str:
     return ts
 
 
+def _optional_latest_ts(variant_dir: Path, *, split: str) -> str:
+    """Like ``_require_latest_ts`` but returns empty string when no loadable results exist.
+
+    Use this for frameworks (e.g. DPAD while retraining) whose absence should degrade
+    gracefully. Only returns a timestamp when the corresponding split parquet (or nested
+    pickle directory) is present — a bare ``model_*.pkl`` without a ``test_results_*.parquet``
+    would lead to a silent ``None`` load, which downstream code would then crash on.
+    """
+    ts, src = latest_run_timestamp_on_disk(variant_dir, split=split)
+    if not ts:
+        return ""
+    if src == "model_pkl":
+        pq = variant_dir / split / f"test_results_{ts}.parquet"
+        pkl_dir = variant_dir / ts
+        if not pq.exists() and not pkl_dir.is_dir():
+            return ""
+    return ts
+
+
 def resolve_aligned_triplet_timestamps(
     tri: AlignedTriplet,
     results_root: Path,
     *,
     split: str = "test",
 ) -> AlignedTriplet:
-    """Fill *tri* with newest on-disk run id per implied ``results/<variant>/`` folder."""
+    """Fill *tri* with newest on-disk run id per implied ``results/<variant>/`` folder.
+
+    DPAD timestamps are optional: if the DPAD variant directory is absent (e.g. retraining),
+    the corresponding fields fall back to empty string so loaders can skip DPAD gracefully.
+    """
     rr = results_root
 
     def req(rel: str) -> str:
         return _require_latest_ts(rr / rel, split=split)
+
+    def opt(rel: str) -> str:
+        return _optional_latest_ts(rr / rel, split=split)
 
     return replace(
         tri,
         psid_run_ts=req(tri.psid_variant),
         psid_run_ts_off=req(_variant_off(tri.psid_variant)),
         psid_run_ts_on=req(_variant_on(tri.psid_variant)),
-        dpad_run_ts=req(tri.dpad_variant),
-        dpad_run_ts_off=req(_variant_off(tri.dpad_variant)),
-        dpad_run_ts_on=req(_variant_on(tri.dpad_variant)),
+        dpad_run_ts=opt(tri.dpad_variant),
+        dpad_run_ts_off=opt(_variant_off(tri.dpad_variant)),
+        dpad_run_ts_on=opt(_variant_on(tri.dpad_variant)),
         varma_run_ts=req(tri.varma_variant),
         varma_run_ts_off=req(_variant_off(tri.varma_variant)),
         varma_run_ts_on=req(_variant_on(tri.varma_variant)),
@@ -165,11 +191,15 @@ def resolve_joint_framework_timestamps(
     *,
     split: str = "test",
 ) -> ThesisFigureSpec | ThesisC2ForecastSpec | ThesisNeuralTimeseriesSpec:
-    """Resolve PSID / DPAD / VARMA joint (and optional VARMA OFF/ON) timestamps to latest on disk."""
+    """Resolve PSID / DPAD / VARMA joint (and optional VARMA OFF/ON) timestamps to latest on disk.
+
+    DPAD timestamp is optional: when the DPAD variant directory is absent (e.g. retraining),
+    ``dpad_run_ts`` falls back to empty string and downstream loaders skip DPAD gracefully.
+    """
     rr = results_root
     kw = dict(
         psid_run_ts=_require_latest_ts(rr / spec.psid_variant, split=split),
-        dpad_run_ts=_require_latest_ts(rr / spec.dpad_variant, split=split),
+        dpad_run_ts=_optional_latest_ts(rr / spec.dpad_variant, split=split),
         varma_run_ts=_require_latest_ts(rr / spec.varma_variant, split=split),
     )
     # dbs_both joint runs need OFF/ON parquets; always take latest there (do not rely on
@@ -258,7 +288,7 @@ def _resolve_latent_phase_panel(p: LatentPhasePanel, results_root: Path, *, spli
     return replace(
         p,
         psid_run_ts=_require_latest_ts(results_root / p.psid_variant, split=split),
-        dpad_run_ts=_require_latest_ts(results_root / p.dpad_variant, split=split),
+        dpad_run_ts=_optional_latest_ts(results_root / p.dpad_variant, split=split),
     )
 
 
@@ -305,7 +335,7 @@ class ThesisDashboardSpecs:
     psid_cy_importance: tuple[ThesisPsidCyImportanceSpec, ...]
     psid_cz_heatmap: tuple[ThesisPsidCzSpec, ...]
     strip_panels: tuple[ThesisStripPanelsSpec, ...]
-    within_cross: ThesisWithinCrossSpec
+    within_cross: tuple[ThesisWithinCrossSpec, ...]
 
 
 def build_thesis_dashboard_specs(
@@ -355,5 +385,7 @@ def build_thesis_dashboard_specs(
             _resolve_psid_cz_spec(s, rr, split=split) for s in THESIS_PSID_CZ_HEATMAP
         ),
         strip_panels=tuple(_resolve_strip_panels_spec(s, rr, split=split) for s in THESIS_STRIP_PANELS),
-        within_cross=replace(THESIS_WITHIN_CROSS, joint_triplet=rt(THESIS_WITHIN_CROSS.joint_triplet)),
+        within_cross=tuple(
+            replace(wc, joint_triplet=rt(wc.joint_triplet)) for wc in THESIS_WITHIN_CROSS
+        ),
     )

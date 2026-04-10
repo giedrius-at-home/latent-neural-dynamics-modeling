@@ -618,33 +618,37 @@ def plot_within_cross_figures(save: bool = True) -> None:
     out_dir.mkdir(exist_ok=True)
     log = logging.getLogger(__name__)
 
-    try:
-        fig_a, _ = build_within_cross_timeseries_figure(
-            THESIS_WITHIN_CROSS, RESULTS_ROOT,
-        )
-        if save:
-            for ext in ("png", "pdf"):
-                try:
-                    fig_a.write_image(str(out_dir / f"within_cross_timeseries.{ext}"))
-                except Exception:
-                    pass
-    except Exception as e:
-        log.warning("Could not build within-cross timeseries: %s", e)
+    for i, wc_spec in enumerate(THESIS_WITHIN_CROSS):
+        try:
+            fig_a, _ = build_within_cross_timeseries_figure(
+                wc_spec, RESULTS_ROOT,
+            )
+            if save:
+                suffix = f"_{i}" if i > 0 else ""
+                for ext in ("png", "pdf"):
+                    try:
+                        fig_a.write_image(str(out_dir / f"within_cross_timeseries{suffix}.{ext}"))
+                    except Exception:
+                        pass
+        except Exception as e:
+            log.warning("Could not build within-cross timeseries (%s): %s", wc_spec.section_title, e)
 
-    try:
-        from dashboard.thesis.aggregate_rmse import collect_within_cross_rmse
-        data = collect_within_cross_rmse(
-            RESULTS_ROOT,
-            [THESIS_WITHIN_CROSS.joint_triplet],
-            THESIS_WITHIN_CROSS.channel_idx,
-            split=THESIS_WITHIN_CROSS.split,
-        )
-        fig_b = build_within_cross_boxplot_figure(data)
-        if save:
-            for ext in ("png", "pdf"):
-                try:
-                    fig_b.write_image(str(out_dir / f"within_cross_boxplot.{ext}"))
-                except Exception:
-                    pass
-    except Exception as e:
-        log.warning("Could not build within-cross boxplot: %s", e)
+    for i, wc_spec in enumerate(THESIS_WITHIN_CROSS):
+        try:
+            from dashboard.thesis.aggregate_rmse import collect_within_cross_rmse
+            data = collect_within_cross_rmse(
+                RESULTS_ROOT,
+                [wc_spec.joint_triplet],
+                wc_spec.channel_idx,
+                split=wc_spec.split,
+            )
+            fig_b = build_within_cross_boxplot_figure(data)
+            if save:
+                suffix = f"_{i}" if i > 0 else ""
+                for ext in ("png", "pdf"):
+                    try:
+                        fig_b.write_image(str(out_dir / f"within_cross_boxplot{suffix}.{ext}"))
+                    except Exception:
+                        pass
+        except Exception as e:
+            log.warning("Could not build within-cross boxplot: %s", e)

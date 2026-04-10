@@ -73,6 +73,7 @@ def build_rmse_distribution_figure(
     show_brackets: bool = True,
     y_axis_label: str | None = None,
     show_dots: bool = True,
+    show_bars: bool = True,
 ) -> Figure:
     paper_bg, plot_bg = paper_colors(theme)
     grid = grid_color(theme)
@@ -92,31 +93,35 @@ def build_rmse_distribution_figure(
 
     fig = go.Figure()
 
-    fig.add_trace(
-        go.Bar(
-            x=X_POS,
-            y=means,
-            error_y=dict(
-                type="data",
-                array=sems,
-                visible=True,
-                thickness=1.5,
-                color=fg,
-            ),
-            marker=dict(color=bar_colors, line=dict(width=0)),
-            width=0.52,
-            name="Mean",
-            showlegend=True,
+    if show_bars:
+        fig.add_trace(
+            go.Bar(
+                x=X_POS,
+                y=means,
+                error_y=dict(
+                    type="data",
+                    array=sems,
+                    visible=True,
+                    thickness=1.5,
+                    color=fg,
+                ),
+                marker=dict(color=bar_colors, line=dict(width=0)),
+                width=0.52,
+                name="Mean",
+                showlegend=True,
+            )
         )
-    )
 
     if show_dots:
+        # Slightly more opaque dots when bars are absent so the strip reads on its own.
+        dot_alpha_off = DOT_ALPHA_OFF if show_bars else 0.85
+        dot_alpha_on = DOT_ALPHA_ON if show_bars else 0.55
         for i in range(6):
             pts = data.trial_rmse[i]
             if not pts:
                 continue
             jt = rng.uniform(-jitter, jitter, size=len(pts))
-            alpha = DOT_ALPHA_ON if _is_on_cell(i) else DOT_ALPHA_OFF
+            alpha = dot_alpha_on if _is_on_cell(i) else dot_alpha_off
             fig.add_trace(
                 go.Scatter(
                     x=X_POS[i] + jt,
@@ -127,19 +132,26 @@ def build_rmse_distribution_figure(
                         color=_hex_to_rgba(_model_color_for_index(i), alpha * 0.95),
                         line=dict(width=0),
                     ),
-                    name="Test trials" if i == 0 else None,
+                    name="One dot = one test trial RMSE" if i == 0 else None,
                     showlegend=i == 0,
                     legendgroup="dots",
                 )
             )
 
+    # ymax_data: bars contribute mean+SEM (always); dots contribute the 98th percentile
+    # of pooled trial RMSEs so a single outlier trial does not blow up the y-axis range.
     ymax_data = 0.0
     for i in range(6):
         if np.isfinite(means[i]):
             ymax_data = max(ymax_data, float(means[i] + (sems[i] if np.isfinite(sems[i]) else 0)))
-        for v in data.trial_rmse[i]:
-            if np.isfinite(v):
-                ymax_data = max(ymax_data, float(v))
+    if show_dots:
+        all_pts = []
+        for i in range(6):
+            for v in data.trial_rmse[i]:
+                if np.isfinite(v):
+                    all_pts.append(float(v))
+        if all_pts:
+            ymax_data = max(ymax_data, float(np.percentile(all_pts, 98)))
 
     y_span = max(ymax_data * 0.12, 0.04)
     bracket_y: list[tuple[float, float, float, str]] = []
@@ -307,7 +319,20 @@ def build_rmse_boxplot_figure(
         pids = [str(r[1]) for r in rows if np.isfinite(r[0])]
         return vals, pids
 
-    y_max = 0.0
+    # Clip y-axis to the 95th percentile of pooled values so IQR boxes stay legible
+    # even when a handful of outliers inflate the range (e.g. PSID baseline trials).
+    all_vals: list[float] = []
+    for col_idx, (_, cell_ids) in enumerate([("DBS-OFF", _OFF_CELLS), ("DBS-ON", _ON_CELLS)]):
+        for mi in range(3):
+            cell_idx = cell_ids[mi]
+            vals_tmp, _ = _get_vals(cell_idx, mi)
+            all_vals.extend(vals_tmp)
+    if all_vals:
+        p95 = float(np.percentile(all_vals, 95))
+        p99 = float(np.percentile(all_vals, 99))
+        y_max = max(p95 * 1.12, p99 * 1.02)
+    else:
+        y_max = 0.0
 
     for col_idx, (cond_label, cell_ids) in enumerate([("DBS-OFF", _OFF_CELLS), ("DBS-ON", _ON_CELLS)]):
         for mi, (model, col) in enumerate(zip(models, model_colors)):
@@ -317,7 +342,6 @@ def build_rmse_boxplot_figure(
                 continue
 
             arr = np.array(vals, dtype=float)
-            y_max = max(y_max, float(np.nanmax(arr)))
 
             q1, med, q3 = np.percentile(arr, [25, 50, 75])
             iqr = q3 - q1
@@ -331,8 +355,8 @@ def build_rmse_boxplot_figure(
                     x=[mi] * len(vals),
                     name=model,
                     marker_color=col,
-                    line=dict(color=col, width=1.2),
-                    fillcolor=_hex_to_rgba(col, 0.30),
+                    line=dict(color=col, width=1.8),
+                    fillcolor=_hex_to_rgba(col, 0.45),
                     boxpoints=False,
                     quartilemethod="exclusive",
                     showlegend=(col_idx == 0),
@@ -367,7 +391,8 @@ def build_rmse_boxplot_figure(
                 col=col_idx + 1,
             )
 
-    y_max = max(y_max * 1.08, 0.85)
+    # Keep y_max capped at the 95th-percentile band established above; guard a minimum floor.
+    y_max = max(y_max, 0.1)
 
     # Explicit participant colours in legend (dots use these; green ≈ PDI4, blue ≈ PDI1).
     legend_pids: set[str] = set()

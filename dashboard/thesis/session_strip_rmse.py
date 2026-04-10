@@ -52,48 +52,37 @@ def _one_panel_session_data(
     split: str,
 ) -> StripPanelData | None:
     res_p = load_split_results(results_root, tri.psid_variant, tri.psid_run_ts, split)
-    res_d = load_split_results(results_root, tri.dpad_variant, tri.dpad_run_ts, split)
     res_v = load_split_results(results_root, tri.varma_variant, tri.varma_run_ts, split)
-    if res_p is None or res_d is None:
-        logger.warning(
-            "Strip panel %s: missing PSID or DPAD results (psid=%s, dpad=%s)",
-            tri.label, res_p is not None, res_d is not None,
-        )
+    if res_p is None:
+        logger.warning("Strip panel %s: missing PSID results", tri.label)
         return None
 
+    # Frameworks to iterate: PSID always, DPAD only if results exist, VARMA always.
+    frameworks: Dict[str, Dict] = {"psid": res_p}
+    if tri.dpad_run_ts:
+        res_d = load_split_results(results_root, tri.dpad_variant, tri.dpad_run_ts, split)
+        if res_d is not None:
+            frameworks["dpad"] = res_d
+    if res_v is not None:
+        frameworks["varma"] = res_v
+
     mp = _key_index_map(res_p)
-    md = _key_index_map(res_d)
-    mv = _key_index_map(res_v) if res_v is not None else {}
-    common_pd = set(mp.keys()) & set(md.keys())
-    if not common_pd:
-        logger.warning(
-            "Strip panel %s: no overlapping trial keys between PSID and DPAD.",
-            tri.label,
-        )
-        return None
+    key_maps = {name: _key_index_map(res) for name, res in frameworks.items()}
+    common = set(mp.keys())
 
     bucket: Dict[Tuple[SessionKey, str, str], List[float]] = {}
 
-    for k in common_pd:
-        i_p, i_d = mp[k], md[k]
-        i_v = mv.get(k)
-        stim = normalize_stim(res_p["stim"][i_p])
+    for k in common:
+        stim = normalize_stim(res_p["stim"][mp[k]])
         if stim is None:
             continue
         sk = _session_key_from_trial_key(k)
-        try:
-            r_p = trial_rmse_z_for_model(res_p, i_p, channel_idx)
-            r_d = trial_rmse_z_for_model(res_d, i_d, channel_idx)
-            r_v = trial_rmse_z_for_model(res_v, i_v, channel_idx) if i_v is not None else None
-        except Exception as e:
-            logger.debug("Strip skip trial %s: %s", k, e)
-            continue
-
-        for model, rv in (("psid", r_p), ("dpad", r_d), ("varma", r_v)):
-            if rv is None:
+        for model_name, res in frameworks.items():
+            idx = key_maps[model_name].get(k)
+            if idx is None:
                 continue
-            key = (sk, stim, model)
-            bucket.setdefault(key, []).append(rv)
+            r = trial_rmse_z_for_model(res, idx, channel_idx)
+            bucket.setdefault((sk, stim, model_name), []).append(r)
 
     # Session mean per bucket (mean of trial RMSEs in that session × stim × model)
     session_means: List[List[float]] = [[] for _ in range(6)]
