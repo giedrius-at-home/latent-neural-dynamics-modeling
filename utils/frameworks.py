@@ -17,6 +17,71 @@ Array2D = NDArray[np.float64]
 TrialList = List[Array2D]
 
 
+def psid_lssm_forecast(
+    lssm: Any,
+    m: int,
+    Y_past: np.ndarray,
+    U_past: Optional[np.ndarray] = None,
+    U_future: Optional[np.ndarray] = None,
+) -> Tuple[Optional[np.ndarray], np.ndarray, np.ndarray]:
+    # PSID's LSSM has no forecast method — we always implemented it ourselves
+    # on top of kalman(). This helper lets callers that only have a raw LSSM
+    # pickle (e.g. classification/compute.py) produce m-step-ahead forecasts
+    # without having to rebuild a PSIDWrapper.
+    if isinstance(Y_past, (list, tuple)):
+        outs: List[List[Any]] = []
+        for i in range(len(Y_past)):
+            U_future_seg = U_future[i] if U_future is not None else None
+            U_past_seg = U_past[i] if U_past is not None else None
+            trial_outs = psid_lssm_forecast(
+                lssm,
+                m,
+                Y_past=Y_past[i],
+                U_past=U_past_seg,
+                U_future=U_future_seg,
+            )
+            if i == 0:
+                outs = [[o] for o in trial_outs]
+            else:
+                outs = [outs[oi] + [o] for oi, o in enumerate(trial_outs)]
+        return tuple(outs)  # type: ignore[return-value]
+
+    allXp, _, allXf = lssm.kalman(Y_past, U=U_past)[0:3]
+    A = np.array(lssm.A)
+    Xf_last = np.asarray(allXf)[-1:, :].T
+    Xp = A @ Xf_last
+    Cy = np.array(lssm.C)
+    Cz = np.array(lssm.Cz) if hasattr(lssm, "Cz") and lssm.Cz is not None else None
+
+    nx = Xp.shape[0]
+    ny = Cy.shape[0]
+    nz = Cz.shape[0] if Cz is not None else 0
+
+    Xf = np.zeros((m, nx))
+    Yf = np.zeros((m, ny))
+    Zf = np.zeros((m, nz)) if nz > 0 else None
+
+    for step in range(m):
+        Xf[step] = Xp.flatten()
+        Yf[step] = (Cy @ Xp).flatten()
+        if Zf is not None:
+            Zf[step] = (Cz @ Xp).flatten()
+        Xp = A @ Xp
+        if (
+            U_future is not None
+            and hasattr(lssm, "B")
+            and lssm.B is not None
+            and lssm.B.size > 0
+        ):
+            if step < U_future.shape[0]:
+                ui = U_future[step : step + 1, :].T
+                if hasattr(lssm, "UPrepModel") and lssm.UPrepModel is not None:
+                    ui = lssm.UPrepModel.apply(ui, time_first=False)
+                Xp = Xp + lssm.B @ ui
+
+    return Zf, Yf, Xf
+
+
 def _apply_hamming_trial_edge_taper(data: np.ndarray, n_taper: int) -> np.ndarray:
     """
     Apply Hamming-shaped edge taper to the first and last n_taper samples of a trial.
@@ -930,7 +995,6 @@ class DPADWrapper:
         n1: int = self.config.model.n1
         method_code: str = self.config.model.method_code
         epochs: int = self.config.model.epochs
-        fast = getattr(self.config.model, "fast", False)
 
         self.logger.info(
             f"Training DPAD with nx={nx}, n1={n1}, method_code={method_code}, epochs={epochs}"
@@ -944,13 +1008,18 @@ class DPADWrapper:
         self.idSys = DPADModel(log_dir=self.config.results.log_dir)
         args = DPADModel.prepare_args(method_code)
 
+        # NOTE: we intentionally do NOT forward config.model.fast as
+        # skip_predictions. DPADModel.fit has a bug where skip_predictions=True
+        # leaves `allX_steps` unbound when the Cz regression path still runs
+        # (epochs>0), causing UnboundLocalError at DPADModel.py:1919. The
+        # trainer-level `fast` flag still short-circuits post-training Pearson
+        # r evaluation, which is the actual speedup we care about.
         self.idSys.fit(
             Y_dpad,
             Z=Z_dpad,
             nx=nx,
             n1=n1,
             epochs=epochs,
-            skip_predictions=fast,
             **args,
         )
 

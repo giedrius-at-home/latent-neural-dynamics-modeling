@@ -190,14 +190,15 @@ def _dpad_idsys_forecast_latents(id_sys: Any, m: int, y_past: np.ndarray) -> np.
 
 
 def _forecast_latent_trajectory(model: Any, m: int, y_past: np.ndarray) -> np.ndarray:
-    """PSID idSys exposes .forecast; DPAD pickles are raw DPADModel — use predict path."""
-    forecast_fn = getattr(model, "forecast", None)
-    if callable(forecast_fn):
-        _zf, _yf, xf = forecast_fn(m, y_past)
-        if xf is None:
-            raise ValueError("forecast() returned no latent trajectory (Xf is None)")
-        return np.asarray(xf)
-    return _dpad_idsys_forecast_latents(model, m, y_past)
+    # Neither PSID nor DPAD ship a native forecast — both paths are our own.
+    # DPAD pickles carry a `block_samples` attribute; raw PSID LSSMs don't.
+    if hasattr(model, "block_samples"):
+        return _dpad_idsys_forecast_latents(model, m, y_past)
+    from utils.frameworks import psid_lssm_forecast
+    _zf, _yf, xf = psid_lssm_forecast(model, m, y_past)
+    if xf is None:
+        raise ValueError("psid_lssm_forecast returned no latent trajectory (Xf is None)")
+    return np.asarray(xf)
 
 
 def _generate_flipped_latents(

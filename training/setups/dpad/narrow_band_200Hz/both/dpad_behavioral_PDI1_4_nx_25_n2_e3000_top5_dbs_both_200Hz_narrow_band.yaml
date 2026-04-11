@@ -1,0 +1,50 @@
+model:
+  name: dpad_behavioral_PDI1_4_nx_25_n2_e3000_top5_dbs_both_200Hz_narrow_band
+  nx: 25
+  n1: 2
+  method_code: DPAD_uAKCzCy2HL32U
+  epochs: 3000
+  fast: true
+  reuse_splits: true
+  checkpoint_every: 100
+  steps_ahead:
+  - 1
+  steps_ahead_loss_weights:
+  - 1.0
+  forecast:
+    m: 2
+    history: 5
+data:
+  root: resampled_recordings/participants_at_200Hz_scaled_1e6_narrow_band
+  participant: PDI1
+  session: '4'
+  blocks: all
+  channels:
+    neural_input:
+    - ECOG_1_theta_4_8_raw
+    - ECOG_2_theta_4_8_raw
+    - ECOG_3_theta_4_8_raw
+    - ECOG_4_theta_4_8_raw
+    - ECOG_3_alpha_8_12_raw
+    - ECOG_4_gamma_70_75_raw
+    - ECOG_2_gamma_70_75_raw
+    - ECOG_1_gamma_70_75_raw
+    - ECOG_3_gamma_70_75_raw
+    - ECOG_4_gamma_75_80_raw
+    output_type: behavioral
+    output:
+    - tracing_velocity_x
+    - tracing_acceleration_magnitude
+  split:
+    within_session_split: true
+    train: 0.6
+    val: 0.1
+    test: 0.3
+    min_train_epochs: 50
+  batch_size: 32
+  sampling_frequency: 200
+  dbs_condition: both
+results:
+  save_dir: results/dpad_behavioral_PDI1_4_nx_25_n2_e3000_top5_dbs_both_200Hz_narrow_band
+  log_dir: results/dpad_behavioral_PDI1_4_nx_25_n2_e3000_top5_dbs_both_200Hz_narrow_band/logs
+  checkpoint_dir: checkpoints
