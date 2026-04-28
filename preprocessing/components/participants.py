@@ -281,6 +281,7 @@ def _add_ieeg_data(
     notch_freqs = config.ieeg_process.notch_freqs
     scale_factor = float(getattr(config.ieeg_process, "scale_factor", 1.0))
     compute_average = getattr(config.ieeg_process, "compute_average", False)
+    apply_car = getattr(config.ieeg_process, "apply_car", False)
 
     all_band_names = (
         list(raw_bands.keys())
@@ -288,6 +289,54 @@ def _add_ieeg_data(
         + list(log_power_bands.keys())
     )
     all_band_channels = []
+
+    # Common Average Reference across ECOG channels (at raw 1000 Hz, pre-filter).
+    # Subtracts the per-timestep mean of ECOG_1..ECOG_4 from each ECOG channel.
+    if apply_car:
+        ecog_present = [ch for ch in ECOG_CHANNELS if ch in participants_.columns]
+        if len(ecog_present) >= 2:
+            logger.info(f"Applying CAR across {len(ecog_present)} ECOG channels")
+
+            def _ecog_car_mean(row, cols=ecog_present):
+                signals = []
+                for c in cols:
+                    s = row[c]
+                    if s is not None and len(s) > 0:
+                        signals.append(np.asarray(s, dtype=np.float64))
+                if not signals:
+                    return []
+                min_len = min(len(s) for s in signals)
+                stacked = np.stack([s[:min_len] for s in signals], axis=0)
+                return stacked.mean(axis=0).tolist()
+
+            participants_ = participants_.with_columns(
+                pl.struct(ecog_present)
+                .map_elements(_ecog_car_mean, return_dtype=pl.List(pl.Float64))
+                .alias("_ecog_car_mean")
+            )
+
+            for ch in ecog_present:
+                def _subtract_mean(row, ch_name=ch):
+                    s = row[ch_name]
+                    m = row["_ecog_car_mean"]
+                    if s is None or len(s) == 0:
+                        return s
+                    if m is None or len(m) == 0:
+                        return s
+                    s_arr = np.asarray(s, dtype=np.float64)
+                    m_arr = np.asarray(m, dtype=np.float64)
+                    n = min(len(s_arr), len(m_arr))
+                    return (s_arr[:n] - m_arr[:n]).tolist()
+
+                participants_ = participants_.with_columns(
+                    pl.struct([ch, "_ecog_car_mean"])
+                    .map_elements(_subtract_mean, return_dtype=pl.List(pl.Float32))
+                    .alias(ch)
+                )
+
+            participants_ = participants_.drop("_ecog_car_mean")
+        else:
+            logger.info("apply_car=True but fewer than 2 ECOG channels present; skipping CAR")
 
     # Process ECOG channels (ECOG_1 to ECOG_4)
     logger.info("Processing ECOG channels")

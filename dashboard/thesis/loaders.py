@@ -306,12 +306,16 @@ def _prepare_z_array(z_trial: np.ndarray, split_res: Dict[str, Any], trial_idx: 
     return z_arr, t_abs
 
 
-def _n_z_trials(res: Dict[str, Any]) -> int:
+def _n_z_trials(res: Optional[Dict[str, Any]]) -> int:
+    if res is None:
+        return 0
     z = res.get("Z")
     return len(z) if z is not None else 0
 
 
-def _model_has_trial(res: Dict[str, Any], trial_idx: int) -> bool:
+def _model_has_trial(res: Optional[Dict[str, Any]], trial_idx: int) -> bool:
+    if res is None:
+        return False
     z = res.get("Z")
     zp = res.get("Zp")
     if z is None or zp is None:
@@ -355,11 +359,15 @@ def resolve_neural_y_channel_idx(
     neural_y_feature_name: str,
     fallback_channel_idx: int,
 ) -> int:
-    """Match YAML ``neural_input`` string to ``input_channels``; fall back to index."""
+    """Match YAML ``neural_input`` string to ``input_channels``."""
     raw = (neural_y_feature_name or "").strip()
     if not raw:
         return int(fallback_channel_idx)
     names = channels_as_str_list(split_res.get("input_channels"))
+    if not names:
+        raise ValueError(
+            f"input_channels is empty; cannot resolve {raw!r}"
+        )
     for i, n in enumerate(names):
         if str(n).strip() == raw:
             return i
@@ -367,13 +375,9 @@ def resolve_neural_y_channel_idx(
     for i, n in enumerate(names):
         if str(n).lower().replace(" ", "_") == key:
             return i
-    logger.warning(
-        "resolve_neural_y_channel_idx: name %r not in input_channels (len=%d); using fallback %d",
-        raw,
-        len(names),
-        fallback_channel_idx,
+    raise ValueError(
+        f"Neural feature {raw!r} not found in input_channels (len={len(names)})"
     )
-    return int(fallback_channel_idx)
 
 
 def split_res_with_nonempty_input_channels(
@@ -484,7 +488,7 @@ def thesis_exemplar_tagline(
 
 def extract_trial_z_series(
     split_res_psid: Dict[str, Any],
-    split_res_dpad: Dict[str, Any],
+    split_res_dpad: Optional[Dict[str, Any]],
     split_res_varma: Dict[str, Any],
     trial_idx: int,
     channel_idx: int,
@@ -514,7 +518,7 @@ def extract_trial_z_series(
     true_c = get_channel(z_true_arr, channel_idx, t_abs)
     n = len(t_abs)
 
-    def _zp_chan_or_nan(label: str, res: Dict[str, Any], idx: int) -> np.ndarray:
+    def _zp_chan_or_nan(label: str, res: Optional[Dict[str, Any]], idx: int) -> np.ndarray:
         if not _model_has_trial(res, idx):
             nt = _n_z_trials(res)
             key = f"{label}:{nt}"
@@ -548,7 +552,9 @@ def extract_trial_z_series(
     )
 
 
-def _model_has_trial_y(res: Dict[str, Any], idx: int) -> bool:
+def _model_has_trial_y(res: Optional[Dict[str, Any]], idx: int) -> bool:
+    if res is None:
+        return False
     y = res.get("Y")
     yp = res.get("Yp")
     if y is None or yp is None:
@@ -560,7 +566,7 @@ def _model_has_trial_y(res: Dict[str, Any], idx: int) -> bool:
 
 def extract_trial_y_series(
     split_res_psid: Dict[str, Any],
-    split_res_dpad: Dict[str, Any],
+    split_res_dpad: Optional[Dict[str, Any]],
     split_res_varma: Dict[str, Any],
     trial_idx: int,
     y_channel_idx: int,
@@ -583,9 +589,9 @@ def extract_trial_y_series(
     true_c = get_channel(y_true_arr, y_channel_idx, t_abs)
     n = len(t_abs)
 
-    def _yp_chan_or_nan(label: str, res: Dict[str, Any], idx: int) -> np.ndarray:
+    def _yp_chan_or_nan(label: str, res: Optional[Dict[str, Any]], idx: int) -> np.ndarray:
         if not _model_has_trial_y(res, idx):
-            ny = len(res.get("Y") or [])
+            ny = len((res or {}).get("Y") or [])
             key = f"{label}:y:{ny}"
             if key not in _oof_trial_warned:
                 _oof_trial_warned.add(key)

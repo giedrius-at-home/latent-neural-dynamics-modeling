@@ -10,9 +10,10 @@ ieeg_process:
   resampled_dir: "{save_directory}/resampled_mat_recordings"
   chunk_margin: 2
   resampled_freq: 200
-  notch_freqs: []
+  notch_freqs: [50, 100]
   scale_factor: 1e6
   compute_average: false
+  apply_car: true
   drop_lfp: false
   max_pause_seconds: 2.0
   raw_bands:
@@ -29,5 +30,5 @@ ieeg_process:
     gamma_50_55_raw: [50, 55]
     gamma_55_60_raw: [55, 60]
     gamma_60_65_raw: [60, 65]
-    gamma_65_70_raw: [70, 75]
+    gamma_70_75_raw: [70, 75]
     gamma_75_80_raw: [75, 80]

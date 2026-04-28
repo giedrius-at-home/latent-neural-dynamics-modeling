@@ -11,16 +11,13 @@ model:
     history: 5
   grid_search:
     nx:
-    - 2
     - 4
     - 8
     - 15
     - 25
-    - 30
     n1:
     - 2
     - 4
-    - 6
 data:
   root: resampled_recordings/participants_at_200Hz_scaled_1e6_narrow_band
   participant: PDI1
@@ -41,7 +38,7 @@ data:
     - ECOG_1_gamma_50_55_raw
     - ECOG_1_gamma_55_60_raw
     - ECOG_1_gamma_60_65_raw
-    - ECOG_1_gamma_65_70_raw
+    - ECOG_1_gamma_70_75_raw
     - ECOG_1_gamma_75_80_raw
     - ECOG_2_theta_4_8_raw
     - ECOG_2_alpha_8_12_raw
@@ -56,7 +53,7 @@ data:
     - ECOG_2_gamma_50_55_raw
     - ECOG_2_gamma_55_60_raw
     - ECOG_2_gamma_60_65_raw
-    - ECOG_2_gamma_65_70_raw
+    - ECOG_2_gamma_70_75_raw
     - ECOG_2_gamma_75_80_raw
     - ECOG_3_theta_4_8_raw
     - ECOG_3_alpha_8_12_raw
@@ -71,7 +68,7 @@ data:
     - ECOG_3_gamma_50_55_raw
     - ECOG_3_gamma_55_60_raw
     - ECOG_3_gamma_60_65_raw
-    - ECOG_3_gamma_65_70_raw
+    - ECOG_3_gamma_70_75_raw
     - ECOG_3_gamma_75_80_raw
     - ECOG_4_theta_4_8_raw
     - ECOG_4_alpha_8_12_raw
@@ -86,7 +83,7 @@ data:
     - ECOG_4_gamma_50_55_raw
     - ECOG_4_gamma_55_60_raw
     - ECOG_4_gamma_60_65_raw
-    - ECOG_4_gamma_65_70_raw
+    - ECOG_4_gamma_70_75_raw
     - ECOG_4_gamma_75_80_raw
     output_type: behavioral
     output:

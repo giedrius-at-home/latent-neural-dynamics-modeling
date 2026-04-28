@@ -27,6 +27,7 @@ from dashboard.thesis.loaders import (
     channels_as_str_list,
     extract_trial_y_series,
     extract_trial_z_series,
+    load_split_results,
     load_split_results_required,
     resolve_output_channel_display,
     neural_y_feature_label,
@@ -543,6 +544,8 @@ def _build_one_panel(
     vi = int(varma_trial_idx) if varma_trial_idx is not None else int(trial_idx)
 
     def _has_fc(res: Dict[str, Any], tidx: int) -> bool:
+        if res is None:
+            return False
         zt = res.get(k_true)
         zp = res.get(k_pred)
         if zt is None or zp is None:
@@ -718,7 +721,7 @@ def build_c2_forecast_figure(
         use_adjacent_off_on_trials=spec.use_adjacent_off_on_trials,
         split_res=res_p,
     )
-    res_d = load_split_results_required(
+    res_d = load_split_results(
         results_root, spec.dpad_variant, spec.dpad_run_ts, spec.split
     )
     res_v = load_split_results_required(

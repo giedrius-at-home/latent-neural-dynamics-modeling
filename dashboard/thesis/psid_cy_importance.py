@@ -21,9 +21,8 @@ logger = logging.getLogger(__name__)
 
 _beta_layout_warned = False
 
-_N_FEATURES = 116
 _N_CONTACTS = 4
-_N_BAND_COLS = 29
+# Band cols derived dynamically: 29 for 80Hz (116/4), 15 for 200Hz (60/4)
 
 _BAND_ORDER = ("Delta", "Theta", "Alpha", "Beta")
 
@@ -37,22 +36,29 @@ class BandColumnLayout:
     beta_col_end: float
 
 
-def _first_contact_29(input_channels: Sequence[str]) -> List[str]:
-    if len(input_channels) < _N_BAND_COLS:
+def _n_band_cols(n_features: int) -> int:
+    """Derive bands-per-contact from total feature count."""
+    if n_features % _N_CONTACTS != 0:
+        raise ValueError(f"Feature count {n_features} not divisible by {_N_CONTACTS} contacts")
+    return n_features // _N_CONTACTS
+
+
+def _first_contact_n(input_channels: Sequence[str], n_bands: int) -> List[str]:
+    if len(input_channels) < n_bands:
         raise ValueError(
-            f"Need at least {_N_BAND_COLS} input channels; got {len(input_channels)}"
+            f"Need at least {n_bands} input channels; got {len(input_channels)}"
         )
-    return [str(input_channels[i]) for i in range(_N_BAND_COLS)]
+    return [str(input_channels[i]) for i in range(n_bands)]
 
 
-def _first_single_contact_narrowband_29(
+def _first_single_contact_narrowband(
     input_channels: Sequence[str], contact: int = 1
 ) -> List[str]:
     """
-    The 116-input YAML order interleaves ECoG 1–4 (delta block, then theta, …), so the
-    first 29 list entries are **not** one contact’s δ/θ/α/β stack. Take channels whose
-    names start with ``ECOG_<n>_`` or ``LFP_<n>_`` for one contact, in file order.
+    Extract one contact’s narrow-band channels from the interleaved input list.
+    Works for both 116-input (29 per contact) and 60-input (15 per contact) layouts.
     """
+    n_bands = _n_band_cols(len(input_channels))
     pref_ecog = f"ECOG_{contact}_"
     pref_lfp = f"LFP_{contact}_"
     out: List[str] = []
@@ -61,16 +67,16 @@ def _first_single_contact_narrowband_29(
         su = s.upper()
         if su.startswith(pref_ecog.upper()) or su.startswith(pref_lfp.upper()):
             out.append(s)
-        if len(out) >= _N_BAND_COLS:
+        if len(out) >= n_bands:
             break
-    if len(out) >= _N_BAND_COLS:
-        return out[:_N_BAND_COLS]
-    return _first_contact_29(input_channels)
+    if len(out) >= n_bands:
+        return out[:n_bands]
+    return _first_contact_n(input_channels, n_bands)
 
 
 def cy_heatmap_x_tick_labels(input_channels: Sequence[str]) -> List[str]:
-    """29 x-axis labels (contact 1 narrow-band names), raw on-disk strings."""
-    return list(_first_single_contact_narrowband_29(input_channels))
+    """X-axis labels (contact 1 narrow-band names), raw on-disk strings."""
+    return list(_first_single_contact_narrowband(input_channels))
 
 
 def band_layout_from_channels(input_channels: Sequence[str]) -> BandColumnLayout:
@@ -82,7 +88,7 @@ def band_layout_from_channels(input_channels: Sequence[str]) -> BandColumnLayout
     covering β columns (cell edges: -0.5 .. n-0.5).
     """
     global _beta_layout_warned
-    first = _first_single_contact_narrowband_29(input_channels, contact=1)
+    first = _first_single_contact_narrowband(input_channels, contact=1)
     by_band: Dict[str, List[int]] = {b: [] for b in _BAND_ORDER}
     for j, ch in enumerate(first):
         lab = parse_parent_band(ch)
@@ -116,42 +122,35 @@ def band_layout_from_channels(input_channels: Sequence[str]) -> BandColumnLayout
     return BandColumnLayout(spans=tuple(spans_list), beta_col_start=beta_col_start, beta_col_end=beta_col_end)
 
 
+def _channels_from_training_yaml(variant: str) -> List[str]:
+    """Load neural_input channels from the training YAML config for this variant."""
+    import re, yaml
+    m = re.search(r"(PDI\d+)_(\d+)", variant)
+    if not m:
+        raise ValueError(f"Cannot parse participant/session from variant: {variant}")
+    pid, sess = m.group(1), m.group(2)
+    yaml_dir = Path("training/setups")
+    yaml_path = yaml_dir / f"psid_gs_{pid}_S{sess}_200Hz_narrow_band.yaml"
+    if not yaml_path.exists():
+        raise FileNotFoundError(f"Training config not found: {yaml_path}")
+    with open(yaml_path) as f:
+        cfg = yaml.safe_load(f)
+    return cfg["data"]["channels"]["neural_input"]
+
+
 def load_input_channels(
     results_root: Path,
     variant: str,
     run_ts: str,
     split: str,
 ) -> List[str]:
-    """Resolve input_channels from the variant's results, or from the matching DPAD variant
-    (same participant/session) when the PSID parquet doesn't store them."""
+    """Resolve input_channels from results or training YAML."""
     res = load_split_results(results_root, variant, run_ts, split)
-    if res is None:
-        raise FileNotFoundError(
-            f"No results for variant={variant!r} run_ts={run_ts!r} split={split!r}"
-        )
-    ch = res.get("input_channels")
-    if ch:
-        return [str(x) for x in (list(ch) if not isinstance(ch, list) else ch)]
-
-    import re
-    from dashboard.subtabs.helpers import list_run_timestamps
-
-    m = re.search(r"(PDI\d+)_(\d+)", variant)
-    if m:
-        pid, sess = m.group(1), m.group(2)
-        pattern = f"dpad_{pid}_S{sess}_"
-        for d in sorted(results_root.iterdir()):
-            if d.is_dir() and d.name.startswith(pattern):
-                ts_list = list_run_timestamps(d)
-                if not ts_list:
-                    continue
-                dpad_res = load_split_results(results_root, d.name, ts_list[-1], split)
-                if dpad_res and dpad_res.get("input_channels"):
-                    return [str(x) for x in list(dpad_res["input_channels"])]
-
-    raise ValueError(
-        f"input_channels missing from {variant}/{run_ts} and no matching DPAD variant found"
-    )
+    if res is not None:
+        ch = res.get("input_channels")
+        if ch and len(ch) > 0:
+            return [str(x) for x in (list(ch) if not isinstance(ch, list) else ch)]
+    return _channels_from_training_yaml(variant)
 
 
 def load_psid_id_sys(model_path: Path) -> Any:
@@ -163,7 +162,8 @@ def load_psid_id_sys(model_path: Path) -> Any:
 
 def compute_normalized_cy_importance(id_sys: Any) -> Tuple[np.ndarray, int]:
     """
-    Returns (4, 29) importance matrix (per-panel max normalized) and n1.
+    Returns (4, n_bands) importance matrix (per-panel max normalized) and n1.
+    Works for both 116 (4×29) and 60 (4×15) feature layouts.
     """
     cy_raw = getattr(id_sys, "Cy", None) or getattr(id_sys, "C", None)
     if cy_raw is None:
@@ -171,17 +171,20 @@ def compute_normalized_cy_importance(id_sys: Any) -> Tuple[np.ndarray, int]:
     cy = np.asarray(cy_raw, dtype=float)
     if cy.ndim != 2:
         raise ValueError(f"Cy must be 2D; got shape {cy.shape}")
-    if cy.shape[0] == _N_CONTACTS and cy.shape[1] == _N_FEATURES:
+    n_features = cy.shape[0]
+    if n_features == _N_CONTACTS and cy.shape[1] % _N_CONTACTS == 0:
         cy = cy.T
+        n_features = cy.shape[0]
+    if n_features % _N_CONTACTS != 0:
+        raise ValueError(
+            f"Cy rows ({n_features}) not divisible by {_N_CONTACTS} contacts"
+        )
+    n_band_cols = n_features // _N_CONTACTS
     n1 = int(getattr(id_sys, "n1", cy.shape[1]))
     if n1 < 1:
         raise ValueError(f"Invalid n1={n1}")
     cy_rel = cy[:, :n1]
-    if cy_rel.shape[0] != _N_FEATURES:
-        raise ValueError(
-            f"Expected Cy to have {_N_FEATURES} rows (4×29 narrow-band features); got {cy_rel.shape[0]}"
-        )
-    resh = cy_rel.reshape(_N_CONTACTS, _N_BAND_COLS, n1)
+    resh = cy_rel.reshape(_N_CONTACTS, n_band_cols, n1)
     imp = np.linalg.norm(resh, axis=2)
     m = float(np.max(imp)) if imp.size else 0.0
     if m <= 0:
@@ -202,12 +205,6 @@ def compute_cy_signed_heatmap(
     (signed) so negative weights show up in blue on a diverging colorscale.
     """
     model_path = resolve_model_path(results_root, variant, run_ts)
-    channels = load_input_channels(results_root, variant, run_ts, split)
-    if len(channels) != _N_FEATURES:
-        raise ValueError(
-            f"Expected {_N_FEATURES} input_channels; got {len(channels)} for {variant}"
-        )
-    layout = band_layout_from_channels(channels)
     id_sys = load_psid_id_sys(model_path)
 
     cy_raw = getattr(id_sys, "Cy", None) or getattr(id_sys, "C", None)
@@ -216,18 +213,29 @@ def compute_cy_signed_heatmap(
     cy = np.asarray(cy_raw, dtype=float)
     if cy.ndim != 2:
         raise ValueError(f"Cy must be 2D; got shape {cy.shape}")
-    if cy.shape[0] == _N_CONTACTS and cy.shape[1] == _N_FEATURES:
+    # Derive n_features from the Cy matrix itself (authoritative)
+    n_features = cy.shape[0]
+    if n_features == _N_CONTACTS and cy.shape[1] % _N_CONTACTS == 0 and cy.shape[1] > _N_CONTACTS:
         cy = cy.T
+        n_features = cy.shape[0]
+    if n_features % _N_CONTACTS != 0:
+        raise ValueError(
+            f"Cy rows ({n_features}) not divisible by {_N_CONTACTS} contacts for {variant}"
+        )
+    n_band_cols = n_features // _N_CONTACTS
     n1 = int(getattr(id_sys, "n1", cy.shape[1]))
     if n1 < 1:
         raise ValueError(f"Invalid n1={n1}")
     cy_rel = cy[:, :n1]
-    if cy_rel.shape[0] != _N_FEATURES:
-        raise ValueError(
-            f"Expected Cy to have {_N_FEATURES} rows; got {cy_rel.shape[0]}"
-        )
 
-    resh = cy_rel.reshape(_N_CONTACTS, _N_BAND_COLS, n1)
+    channels = load_input_channels(results_root, variant, run_ts, split)
+    if len(channels) != n_features:
+        raise ValueError(
+            f"Channel count {len(channels)} != Cy rows {n_features} for {variant}"
+        )
+    layout = band_layout_from_channels(channels)
+
+    resh = cy_rel.reshape(_N_CONTACTS, n_band_cols, n1)
     # (n1, 4_contacts): norm of Cy over 29 bands for each (latent_dim, contact) pair
     # Transpose to (n1, 4): y=latent dims, x=ECoG contacts
     cy_per_dim_contact = np.linalg.norm(resh, axis=1).T  # (n1, 4_contacts)
@@ -276,9 +284,9 @@ def compute_panel(
     """One participant×session: normalized importance, n1, channels, band layout."""
     model_path = resolve_model_path(results_root, variant, run_ts)
     channels = load_input_channels(results_root, variant, run_ts, split)
-    if len(channels) != _N_FEATURES:
+    if len(channels) % _N_CONTACTS != 0:
         raise ValueError(
-            f"Expected {len(channels)}=={_N_FEATURES} input_channels for narrow-band layout; "
+            f"Channel count {len(channels)} not divisible by {_N_CONTACTS} contacts; "
             f"check variant {variant}"
         )
     layout = band_layout_from_channels(channels)

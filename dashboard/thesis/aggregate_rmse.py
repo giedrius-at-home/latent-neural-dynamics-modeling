@@ -14,8 +14,8 @@ import numpy as np
 
 from dashboard.thesis.loaders import (
     ThesisDataError,
+    load_split_results,
     load_split_results_required,
-    load_split_results_with_fallback,
     trial_rmse_z_for_model,
 )
 
@@ -185,54 +185,46 @@ def collect_within_cross_rmse(
             triplet_branch_timestamp(tri, "psid", "eval_on"),
             split,
         )
-        dpad_off = load_split_results_required(
-            results_root, _variant_off(tri.dpad_variant), triplet_branch_timestamp(tri, "dpad", "off"), split
-        )
-        dpad_on = load_split_results_required(
-            results_root, _variant_on(tri.dpad_variant), triplet_branch_timestamp(tri, "dpad", "on"), split
-        )
-        dpad_on_eval_off = load_split_results_required(
-            results_root,
-            _variant_cross_eval(_variant_on(tri.dpad_variant), "off"),
-            triplet_branch_timestamp(tri, "dpad", "eval_off"),
-            split,
-        )
-        dpad_off_eval_on = load_split_results_required(
-            results_root,
-            _variant_cross_eval(_variant_off(tri.dpad_variant), "on"),
-            triplet_branch_timestamp(tri, "dpad", "eval_on"),
-            split,
-        )
+        _dpad_available = bool(tri.dpad_run_ts_off and tri.dpad_run_ts_on)
+        if _dpad_available:
+            dpad_off = load_split_results(
+                results_root, _variant_off(tri.dpad_variant), triplet_branch_timestamp(tri, "dpad", "off"), split
+            )
+            dpad_on = load_split_results(
+                results_root, _variant_on(tri.dpad_variant), triplet_branch_timestamp(tri, "dpad", "on"), split
+            )
+            dpad_on_eval_off = load_split_results(
+                results_root,
+                _variant_cross_eval(_variant_on(tri.dpad_variant), "off"),
+                triplet_branch_timestamp(tri, "dpad", "eval_off"),
+                split,
+            )
+            dpad_off_eval_on = load_split_results(
+                results_root,
+                _variant_cross_eval(_variant_off(tri.dpad_variant), "on"),
+                triplet_branch_timestamp(tri, "dpad", "eval_on"),
+                split,
+            )
+        else:
+            dpad_off = dpad_on = dpad_on_eval_off = dpad_off_eval_on = None
         varma_off = load_split_results_required(
             results_root, _variant_off(tri.varma_variant), triplet_branch_timestamp(tri, "varma", "off"), split
         )
         varma_on = load_split_results_required(
             results_root, _variant_on(tri.varma_variant), triplet_branch_timestamp(tri, "varma", "on"), split
         )
-        v_eval_off_var = _variant_cross_eval(_variant_on(tri.varma_variant), "off")
-        ts_ve_off = triplet_branch_timestamp(tri, "varma", "eval_off")
-        try:
-            varma_on_eval_off = load_split_results_required(
-                results_root, v_eval_off_var, ts_ve_off, split
-            )
-        except ThesisDataError:
-            varma_on_eval_off = load_split_results_with_fallback(
-                results_root, v_eval_off_var, ts_ve_off, split
-            )
-            if varma_on_eval_off is None:
-                raise
-        v_eval_on_var = _variant_cross_eval(_variant_off(tri.varma_variant), "on")
-        ts_ve_on = triplet_branch_timestamp(tri, "varma", "eval_on")
-        try:
-            varma_off_eval_on = load_split_results_required(
-                results_root, v_eval_on_var, ts_ve_on, split
-            )
-        except ThesisDataError:
-            varma_off_eval_on = load_split_results_with_fallback(
-                results_root, v_eval_on_var, ts_ve_on, split
-            )
-            if varma_off_eval_on is None:
-                raise
+        varma_on_eval_off = load_split_results_required(
+            results_root,
+            _variant_cross_eval(_variant_on(tri.varma_variant), "off"),
+            triplet_branch_timestamp(tri, "varma", "eval_off"),
+            split,
+        )
+        varma_off_eval_on = load_split_results_required(
+            results_root,
+            _variant_cross_eval(_variant_off(tri.varma_variant), "on"),
+            triplet_branch_timestamp(tri, "varma", "eval_on"),
+            split,
+        )
 
         mp_off = _key_index_map(psid_off)
         mp_on = _key_index_map(psid_on)
@@ -379,28 +371,30 @@ def collect_pooled_rmse(
     n_ok = 0
     for tri in triplet_specs:
         res_p = load_split_results_required(results_root, tri.psid_variant, tri.psid_run_ts, split)
-        res_d = load_split_results_required(results_root, tri.dpad_variant, tri.dpad_run_ts, split)
         res_v = load_split_results_required(results_root, tri.varma_variant, tri.varma_run_ts, split)
+        has_dpad = bool(tri.dpad_run_ts)
+        res_d = load_split_results(results_root, tri.dpad_variant, tri.dpad_run_ts, split) if has_dpad else None
 
         mp = _key_index_map(res_p)
-        md = _key_index_map(res_d)
         mv = _key_index_map(res_v)
-        common_pd = set(mp.keys()) & set(md.keys()) & set(mv.keys())
+        md = _key_index_map(res_d) if res_d else {}
+        common_pd = set(mp.keys()) & set(mv.keys())
+        if md:
+            common_pd &= set(md.keys())
         if not common_pd:
             raise ThesisDataError(
-                f"Pooled RMSE triplet {tri.label!r}: no trial keys common to PSID, DPAD, and VARMA."
+                f"Pooled RMSE triplet {tri.label!r}: no trial keys common to PSID and VARMA."
             )
 
         n_ok += 1
         for k in sorted(common_pd, key=lambda x: (str(x[0]), str(x[1]), str(x[2]), str(x[3]))):
-            i_p, i_d = mp[k], md[k]
-            i_v = mv[k]
+            i_p, i_v = mp[k], mv[k]
             stim = normalize_stim(res_p["stim"][i_p])
             if stim is None:
                 continue
             try:
                 r_p = trial_rmse_z_for_model(res_p, i_p, channel_idx)
-                r_d = trial_rmse_z_for_model(res_d, i_d, channel_idx)
+                r_d = trial_rmse_z_for_model(res_d, md[k], channel_idx) if res_d and k in md else float("nan")
                 r_v = trial_rmse_z_for_model(res_v, i_v, channel_idx)
             except Exception as e:
                 logger.debug("Skip trial %s: %s", k, e)

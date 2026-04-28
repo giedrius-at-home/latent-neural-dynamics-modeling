@@ -127,34 +127,21 @@ def load_panel_latent_data(
     """
     panel: LatentPhasePanel with variants and run_ts.
     """
-    if n_psid != 2:
-        raise ValueError("Thesis latent PSID panel expects n_psid_latent=2 (x₁ vs x₂)")
-    if n_dpad < 2:
-        raise ValueError("n_dpad_latent must be >= 2")
-
     res_p = load_split_results(
         results_root, panel.psid_variant, panel.psid_run_ts, split
     )
-    res_d = load_split_results(
-        results_root, panel.dpad_variant, panel.dpad_run_ts, split
-    )
-    if res_p is None or res_d is None:
-        raise FileNotFoundError(
-            f"Missing split results for PSID or DPAD ({panel.session_label})"
-        )
-
-    Xp_p = res_p.get("Xp") or []
-    stim_p = res_p.get("stim") or []
-    Xp_d = res_d.get("Xp") or []
-    stim_d = res_d.get("stim") or []
-
-    if not Xp_p or not stim_p:
-        raise ValueError("PSID split missing Xp or stim")
-    if not Xp_d or not stim_d:
-        raise ValueError("DPAD split missing Xp or stim")
-
+    Xp_p = res_p["Xp"]
+    stim_p = res_p["stim"]
     off_p, on_p = _trial_indices_by_stim(stim_p)
-    off_d, on_d = _trial_indices_by_stim(stim_d)
+
+    # DPAD: skip entirely when not available (add DPAD 200Hz results later)
+    if panel.dpad_run_ts:
+        res_d = load_split_results(results_root, panel.dpad_variant, panel.dpad_run_ts, split)
+        Xp_d = res_d["Xp"]
+        stim_d = res_d["stim"]
+        off_d, on_d = _trial_indices_by_stim(stim_d)
+    else:
+        Xp_d, stim_d, off_d, on_d = [], [], [], []
 
     rng = np.random.default_rng(traj_seed)
 

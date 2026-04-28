@@ -43,6 +43,21 @@ class Trainer:
 
         if reuse_splits and existing_splits:
             self.logger.info(f"Reusing existing splits from {split_dir}")
+            dbs_condition = self.data_params.dbs_condition
+            if dbs_condition != "both":
+                for split_name in ("train", "val", "test"):
+                    split_path = split_dir / f"{split_name}.parquet"
+                    df_split = pl.read_parquet(split_path)
+                    if "stim" in df_split.columns:
+                        before = len(df_split)
+                        df_split = df_split.filter(pl.col("stim") == dbs_condition)
+                        after = len(df_split)
+                        if after < before:
+                            df_split.write_parquet(split_path)
+                            self.logger.info(
+                                f"Filtered {split_name} split to dbs_condition={dbs_condition}: "
+                                f"{before} → {after} trials"
+                            )
         else:
             session_path = (
                 Path(self.data_params.root)
@@ -395,6 +410,43 @@ class Trainer:
         self.logger.info(f"Saved metadata to {metadata_path}")
         self.logger.info(f"Pearson R Y={r_mean_val:.4f}, Pearson R Z={r_z_str}")
 
+    def _write_minimal_metadata(self):
+        out_dir = Path(self.results_config.save_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        metadata_path = out_dir / f"model_{self.run_timestamp}_metadata.json"
+
+        if self.framework_type == "dpad":
+            metadata = {
+                "framework_type": "dpad",
+                "nx": getattr(self.model_params, "nx", None),
+                "n1": getattr(self.model_params, "n1", None),
+                "method_code": getattr(self.model_params, "method_code", None),
+                "epochs": getattr(self.model_params, "epochs", None),
+            }
+        elif self.framework_type == "varma":
+            metadata = {
+                "framework_type": "varma",
+                "p": getattr(self.model_params, "p", 20),
+                "q": getattr(self.model_params, "q", 1),
+                "long_ar_lags": getattr(self.model_params, "long_ar_lags", 30),
+            }
+        else:
+            metadata = {
+                "framework_type": "psid",
+                "nx": getattr(self.model_params, "nx", None),
+                "n1": getattr(self.model_params, "n1", None),
+                "i": getattr(self.model_params, "i", None),
+                "backward_kalman": getattr(
+                    self.model_params, "backward_kalman", False
+                ),
+                "rescale_states": getattr(self.model_params, "rescale_states", True),
+                "max_eigenvalue": getattr(self.model_params, "max_eigenvalue", 0.995),
+            }
+
+        with open(metadata_path, "w") as f:
+            json.dump(metadata, f, indent=2)
+        self.logger.info(f"Saved minimal metadata to {metadata_path}")
+
     def train(self, fast: bool = False):
         self.run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.logger.info(f"Training run timestamp: {self.run_timestamp}")
@@ -439,6 +491,7 @@ class Trainer:
             self.logger.info(
                 "Fast mode enabled: Skipping all post-training predictions and forecasts."
             )
+            self._write_minimal_metadata()
             return {}
 
         Zp_val, Yp_val, Xp_val = self.framework._predict(Y_val)

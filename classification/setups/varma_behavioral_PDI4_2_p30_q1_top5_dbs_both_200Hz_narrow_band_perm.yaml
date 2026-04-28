@@ -1,0 +1,29 @@
+run:
+  variant: varma_behavioral_PDI4_2_p30_q1_top5_dbs_both_200Hz_narrow_band
+  run_ts: '20260411_112104'
+classification:
+  n_splits: 5
+  epoch_length: 0.5
+  epoch_overlap: 0.25
+  sampling_freq: 200
+  h:
+  - 0.5
+  m:
+  - 0.5
+  n1: 0
+  nx: 0
+  permutation_test: true
+  n_permutations: 100
+  param_grid:
+    LDA:
+      classifier__solver:
+      - lsqr
+      classifier__shrinkage:
+      - auto
+  flipped: false
+  prediction_feature_source: Xp
+  forecast_feature_source: Xp
+results:
+  project_root: /home/bobby/repos/latent-neural-dynamics-modeling
+  results_dir: /home/bobby/repos/latent-neural-dynamics-modeling/results/classification/varma_behavioral_PDI4_2_p30_q1_top5_dbs_both_200Hz_narrow_band
+  log_dir: /home/bobby/repos/latent-neural-dynamics-modeling/logs/classification

@@ -20,6 +20,7 @@ from dashboard.thesis.loaders import (
     extract_trial_y_series,
     extract_trial_z_series,
     channels_as_str_list,
+    load_split_results,
     load_split_results_required,
     neural_y_feature_label,
     resolve_output_channel_display,
@@ -58,7 +59,7 @@ def _mean_finite(vals: list[float]) -> Optional[float]:
 
 def _session_mean_rmse_z_triplet(
     res_p: Dict[str, Any],
-    res_d: Dict[str, Any],
+    res_d: Optional[Dict[str, Any]],
     res_v: Dict[str, Any],
     varma_key_map: Dict[Tuple[Any, ...], int],
     exemplar_trial_idx: int,
@@ -90,10 +91,11 @@ def _session_mean_rmse_z_triplet(
             rp.append(trial_rmse_z_for_model(res_p, i, channel_idx))
         except ValueError:
             pass
-        try:
-            rd.append(trial_rmse_z_for_model(res_d, i, channel_idx))
-        except ValueError:
-            pass
+        if res_d is not None:
+            try:
+                rd.append(trial_rmse_z_for_model(res_d, i, channel_idx))
+            except ValueError:
+                pass
         j = varma_key_map.get(_trial_key(res_p, i))
         if j is not None:
             try:
@@ -105,7 +107,7 @@ def _session_mean_rmse_z_triplet(
 
 def _session_mean_rmse_y_triplet(
     res_p: Dict[str, Any],
-    res_d: Dict[str, Any],
+    res_d: Optional[Dict[str, Any]],
     res_v: Dict[str, Any],
     varma_key_map: Dict[Tuple[Any, ...], int],
     exemplar_trial_idx: int,
@@ -136,10 +138,11 @@ def _session_mean_rmse_y_triplet(
             rp.append(trial_rmse_y_for_model(res_p, i, y_channel_idx))
         except ValueError:
             pass
-        try:
-            rd.append(trial_rmse_y_for_model(res_d, i, y_channel_idx))
-        except ValueError:
-            pass
+        if res_d is not None:
+            try:
+                rd.append(trial_rmse_y_for_model(res_d, i, y_channel_idx))
+            except ValueError:
+                pass
         j = varma_key_map.get(_trial_key(res_p, i))
         if j is not None:
             try:
@@ -162,7 +165,7 @@ def compose_thesis_figure(spec: ThesisFigureSpec, results_root: Path):
         use_adjacent_off_on_trials=spec.use_adjacent_off_on_trials,
         split_res=res_p,
     )
-    res_d = load_split_results_required(
+    res_d = load_split_results(
         results_root, spec.dpad_variant, spec.dpad_run_ts, spec.split
     )
     res_v = load_split_results_required(
@@ -353,7 +356,7 @@ def compose_thesis_neural_figure(spec: ThesisNeuralTimeseriesSpec, results_root:
         use_adjacent_off_on_trials=spec.use_adjacent_off_on_trials,
         split_res=res_p,
     )
-    res_d = load_split_results_required(
+    res_d = load_split_results(
         results_root, spec.dpad_variant, spec.dpad_run_ts, spec.split
     )
     res_v = load_split_results_required(

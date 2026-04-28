@@ -1,0 +1,57 @@
+model:
+  name: varma_laplacian_PDI4_3_p30_q1_top5_dbs_off_200Hz_narrow_band
+  p: 30
+  q: 1
+  long_ar_lags: 30
+  trial_edge_taper_sec: 0.1
+  time_first: true
+  fast: true
+  reuse_splits: true
+  forecast:
+    m: 2
+    history: 5
+data:
+  root: resampled_recordings/participants_at_200Hz_scaled_1e6_narrow_band
+  participant: PDI4
+  session: '3'
+  blocks: all
+  channels:
+    neural_input:
+    - ECOG_3_gamma_60_65_raw
+    - ECOG_2_gamma_75_80_raw
+    - ECOG_3_gamma_55_60_raw
+    - ECOG_2_gamma_60_65_raw
+    - ECOG_2_gamma_55_60_raw
+    - ECOG_4_gamma_75_80_raw
+    - ECOG_1_gamma_75_80_raw
+    - ECOG_3_gamma_50_55_raw
+    output_type: neural
+    output:
+    - LAPLACIAN_14-16_LFP_theta_4_8_raw
+    - LAPLACIAN_14-16_LFP_alpha_8_12_raw
+    - LAPLACIAN_14-16_LFP_beta_12_17_raw
+    - LAPLACIAN_14-16_LFP_beta_17_22_raw
+    - LAPLACIAN_14-16_LFP_beta_22_27_raw
+    - LAPLACIAN_14-16_LFP_beta_27_30_raw
+    - LAPLACIAN_14-16_LFP_gamma_30_35_raw
+    - LAPLACIAN_14-16_LFP_gamma_35_40_raw
+    - LAPLACIAN_14-16_LFP_gamma_40_45_raw
+    - LAPLACIAN_14-16_LFP_gamma_45_50_raw
+    - LAPLACIAN_14-16_LFP_gamma_50_55_raw
+    - LAPLACIAN_14-16_LFP_gamma_55_60_raw
+    - LAPLACIAN_14-16_LFP_gamma_60_65_raw
+    - LAPLACIAN_14-16_LFP_gamma_70_75_raw
+    - LAPLACIAN_14-16_LFP_gamma_75_80_raw
+  split:
+    within_session_split: true
+    train: 0.6
+    val: 0.1
+    test: 0.3
+    min_train_epochs: 50
+  batch_size: 32
+  sampling_frequency: 200
+  dbs_condition: 'off'
+results:
+  save_dir: results/varma_laplacian_PDI4_3_p30_q1_top5_dbs_off_200Hz_narrow_band
+  log_dir: results/varma_laplacian_PDI4_3_p30_q1_top5_dbs_off_200Hz_narrow_band/logs
+  checkpoint_dir: checkpoints

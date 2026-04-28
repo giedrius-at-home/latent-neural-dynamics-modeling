@@ -84,6 +84,53 @@ def find_block_boundary_off_then_on_trial_indices(
     return None
 
 
+def find_best_trial_indices_per_condition(
+    split_res: Dict[str, Any],
+    *,
+    channel_idx: int,
+    input_mode: str = "behavioral",
+) -> Optional[Tuple[int, int]]:
+    """
+    Rank trials by per-trial z-scored RMSE on ``channel_idx`` and return the lowest-RMSE
+    (best-reconstruction) trial for each DBS condition.
+
+    Parameters
+    ----------
+    split_res
+        PSID/DPAD split results dict (``Z`` / ``Zp`` for behavioral, ``Y`` / ``Yp`` for neural).
+    channel_idx
+        Output channel to score (e.g. behavioural speed=0, neural band feature index).
+    input_mode
+        ``"behavioral"`` uses ``trial_rmse_z_for_model``; ``"neural"`` uses ``trial_rmse_y_for_model``.
+
+    Returns ``(best_off_idx, best_on_idx)`` or ``None`` when either condition has no scoreable trial.
+    """
+    from dashboard.thesis.aggregate_rmse import normalize_stim
+    from dashboard.thesis.loaders import trial_rmse_y_for_model, trial_rmse_z_for_model
+
+    stim = _as_list(split_res.get("stim"))
+    if not stim:
+        return None
+    score_fn = trial_rmse_z_for_model if input_mode == "behavioral" else trial_rmse_y_for_model
+    best: dict[str, Tuple[int, float]] = {}
+    for i, s in enumerate(stim):
+        cond = normalize_stim(s)
+        if cond not in ("off", "on"):
+            continue
+        try:
+            r = float(score_fn(split_res, i, channel_idx))
+        except (ValueError, IndexError, KeyError):
+            continue
+        if not np.isfinite(r):
+            continue
+        prev = best.get(cond)
+        if prev is None or r < prev[1]:
+            best[cond] = (i, r)
+    if "off" not in best or "on" not in best:
+        return None
+    return int(best["off"][0]), int(best["on"][0])
+
+
 def resolve_off_on_indices_from_spec(
     *,
     trial_idx_off: int,

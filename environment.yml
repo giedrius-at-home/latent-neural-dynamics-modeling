@@ -27,7 +27,8 @@ dependencies:
       - tensorflow-cpu==2.15.1
       - plotly-resampler
       - anywidget
-      - dpad
+      - PSID==1.2.6
+      - dpad==0.0.9
       - sktime
       - umap-learn
       - pmdarima

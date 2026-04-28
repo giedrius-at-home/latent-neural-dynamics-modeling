@@ -5,7 +5,7 @@ from training.components.tester import Tester
 from utils.miscellaneous import get_latest_timestamp
 
 
-def test(config, run_timestamp=None, incremental=False):
+def test(config, run_timestamp=None, incremental=False, splits=None):
     logger = get_logger()
     logger.info("Initializing tester...")
 
@@ -20,7 +20,11 @@ def test(config, run_timestamp=None, incremental=False):
         logger.info("Running incremental (trial-by-trial) predictions...")
         tester.run_predictions_incremental()
     else:
-        tester.run_predictions()
+        if splits:
+            logger.info(f"Running selective predictions on splits: {splits}")
+            tester.run_predictions_selective(splits)
+        else:
+            tester.run_predictions()
 
         for split, res in tester.results.items():
             means = res.get("pearson_mean", [])
@@ -68,7 +72,12 @@ def main(args):
 
     logger.info(f"Configuration loaded from: {args.config}")
     logger.info(f"Config content:\n{config}")
-    test(config, run_timestamp=args.run, incremental=args.incremental)
+    test(
+        config,
+        run_timestamp=args.run,
+        incremental=args.incremental,
+        splits=args.splits,
+    )
 
     logger.close()
 
@@ -90,6 +99,13 @@ if __name__ == "__main__":
         "--incremental",
         action="store_true",
         help="Process and save one trial at a time (resumable on crash).",
+    )
+    parser.add_argument(
+        "--splits",
+        nargs="+",
+        choices=["train", "val", "test"],
+        default=None,
+        help="Subset of splits to run predictions on. If omitted, runs all three.",
     )
     args = parser.parse_args()
 
