@@ -1,0 +1,62 @@
+{
+  "pipeline": "psid",
+  "variant": "psid_laplacian_PDI1_2_nx_75_n10_i100_dbs_both_200Hz_narrow_band_mrmr8",
+  "phases": [
+    "train",
+    "cross_cond",
+    "classify"
+  ],
+  "started_at": "2026-04-24T03:18:10.607515",
+  "finished_at": "2026-04-24T05:10:49.914029",
+  "state": {
+    "timestamps": {
+      "on": "20260424_031812",
+      "off": "20260424_032254",
+      "both": "20260424_031812",
+      "vanilla": "20260424_032753"
+    },
+    "best_hm_per_feat": {
+      "Xp": {
+        "h": 1.0,
+        "m": 0.5,
+        "cv_ba": 0.5833333333333334
+      },
+      "Xp_1": {
+        "h": 1.0,
+        "m": 0.5,
+        "cv_ba": 0.5
+      },
+      "Xp_2": {
+        "h": 2.0,
+        "m": 0.5,
+        "cv_ba": 0.5208333333333334
+      },
+      "Xp_with_dbs": {
+        "h": 1.0,
+        "m": 0.5,
+        "cv_ba": 1.0
+      },
+      "Xp_flipped": {
+        "h": 1.0,
+        "m": 0.5,
+        "cv_ba": 0.2006340579710145
+      }
+    }
+  },
+  "mode": "laplacian",
+  "participant": "PDI1",
+  "session": "2",
+  "nx": 75,
+  "n1": 10,
+  "i": 100,
+  "channels": [
+    "ECOG_3_beta_12_17_raw",
+    "ECOG_3_beta_17_22_raw",
+    "ECOG_2_beta_12_17_raw",
+    "ECOG_2_beta_17_22_raw",
+    "ECOG_4_beta_12_17_raw",
+    "ECOG_4_beta_17_22_raw",
+    "ECOG_3_theta_4_8_raw",
+    "ECOG_3_beta_22_27_raw"
+  ]
+}

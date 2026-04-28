@@ -2,9 +2,8 @@ import polars as pl
 import numpy as np
 import pandas as pd
 from pathlib import Path
-from typing import List, Optional, Tuple, Union
+from typing import List, Optional, Tuple
 from utils.config import Config
-import torch
 from torch.utils.data import Dataset
 from utils.logger import get_logger
 

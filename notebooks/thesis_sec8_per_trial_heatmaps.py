@@ -36,62 +36,36 @@
 import sys, os
 os.chdir('/home/bobby/repos/latent-neural-dynamics-modeling')
 sys.path.insert(0, '.')
+sys.path.insert(0, 'notebooks')
 
 from pathlib import Path
 import numpy as np
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
+import matplotlib.pyplot as plt
 
-# Canonical thesis palette + style helper (consistent with sec1–sec6 figures)
-from notebooks.thesis_style import (
-    FONT_FAMILY, FONT_SIZE_BASE, FONT_SIZE_LABEL,
-    apply_thesis_style, ThesisTheme,
-)
+from thesis_style import apply_thesis_style, panel_label
+
+apply_thesis_style()
 
 OUT = Path('thesis_figures/sec8'); OUT.mkdir(parents=True, exist_ok=True)
 results_root = Path('results').resolve()
 
-# Thesis-aligned colorscales (mirrors neural_band_heatmap_figure._BLUE_SEQUENTIAL
-# and psid_cy_importance_figure._DIVERGING_BWR — same hues used in sec2/sec6).
-COLORSCALE_DIVERGING = [
-    [0.0, "rgb(24, 95, 165)"],   # PSID blue (negative)
-    [0.5, "rgb(250, 250, 250)"],
-    [1.0, "rgb(220, 50, 32)"],   # red (positive)
-]
-COLORSCALE_SEQUENTIAL = [
-    [0.0, "rgb(250, 250, 250)"],
-    [0.35, "rgb(200, 215, 235)"],
-    [0.65, "rgb(100, 150, 205)"],
-    [1.0, "rgb(24, 95, 165)"],   # PSID blue
-]
-
 # %% [markdown]
 # ## Configuration
 #
-# 4 sessions with PSID model timestamps (test split).
+# 4 sessions with PSID model timestamps (test split). Pulled from the canonical
+# `thesis_triplets.csv` via `thesis_sec2_common.ALL_TRIPLETS` so this notebook
+# automatically tracks the current PSID runs without manual edits.
 
 # %%
+from thesis_sec2_common import ALL_TRIPLETS
+
 SESSIONS = [
     {
-        "label": "PDI1 S2",
-        "variant": "psid_behavioral_PDI1_2_nx_25_n2_i50_dbs_both_200Hz_narrow_band",
-        "run_ts": "20260408_222003",
-    },
-    {
-        "label": "PDI1 S4",
-        "variant": "psid_behavioral_PDI1_4_nx_15_n2_i50_dbs_both_200Hz_narrow_band",
-        "run_ts": "20260408_194919",
-    },
-    {
-        "label": "PDI4 S2",
-        "variant": "psid_behavioral_PDI4_2_nx_30_n6_i50_dbs_both_200Hz_narrow_band",
-        "run_ts": "20260408_162132",
-    },
-    {
-        "label": "PDI4 S3",
-        "variant": "psid_behavioral_PDI4_3_nx_25_n6_i50_dbs_both_200Hz_narrow_band",
-        "run_ts": "20260408_185522",
-    },
+        "label": tri.label.replace("_", " "),
+        "variant": tri.psid_variant,
+        "run_ts": tri.psid_run_ts,
+    }
+    for tri in ALL_TRIPLETS
 ]
 
 BEHAV_CHANNELS = ["tracing_velocity_x", "tracing_acceleration_magnitude"]
@@ -100,7 +74,8 @@ BEHAV_CHANNELS = ["tracing_velocity_x", "tracing_acceleration_magnitude"]
 # ## Data loading
 
 # %%
-from dashboard.thesis.loaders import load_split_results_required
+from thesis_lib.loaders import load_split_results_required
+from thesis_loaders import resolve_input_channels
 
 
 def load_test_results(session):
@@ -110,9 +85,15 @@ def load_test_results(session):
     )
 
 
-def get_channel_names(res):
-    """Get neural channel names, sorted by electrode then band."""
-    channels = res["input_channels"]
+def channels_for(session, res):
+    """Input (Y) channel names with YAML fallback — current PSID parquets have
+    empty ``input_channels`` and need the training YAML to name the 60 ECoG bands."""
+    return resolve_input_channels(res, session["variant"])
+
+
+def get_channel_names(res, variant):
+    """Get neural channel names (via YAML fallback), sorted by electrode then band."""
+    channels = resolve_input_channels(res, variant)
     # Sort: electrode number, then band frequency
     def sort_key(ch):
         parts = ch.replace("ECOG_", "").replace("_raw", "").split("_", 1)
@@ -150,12 +131,12 @@ def sorted_trial_indices(res):
 # ## Helper: compute per-trial per-channel RMSE
 
 # %%
-def compute_per_trial_rmse_neural(res, channel_order):
+def compute_per_trial_rmse_neural(res, channel_order, raw_channels):
     """Compute RMSE for each trial × neural channel from Y vs Yp.
 
     Returns (n_trials, n_channels) array in the order of channel_order.
     """
-    channels = res["input_channels"]
+    channels = raw_channels
     # Build channel index mapping: channel_order[j] -> position in Y columns
     ch_to_idx = {ch: i for i, ch in enumerate(channels)}
     col_indices = [ch_to_idx[ch] for ch in channel_order]
@@ -174,12 +155,12 @@ def compute_per_trial_rmse_neural(res, channel_order):
     return rmse_matrix
 
 
-def compute_per_trial_pearson_neural(res, channel_order):
+def compute_per_trial_pearson_neural(res, channel_order, raw_channels):
     """Extract per-trial Pearson R for neural channels from precomputed results.
 
     Returns (n_trials, n_channels) array in the order of channel_order.
     """
-    channels = res["input_channels"]
+    channels = raw_channels
     ch_to_idx = {ch: i for i, ch in enumerate(channels)}
     col_indices = [ch_to_idx[ch] for ch in channel_order]
 
@@ -224,7 +205,7 @@ def compute_per_trial_metrics_behavioral(res):
     return r_matrix, rmse_matrix
 
 
-def compute_per_trial_metrics_neural_forecast(res, channel_order):
+def compute_per_trial_metrics_neural_forecast(res, channel_order, raw_channels):
     """Per-trial × per-channel Pearson R and RMSE for the neural forecast.
 
     Uses Y_future_true / Y_future_pred (shape (T_forecast, n_neural)). Channels are
@@ -234,9 +215,9 @@ def compute_per_trial_metrics_neural_forecast(res, channel_order):
     if "Y_future_true" not in res or res.get("Y_future_true") is None:
         return None, None
 
-    from dashboard.thesis.transforms import reshape_future_z_time_first
+    from thesis_lib.transforms import reshape_future_z_time_first
 
-    channels = res["input_channels"]
+    channels = raw_channels
     ch_to_idx = {ch: i for i, ch in enumerate(channels)}
     col_indices = [ch_to_idx[ch] for ch in channel_order]
 
@@ -323,45 +304,47 @@ SESSION_DATA = {}
 
 for sess in SESSIONS:
     res = load_test_results(sess)
-    ch_order = get_channel_names(res)  # raw channel names (e.g. ECOG_1_theta_4_8_raw)
+    # Raw order (from parquet OR YAML fallback) and the sort-for-plotting order.
+    raw_channels = resolve_input_channels(res, sess["variant"])
+    ch_order = get_channel_names(res, sess["variant"])
     trial_order = sorted_trial_indices(res)
     t_labels = [trial_label(res, i) for i in trial_order]
 
-    r_mat_pred = compute_per_trial_pearson_neural(res, ch_order)
-    rmse_mat_pred = compute_per_trial_rmse_neural(res, ch_order)
+    r_mat_pred = compute_per_trial_pearson_neural(res, ch_order, raw_channels)
+    rmse_mat_pred = compute_per_trial_rmse_neural(res, ch_order, raw_channels)
     r_mat_behav, rmse_mat_behav = compute_per_trial_metrics_behavioral(res)
     r_mat_zfore, rmse_mat_zfore = compute_per_trial_metrics_forecast(res)
 
     SESSION_DATA[sess["label"]] = dict(
-        res=res, ch_order=ch_order, trial_order=trial_order, t_labels=t_labels,
+        res=res, ch_order=ch_order, raw_channels=raw_channels,
+        trial_order=trial_order, t_labels=t_labels,
         r_pred=r_mat_pred, rmse_pred=rmse_mat_pred,
         r_behav=r_mat_behav, rmse_behav=rmse_mat_behav,
         r_zfore=r_mat_zfore, rmse_zfore=rmse_mat_zfore,
     )
 
     r_sorted = r_mat_pred[trial_order, :]
-
-    # Wider figure + fewer pixels per row so long raw channel names fit; heatmap width
-    # scales with channel count (60 channels × ~22 px each + margins).
+    n_trials = len(t_labels)
     n_ch = len(ch_order)
-    w = max(1700, n_ch * 28 + 320)
-    h = max(420, 16 * len(t_labels) + 160)
 
-    fig = go.Figure(go.Heatmap(
-        z=r_sorted, x=ch_order, y=t_labels,
-        colorscale=COLORSCALE_DIVERGING, zmid=0, zmin=-1, zmax=1,
-        colorbar=dict(title=dict(text="Pearson r", font=dict(size=FONT_SIZE_BASE)),
-                      tickfont=dict(size=FONT_SIZE_BASE - 1), len=0.9),
-    ))
-    fig.update_xaxes(title_text="neural channel (raw name)",
-                     tickangle=90, tickfont=dict(size=9, family=FONT_FAMILY))
-    fig.update_yaxes(title_text="trial (block.trial stim)", autorange="reversed")
-    apply_thesis_style(fig, ThesisTheme.LIGHT, height=h,
-                       margin=dict(l=140, r=60, t=24, b=180), show_legend=False)
-    fig.update_layout(width=w)
-    fig.write_image(str(OUT / f'neural_pearson_{sess["label"].replace(" ", "_")}.png'),
-                    width=w, height=h, scale=2)
-    fig.show()
+    # Width scales with channel count so long raw names fit rotated; height scales with
+    # trial count so labels remain readable without overlap.
+    fig_w = max(9.0, n_ch * 0.14 + 2.0)
+    fig_h = max(3.5, n_trials * 0.13 + 1.2)
+
+    fig, ax = plt.subplots(figsize=(fig_w, fig_h))
+    im = ax.imshow(r_sorted, cmap="RdBu_r", vmin=-1, vmax=1,
+                   origin="upper", aspect="auto", interpolation="nearest")
+    ax.set_xticks(np.arange(n_ch))
+    ax.set_xticklabels(ch_order, rotation=90, fontsize=6)
+    ax.set_yticks(np.arange(n_trials))
+    ax.set_yticklabels(t_labels, fontsize=6)
+    ax.set_xlabel("neural channel (raw name)")
+    ax.set_ylabel("trial (block.trial stim)")
+    fig.colorbar(im, ax=ax, shrink=0.7, label="Pearson r")
+    panel_label(ax, "A", f"Neural prediction Pearson r — {sess['label']}")
+    fig.savefig(OUT / f'neural_pearson_{sess["label"].replace(" ", "_")}.png')
+    plt.show()
 print(
     f"Neural prediction Pearson r per trial × channel ({len(SESSIONS)} sessions, PSID test split). "
     f"Rows = test trials sorted DBS-OFF first then DBS-ON (block.trial stim labels). "
@@ -378,29 +361,30 @@ print(
 for sess in SESSIONS:
     sd = SESSION_DATA[sess["label"]]
     rmse_sorted = sd["rmse_pred"][sd["trial_order"], :]
-
+    n_trials = len(sd["t_labels"])
     n_ch = len(sd["ch_order"])
-    w = max(1700, n_ch * 28 + 320)
-    h = max(420, 16 * len(sd["t_labels"]) + 160)
 
-    fig = go.Figure(go.Heatmap(
-        z=rmse_sorted, x=sd["ch_order"], y=sd["t_labels"],
-        colorscale=COLORSCALE_SEQUENTIAL, reversescale=True,
-        colorbar=dict(title=dict(text="RMSE", font=dict(size=FONT_SIZE_BASE)),
-                      tickfont=dict(size=FONT_SIZE_BASE - 1), len=0.9),
-    ))
-    fig.update_xaxes(title_text="neural channel (raw name)",
-                     tickangle=90, tickfont=dict(size=9, family=FONT_FAMILY))
-    fig.update_yaxes(title_text="trial (block.trial stim)", autorange="reversed")
-    apply_thesis_style(fig, ThesisTheme.LIGHT, height=h,
-                       margin=dict(l=140, r=60, t=24, b=180), show_legend=False)
-    fig.update_layout(width=w)
-    fig.write_image(str(OUT / f'neural_rmse_{sess["label"].replace(" ", "_")}.png'),
-                    width=w, height=h, scale=2)
-    fig.show()
+    fig_w = max(9.0, n_ch * 0.14 + 2.0)
+    fig_h = max(3.5, n_trials * 0.13 + 1.2)
+
+    rmse_vmax = float(np.nanmax(rmse_sorted)) if np.isfinite(rmse_sorted).any() else 1.0
+
+    fig, ax = plt.subplots(figsize=(fig_w, fig_h))
+    im = ax.imshow(rmse_sorted, cmap="Blues", vmin=0, vmax=rmse_vmax,
+                   origin="upper", aspect="auto", interpolation="nearest")
+    ax.set_xticks(np.arange(n_ch))
+    ax.set_xticklabels(sd["ch_order"], rotation=90, fontsize=6)
+    ax.set_yticks(np.arange(n_trials))
+    ax.set_yticklabels(sd["t_labels"], fontsize=6)
+    ax.set_xlabel("neural channel (raw name)")
+    ax.set_ylabel("trial (block.trial stim)")
+    fig.colorbar(im, ax=ax, shrink=0.7, label="RMSE")
+    panel_label(ax, "A", f"Neural prediction RMSE — {sess['label']}")
+    fig.savefig(OUT / f'neural_rmse_{sess["label"].replace(" ", "_")}.png')
+    plt.show()
 print(
     "Neural prediction RMSE per trial × channel. Same layout as Pearson r heatmap but "
-    "sequential colorscale (darker blue = lower RMSE = better). Complements the r view: "
+    "sequential colorscale (darker blue = higher RMSE). Complements the r view: "
     "a channel can look 'red' in r (correctly tracks shape) yet still have a biased offset "
     "inflating RMSE."
 )
@@ -415,7 +399,7 @@ print(
 # %%
 for sess in SESSIONS:
     sd = SESSION_DATA[sess["label"]]
-    r_neu_f, rmse_neu_f = compute_per_trial_metrics_neural_forecast(sd["res"], sd["ch_order"])
+    r_neu_f, rmse_neu_f = compute_per_trial_metrics_neural_forecast(sd["res"], sd["ch_order"], sd["raw_channels"])
     if r_neu_f is None:
         print(f"  {sess['label']}: no Y_future data, skipping neural forecast heatmap.")
         continue
@@ -425,42 +409,42 @@ for sess in SESSIONS:
     trial_order = sd["trial_order"]
     r_sorted = r_neu_f[trial_order, :]
     rmse_sorted = rmse_neu_f[trial_order, :]
-
+    n_trials = len(sd["t_labels"])
     n_ch = len(sd["ch_order"])
-    w = max(1700, n_ch * 28 + 320)
-    h = max(420, 16 * len(sd["t_labels"]) + 160)
 
-    fig = go.Figure(go.Heatmap(
-        z=r_sorted, x=sd["ch_order"], y=sd["t_labels"],
-        colorscale=COLORSCALE_DIVERGING, zmid=0, zmin=-1, zmax=1,
-        colorbar=dict(title=dict(text="Pearson r", font=dict(size=FONT_SIZE_BASE)),
-                      tickfont=dict(size=FONT_SIZE_BASE - 1), len=0.9),
-    ))
-    fig.update_xaxes(title_text="neural channel (raw name)",
-                     tickangle=90, tickfont=dict(size=9, family=FONT_FAMILY))
-    fig.update_yaxes(title_text="trial (block.trial stim)", autorange="reversed")
-    apply_thesis_style(fig, ThesisTheme.LIGHT, height=h,
-                       margin=dict(l=140, r=60, t=24, b=180), show_legend=False)
-    fig.update_layout(width=w)
-    fig.write_image(str(OUT / f'neural_forecast_pearson_{sess["label"].replace(" ", "_")}.png'),
-                    width=w, height=h, scale=2)
-    fig.show()
+    fig_w = max(9.0, n_ch * 0.14 + 2.0)
+    fig_h = max(3.5, n_trials * 0.13 + 1.2)
 
-    fig = go.Figure(go.Heatmap(
-        z=rmse_sorted, x=sd["ch_order"], y=sd["t_labels"],
-        colorscale=COLORSCALE_SEQUENTIAL, reversescale=True,
-        colorbar=dict(title=dict(text="RMSE(z)", font=dict(size=FONT_SIZE_BASE)),
-                      tickfont=dict(size=FONT_SIZE_BASE - 1), len=0.9),
-    ))
-    fig.update_xaxes(title_text="neural channel (raw name)",
-                     tickangle=90, tickfont=dict(size=9, family=FONT_FAMILY))
-    fig.update_yaxes(title_text="trial (block.trial stim)", autorange="reversed")
-    apply_thesis_style(fig, ThesisTheme.LIGHT, height=h,
-                       margin=dict(l=140, r=60, t=24, b=180), show_legend=False)
-    fig.update_layout(width=w)
-    fig.write_image(str(OUT / f'neural_forecast_rmse_{sess["label"].replace(" ", "_")}.png'),
-                    width=w, height=h, scale=2)
-    fig.show()
+    # Pearson r panel
+    fig, ax = plt.subplots(figsize=(fig_w, fig_h))
+    im = ax.imshow(r_sorted, cmap="RdBu_r", vmin=-1, vmax=1,
+                   origin="upper", aspect="auto", interpolation="nearest")
+    ax.set_xticks(np.arange(n_ch))
+    ax.set_xticklabels(sd["ch_order"], rotation=90, fontsize=6)
+    ax.set_yticks(np.arange(n_trials))
+    ax.set_yticklabels(sd["t_labels"], fontsize=6)
+    ax.set_xlabel("neural channel (raw name)")
+    ax.set_ylabel("trial (block.trial stim)")
+    fig.colorbar(im, ax=ax, shrink=0.7, label="Pearson r")
+    panel_label(ax, "A", f"Neural forecast Pearson r — {sess['label']}")
+    fig.savefig(OUT / f'neural_forecast_pearson_{sess["label"].replace(" ", "_")}.png')
+    plt.show()
+
+    # RMSE panel
+    rmse_vmax = float(np.nanmax(rmse_sorted)) if np.isfinite(rmse_sorted).any() else 1.0
+    fig, ax = plt.subplots(figsize=(fig_w, fig_h))
+    im = ax.imshow(rmse_sorted, cmap="Blues", vmin=0, vmax=rmse_vmax,
+                   origin="upper", aspect="auto", interpolation="nearest")
+    ax.set_xticks(np.arange(n_ch))
+    ax.set_xticklabels(sd["ch_order"], rotation=90, fontsize=6)
+    ax.set_yticks(np.arange(n_trials))
+    ax.set_yticklabels(sd["t_labels"], fontsize=6)
+    ax.set_xlabel("neural channel (raw name)")
+    ax.set_ylabel("trial (block.trial stim)")
+    fig.colorbar(im, ax=ax, shrink=0.7, label="RMSE(z)")
+    panel_label(ax, "A", f"Neural forecast RMSE(z) — {sess['label']}")
+    fig.savefig(OUT / f'neural_forecast_rmse_{sess["label"].replace(" ", "_")}.png')
+    plt.show()
 print(
     "Neural forecast Pearson r and RMSE per trial × channel. Metrics are computed on "
     "Y_future_true vs Y_future_pred over the full forecast horizon; RMSE is on the "
@@ -473,50 +457,37 @@ print(
 # ## Behavioral Prediction — Pearson R & RMSE (test set)
 #
 # Two panels side by side for the two behavioural outputs, using raw feature names.
-# Each panel gets its own colorbar tucked against its right edge so trial labels
-# never collide with the scale.
 
 # %%
-def _behavioral_pair_heatmap(
-    sess_label: str, t_labels: list, r_sorted, rmse_sorted, png_name: str,
-) -> None:
-    h = max(420, 18 * len(t_labels) + 160)
-    w = 900  # wider than before so raw feature names (tracing_*) and colorbars fit.
-    fig = make_subplots(
-        rows=1, cols=2, shared_yaxes=True, horizontal_spacing=0.26,
-    )
-    fig.add_trace(go.Heatmap(
-        z=r_sorted, x=BEHAV_CHANNELS, y=t_labels,
-        colorscale=COLORSCALE_DIVERGING, zmid=0, zmin=-1, zmax=1,
-        colorbar=dict(title=dict(text="Pearson r", font=dict(size=FONT_SIZE_BASE)),
-                      tickfont=dict(size=FONT_SIZE_BASE - 1),
-                      x=0.435, xanchor="left", len=0.82, thickness=12),
-    ), row=1, col=1)
-    fig.add_trace(go.Heatmap(
-        z=rmse_sorted, x=BEHAV_CHANNELS, y=t_labels,
-        colorscale=COLORSCALE_SEQUENTIAL, reversescale=True,
-        colorbar=dict(title=dict(text="RMSE (raw units)", font=dict(size=FONT_SIZE_BASE)),
-                      tickfont=dict(size=FONT_SIZE_BASE - 1),
-                      x=1.02, xanchor="left", len=0.82, thickness=12),
-    ), row=1, col=2)
+def _behavioral_pair_heatmap(sess_label, t_labels, r_sorted, rmse_sorted, png_name, *, r_title, rmse_title):
+    n_trials = len(t_labels)
+    fig_h = max(3.5, n_trials * 0.15 + 1.2)
+    fig, axes = plt.subplots(1, 2, figsize=(8.5, fig_h), sharey=True)
 
-    fig.update_xaxes(tickangle=-20, tickfont=dict(size=FONT_SIZE_BASE - 1))
-    fig.update_yaxes(autorange="reversed", row=1, col=1,
-                     title_text="trial (block.trial stim)")
+    # Panel A: Pearson r
+    ax = axes[0]
+    im_r = ax.imshow(r_sorted, cmap="RdBu_r", vmin=-1, vmax=1,
+                     origin="upper", aspect="auto", interpolation="nearest")
+    ax.set_xticks(np.arange(len(BEHAV_CHANNELS)))
+    ax.set_xticklabels(BEHAV_CHANNELS, rotation=20, ha="right", fontsize=7)
+    ax.set_yticks(np.arange(n_trials))
+    ax.set_yticklabels(t_labels, fontsize=6)
+    ax.set_ylabel("trial (block.trial stim)")
+    fig.colorbar(im_r, ax=ax, shrink=0.7, label="Pearson r")
+    panel_label(ax, "A", r_title)
 
-    # In-panel labels replace the subplot titles (matches sec2 / sec7 convention).
-    fig.add_annotation(x=0.5, y=1.03, xref="x domain", yref="y domain",
-                       text="<b>Pearson r</b>", showarrow=False,
-                       font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY))
-    fig.add_annotation(x=0.5, y=1.03, xref="x2 domain", yref="y2 domain",
-                       text="<b>RMSE (raw units)</b>", showarrow=False,
-                       font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY))
+    # Panel B: RMSE
+    ax = axes[1]
+    rmse_vmax = float(np.nanmax(rmse_sorted)) if np.isfinite(rmse_sorted).any() else 1.0
+    im_e = ax.imshow(rmse_sorted, cmap="Blues", vmin=0, vmax=rmse_vmax,
+                     origin="upper", aspect="auto", interpolation="nearest")
+    ax.set_xticks(np.arange(len(BEHAV_CHANNELS)))
+    ax.set_xticklabels(BEHAV_CHANNELS, rotation=20, ha="right", fontsize=7)
+    fig.colorbar(im_e, ax=ax, shrink=0.7, label="RMSE")
+    panel_label(ax, "B", rmse_title)
 
-    apply_thesis_style(fig, ThesisTheme.LIGHT, height=h,
-                       margin=dict(l=160, r=140, t=56, b=120), show_legend=False)
-    fig.update_layout(width=w)
-    fig.write_image(str(OUT / png_name), width=w, height=h, scale=2)
-    fig.show()
+    fig.savefig(OUT / png_name)
+    plt.show()
 
 
 for sess in SESSIONS:
@@ -526,6 +497,8 @@ for sess in SESSIONS:
     _behavioral_pair_heatmap(
         sess["label"], sd["t_labels"], r_sorted, rmse_sorted,
         png_name=f'behav_pred_{sess["label"].replace(" ", "_")}.png',
+        r_title=f"Behav prediction Pearson r — {sess['label']}",
+        rmse_title=f"Behav prediction RMSE — {sess['label']}",
     )
 print(
     "Behavioural prediction Pearson r (left) and RMSE (right) per trial for both "
@@ -550,6 +523,8 @@ for sess in SESSIONS:
     _behavioral_pair_heatmap(
         sess["label"], sd["t_labels"], r_sorted, rmse_sorted,
         png_name=f'behav_forecast_{sess["label"].replace(" ", "_")}.png',
+        r_title=f"Behav forecast Pearson r — {sess['label']}",
+        rmse_title=f"Behav forecast RMSE — {sess['label']}",
     )
 print(
     "Behavioural forecast Pearson r and RMSE per trial. Same layout as the prediction "
@@ -573,14 +548,15 @@ BAND_KEYS = ["theta_4_8", "alpha_8_12", "beta_12_17", "beta_17_22", "beta_22_27"
 ELECTRODE_LABELS = ["ECOG_1", "ECOG_2", "ECOG_3", "ECOG_4"]
 
 n_sessions = len(SESSIONS)
-fig = make_subplots(rows=1, cols=n_sessions,
-                    subplot_titles=[s["label"] for s in SESSIONS],
-                    horizontal_spacing=0.06)
+fig, axes = plt.subplots(1, n_sessions, figsize=(3.4 * n_sessions, 2.6), sharey=True)
+panel_letters = ["A", "B", "C", "D", "E", "F"]
 
-for si, sess in enumerate(SESSIONS, 1):
+im = None
+for si, sess in enumerate(SESSIONS):
+    ax = axes[si]
     sd = SESSION_DATA[sess["label"]]
     ch_order = sd["ch_order"]
-    mean_r = np.nanmean(sd["r_pred"], axis=0)  # (60,)
+    mean_r = np.nanmean(sd["r_pred"], axis=0)  # (n_ch,)
 
     grid = np.full((len(ELECTRODE_LABELS), len(BAND_KEYS)), np.nan)
     for ci, ch in enumerate(ch_order):
@@ -594,22 +570,18 @@ for si, sess in enumerate(SESSIONS, 1):
                 grid[electrode, bi] = mean_r[ci]
                 break
 
-    fig.add_trace(go.Heatmap(
-        z=grid, x=BAND_KEYS, y=ELECTRODE_LABELS,
-        colorscale=COLORSCALE_DIVERGING, zmid=0, zmin=-0.5, zmax=0.5,
-        colorbar=dict(title=dict(text="r", font=dict(size=FONT_SIZE_BASE)),
-                      tickfont=dict(size=FONT_SIZE_BASE - 1), len=0.9)
-                 if si == n_sessions else dict(len=0),
-        showscale=(si == n_sessions),
-    ), row=1, col=si)
+    im = ax.imshow(grid, cmap="RdBu_r", vmin=-0.5, vmax=0.5,
+                   origin="upper", aspect="auto", interpolation="nearest")
+    ax.set_xticks(np.arange(len(BAND_KEYS)))
+    ax.set_xticklabels(BAND_KEYS, rotation=45, ha="right", fontsize=6)
+    if si == 0:
+        ax.set_yticks(np.arange(len(ELECTRODE_LABELS)))
+        ax.set_yticklabels(ELECTRODE_LABELS, fontsize=7)
+    panel_label(ax, panel_letters[si], sess["label"])
 
-fig.update_xaxes(tickangle=-45, tickfont=dict(size=FONT_SIZE_BASE - 2))
-apply_thesis_style(fig, ThesisTheme.LIGHT, height=360,
-                   margin=dict(l=100, r=100, t=48, b=140), show_legend=False)
-fig.update_layout(width=380 * n_sessions)
-fig.write_image(str(OUT / 'neural_pearson_summary.png'),
-                width=380 * n_sessions, height=360, scale=2)
-fig.show()
+fig.colorbar(im, ax=axes.ravel().tolist(), shrink=0.7, label="r")
+fig.savefig(OUT / 'neural_pearson_summary.png')
+plt.show()
 print(
     "Mean Pearson r aggregated over test trials, reorganised into a (4 electrodes × "
     f"{len(BAND_KEYS)} bands) grid for each session. Raw band keys are kept verbatim. "

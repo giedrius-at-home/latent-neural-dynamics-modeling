@@ -3,7 +3,7 @@ import numpy as np
 from pathlib import Path
 
 from utils.ieeg import epoch_trials, calculate_psd_welch
-from utils.polars import band_pass_resample, read_and_implode_parquet
+from utils.polars import read_and_implode_parquet
 from .motion import construct_motion_table
 from utils.file_handling import get_child_subchilds_tuples
 from utils.config import Config

@@ -1,0 +1,46 @@
+model:
+  name: psid_laplacian_PDI1_2_nx_75_n15_i100_dbs_on_200Hz_narrow_band_mrmr8
+  nx: 75
+  n1: 15
+  i: 100
+  time_first: true
+  fast: false
+  reuse_splits: false
+  max_eigenvalue: 0.9999
+  forecast:
+    m: 1
+    history: 3
+data:
+  root: resampled_recordings/participants_at_200Hz_scaled_1e6_narrow_band
+  participant: PDI1
+  session: '2'
+  blocks: all
+  channels:
+    neural_input:
+    - ECOG_3_beta_12_17_raw
+    - ECOG_3_beta_17_22_raw
+    - ECOG_2_beta_12_17_raw
+    - ECOG_2_beta_17_22_raw
+    - ECOG_4_beta_12_17_raw
+    - ECOG_4_beta_17_22_raw
+    - ECOG_3_theta_4_8_raw
+    - ECOG_3_beta_22_27_raw
+    output_type: neural
+    output:
+    - ECOG_3_beta_12_17_raw
+    - ECOG_3_beta_17_22_raw
+    - ECOG_2_beta_12_17_raw
+    - ECOG_2_beta_17_22_raw
+    - ECOG_4_beta_12_17_raw
+    - ECOG_4_beta_17_22_raw
+    - ECOG_3_theta_4_8_raw
+    - ECOG_3_beta_22_27_raw
+  split:
+    within_session_split: true
+  batch_size: 32
+  sampling_frequency: 200
+  dbs_condition: 'on'
+results:
+  save_dir: results/psid_laplacian_PDI1_2_nx_75_n15_i100_dbs_on_200Hz_narrow_band_mrmr8
+  log_dir: results/psid_laplacian_PDI1_2_nx_75_n15_i100_dbs_on_200Hz_narrow_band_mrmr8/logs
+  checkpoint_dir: checkpoints

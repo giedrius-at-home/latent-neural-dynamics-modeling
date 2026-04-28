@@ -1,0 +1,32 @@
+run:
+  variant: psid_laplacian_PDI4_3_nx_55_n10_i100_dbs_both_200Hz_narrow_band_mrmr8
+  run_ts: '20260425_164517'
+classification:
+  n_splits: 5
+  epoch_length: 0.5
+  epoch_overlap: 0.25
+  sampling_freq: 200
+  h:
+  - 1.0
+  - 2.0
+  - 3.0
+  m:
+  - 0.5
+  - 1.0
+  n1: 10
+  nx: 55
+  permutation_test: false
+  n_permutations: 0
+  param_grid:
+    LDA:
+      classifier__solver:
+      - lsqr
+      classifier__shrinkage:
+      - auto
+  flipped: false
+  prediction_feature_source: Xp_2
+  forecast_feature_source: Xp_2
+results:
+  project_root: /home/bobby/repos/latent-neural-dynamics-modeling
+  results_dir: /home/bobby/repos/latent-neural-dynamics-modeling/results/classification/psid_laplacian_PDI4_3_nx_55_n10_i100_dbs_both_200Hz_narrow_band_mrmr8
+  log_dir: /home/bobby/repos/latent-neural-dynamics-modeling/logs/classification

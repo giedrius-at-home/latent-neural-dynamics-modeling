@@ -73,6 +73,29 @@ class Trainer:
             )
             if behavioral_input:
                 base_cols = list(set(base_cols) | set(behavioral_input))
+
+            # Split parquets carry a superset of columns so downstream pipelines
+            # (VARMA, DPAD) that copy PSID's splits can read LFP + tracing
+            # targets even when the originating PSID run didn't use them as
+            # outputs. Peek at one block to enumerate candidates, then include
+            # any matching ECoG/LAPLACIAN/tracing columns present.
+            probe_path = None
+            for bf in sorted(session_path.glob("block=*/0.parquet")):
+                probe_path = bf
+                break
+            if probe_path is not None:
+                import re as _re
+                probe_all = pl.read_parquet(probe_path, n_rows=1)
+                _ecog_rx = _re.compile(r"^ECOG_[1-4]_.*_raw$")
+                _lap_rx = _re.compile(r"^LAPLACIAN_14-16_LFP_.*_raw$")
+                _beh_rx = _re.compile(
+                    r"^tracing_(velocity_[xy]|acceleration_magnitude|velocity_magnitude)$"
+                )
+                universal = [
+                    c for c in probe_all.columns
+                    if _ecog_rx.match(c) or _lap_rx.match(c) or _beh_rx.match(c)
+                ]
+                base_cols = list(set(base_cols) | set(universal))
             combined_cols = []
             for col in base_cols:
                 combined_cols.append(pl.col(col))
@@ -436,11 +459,7 @@ class Trainer:
                 "nx": getattr(self.model_params, "nx", None),
                 "n1": getattr(self.model_params, "n1", None),
                 "i": getattr(self.model_params, "i", None),
-                "backward_kalman": getattr(
-                    self.model_params, "backward_kalman", False
-                ),
-                "rescale_states": getattr(self.model_params, "rescale_states", True),
-                "max_eigenvalue": getattr(self.model_params, "max_eigenvalue", 0.995),
+                "max_eigenvalue": getattr(self.model_params, "max_eigenvalue", 0.9999),
             }
 
         with open(metadata_path, "w") as f:
@@ -531,7 +550,7 @@ class Trainer:
             train_results["pearson_r_mean_Z"] = r_mean_Z_train
 
         chunk_margin_train = meta_train[0].get("chunk_margin") if meta_train else 0
-        train_forecast = self.framework._validate_forecast(
+        train_forecast = self.framework._evaluate_forecast(
             Y_train,
             Z_list=Z_train,
             margin=chunk_margin_train,
@@ -563,7 +582,7 @@ class Trainer:
             val_results["pearson_r_mean_Z"] = r_mean_Z_val
 
         chunk_margin_val = meta_val[0].get("chunk_margin") if meta_val else 0
-        val_forecast = self.framework._validate_forecast(
+        val_forecast = self.framework._evaluate_forecast(
             Y_val, Z_list=Z_val, margin=chunk_margin_val, Yp_val=Yp_val, Zp_val=Zp_val
         )
         val_results.update(val_forecast)
@@ -760,14 +779,8 @@ class Trainer:
                     "nx": self.model_params.nx,
                     "n1": self.model_params.n1,
                     "i": getattr(self.model_params, "i", None),
-                    "backward_kalman": getattr(
-                        self.model_params, "backward_kalman", False
-                    ),
-                    "rescale_states": getattr(
-                        self.model_params, "rescale_states", True
-                    ),
                     "max_eigenvalue": getattr(
-                        self.model_params, "max_eigenvalue", 0.995
+                        self.model_params, "max_eigenvalue", 0.9999
                     ),
                 }
                 with open(out_dir / f"model_{ts}_metadata.json", "w") as f:

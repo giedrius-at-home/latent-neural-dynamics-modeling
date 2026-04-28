@@ -18,7 +18,7 @@ def test(config, run_timestamp=None, incremental=False, splits=None):
 
     if incremental:
         logger.info("Running incremental (trial-by-trial) predictions...")
-        tester.run_predictions_incremental()
+        tester.run_predictions_incremental(splits=splits)
     else:
         if splits:
             logger.info(f"Running selective predictions on splits: {splits}")

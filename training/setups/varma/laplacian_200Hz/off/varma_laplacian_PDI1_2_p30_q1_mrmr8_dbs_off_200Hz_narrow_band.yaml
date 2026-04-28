@@ -1,0 +1,47 @@
+model:
+  name: varma_laplacian_PDI1_2_p30_q1_mrmr8_dbs_off_200Hz_narrow_band
+  p: 30
+  q: 1
+  long_ar_lags: 30
+  trial_edge_taper_sec: 0.1
+  ridge_alpha: 1.0
+  time_first: true
+  fast: true
+  reuse_splits: true
+  forecast:
+    m: 1
+    history: 2
+data:
+  root: resampled_recordings/participants_at_200Hz_scaled_1e6_narrow_band
+  participant: PDI1
+  session: '2'
+  blocks: all
+  channels:
+    neural_input:
+    - ECOG_3_beta_12_17_raw
+    - ECOG_3_beta_17_22_raw
+    - ECOG_2_beta_12_17_raw
+    - ECOG_2_beta_17_22_raw
+    - ECOG_4_beta_12_17_raw
+    - ECOG_4_beta_17_22_raw
+    - ECOG_3_theta_4_8_raw
+    - ECOG_3_beta_22_27_raw
+    output_type: neural
+    output:
+    - LAPLACIAN_14-16_LFP_alpha_8_12_raw
+    - LAPLACIAN_14-16_LFP_theta_4_8_raw
+    - LAPLACIAN_14-16_LFP_beta_12_17_raw
+    - LAPLACIAN_14-16_LFP_beta_17_22_raw
+    - LAPLACIAN_14-16_LFP_gamma_30_35_raw
+    - LAPLACIAN_14-16_LFP_beta_22_27_raw
+    - LAPLACIAN_14-16_LFP_beta_27_30_raw
+    - LAPLACIAN_14-16_LFP_gamma_45_50_raw
+  split:
+    within_session_split: true
+  batch_size: 32
+  sampling_frequency: 200
+  dbs_condition: 'off'
+results:
+  save_dir: results/varma_laplacian_PDI1_2_p30_q1_mrmr8_dbs_off_200Hz_narrow_band
+  log_dir: results/varma_laplacian_PDI1_2_p30_q1_mrmr8_dbs_off_200Hz_narrow_band/logs
+  checkpoint_dir: checkpoints

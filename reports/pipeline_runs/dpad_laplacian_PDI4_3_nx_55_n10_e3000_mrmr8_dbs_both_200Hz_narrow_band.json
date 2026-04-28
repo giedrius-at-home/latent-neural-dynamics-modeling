@@ -1,0 +1,34 @@
+{
+  "pipeline": "dpad",
+  "variant": "dpad_laplacian_PDI4_3_nx_55_n10_e3000_mrmr8_dbs_both_200Hz_narrow_band",
+  "phases": [
+    "train"
+  ],
+  "started_at": "2026-04-26T08:47:41.797364",
+  "finished_at": "2026-04-26T19:08:42.458186",
+  "state": {
+    "timestamps": {
+      "both": "20260426_084743",
+      "on": "20260426_122848",
+      "off": "20260426_155350"
+    }
+  },
+  "participant": "PDI4",
+  "session": "3",
+  "nx": 55,
+  "n1": 10,
+  "epochs": 3000,
+  "method_code": "DPAD_uAKCzCy2HL32U",
+  "psid_variant": "psid_laplacian_PDI4_3_nx_55_n10_i100_dbs_both_200Hz_narrow_band_mrmr8",
+  "channels": [
+    "ECOG_2_gamma_40_45_raw",
+    "ECOG_3_gamma_60_65_raw",
+    "ECOG_3_gamma_75_80_raw",
+    "ECOG_2_beta_27_30_raw",
+    "ECOG_4_theta_4_8_raw",
+    "ECOG_1_gamma_70_75_raw",
+    "ECOG_3_gamma_55_60_raw",
+    "ECOG_3_beta_17_22_raw"
+  ],
+  "channels_tag": "mrmr8"
+}
