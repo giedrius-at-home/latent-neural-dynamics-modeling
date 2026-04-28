@@ -1,0 +1,35 @@
+participant: PDI3
+session: 4
+strategy: balanced_block_chronological
+train_frac: 0.5
+test_frac: 0.4
+n_blocks_total: 11
+n_blocks_off: 6
+n_blocks_on: 5
+train_blocks:
+- 1
+- 2
+- 3
+- 6
+val_blocks:
+- 5
+- 7
+- 8
+test_blocks:
+- 9
+- 10
+- 11
+- 12
+summary:
+  train:
+    n_blocks: 4
+    n_trials_off: 24
+    n_trials_on: 24
+  val:
+    n_blocks: 3
+    n_trials_off: 24
+    n_trials_on: 12
+  test:
+    n_blocks: 4
+    n_trials_off: 24
+    n_trials_on: 24

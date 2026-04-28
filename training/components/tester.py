@@ -12,7 +12,7 @@ from utils.stats import pearson_r_per_channel
 import h5py
 import json
 
-from utils.miscellaneous import length, flatten
+from utils.miscellaneous import length
 
 
 class Tester:
@@ -294,7 +294,7 @@ class Tester:
             Zp, Yp, Xp = self.framework._predict(Y_list, Z_list)
 
             chunk_margin = meta_list[0].get("chunk_margin")
-            f_res = self.framework.model.validate_forecast(
+            f_res = self.framework._evaluate_forecast(
                 Y_list, Z_list=Z_list, margin=chunk_margin
             )
 
@@ -334,7 +334,7 @@ class Tester:
             Zp, Yp, Xp = self.framework._predict(Y_list, Z_list)
 
             chunk_margin = meta_list[0].get("chunk_margin")
-            f_res = self.framework.model.validate_forecast(
+            f_res = self.framework._evaluate_forecast(
                 Y_list, Z_list=Z_list, margin=chunk_margin
             )
 
@@ -384,17 +384,21 @@ class Tester:
         df = pl.from_dict(row)
         df.write_parquet(partition_dir / "0.parquet")
 
-    def run_predictions_incremental(self):
+    def run_predictions_incremental(self, splits=None):
         self._load_dataloaders()
         self._load_model_for_run()
 
         results_dir = Path(self.results_config.save_dir)
 
-        for split_name, loader in (
+        all_splits = (
             ("train", self.train_loader),
             ("val", self.val_loader),
             ("test", self.test_loader),
-        ):
+        )
+        if splits:
+            all_splits = tuple((n, l) for (n, l) in all_splits if n in splits)
+
+        for split_name, loader in all_splits:
             Y_list, _z, meta_list = loader.get_full_dataset()
             Y_list, Z_list, meta_list = self._slice_data(Y_list, _z, meta_list)
             n_trials = len(Y_list)
@@ -421,7 +425,7 @@ class Tester:
 
                 Zp, Yp, Xp = self.framework._predict(Y_i, Z_i)
 
-                f_res = self.framework.model.validate_forecast(
+                f_res = self.framework._evaluate_forecast(
                     Y_i,
                     Z_list=Z_i,
                     margin=meta_i.get("chunk_margin"),

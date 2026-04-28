@@ -5,7 +5,6 @@ from utils.file_handling import list_files
 from utils.config import Config
 
 import numpy as np
-from utils.logger import get_logger
 
 
 def read_tsv(path: Path, unique: bool = True) -> pl.DataFrame:

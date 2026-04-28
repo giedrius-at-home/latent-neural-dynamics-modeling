@@ -1,0 +1,15 @@
+numpy
+pandas
+polars
+scipy
+scikit-learn
+matplotlib
+seaborn
+pyyaml
+statsmodels
+h5py
+mne
+joblib
+DPAD==0.0.9
+sktime
+pyarrow

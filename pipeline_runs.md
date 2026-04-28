@@ -171,6 +171,16 @@ All timestamps are from 2026-04-11. Variant dirs live under
 
 Unified entry point: **`scripts/pipeline_dpad.py`**. **Behavioral only.**
 
+> **TODO (2026-04-17)**: add DPAD laplacian mode. Requires: (a) `--mode
+> behavioral|laplacian` flag mirroring `pipeline_psid.py`; (b)
+> `DPADConfig.mode_config()` helper for laplacian output channels (LFP
+> bands), training subdir `dpad/laplacian_200Hz`, variant prefix
+> `dpad_laplacian_*`; (c) retrain Phase 1-3 for 4 sessions x laplacian
+> (~48 h); (d) re-run Phase 4 classification (~4 h/cell). Downstream:
+> `classification_grouped_bar_laplacian_dpad.png` + ROC laplacian panel B
+> will auto-fill on next `generate_classification_figures.py` run once
+> `results/classification/dpad_laplacian_*` exists.
+
 ### Key constants
 
 | Field | Value |
@@ -185,34 +195,200 @@ Unified entry point: **`scripts/pipeline_dpad.py`**. **Behavioral only.**
 
 Variant name: `dpad_behavioral_{P}_{S}_nx_{nx}_n{n1}_e3000_top5_dbs_{dbs}_200Hz_narrow_band`.
 
-### Status
+### Status (as of 2026-04-15)
 
 Rerun launched 2026-04-11 11:37:22 UTC in screen `dpad_rerun` (bobby) after
 the `allX_steps` library crash was worked around in `utils/frameworks.py`
 (stop passing `skip_predictions=fast` to `DPADModel.fit`).
-Log: `logs/pipeline_dpad/local_dpad_20260411_113722.log`.
+Initial train log: `logs/pipeline_dpad/local_dpad_20260411_113722.log`.
 
 **Split across two hosts (2026-04-11 17:59 UTC onwards):**
 
 | Host | Screen | Script | Sessions |
 |---|---|---|---|
-| bobby (local) | `dpad_rerun` | `scripts/run_dpad_local.sh` | PDI1 S2, PDI1 S4, PDI4 S2, PDI4 S3 |
+| bobby (local) | `dpad_rerun` | `scripts/run_dpad_local.sh` | PDI1 S2, PDI1 S4 |
 | jacque (10.0.0.2) | `dpad_jacque` | `scripts/run_dpad_jacque_PDI4.sh` | PDI4 S2, PDI4 S3 |
 
 Collision prevention: `pipeline_dpad.py:303` has skip-if-exists (checks
-for `model_*.pkl` in the target variant dir before training). A sync
-watcher on bobby — screen `dpad_sync`, script
-`scripts/dpad_jacque_sync_watcher.sh` — rsyncs jacque's
-`results/dpad_behavioral_PDI4_*` dirs back to local every 15 min and
-exits once jacque logs `ALL JACQUE DPAD RUNS COMPLETE`. When the local
-runner eventually reaches PDI4 S2/S3, jacque's models are already visible
-and local skips.
+for an existing model artifact in the target variant dir before training).
+Jacque's PDI4 dirs were synced back to bobby on 2026-04-15 via
+`rsync -avz -e 'ssh -i ~/.ssh/id_ed25519_nopass' jacque@10.0.0.2:~/.../results/`.
 
-PDI1 S2 `dbs_both` took ~2h 46m end-to-end (11:37 → 14:23, stages:
-RNN1 → Cy1 → RNN2 → Cz2 → persistence). The full rerun is expected to
-run for ~1–2 days; monitor via TensorBoard event files under each
-variant's `logs/` subdir rather than the main script log (keras progress
-bars use `\r` and don't flush to `tee`).
+### Phase 1+2 per-cell (all 12 variants complete on bobby)
+
+Canonical `(model_ts / test_parquet_ts)` are identical for every variant:
+
+| Cell | nx | n1 | dbs_both | dbs_on | dbs_off |
+|---|---|---|---|---|---|
+| PDI1 S2 | 4  | 2 | 20260411_113724 | 20260411_142313 | 20260411_164725 |
+| PDI1 S4 | 25 | 2 | 20260411_230413 | 20260412_000112 | 20260412_001727 |
+| PDI4 S2 | 15 | 2 | 20260411_175909 | 20260411_223341 | 20260412_064157 |
+| PDI4 S3 | 25 | 2 | 20260412_102335 | 20260412_134603 | 20260412_165957 |
+
+Phase 2 on jacque originally hit `TEST_TIMEOUT=7200` (2h) on PDI4 S3
+(`logs/pipeline_dpad/jacque_dpad_20260411_175906.log` ends with
+`subprocess.TimeoutExpired`). After patching `training/test.py` to accept
+`--incremental --splits test` (2026-04-14, see
+`project_dpad_test_gotchas.md` in Claude memory), test was re-run manually
+for the 6 PDI4 variants; current `test/test_results_*.parquet` dirs all
+carry mtimes from 2026-04-14.
+
+### Phase 3 complete; Phase 4 redesigned (2026-04-15)
+
+**Phase 3 (cross-condition eval)** completed 2026-04-15 for all 4 cells.
+Each cell produced `results/dpad_*_eval_off/` + `results/dpad_*_eval_on/`.
+
+**Phase 4 (classification)** — original design (grid-search h × m, permute on
+CV-best) crashed at the `CLS_TIMEOUT=3600s` wall on every cell. Root cause:
+DPAD forecast is an RNN rollout per trial per CV fold, not a closed-form
+Kalman recursion; even a single (h, m) config takes >1 h at h=0.5, m=0.5.
+
+**Redesign**: `scripts/pipeline_dpad.py` now imports PSID's CV-best (h, m)
+per feature source via `_find_psid_best_hm()` and runs DPAD classification
+at that **fixed** cell — no grid search on DPAD. Methodologically stronger
+because DPAD's permutation test is conditionally valid (PSID chose the
+window, DPAD didn't); removes the selective-inference confound that
+applies to PSID's own p-values.
+
+`CLS_TIMEOUT` bumped 3600 → 14400 (4 h) as a safety net.
+
+Log: `logs/pipeline_dpad/dpad_phase4_aligned_{ts}.log`.
+
+PDI4 PSID Phase 5 was missing until 2026-04-15; re-ran it via
+`scripts/pipeline_psid.py --start-phase 5 --end-phase 5` for PDI4 S2
+(`--best-nx 15 --best-n1 2`) and PDI4 S3 (`--best-nx 25 --best-n1 2`).
+Completed cleanly at 16:08 UTC; fed the PSID (h, m) picks into DPAD.
+
+PSID CV-best (h, m) per cell (from 2026-04-15 Phase 5):
+
+| Cell | Xp | Xp_1 | Xp_2 | Xp_with_dbs |
+|---|---|---|---|---|
+| PDI1_S2 | (0.5, 0.5) 0.500 | (0.5, 0.5) 0.500 | (0.5, 0.5) 0.594 | (0.5, 0.5) 1.000 |
+| PDI1_S4 | (0.5, 0.5) 0.744 | (1.5, 0.5) 0.606 | (0.5, 0.5) 0.744 | (0.5, 0.5) 1.000 |
+| PDI4_S2 | (0.5, 0.5) 0.616 | (1.5, 0.5) 0.514 | (0.5, 0.5) 0.616 | (0.5, 0.5) 1.000 |
+| PDI4_S3 | (4.5, 0.5) 0.534 | (0.5, 0.5) 0.515 | (1.5, 2.0) 0.549 | (0.5, 0.5) 1.000 |
+
+`Xp_with_dbs` = 1.0 across the board is expected: the feature concatenates
+the DBS label with `Xp`, so label leakage trivially achieves perfect
+classification. Report as a sanity-check ceiling, not a model score.
+
+### Stray artifacts (cleaned up)
+
+- `results/dpad_behavioral_PDI4_2_nx_15_n2_e3000_top5_dbs_on_200Hz_narrow_band/`
+  had a second model tagged `20260412_023310` from a retrain on jacque;
+  the 2026-04-14 test re-run targeted the older `20260411_223341` model,
+  so the stray artifact was moved into `.stray_models/` inside the variant
+  dir (preserved, not deleted) so `get_latest_model_ts` picks the
+  canonical one.
+- PDI4 S3 variants all have two model artifacts. The lexicographically
+  later one matches the test parquet in every case, so
+  `get_latest_model_ts` picks correctly without intervention.
+
+---
+
+## Classification status (2026-04-16)
+
+> **Always check this section first before building thesis figures.**
+> Permutation p-values and flipped-classifier results are incomplete until
+> all screens below finish. Standard (non-flipped) classification is usable now.
+
+### Architecture recap
+
+- **PSID**: runs full `H_GRID × M_GRID` = 15 combinations, picks CV-best (h, m)
+  per feature source, then runs permutation test only at that best point.
+- **DPAD**: no grid search — reads PSID's CV-best (h, m) and classifies at that
+  fixed point. Methodologically cleaner: PSID chose the window, DPAD did not.
+- **Flipped classifier**: loads on/off/both models simultaneously; uses h/m from
+  the **flipped PSID** grid (`*_flipped` classification dir) — must exist
+  independently, never falls back to the standard h/m.
+
+### Bugs found and fixed 2026-04-16
+
+1. **Sentinel initialization** (`pipeline_psid.py:750`, `pipeline_dpad.py:438`).
+   `best_h, best_m, best_ba = -1.0, H_GRID[0], M_GRID[0]` — `best_ba` was
+   initialised to `M_GRID[0]=0.5`. Any session where all flipped BAs ≤ 0.5
+   (at-chance, e.g. PDI1 S2 behavioral) passed the `if best_ba < 0` guard
+   with `best_h=-1.0` intact. This wrote a ghost `h-1.0_m0.5/` dir and passed
+   `h=-1.0` (nonsensical) to `compute.py`.
+   **Fix**: `best_h, best_m, best_ba = H_GRID[0], M_GRID[0], -1.0`.
+
+2. **`fallback_to_standard` removed from `pipeline_dpad.py`**.
+   When PSID flipped classification was absent, DPAD silently used the
+   standard h/m for the flipped classifier (wrong feature space).
+   **Fix**: removed entirely — missing flipped PSID now raises `FileNotFoundError`.
+
+3. **Flipped classification timeout** (`pipeline_psid.py`, `pipeline_dpad.py`).
+   Both pipelines used `timeout=3600` (1 h) for the flipped step. Flipped loads
+   3 models simultaneously; for nx≥15 behavioral or nx≥25 laplacian it timed
+   out before saving any results. Because `TimeoutExpired` propagated uncaught,
+   **the entire Step 2 (standard permutation tests) never ran** for any session.
+   **Fix**: `CLS_TIMEOUT_FLIPPED = 28800` (8 h) for all flipped calls in both
+   pipelines; flipped moved outside `configs_step1` loop so Step 2 runs even
+   if flipped times out in the future.
+
+4. **TF GPU OOM on jacque** (MX150, 2 GB VRAM).
+   TF pre-allocates full VRAM at startup → `cudaSetDevice() failed: out of memory`
+   on every DPAD classification job on jacque.
+   **Fix**: `TF_FORCE_GPU_ALLOW_GROWTH=true` injected into every classification
+   subprocess via `run_cmd(extra_env={"TF_FORCE_GPU_ALLOW_GROWTH": "true"})`.
+   All DPAD Phase 4 classification moved to bobby (RTX 3050, 4 GB) for safety.
+
+### Ghost dirs cleaned up
+
+| Dir | Problem |
+|---|---|
+| `psid_behavioral_PDI4_2_*_flipped/20260415_153747` | `h-1.0_m0.5` from sentinel bug |
+| `psid_behavioral_PDI1_2_*_flipped/20260416_101806` | `h-1.0_m0.5` from sentinel bug (today's bad re-run) |
+| `psid_behavioral_PDI1_4_*_flipped/20260411_122917` | only `h0.5_m0.5` — partial grid, Step 2 aborted |
+| `psid_behavioral_PDI4_3_*_flipped/20260415_160135` | only `h0.5_m0.5` — partial grid, Step 2 aborted |
+| `psid_laplacian_PDI4_3_*_flipped/20260411_140159` | `h-1.0_m0.5` from sentinel bug |
+| `psid_laplacian_PDI1_4_*_flipped/20260411_125010` | partial perm test, re-running |
+
+### Current classification status (as of 2026-04-16 19:30)
+
+#### PSID behavioral — `screen -r psid_cls` (CPU, runs concurrently with DPAD)
+
+Queue: PDI4 S2 → PDI4 S3 → PDI1 S2 → PDI1 S4.
+Log: `logs/pipeline_dpad/psid_phase5_rerun_20260416_*.log`
+
+| Cell | Standard grid | Flipped grid | Perms |
+|---|---|---|---|
+| PDI1 S2 | ✓ 4 preds, 24 pkls, 6 h/m | running (never completed) | queued |
+| PDI1 S4 | ✓ 4 preds, 24 pkls, 6 h/m | running (was partial h0.5 only) | queued |
+| PDI4 S2 | ✓ 4 preds, 24 pkls, 6 h/m | ✓ 6 h/m complete | running |
+| PDI4 S3 | ✓ 4 preds, 24 pkls, 6 h/m | running (was partial h0.5 only) | queued |
+
+#### PSID laplacian — `screen -r psid_lap_cls` (CPU)
+
+Queue: PDI1 S2 → PDI1 S4 → PDI4 S3. PDI4 S2 has no laplacian session.
+Log: `logs/pipeline_dpad/psid_lap_phase5_rerun_20260416_*.log`
+
+| Cell | Standard grid | Flipped grid | Perms |
+|---|---|---|---|
+| PDI1 S2 | ✓ 4 preds, 24 pkls, 6 h/m | running (never existed) | queued |
+| PDI1 S4 | ✓ 4 preds, 24 pkls, 6 h/m | ✓ 6 h/m complete (2026-04-11) | running |
+| PDI4 S2 | N/A | — | — |
+| PDI4 S3 | ✓ 4 preds, 24 pkls, 6 h/m | ✓ 6 h/m complete (2026-04-11) | running |
+
+#### DPAD behavioral — `screen -r dpad_cls` (RTX 3050, GPU, bobby)
+
+Uses PSID-best h/m (fixed point, no grid). Queue: PDI4 S2 flipped → perms →
+PDI4 S3 → PDI1 S4 → PDI1 S2.
+Log: `logs/pipeline_dpad/all_cls_20260416_100929.log`
+
+| Cell | Preds | Forecast pkls | Flipped | Perms |
+|---|---|---|---|---|
+| PDI1 S2 | ✓ 4/4 | ✓ 4 (Xp/Xp_1/Xp_2/Xp_with_dbs) | queued | queued |
+| PDI1 S4 | ⚠ 3/4 (xp_with_dbs missing) | ⚠ 2/4 | queued | queued |
+| PDI4 S2 | ✓ 4/4 | ✓ 4 | **running** (started 16:27) | queued |
+| PDI4 S3 | nothing yet | nothing yet | queued | queued |
+
+### What is usable right now
+
+Standard (non-flipped) DBS classification, predictions, and reconstruction
+metrics are ready for all 8 PSID cells (behavioral + laplacian) and for
+DPAD PDI1 S2 + PDI4 S2. Permutation p-values and flipped-classifier results
+are pending but not needed for the core classification accuracy figures.
 
 ---
 
@@ -295,6 +471,122 @@ All fixes are on branch `varma-pipeline`.
   ratios + `within_session_split=True`) the regenerated splits are
   bit-identical to PSID's, so the warning is cosmetic. Next rerun should
   scan per-DBS-variant `i` like the PSID Phase 5 entry fix.
+
+## 2026-04-23 → 2026-04-26 — mrmr8 family + multi-host DPAD + lap Y→Y fix
+
+Everything above was the 2026-04-10/11 rerun. Since 2026-04-23 the canonical
+family for figures is `_mrmr8` — Y input = top-8 ECoG via mRMR-vs-behaviour;
+Z output (laplacian mode) = top-8 LFP via mRMR-vs-behaviour; nx/n1 from
+`configs/diagnostic/elbow_choices.yaml`. VARMA stays `p=30, q=1, mrmr8`.
+
+### Canonical (nx, n1) per cell
+
+From `configs/diagnostic/elbow_choices.yaml`:
+
+| Cell | behavioral (nx, n1) | laplacian (nx, n1) |
+|---|---|---|
+| PDI1_S2 | 150, 10 | 75, 10 |
+| PDI1_S4 | 100, 10 | 80, 10 |
+| PDI4_S2 | 150, 7  | 60, 7  |
+| PDI4_S3 | 150, 15 | 55, 10 |
+
+### Bug fixed 2026-04-25 — PSID/DPAD/VARMA laplacian Z output
+
+Old laplacian variants used wrong Z:
+- PSID lap fell back to `neural_input` as Z → **Y→Y self-prediction** (`r_Z ≈ 0.99` was decorative noise)
+- DPAD/VARMA lap used all 15 LFP bands instead of top-8
+
+Fix: new helper `scripts/_pipeline_common.py:mrmr_top_k_lfp_from_diagnostic`
+reads top-K LFP picks from
+`results/diagnostic/{P}_{S}_psid_spectra/mrmr_timelagged/laplacian.parquet`.
+PSID/DPAD/VARMA now produce identical Z channel sets per cell. Old broken
+dirs archived to `results/_archive_lap_pre_topk_lfp_20260425/`.
+
+### Multi-host allocation (2026-04-24 onward)
+
+| Host | Hardware | Owns |
+|---|---|---|
+| bobby (local) | RTX 3050 Ti 4 GB | PSID + VARMA all cells; DPAD nothing (was killed Apr 26 to avoid duplication with rafael) |
+| rafael (Lambda Cloud) | A10 24 GB, ~$1.20/hr | All DPAD training (12 behavioral + 12 laplacian) + cross_cond eval |
+| bobby puller | `~/pull_rafael_dpad.sh` | rsync `dpad_*_200Hz_narrow_band` rafael→bobby every 2 min |
+
+DPAD lap order on rafael (`scripts/run_dpad_parallel_pt2.sh`): PDI4 S2/S3
+behavioral → PDI1 S2/S4 lap → PDI4 S2/S3 lap.
+
+### 2026-04-26 lap retrain (bobby)
+
+PSID + VARMA lap retrained against the new Z channels. Chain script:
+`scripts/run_lap_retrain_20260425.sh`. PSID nx/n1 from elbow yaml; per-cell
+logs at `logs/lap_retrain_20260425/`.
+
+### Status (as of 2026-04-26)
+
+| Cell × mode | PSID | VARMA | DPAD |
+|---|---|---|---|
+| PDI1_S2 behavioral | done (Apr 23) | done (Apr 24) | done (Apr 24) |
+| PDI1_S2 laplacian  | done (Apr 25) | done (Apr 25) | done (Apr 25, rafael) |
+| PDI1_S4 behavioral | done (Apr 24) | done (Apr 24) | done (Apr 24) |
+| PDI1_S4 laplacian  | done (Apr 25) | done (Apr 25) | done (Apr 25, rafael) |
+| PDI4_S2 behavioral | done (Apr 24) | done (Apr 24) | done (Apr 24, rafael) |
+| PDI4_S2 laplacian  | done (Apr 25) | done (Apr 25) | done (Apr 26, rafael) |
+| PDI4_S3 behavioral | done (Apr 24) | done (Apr 24) | done (Apr 25, rafael) |
+| PDI4_S3 laplacian  | done (Apr 25) | done (Apr 25) | **training in flight on rafael** (started 08:47 UTC) |
+
+Cross_cond eval dirs (`*_eval_on`, `*_eval_off`) on rafael, syncing.
+Inference (`training.test`) all rc=0 so far via `auto_infer_watcher.sh`
+(CPU mode v3, MAX_PAR=3) — kept on CPU since it's keeping pace with training.
+
+### Bookkeeping
+
+- `notebooks/thesis_triplets.csv` — canonical lookup. Rows dated **2026-04-26**
+  are current; older rows kept as history. Auto-refreshed by
+  `scripts/refresh_thesis_triplets.py` (scans `results/`, picks highest-i
+  PSID dir per cell, reads `model_*.pkl` mtimes for run timestamps,
+  replaces same-(cell, side) rows within 2 days).
+- Three `side` values per cell:
+  - `behavioral` — Y = 8 ECoG mRMR-top, Z = behavior
+  - `laplacian` — Y = 8 ECoG mRMR-top, Z = 8 LFP mRMR-top
+  - `y2y` — **appendix-only PSID baseline.** Y = Z = 8 ECoG mRMR-top
+    (preserved from the pre-fix lap variants where Z was incorrectly set to
+    Y). No LFP/laplacian channels involved at all — ECoG self-prediction.
+    DPAD/VARMA never had a Y→Y variant, so those columns are blank for y2y
+    rows. Backed by symlinks `results/psid_y2y_*` →
+    `results/_archive_lap_pre_topk_lfp_20260425/psid_laplacian_*`.
+    Useful for showing that PSID forecast is weak even when Z=Y (i.e. the
+    `Cz` collapse is structural, not LFP-specific).
+- `cross_cond_summary_20260424.csv` — also stale once DPAD lap finishes;
+  needs regenerating against the post-fix lap dirs.
+
+### Notification watchers (bobby, all detached, PPID=1)
+
+| Script | Fires when | Action |
+|---|---|---|
+| `scripts/watch_psid_varma_done.sh` | bobby PSID+VARMA chain supervisor PID exits (PID read from `/home/bobby/.notify_logs/lap_retrain_supervisor.pid`) | email + drop flag + launch `run_lap_dpad_bobby.sh` (currently moot — DPAD on rafael now) |
+| `scripts/watch_dpad_behavioral_done.sh` | rafael has all 12 behavioral mrmr8 train dirs with `model_*.pkl` AND no behavioral procs alive for 3 polls | email + flag |
+| `scripts/watch_rafael_dpad_train_done.sh` | rafael's `run_dpad_parallel_pt2.sh` PID exits AND no `run_dpad_phase --phases train` procs | sleep 6 min for puller, run `refresh_thesis_triplets.py`, email with diff |
+| `scripts/watch_lap_ready.sh` | both PSID+VARMA + DPAD-behavioral flags present | email "lap launch GO" (informational) |
+
+Email plumbing: `scripts/notify_email.py` (Gmail SMTP via app password in
+`~/.email_notify_creds`, chmod 600). Logs at `~/.notify_logs/`.
+
+### Bugs fixed 2026-04-25/26
+
+5. **`scripts/pipeline_psid.py`** — laplacian Z silently used `neural_input`
+   (Y→Y self-prediction). Fixed to read top-K LFP via new
+   `mrmr_top_k_lfp_from_diagnostic` helper.
+6. **`scripts/pipeline_dpad.py`** — laplacian Z used all 15 LFP bands. Same
+   fix pattern.
+7. **`scripts/pipeline_varma.py`** — same as DPAD.
+8. **`utils/frameworks.py:DPADWrapper.predict`** — module-level
+   `_DPADFWK_FORECAST_CACHE` not invalidated when `set_steps_ahead([1])` is
+   reset, causing `vstack` shape mismatch on subsequent `forecast(m=N)` calls.
+   Fix: pop cache entry inside `predict()`.
+9. **`scripts/run_cross_condition_eval.py:27`** — imported
+   `dashboard.subtabs.helpers.save_split_results` but `dashboard/` was moved
+   to `archives/dashboard_streamlit/`. Fix: inlined the 5-line helper.
+10. **`scripts/run_cross_condition_eval.py:99`** — called
+    `tester.framework.model.validate_forecast(...)` (renamed during refactor
+    to `BaseFramework._evaluate_forecast`). Fix: updated call site.
 
 ## Historical note
 

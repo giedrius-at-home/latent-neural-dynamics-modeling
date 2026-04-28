@@ -1,0 +1,62 @@
+{
+  "pipeline": "psid",
+  "variant": "psid_behavioral_PDI1_2_nx_150_n10_i60_dbs_both_200Hz_narrow_band_mrmr8",
+  "phases": [
+    "train",
+    "cross_cond",
+    "classify"
+  ],
+  "started_at": "2026-04-23T23:30:16.831016",
+  "finished_at": "2026-04-24T03:18:10.155364",
+  "state": {
+    "timestamps": {
+      "on": "20260423_233018",
+      "both": "20260423_233019",
+      "off": "20260423_233608",
+      "vanilla": "20260423_234024"
+    },
+    "best_hm_per_feat": {
+      "Xp": {
+        "h": 2.0,
+        "m": 0.5,
+        "cv_ba": 0.5625000000000001
+      },
+      "Xp_1": {
+        "h": 3.0,
+        "m": 0.5,
+        "cv_ba": 0.5208333333333333
+      },
+      "Xp_2": {
+        "h": 1.0,
+        "m": 0.5,
+        "cv_ba": 0.5625
+      },
+      "Xp_with_dbs": {
+        "h": 1.0,
+        "m": 0.5,
+        "cv_ba": 1.0
+      },
+      "Xp_flipped": {
+        "h": 1.0,
+        "m": 0.5,
+        "cv_ba": 0.00996376811594203
+      }
+    }
+  },
+  "mode": "behavioral",
+  "participant": "PDI1",
+  "session": "2",
+  "nx": 150,
+  "n1": 10,
+  "i": 60,
+  "channels": [
+    "ECOG_3_beta_12_17_raw",
+    "ECOG_3_theta_4_8_raw",
+    "ECOG_3_beta_27_30_raw",
+    "ECOG_2_theta_4_8_raw",
+    "ECOG_2_gamma_70_75_raw",
+    "ECOG_2_gamma_30_35_raw",
+    "ECOG_1_theta_4_8_raw",
+    "ECOG_3_gamma_40_45_raw"
+  ]
+}

@@ -9,112 +9,13 @@ import math
 import json
 from pathlib import Path
 import pandas as pd
-from sklearn.linear_model import Ridge
+import PSID
+from scipy.linalg import solve_discrete_are
 import statsmodels.api as sm
 from statsmodels.tsa.api import VAR
 
 Array2D = NDArray[np.float64]
 TrialList = List[Array2D]
-
-
-def psid_lssm_forecast(
-    lssm: Any,
-    m: int,
-    Y_past: np.ndarray,
-    U_past: Optional[np.ndarray] = None,
-    U_future: Optional[np.ndarray] = None,
-) -> Tuple[Optional[np.ndarray], np.ndarray, np.ndarray]:
-    # PSID's LSSM has no forecast method — we always implemented it ourselves
-    # on top of kalman(). This helper lets callers that only have a raw LSSM
-    # pickle (e.g. classification/compute.py) produce m-step-ahead forecasts
-    # without having to rebuild a PSIDWrapper.
-    if isinstance(Y_past, (list, tuple)):
-        outs: List[List[Any]] = []
-        for i in range(len(Y_past)):
-            U_future_seg = U_future[i] if U_future is not None else None
-            U_past_seg = U_past[i] if U_past is not None else None
-            trial_outs = psid_lssm_forecast(
-                lssm,
-                m,
-                Y_past=Y_past[i],
-                U_past=U_past_seg,
-                U_future=U_future_seg,
-            )
-            if i == 0:
-                outs = [[o] for o in trial_outs]
-            else:
-                outs = [outs[oi] + [o] for oi, o in enumerate(trial_outs)]
-        return tuple(outs)  # type: ignore[return-value]
-
-    allXp, _, allXf = lssm.kalman(Y_past, U=U_past)[0:3]
-    A = np.array(lssm.A)
-    Xf_last = np.asarray(allXf)[-1:, :].T
-    Xp = A @ Xf_last
-    Cy = np.array(lssm.C)
-    Cz = np.array(lssm.Cz) if hasattr(lssm, "Cz") and lssm.Cz is not None else None
-
-    nx = Xp.shape[0]
-    ny = Cy.shape[0]
-    nz = Cz.shape[0] if Cz is not None else 0
-
-    Xf = np.zeros((m, nx))
-    Yf = np.zeros((m, ny))
-    Zf = np.zeros((m, nz)) if nz > 0 else None
-
-    for step in range(m):
-        Xf[step] = Xp.flatten()
-        Yf[step] = (Cy @ Xp).flatten()
-        if Zf is not None:
-            Zf[step] = (Cz @ Xp).flatten()
-        Xp = A @ Xp
-        if (
-            U_future is not None
-            and hasattr(lssm, "B")
-            and lssm.B is not None
-            and lssm.B.size > 0
-        ):
-            if step < U_future.shape[0]:
-                ui = U_future[step : step + 1, :].T
-                if hasattr(lssm, "UPrepModel") and lssm.UPrepModel is not None:
-                    ui = lssm.UPrepModel.apply(ui, time_first=False)
-                Xp = Xp + lssm.B @ ui
-
-    return Zf, Yf, Xf
-
-
-def _apply_hamming_trial_edge_taper(data: np.ndarray, n_taper: int) -> np.ndarray:
-    """
-    Apply Hamming-shaped edge taper to the first and last n_taper samples of a trial.
-    Reduces power at segment boundaries so concatenated trials have smooth transitions.
-
-    Parameters
-    ----------
-    data : (T, K) array
-        Per-trial data (e.g. z-scored).
-    n_taper : int
-        Number of samples to taper at each end (0 = no taper).
-
-    Returns
-    -------
-    (T, K) array
-        Data with first and last n_taper samples scaled by Hamming ramps (0->1, 1->0).
-    """
-    if n_taper <= 0:
-        return data
-    T, K = data.shape
-    if T <= 2 * n_taper:
-        n_taper = max(0, (T - 1) // 2)
-        if n_taper <= 0:
-            return data
-    out = np.array(data, copy=True, dtype=np.float64)
-    # Hamming-shaped ramp 0 -> 1 over first n_taper samples (first half of Hamming(2*n_taper) normalized)
-    h = np.hamming(2 * n_taper)
-    ramp_up = (h[:n_taper] - h[0]) / (h[n_taper - 1] - h[0])
-    ramp_down = (h[n_taper:] - h[-1]) / (h[n_taper] - h[-1])
-    for ch in range(K):
-        out[:n_taper, ch] *= ramp_up
-        out[-n_taper:, ch] *= ramp_down
-    return out
 
 
 class BaseFramework:
@@ -132,14 +33,6 @@ class BaseFramework:
         self.logger.info(f"Model initialized: {self.model}")
         return self.model.train(Y, Z)
 
-    def _validate(self, Y: TrialList, Z: Optional[TrialList] = None) -> Dict[str, Any]:
-        self.logger.info("Starting validation...")
-        return self.model.validate(Y, Z)
-
-    def _test(self, Y: TrialList, Z: Optional[TrialList] = None) -> Dict[str, Any]:
-        self.logger.info("Starting test...")
-        return self.model.test(Y, Z)
-
     def _predict(self, Y: TrialList, Z: Optional[TrialList] = None):
         self.logger.info("Running prediction on provided data...")
         return self.model.predict(Y, Z)
@@ -148,7 +41,7 @@ class BaseFramework:
         self.logger.info(f"Running {m}-step ahead forecast...")
         return self.model.forecast(m, Y_past)
 
-    def _validate_forecast(
+    def _evaluate_forecast(
         self,
         Y_list: TrialList,
         Z_list: Optional[TrialList] = None,
@@ -156,17 +49,134 @@ class BaseFramework:
         Yp_val: Optional[TrialList] = None,
         Zp_val: Optional[TrialList] = None,
     ) -> Dict[str, Any]:
+        """Unified multi-step forecast eval loop for all frameworks.
+
+        Per trial: split into ``history_end`` samples of past + ``m`` samples of
+        future, call ``self.model.forecast(m, Y_past)``, compare forecast
+        ``(Yf, Zf)`` against true future. Returns per-trial lists of arrays
+        plus aggregate Pearson means. ``margin`` overrides the history window
+        in samples when >0 (used by chunk-margin training).
+        """
         self.logger.info("Starting forecast validation...")
-        return self.model.validate_forecast(
-            Y_list, Z_list=Z_list, margin=margin, Yp_val=Yp_val, Zp_val=Zp_val
-        )
+        m_seconds = self.config.model.forecast.m
+        history_seconds = self.config.model.forecast.history
+        sampling_freq = self.config.data.sampling_frequency
+        m = int(m_seconds * sampling_freq)
+        history = int(history_seconds * sampling_freq)
+
+        results: Dict[str, Any] = {
+            "m": m,
+            "Y_future_true": [],
+            "Y_future_pred": [],
+            "Y_concat_for_plot": [],
+            "Z_future_true": [],
+            "Z_future_pred": [],
+            "Z_concat_for_plot": [],
+            "X_future_pred": [],
+            "pearson_per_channel": [],
+            "pearson_per_channel_Z": [],
+        }
+
+        for idx, Y in enumerate(Y_list):
+            T = Y.shape[0]
+            if history + m > T:
+                raise ValueError(
+                    f"history + m ({history} + {m} = {history + m}) must not "
+                    f"exceed trial length T={T}"
+                )
+            history_end = (
+                int(margin * sampling_freq)
+                if (margin is not None and margin > 0)
+                else history
+            )
+            Y_past = Y[:history_end]
+            Y_future_true = Y[history_end : history_end + m]
+            Z = Z_list[idx] if Z_list is not None and idx < len(Z_list) else None
+            Z_past = Z[:history_end] if Z is not None else None
+            Z_future_true = Z[history_end : history_end + m] if Z is not None else None
+
+            Zf, Yf, Xf = self.model.forecast(m, Y_past, Z_past=Z_past)
+
+            Y_concat = np.concatenate([Y_past, Yf], axis=0) if Yf is not None else None
+            Z_concat = (
+                np.concatenate([Z_past, Zf], axis=0)
+                if Z_past is not None and Zf is not None
+                else None
+            )
+
+            r_list, _ = pearson_r_per_channel([Y_future_true], [Yf] if Yf is not None else [Y_future_true])
+            r_list = r_list[0] if isinstance(r_list, list) and len(r_list) > 0 else r_list
+            r_list_Z: Any = []
+            if Z_future_true is not None and Zf is not None:
+                r_list_Z, _ = pearson_r_per_channel([Z_future_true], [Zf])
+                r_list_Z = r_list_Z[0] if isinstance(r_list_Z, list) and len(r_list_Z) > 0 else r_list_Z
+
+            results["Y_future_true"].append(Y_future_true.tolist())
+            results["Y_future_pred"].append(Yf.tolist() if Yf is not None else None)
+            results["Y_concat_for_plot"].append(Y_concat.tolist() if Y_concat is not None else None)
+            results["Z_future_true"].append(Z_future_true.tolist() if Z_future_true is not None else None)
+            results["Z_future_pred"].append(Zf.tolist() if Zf is not None else None)
+            results["Z_concat_for_plot"].append(Z_concat.tolist() if Z_concat is not None else None)
+            results["X_future_pred"].append(Xf.tolist() if Xf is not None else None)
+            results["pearson_per_channel"].append(r_list)
+            results["pearson_per_channel_Z"].append(r_list_Z)
+
+        flat_r = [
+            v for r in results["pearson_per_channel"] if r
+            for v in r if v is not None and not np.isnan(v)
+        ]
+        results["pearson_overall_mean"] = float(np.mean(flat_r)) if flat_r else np.nan
+        flat_r_Z = [
+            v for r in results["pearson_per_channel_Z"] if r
+            for v in r if v is not None and not np.isnan(v)
+        ]
+        results["pearson_overall_mean_Z"] = float(np.mean(flat_r_Z)) if flat_r_Z else np.nan
+
+        return results
 
 
-class PSIDWrapper:
+class BaseWrapper:
+    """Shared surface for PSID/DPAD/VARMA wrappers.
+
+    Subclasses implement: ``train``, ``predict``, ``forecast``,
+    ``load_from_file``, ``validate_forecast``. Training writes the model to
+    disk; testing loads it and calls ``predict`` / ``validate_forecast``
+    directly via ``BaseFramework._predict`` / ``_evaluate_forecast``. No
+    separate predict-side validation method — ``predict`` is the one-step
+    pass, ``validate_forecast`` is the multi-step evaluation.
+    """
+
     def __init__(self, config: Config):
         self.config = config
         self.logger = get_logger()
         self.idSys = None
+
+    def train(self, Y: TrialList, Z: Optional[TrialList] = None):
+        raise NotImplementedError
+
+    def predict(self, Y: TrialList, Z: Optional[TrialList] = None):
+        raise NotImplementedError
+
+    def forecast(self, m: int, Y_past: Array2D):
+        raise NotImplementedError
+
+    def load_from_file(self, model_path: str):
+        raise NotImplementedError
+
+
+class PSIDWrapper(BaseWrapper):
+    @classmethod
+    def from_idsys(cls, idSys: Any) -> "PSIDWrapper":
+        """Minimal wrapper around a pre-loaded LSSM.
+
+        Lets consumers that have only the raw idSys pickle (e.g. classification)
+        use ``predict`` / ``forecast`` without rebuilding a training config.
+        """
+        inst = cls.__new__(cls)
+        inst.config = None
+        inst.logger = get_logger()
+        inst.idSys = idSys
+        return inst
 
     def load_from_file(self, model_path: str):
         import pickle
@@ -176,150 +186,125 @@ class PSIDWrapper:
             self.idSys = pickle.load(f)
         self.logger.info("PSID model loaded successfully")
 
-        # Retrofit scipy-DARE fix and Pf / Cs on legacy pickles that predate
-        # moving smoother parameters out of the vendored LSSM fork.
+        # scipy-1.16 DARE workaround (no-op on clean models).
         PSIDWrapper._refit_dare_if_needed(self.idSys)
-        if getattr(self.idSys, "Pf", None) is None or getattr(self.idSys, "Cs", None) is None:
-            PSIDWrapper._attach_smoother_params(self.idSys)
 
         if (
             hasattr(self.idSys, "A")
             and self.idSys.A is not None
             and len(getattr(self.idSys, "A_powers_cache", []) or []) == 0
         ):
-            A = np.array(self.idSys.A)
-            # Precompute up to 200 (2 seconds * 80 Hz = 160, 200 is reasonable)
-            max_m = 200
-
-            self.idSys.A_powers_cache = [A.copy()]
-            for i in range(2, max_m + 1):
-                self.idSys.A_powers_cache.append(self.idSys.A_powers_cache[-1] @ A)
-            self.idSys.max_m_precomputed = max_m
-            self.logger.info(
-                f"Precomputed A matrix powers up to m={max_m} after loading model"
-            )
+            PSIDWrapper._cache_A_powers(self.idSys)
+            self.logger.info("Precomputed A matrix powers up to m=200 after loading model")
         return self.idSys
 
     def train(self, Y: TrialList, Z: Optional[TrialList] = None):
-        nx: int = self.config.model.nx
-        n1: int = self.config.model.n1
-        i: int = self.config.model.i
-        time_first: bool = self.config.model.time_first
+        """PSID identification + A-eigenvalue clip.
 
-        backward_kalman: bool = bool(getattr(self.config.model, "backward_kalman", False))
-        max_eigenvalue = getattr(self.config.model, "max_eigenvalue", 0.995)
-        if max_eigenvalue is None:
-            max_eigenvalue = 1.0
-        else:
-            max_eigenvalue = float(max_eigenvalue)
+        Calls upstream ``PSID.PSID()`` then post-processes with
+        ``_clip_A_eigenvalues`` (the only addition over the stock package).
+        DARE is re-solved after the clip so steady-state Kalman quantities
+        stay consistent with the modified A.
+        """
+        cfg = self.config.model
+        nx: int = cfg.nx
+        n1: int = cfg.n1
+        i: int = cfg.i
+        time_first: bool = getattr(cfg, "time_first", True)
 
-        if getattr(self.config.model, "rescale_states", None) is not None:
-            self.logger.info(
-                "config.model.rescale_states is set but no longer used: "
-                "state rescaling is a similarity transform that does not affect predictions. "
-                "Ignoring."
-            )
+        max_eigenvalue = getattr(cfg, "max_eigenvalue", 0.9999)
+        max_eigenvalue = 1.0 if max_eigenvalue is None else float(max_eigenvalue)
+
+        # Surface deprecated model flags (ignored — smoother paths removed).
+        for deprecated in ("backward_kalman", "fb_smoother", "rescale_states"):
+            if getattr(cfg, deprecated, None) is not None:
+                self.logger.info(
+                    f"config.model.{deprecated} set but ignored — "
+                    "PSIDWrapper uses upstream PSID.PSID + A-clip only."
+                )
+
+        zscore_Z = getattr(cfg, "zscore_Z", True)
+        remove_mean_Z = getattr(cfg, "remove_mean_Z", True)
 
         self.logger.info(
-            f"Calling PSIDWrapper._psid_identify with nx={nx}, n1={n1}, i={i}, "
-            f"time_first={time_first}, backward_kalman={backward_kalman}, "
-            f"max_eigenvalue={max_eigenvalue}"
+            f"Calling upstream PSID.PSID: nx={nx}, n1={n1}, i={i}, "
+            f"time_first={time_first}, max_eigenvalue={max_eigenvalue}"
         )
 
-        zscore_Z = getattr(self.config.model, "zscore_Z", True)
-        remove_mean_Z = getattr(self.config.model, "remove_mean_Z", True)
+        self.idSys, ws = PSID.PSID(
+            Y, Z, nx=nx, n1=n1, i=i,
+            zscore_Y=True, zscore_Z=zscore_Z,
+            remove_mean_Y=True, remove_mean_Z=remove_mean_Z,
+            time_first=time_first,
+            fit_Cz_via_KF=True,
+            return_WS=True,
+        )
+        # Stash subspace-identification singular spectra on the LSSM so they
+        # survive pickling. ZHat_S = stage-1 (behavior-relevant), YHat_S =
+        # stage-2 (residual Y dynamics). Used for (nx, n1) elbow selection.
+        self.idSys.ZHat_S = ws.get("ZHat_S")
+        self.idSys.YHat_S = ws.get("YHat_S")
 
-        psid_kwargs = {
-            "zscore_Y": True,
-            "zscore_Z": zscore_Z,
-            "remove_mean_Y": True,
-            "remove_mean_Z": remove_mean_Z,
-            "time_first": time_first,
-            "backward_kalman": backward_kalman,
-            "max_eigenvalue": max_eigenvalue,
-        }
+        # Eigenvalue clip on A — the only modification over upstream PSID.
+        if max_eigenvalue < 1.0 and getattr(self.idSys, "A", None) is not None:
+            self.idSys.A = PSIDWrapper._clip_A_eigenvalues(
+                np.asarray(self.idSys.A), max_eigenvalue
+            )
+            PSIDWrapper._refit_dare_if_needed(self.idSys, force=True)
 
-        self.idSys = PSIDWrapper._psid_identify(Y, Z, nx, n1, i, **psid_kwargs)
-
-        # Post-fit: attach smoother params and persist backward_kalman flag on
-        # the returned LSSM so predict/forecast can dispatch to the smoother.
-        PSIDWrapper._attach_smoother_params(self.idSys)
-        self.idSys.backward_kalman = backward_kalman
-
-        if hasattr(self.idSys, "A") and self.idSys.A is not None:
-            A = np.array(self.idSys.A)
-            max_m = 200
-
-            self.idSys.A_powers_cache = [A.copy()]
-            for i in range(2, max_m + 1):
-                self.idSys.A_powers_cache.append(self.idSys.A_powers_cache[-1] @ A)
-            self.idSys.max_m_precomputed = max_m
-            self.logger.info(f"Precomputed A matrix powers up to m={max_m}")
+        if getattr(self.idSys, "A", None) is not None:
+            PSIDWrapper._cache_A_powers(self.idSys)
+            self.logger.info("Precomputed A matrix powers up to m=200")
         return self.idSys
 
+    @staticmethod
+    def _cache_A_powers(idSys, max_m: int = 200) -> None:
+        """Precompute A^t for t=1..max_m so forecast() can look them up O(1)."""
+        A = np.asarray(idSys.A)
+        cache = [A.copy()]
+        for _ in range(2, max_m + 1):
+            cache.append(cache[-1] @ A)
+        idSys.A_powers_cache = cache
+        idSys.max_m_precomputed = max_m
+
     def predict(self, Y: TrialList, Z: Optional[TrialList] = None):
-        use_smoothing = bool(getattr(self.idSys, "backward_kalman", False))
-        if use_smoothing:
-            return self.smooth(Y)
-        return self.idSys.predict(Y, U=Z)
+        """Forward Kalman prediction via upstream PSID LSSM.predict.
 
-    def smooth(self, Y):
-        """RTS smoother on top of the upstream LSSM Kalman filter.
-
-        Mirrors the behavior of the vendored `LSSM.smooth` method but reads
-        only stable attributes (`A`, `C`, `Cz`, `Cs`, `YPrepModel`, `ZPrepModel`)
-        from `self.idSys`, so it works against upstream PyPSID's LSSM with no
-        monkey-patching. Handles both a single trial (ndarray) and a list/tuple
-        of trials, matching the upstream `predict` signature.
+        Returns ``(Zp, Yp, Xp)``. The ``Z`` argument is ignored — upstream
+        signature is ``idSys.predict(Y)`` and takes no external input. Z is
+        accepted only for BaseWrapper signature parity with VARMA.
         """
-        if isinstance(Y, (list, tuple)):
-            trials = [self.smooth(trial) for trial in Y]
-            return tuple([t[i] for t in trials] for i in range(3))
-        return PSIDWrapper._rts_smooth(self.idSys, Y)
+        return self.idSys.predict(Y)
 
     @staticmethod
-    def _refit_dare_if_needed(idSys):
-        """Workaround for the scipy >= 1.16 bug in `solve_discrete_are`.
+    def _refit_dare_if_needed(idSys, force: bool = False):
+        """Resolve DARE after A clip (force=True) or on scipy-1.16 NaN fallback.
 
-        Upstream PyPSID v1.2.6 calls::
-
-            linalg.solve_discrete_are(A.T, C.T, Q, R, s=S)
-
-        which on scipy >= 1.16 raises ``ValueError: Matrix e should be square``
-        because scipy now routes the ``s`` kwarg through the generalized DARE
-        path and constructs a default ``e`` matrix with the wrong shape. When
-        this happens, upstream silently sets ``Pp``, ``Kf``, ``K``, ``Kv``,
-        ``innovCov``, ``A_KC`` to NaN and the Kalman filter has to fall back
-        to non-steady-state (per-sample) mode — which also breaks the steady-
-        state RTS smoother because ``Cs`` depends on a finite ``Pp``.
-
-        This helper detects the NaN fallback and re-solves the DARE passing
-        ``e=None`` explicitly (which triggers scipy's correct codepath), then
-        recomputes ``innovCov``, ``K``, ``Kf``, ``Kv``, ``A_KC``, ``P2`` using
-        the same formulas as upstream ``LSSM.update_secondary_params``. When
-        ``scipy < 1.16`` or a future scipy fixes the bug, upstream will have
-        produced finite values and this helper is a no-op.
+        Two trigger conditions:
+        1. ``force=True``: A was just modified (e.g. eigenvalue clip), so Pp, K,
+           Kf, Kv, innovCov, A_KC must be re-derived.
+        2. ``force=False`` AND ``Pp`` contains NaN: upstream PyPSID v1.2.6 calls
+           ``linalg.solve_discrete_are(A.T, C.T, Q, R, s=S)`` which on scipy >=
+           1.16 raises "Matrix e should be square" and leaves steady-state
+           quantities as NaN. Re-solves passing ``e=None``.
         """
         if getattr(idSys, "state_dim", 0) == 0:
             return
         Pp = getattr(idSys, "Pp", None)
-        if Pp is None or not np.any(np.isnan(Pp)):
+        needs_refit = force or (Pp is not None and np.any(np.isnan(Pp)))
+        if not needs_refit:
             return
         A = np.asarray(idSys.A)
         C = np.asarray(idSys.C)
         Q = np.asarray(idSys.Q)
         R = np.asarray(idSys.R)
         S = np.asarray(idSys.S)
-        # Upstream only attempts the DARE when A is stable; skip otherwise.
+        # DARE only converges when A is stable.
         eigs = np.linalg.eigvals(A)
         if np.max(np.abs(eigs)) >= 1:
             return
-        from scipy import linalg as _linalg
-
         try:
-            Pp_new = _linalg.solve_discrete_are(
-                a=A.T, b=C.T, q=Q, r=R, e=None, s=S
-            )
+            Pp_new = solve_discrete_are(a=A.T, b=C.T, q=Q, r=R, e=None, s=S)
         except Exception:
             return
         innovCov = C @ Pp_new @ C.T + R
@@ -341,626 +326,82 @@ class PSIDWrapper:
             idSys.P2 = np.asarray(XCov) - Pp_new
 
     @staticmethod
-    def _attach_smoother_params(idSys):
-        """Compute Pf and Cs needed by the RTS smoother.
+    def _clip_A_eigenvalues(A: np.ndarray, max_abs: float) -> np.ndarray:
+        """Eigenvalue-clip A so spectral radius <= ``max_abs``.
 
-        Ports the Giedrius additions in LSSM.setParams (vendored lines 178-182)
-        so we don't need a PSID fork. Safe to call multiple times and tolerant
-        of models where the DARE solve failed (Pp is nan).
+        Acts as a no-op when ``max_abs`` is None or >= 1.
         """
-        Kf = getattr(idSys, "Kf", None)
-        Pp = getattr(idSys, "Pp", None)
-        A = getattr(idSys, "A", None)
-        C = getattr(idSys, "C", None)
-        if Kf is None or Pp is None or A is None or C is None:
-            return
-        if np.any(np.isnan(Pp)) or np.any(np.isnan(Kf)):
-            idSys.Pf = None
-            idSys.Cs = None
-            return
-        Pf = Pp - Kf @ C @ Pp
-        try:
-            Cs = Pf @ A.T @ np.linalg.pinv(Pp)
-        except np.linalg.LinAlgError:
-            Cs = None
-        idSys.Pf = Pf
-        idSys.Cs = Cs
+        if max_abs is None or max_abs >= 1.0:
+            return np.asarray(A, dtype=float)
+        A = np.asarray(A, dtype=float)
+        eigvals, eigvecs = np.linalg.eig(A)
+        mags = np.abs(eigvals)
+        scale = np.where(mags > max_abs, max_abs / np.maximum(mags, 1e-15), 1.0)
+        A_new = eigvecs @ np.diag(eigvals * scale) @ np.linalg.inv(eigvecs)
+        return np.real_if_close(A_new, tol=1e-6).real.astype(float)
 
-    @staticmethod
-    def _rts_smooth(idSys, Y):
-        """Steady-state RTS smoother backward sweep for a single trial.
+    def forecast(self, m: int, Y_past: Array2D, Z_past: Optional[Array2D] = None):
+        """m-step forecast via forward Kalman state seed + A-power propagation.
 
-        Calls `idSys.kalman(Y)` directly (not `predict`) to get the filtered
-        states `allXf` and one-step predicted states `allXp`, then applies
-            x_s[t] = x_f[t] + Cs @ (x_s[t+1] - x_p[t+1])
-        using the smoother gain `Cs` attached by `_attach_smoother_params`.
-        Output observations are rebuilt via `generateObservationFromStates`,
-        which also applies the inverse of YPrepModel / ZPrepModel — matching
-        how upstream `predict` produces its returned arrays.
-        """
-        if getattr(idSys, "state_dim", 0) == 0:
-            allXp = np.zeros((Y.shape[0], idSys.state_dim))
-            allYp = np.zeros((Y.shape[0], idSys.output_dim))
-            return None, allYp, allXp
+        Seeds the forecast from ``x̂_{T|T-1}`` of the upstream Kalman predictor
+        on ``Y_past``, then iterates ``x_{t+1} = A x_t`` for t=1..m. Observations
+        are computed as ``Yf = Xf @ C.T``, ``Zf = Xf @ Cz.T``, then un-z-scored
+        by the PrepModels. Complexity: O(len(Y_past) + m).
 
-        allXp, _allYp, allXf = idSys.kalman(Y)[0:3]
-
-        Cs = getattr(idSys, "Cs", None)
-        if Cs is None:
-            PSIDWrapper._attach_smoother_params(idSys)
-            Cs = getattr(idSys, "Cs", None)
-        if Cs is None:
-            raise RuntimeError(
-                "Cannot run RTS smoother: idSys.Cs is unavailable "
-                "(likely because the DARE solve failed during identification)."
-            )
-
-        N = allXf.shape[0]
-        allXs = np.zeros_like(allXf)
-        allXs[-1, :] = allXf[-1, :]
-        for t in range(N - 2, -1, -1):
-            allXs[t, :] = allXf[t, :] + Cs @ (allXs[t + 1, :] - allXp[t + 1, :])
-
-        allYs = idSys.generateObservationFromStates(
-            allXs, param_names=["C", "D"], prep_model_param="YPrepModel"
-        )
-        allZs = None
-        if (hasattr(idSys, "Cz") and idSys.Cz is not None) or (
-            hasattr(idSys, "Dz") and getattr(idSys, "Dz", None) is not None
-        ):
-            allZs = idSys.generateObservationFromStates(
-                allXs, param_names=["Cz", "Dz"], prep_model_param="ZPrepModel"
-            )
-
-        return allZs, allYs, allXs
-
-    @staticmethod
-    def _fit_cz_via_kf(s, Y, Z, time_first, use_smoothing=False):
-        """Fit Cz by regressing Z on Kalman-filtered (or smoothed) latent states.
-
-        Port of upstream `PSID.PSID.fitCzViaKFRegression` with an added
-        `use_smoothing` branch. When False, matches upstream exactly. When
-        True, runs the RTS backward sweep via `_rts_smooth` and projects Z
-        onto the smoothed states instead of the filtered ones.
-        """
-        from PSID.PSID import projOrth
-
-        def _states_for_trial(Y_trial):
-            if use_smoothing:
-                return PSIDWrapper._rts_smooth(s, Y_trial)[2]
-            return s.predict(Y_trial)[2]
-
-        if not isinstance(Y, (list, tuple)):
-            YTF = Y if time_first else Y.T
-            ZTF = Z if time_first else Z.T
-            xHat = _states_for_trial(YTF)
-        else:
-            xHat = None
-            ZTF = None
-            for yInd in range(len(Y)):
-                YTFThis = Y[yInd] if time_first else Y[yInd].T
-                ZTFThis = Z[yInd] if time_first else Z[yInd].T
-                xHatThis = _states_for_trial(YTFThis)
-                if yInd == 0:
-                    xHat = xHatThis
-                    ZTF = ZTFThis
-                else:
-                    xHat = np.concatenate((xHat, xHatThis), axis=0)
-                    ZTF = np.concatenate((ZTF, ZTFThis), axis=0)
-
-        Cz = projOrth(ZTF.T, xHat.T)[1]
-        return Cz
-
-    @staticmethod
-    def _psid_identify(
-        Y,
-        Z=None,
-        nx=None,
-        n1=0,
-        i=None,
-        WS=dict(),
-        return_WS=False,
-        fit_Cz_via_KF=True,
-        time_first=True,
-        remove_mean_Y=True,
-        remove_mean_Z=True,
-        zscore_Y=False,
-        zscore_Z=False,
-        backward_kalman=False,  # ADDED: Giedrius
-        max_eigenvalue=0.995,  # ADDED: Giedrius
-    ):
-        """PSID identification — copy of upstream `PSID.PSID.PSID` (v1.2.6).
-
-        Two additions vs upstream, both marked `# ADDED:`:
-          1. `max_eigenvalue` eigenvalue damping of A (between A assembly and
-             noise covariance derivation).
-          2. `backward_kalman` smoothing-aware Cz re-fit (dispatched via
-             `_fit_cz_via_kf` with `use_smoothing=backward_kalman`).
-
-        Upstream helpers (`projOrth`, `blkhankskip`, `getHSize`, `PrepModel`,
-        `LSSM`) are imported from the installed `PSID` package — only this
-        function's body is copied. When bumping upstream PSID, re-diff this
-        method against the new upstream `PSID()` and re-apply the `# ADDED:`
-        blocks by hand.
-        """
-        import warnings
-        from scipy import linalg
-        from PSID.PSID import projOrth, blkhankskip, getHSize
-        from PSID.LSSM import LSSM as LSSMClass
-        from PSID.PrepModel import PrepModel as PrepModelClass
-
-        YPrepModel = PrepModelClass()
-        YPrepModel.fit(Y, remove_mean=remove_mean_Y, zscore=zscore_Y, time_first=time_first)
-        Y = YPrepModel.apply(Y, time_first=time_first)
-
-        ZPrepModel = PrepModelClass()
-        if Z is not None:
-            ZPrepModel.fit(
-                Z, remove_mean=remove_mean_Z, zscore=zscore_Z, time_first=time_first
-            )
-            Z = ZPrepModel.apply(Z, time_first=time_first)
-
-        ny, ySamples, N, y1, NTot = getHSize(Y, i, time_first=time_first)
-        if Z is not None:
-            nz, zSamples, _, z1, NTot = getHSize(Z, i, time_first=time_first)
-        else:
-            nz, zSamples = 0, 0
-
-        if isinstance(N, list) and np.any(np.array(N) < 1):
-            warnings.warn(
-                "{} of the {} data segments will be discarded because they are too short for using with a horizon of {}.".format(
-                    np.sum(np.array(N) < 1), len(N), i
-                ),
-            )
-
-        if (
-            "NTot" in WS
-            and WS["NTot"] == NTot
-            and "N" in WS
-            and WS["N"] == N
-            and "i" in WS
-            and WS["i"] == i
-            and "ySamples" in WS
-            and WS["ySamples"] == ySamples
-            and "zSamples" in WS
-            and WS["zSamples"] == zSamples
-            and "Y1" in WS
-            and WS["Y1"] == y1
-            and (nz == 0 or ("Z1" in WS and WS["Z1"] == z1))
-        ):
-            # Have WS from previous call with the same data
-            pass
-        else:
-            WS = {"NTot": NTot, "N": N, "i": i, "ySamples": ySamples, "Y1": y1}
-            if nz > 0:
-                WS["zSamples"] = zSamples
-                WS["Z1"] = z1
-
-        if "Yp" not in WS or WS["Yp"] is None:
-            WS["Yp"] = blkhankskip(Y, i, N, time_first=time_first)
-            WS["Yii"] = blkhankskip(Y, 1, N, i, time_first=time_first)
-            if nz > 0:
-                WS["Zii"] = blkhankskip(Z, 1, N, i, time_first=time_first)
-
-        if n1 > nx:
-            n1 = nx  # n1 can at most be nx
-
-        # Stage 1
-        if n1 > 0 and nz > 0:
-            if n1 > i * nz:
-                raise (
-                    Exception(
-                        "n1 (currently {}) must be at most i*nz={}*{}={}. Use a larger horizon i.".format(
-                            n1, i, nz, i * nz
-                        )
-                    )
-                )
-            if "ZHat_U" not in WS or WS["ZHat_U"] is None:
-                Zf = blkhankskip(Z, i, N, i, time_first=time_first)
-                WS["ZHat"] = projOrth(Zf, WS["Yp"])[0]  # Eq. (10)
-                Yp_Plus = np.concatenate((WS["Yp"], WS["Yii"]))
-                Zf_Minus = Zf[nz:, :]
-                WS["ZHatMinus"] = projOrth(Zf_Minus, Yp_Plus)[0]  # Eq. (11)
-
-                # Take SVD of ZHat
-                WS["ZHat_U"], WS["ZHat_S"], ZHat_V = linalg.svd(
-                    WS["ZHat"], full_matrices=False, lapack_driver="gesvd"
-                )  # Eq. (12)
-
-            Sz = np.diag(WS["ZHat_S"][:n1])  # Eq. (12)
-            Uz = WS["ZHat_U"][:, :n1]  # Eq. (12)
-
-            Oz = Uz @ Sz ** (1 / 2)  # Eq. (13)
-            Oz_Minus = Oz[:-nz, :]  # Eq. (15)
-
-            Xk = np.linalg.pinv(Oz) @ WS["ZHat"]  # Eq. (14)
-            Xk_Plus1 = np.linalg.pinv(Oz_Minus) @ WS["ZHatMinus"]  # Eq. (16)
-        else:
-            n1 = 0
-            Xk = np.empty([0, NTot])
-            Xk_Plus1 = np.empty([0, NTot])
-
-        # Stage 2
-        n2 = nx - n1
-        if n2 > 0:
-            if nx > i * ny:
-                raise (
-                    Exception(
-                        "nx (currently {}) must be at most i*ny={}*{}={}. Use a larger horizon i.".format(
-                            nx, i, ny, i * ny
-                        )
-                    )
-                )
-            if (
-                "YHat_U" not in WS
-                or WS["YHat_U"] is None
-                or "n1" not in WS
-                or WS["n1"] != n1
-            ):
-                WS["n1"] = n1
-
-                Yf = blkhankskip(Y, i, N, i, time_first=time_first)
-                Yf_Minus = Yf[ny:, :]
-
-                if n1 > 0:
-                    # Remove the already predicted part of future y
-                    Oy1 = projOrth(Yf, Xk)[1]  # Eq. (18)
-                    Yf = Yf - Oy1 @ Xk  # Eq. (19)
-
-                    Oy1_Minus = Oy1[:-ny, :]  # Eq. (20)
-                    Yf_Minus = Yf_Minus - Oy1_Minus @ Xk_Plus1  # Eq. (21)
-
-                WS["YHat"] = projOrth(Yf, WS["Yp"])[0]
-                Yp_Plus = np.concatenate((WS["Yp"], WS["Yii"]))
-                WS["YHatMinus"] = projOrth(Yf_Minus, Yp_Plus)[0]  # Eq. (23)
-
-                # Take SVD of YHat
-                WS["YHat_U"], WS["YHat_S"], YHat_V = linalg.svd(
-                    WS["YHat"], full_matrices=False, lapack_driver="gesvd"
-                )  # Eq. (24)
-
-            S2 = np.diag(WS["YHat_S"][:n2])  # Eq. (24)
-            U2 = WS["YHat_U"][:, :n2]  # Eq. (24)
-
-            Oy = U2 @ S2 ** (1 / 2)  # Eq. (25)
-            Oy_Minus = Oy[:-ny, :]  # Eq. (27)
-
-            Xk2 = np.linalg.pinv(Oy) @ WS["YHat"]  # Eq. (26)
-            Xk2_Plus1 = np.linalg.pinv(Oy_Minus) @ WS["YHatMinus"]  # Eq. (28)
-
-            Xk = np.concatenate((Xk, Xk2))  # Eq. (29)
-            Xk_Plus1 = np.concatenate((Xk_Plus1, Xk2_Plus1))  # Eq. (29)
-
-        # Parameter identification
-        if n1 > 0:
-            # A associated with the z-related states
-            A = projOrth(Xk_Plus1[:n1, :], Xk[:n1, :])[1]  # Eq. (17)
-        else:
-            A = np.empty([0, 0])
-
-        if n2 > 0:
-            A23 = projOrth(Xk_Plus1[n1:, :], Xk)[1]  # Eq. (30)
-            if n1 > 0:
-                A10 = np.concatenate((A, np.zeros([n1, n2])), axis=1)
-                A = np.concatenate((A10, A23))  # Eq. (31)
-            else:
-                A = A23
-
-        # ADDED: Giedrius — eigenvalue damping for A-matrix stability.
-        # Clips |eig(A)| <= max_eigenvalue before Q, R, S are derived from
-        # residuals, so the returned LSSM is numerically stable even when the
-        # raw subspace identification produced a slightly unstable A.
-        if (
-            max_eigenvalue is not None
-            and max_eigenvalue < 1.0
-            and A.size > 0
-            and A.shape[0] == A.shape[1]
-        ):
-            eig_vals, eig_vecs = np.linalg.eig(A)
-            magnitudes = np.abs(eig_vals)
-            unstable_indices = magnitudes > max_eigenvalue
-            if np.any(unstable_indices):
-                eig_vals[unstable_indices] = (
-                    eig_vals[unstable_indices]
-                    / magnitudes[unstable_indices]
-                    * max_eigenvalue
-                )
-                A = np.real(eig_vecs @ np.diag(eig_vals) @ np.linalg.inv(eig_vecs))
-
-        if nz > 0:
-            Cz = projOrth(WS["Zii"], Xk)[1]  # Eq. (33)
-        else:
-            Cz = np.empty([0, nx])
-
-        Cy = projOrth(WS["Yii"], Xk)[1]  # Eq. (32)
-
-        w = Xk_Plus1 - A @ Xk  # Eq. (34)
-        v = WS["Yii"] - Cy @ Xk  # Eq. (34)
-
-        # Compute noise covariances
-        NA = w.shape[1]
-        Q = (w @ w.T) / NA  # Eq. (35)
-        S = (w @ v.T) / NA  # Eq. (35)
-        R = (v @ v.T) / NA  # Eq. (35)
-
-        Q = (Q + Q.T) / 2  # Make precisely symmetric
-        R = (R + R.T) / 2  # Make precisely symmetric
-
-        s = LSSMClass(
-            params={
-                "A": A,
-                "C": Cy,
-                "Q": Q,
-                "R": R,
-                "S": S,
-            }
-        )
-
-        # ADDED: Giedrius — scipy >= 1.16 DARE workaround. Upstream's LSSM
-        # passes S to solve_discrete_are without e=None, which now raises
-        # "Matrix e should be square" and leaves Pp/Kf/innovCov as NaN. This
-        # helper detects the NaN fallback and re-solves the DARE correctly.
-        PSIDWrapper._refit_dare_if_needed(s)
-
-        if fit_Cz_via_KF and nz > 0:
-            # ADDED: Giedrius — smoothing-aware Cz re-fit. Upstream's
-            # fitCzViaKFRegression always uses the Kalman filter; here we
-            # optionally run the RTS smoother instead when backward_kalman
-            # is True. The smoother branch needs Pf / Cs on `s`, so we attach
-            # them before the re-fit.
-            PSIDWrapper._attach_smoother_params(s)
-            Cz = PSIDWrapper._fit_cz_via_kf(
-                s, Y, Z, time_first, use_smoothing=backward_kalman
-            )
-        s.Cz = Cz
-
-        s.YPrepModel = YPrepModel
-        s.ZPrepModel = ZPrepModel
-
-        if not return_WS:
-            return s
-        else:
-            return s, WS
-
-    def validate(self, Y: TrialList) -> Dict[str, Any]:
-        Zp, Yp, Xp = self.idSys.predict(Y)
-        r_list, r_mean = pearson_r_per_channel(Y, Yp if Yp is not None else Y)
-        result = {
-            "Y": Y,
-            "Zp": Zp,
-            "Yp": Yp,
-            "Xp": Xp,
-            "Yp_shape": state_shape(Yp),
-            "Zp_shape": (None if Zp is None else state_shape(Zp)),
-            "Xp_shape": (None if Xp is None else state_shape(Xp)),
-            "pearson_r_per_channel": r_list,
-            "pearson_r_mean": r_mean,
-        }
-
-        return result
-
-    def test(self, Y: TrialList) -> Dict[str, Any]:
-        return self.validate(Y)
-
-    def forecast(
-        self,
-        m: int,
-        Y_past: Array2D,
-        Z_past: Optional[Array2D] = None,
-    ):
-        """
-        Efficient m-step ahead forecast using state-space model.
-
-        Complexity: O(len(Y_past) + m) instead of O(m * (len(Y_past) + m))
-
-        Algorithm:
-        1. Run Kalman filter once on Y_past to get initial state estimate
-        2. Iterate state equation forward m times: x_{t+1} = A @ x_t
-        3. Compute outputs: y_t = C @ x_t, z_t = Cz @ x_t
-
-        ``Z_past`` must be passed when the fitted model uses behavioral inputs (same layout
-        as ``validate_forecast`` / ``idSys.predict(Y, U=Z)``). Omitting U made multi-step Z
-        forecasts nearly flat while one-step Zp remained well scaled.
+        ``Z_past`` is accepted for BaseFramework signature parity but ignored —
+        PSID predicts Z from Y alone via the learned (A, Cz) dynamics.
         """
         if self.idSys is None:
             raise ValueError(
                 "Model not initialized. Call train() or load_from_file() first."
             )
 
-        # Step 1: Get initial state estimate by running Kalman filter once on past data
-        # Use backward Kalman smoothing if configured; otherwise the one-step predict.
-        use_smoothing = bool(getattr(self.idSys, "backward_kalman", False))
-        Y_past_list = [Y_past]
-        U_list = [Z_past] if Z_past is not None else None
-        if use_smoothing:
-            Zp_past, Yp_past, Xp_past = self.smooth(Y_past_list)
-        else:
-            Zp_past, Yp_past, Xp_past = self.idSys.predict(Y_past_list, U=U_list)
+        # Kalman predictor state estimate on past data.
+        Zp_past, Yp_past, Xp_past = self.idSys.predict([Y_past])
 
-        # Extract the final state estimate (last time step)
         if Xp_past is None or len(Xp_past) == 0:
             raise ValueError("Could not extract state estimate from past data")
-
         Xp_past_array = np.asarray(Xp_past[0]) if isinstance(Xp_past, list) else Xp_past
         if Xp_past_array.shape[0] == 0:
             raise ValueError("State estimate is empty")
+        x0 = Xp_past_array[-1, :]
 
-        x0 = Xp_past_array[-1, :]  # Final state estimate: shape (nx,)
-
-        # Get state-space matrices
-        A = np.array(self.idSys.A)  # State transition matrix: (nx, nx)
-        C = np.array(self.idSys.C)  # Output matrix for Y: (ny, nx)
+        A = np.array(self.idSys.A)
+        C = np.array(self.idSys.C)
         Cz = (
             np.array(self.idSys.Cz)
             if hasattr(self.idSys, "Cz") and self.idSys.Cz is not None
             else None
-        )  # Output matrix for Z: (nz, nx)
-
-        nx = A.shape[0]
-        ny = C.shape[0]
-        nz = Cz.shape[0] if Cz is not None else 0
-
-        # Step 2: Iterate state equation forward m times
-        # Use precomputed A powers if available for efficiency
-        use_cache = (
-            hasattr(self.idSys, "A_powers_cache")
-            and len(self.idSys.A_powers_cache) > 0
-            and hasattr(self.idSys, "max_m_precomputed")
-            and m <= self.idSys.max_m_precomputed
         )
+        nx = A.shape[0]
 
-        if use_cache:
-            # Efficient: compute all states at once using A^m powers
-            # A_powers_cache[0] = A^1, A_powers_cache[1] = A^2, ..., A_powers_cache[t-1] = A^t
-            # For state at step t: x_t = A^t @ x0
-            Xf = np.zeros((m, nx))
+        cache = getattr(self.idSys, "A_powers_cache", None)
+        max_cached = getattr(self.idSys, "max_m_precomputed", 0)
+        Xf = np.zeros((m, nx))
+        if cache is not None and len(cache) > 0 and m <= max_cached:
+            # A_powers_cache[t-1] = A^t
             for t in range(1, m + 1):
-                if t <= len(self.idSys.A_powers_cache):
-                    # A_powers_cache[t-1] is A^t
-                    Xf[t - 1, :] = self.idSys.A_powers_cache[t - 1] @ x0
-                else:
-                    # Fallback to iterative if beyond cache (shouldn't happen if m <= max_m_precomputed)
-                    if t == 1:
-                        Xf[t - 1, :] = A @ x0
-                    else:
-                        Xf[t - 1, :] = A @ Xf[t - 2, :]
+                Xf[t - 1, :] = cache[t - 1] @ x0
         else:
-            # Iterative forward propagation
-            Xf = np.zeros((m, nx))
-            x_current = x0.copy()
+            x_cur = x0.copy()
             for t in range(m):
-                x_current = A @ x_current
-                Xf[t, :] = x_current
+                x_cur = A @ x_cur
+                Xf[t, :] = x_cur
 
-        # Step 3: Compute outputs from states (in z-scored space)
-        Yf = Xf @ C.T  # (m, nx) @ (nx, ny) -> (m, ny)
+        Yf = Xf @ C.T
+        Zf = Xf @ Cz.T if Cz is not None and Cz.shape[0] > 0 else None
 
-        Zf = None
-        if Cz is not None and nz > 0:
-            Zf = Xf @ Cz.T  # (m, nx) @ (nx, nz) -> (m, nz)
-
-        # Step 4: Un-z-score to original space (predict() does this internally via
-        # idSys.predict, but manual C @ x multiplication stays in z-scored space)
+        # Un-z-score via PrepModels.
         if hasattr(self.idSys, "YPrepModel") and self.idSys.YPrepModel is not None:
             Yf = self.idSys.YPrepModel.apply_inverse(Yf)
-        if Zf is not None and hasattr(self.idSys, "ZPrepModel") and self.idSys.ZPrepModel is not None:
+        if (
+            Zf is not None
+            and hasattr(self.idSys, "ZPrepModel")
+            and self.idSys.ZPrepModel is not None
+        ):
             Zf = self.idSys.ZPrepModel.apply_inverse(Zf)
 
         return Zf, Yf, Xf
-
-    def validate_forecast(
-        self,
-        Y_list: TrialList,
-        Z_list: Optional[TrialList] = None,
-        margin: Optional[float] = None,
-        Yp_val: Optional[TrialList] = None,
-        Zp_val: Optional[TrialList] = None,
-    ) -> Dict[str, Any]:
-
-        m_seconds = self.config.model.forecast.m
-        history_seconds = self.config.model.forecast.history
-        sampling_freq = self.config.data.sampling_frequency
-        m = int(m_seconds * sampling_freq)
-        history = int(history_seconds * sampling_freq)
-        margin_sec = margin if margin is not None else 0.0
-
-        if Yp_val is None:
-            Zp_val_local, Yp_val_local, Xp_val_local = self.predict(Y_list)
-            Yp_val = Yp_val_local
-            Zp_val = Zp_val_local
-
-        results = {
-            "m": m,
-            "Y_future_true": [],
-            "Y_future_pred": [],
-            "Y_concat_for_plot": [],
-            "Z_future_true": [],
-            "Z_future_pred": [],
-            "Z_concat_for_plot": [],
-            "X_future_pred": [],
-            "pearson_per_channel": [],
-            "pearson_per_channel_Z": [],
-        }
-
-        for idx, Y in enumerate(Y_list):
-            T = Y.shape[0]
-            if history + m > T:
-                raise ValueError(
-                    f"history + m ({history} + {m} = {history + m}) must not exceed trial length T={T}"
-                )
-
-            start = 0
-            history_end = history
-            forecast_end = history + m
-
-            Y_past = Y[start:history_end]
-            Y_future_true = Y[history_end:forecast_end]
-
-            Z = Z_list[idx] if Z_list is not None and idx < len(Z_list) else None
-            Z_future_true = Z[history_end:forecast_end] if Z is not None else None
-            Z_past = Z[start:history_end] if Z is not None else None
-
-            Zf, Yf, Xf = self.forecast(m, Y_past, Z_past)
-
-            Y_concat = np.concatenate([Y_past, Yf], axis=0)
-            Z_concat = (
-                np.concatenate([Z_past, Zf], axis=0)
-                if Z_past is not None and Zf is not None
-                else None
-            )
-
-            r_list, _ = pearson_r_per_channel([Y_future_true], [Yf])
-            r_list = (
-                r_list[0] if isinstance(r_list, list) and len(r_list) > 0 else r_list
-            )
-
-            if Z_future_true is not None and Zf is not None:
-                r_list_Z, _ = pearson_r_per_channel([Z_future_true], [Zf])
-                r_list_Z = (
-                    r_list_Z[0]
-                    if isinstance(r_list_Z, list) and len(r_list_Z) > 0
-                    else r_list_Z
-                )
-            else:
-                r_list_Z = []
-
-            results["Y_future_true"].append(Y_future_true.tolist())
-            results["Y_future_pred"].append(Yf.tolist())
-            results["Y_concat_for_plot"].append(Y_concat.tolist())
-            results["Z_future_true"].append(
-                Z_future_true.tolist() if Z_future_true is not None else None
-            )
-            results["Z_future_pred"].append(Zf.tolist() if Zf is not None else None)
-            results["Z_concat_for_plot"].append(
-                Z_concat.tolist() if Z_concat is not None else None
-            )
-            results["X_future_pred"].append(Xf.tolist() if Xf is not None else None)
-            results["pearson_per_channel"].append(r_list)
-            results["pearson_per_channel_Z"].append(r_list_Z)
-
-        flat_r = []
-        for r in results["pearson_per_channel"]:
-            if r is None:
-                continue
-            for v in r:
-                if v is not None and not np.isnan(v):
-                    flat_r.append(float(v))
-        results["pearson_overall_mean"] = (
-            float(np.mean(flat_r)) if len(flat_r) > 0 else np.nan
-        )
-
-        flat_r_Z = []
-        for r in results["pearson_per_channel_Z"]:
-            if r is None or not r:
-                continue
-            for v in r:
-                if v is not None and not np.isnan(v):
-                    flat_r_Z.append(float(v))
-        results["pearson_overall_mean_Z"] = (
-            float(np.mean(flat_r_Z)) if len(flat_r_Z) > 0 else np.nan
-        )
-
-        return results
 
 
 class PSIDFramework(BaseFramework):
@@ -968,12 +409,14 @@ class PSIDFramework(BaseFramework):
         return PSIDWrapper(self.config)
 
 
-class DPADWrapper:
-    def __init__(self, config: Config):
-        self.config = config
-        self.logger = get_logger()
-        self.idSys = None
+# Module-level memoization for DPADWrapper.forecast — see the comment on
+# that method. Keyed by id(self.idSys); cleared only when the worker process
+# exits (no cross-process concerns since each classification runs in a fresh
+# subprocess).
+_DPADFWK_FORECAST_CACHE: dict[int, int] = {}
 
+
+class DPADWrapper(BaseWrapper):
     def load_from_file(self, model_path: str):
         import pickle
 
@@ -1055,10 +498,18 @@ class DPADWrapper:
         self.logger.info(f"Saved training history to {history_path}")
 
     def predict(self, Y: TrialList, Z: Optional[TrialList] = None):
+        """Run DPAD prediction per trial with block-aligned padding.
+
+        Z is accepted for BaseWrapper parity but ignored (DPAD's predict uses
+        Y only; Z is predicted, not consumed).
+        """
         all_Zp, all_Yp, all_Xp = [], [], []
 
         self.idSys.set_steps_ahead([1])
         self.idSys.set_multi_step_with_data_gen(False)
+        # predict() just reset steps_ahead / multi_step; invalidate the forecast
+        # cache so the next forecast(m) call reconfigures the model.
+        _DPADFWK_FORECAST_CACHE.pop(id(self.idSys), None)
         block_samples = self.idSys.block_samples
 
         for y_trial in Y:
@@ -1085,30 +536,13 @@ class DPADWrapper:
 
         return all_Zp, all_Yp, all_Xp
 
-    def validate(self, Y: TrialList) -> Dict[str, Any]:
-        Zp, Yp, Xp = self.predict(Y)
-        r_list, r_mean = pearson_r_per_channel(Y, Yp)
-        result = {
-            "Y": Y,
-            "Zp": Zp,
-            "Yp": Yp,
-            "Xp": Xp,
-            "Yp_shape": state_shape(Yp),
-            "Zp_shape": (None if Zp is None else state_shape(Zp)),
-            "Xp_shape": (None if Xp is None else state_shape(Xp)),
-            "pearson_r_per_channel": r_list,
-            "pearson_r_mean": r_mean,
-        }
-        return result
-
-    def test(self, Y: TrialList) -> Dict[str, Any]:
-        return self.validate(Y)
-
     def forecast(
         self,
         m: int,
         Y_past: Array2D,
+        Z_past: Optional[Array2D] = None,
     ) -> Tuple[Optional[Array2D], Optional[Array2D], Optional[Array2D]]:
+        """``Z_past`` accepted for signature parity but ignored (DPAD consumes Y only)."""
         block_samples = self.idSys.block_samples
         ny = Y_past.shape[1]
 
@@ -1127,8 +561,15 @@ class DPADWrapper:
             valid = [v for v in out if v is not None]
             return np.vstack(valid) if valid else None
 
-        self.idSys.set_steps_ahead(list(range(1, m + 1)))
-        self.idSys.set_multi_step_with_data_gen(True, noise_samples=0)
+        # Memoized setup — same pattern as validate_forecast above and as
+        # utils/classification._ensure_dpad_forecast_setup. Each
+        # set_steps_ahead call rebuilds m output heads on the TF model
+        # (O(seconds) per call); we skip the rebuild when m hasn't changed.
+        _key = id(self.idSys)
+        if _DPADFWK_FORECAST_CACHE.get(_key) != m:
+            self.idSys.set_steps_ahead(list(range(1, m + 1)))
+            self.idSys.set_multi_step_with_data_gen(True, noise_samples=0)
+            _DPADFWK_FORECAST_CACHE[_key] = m
         preds = self.idSys.predict(_pad_to_block(Y_past))
 
         Zf = _stack_last(preds[:m])
@@ -1137,150 +578,6 @@ class DPADWrapper:
 
         return Zf, Yf, Xf
 
-    def validate_forecast(
-        self,
-        Y_list: TrialList,
-        Z_list: Optional[TrialList] = None,
-        margin: int = 0,
-        Yp_val: Optional[TrialList] = None,
-        Zp_val: Optional[TrialList] = None,
-    ) -> Dict[str, Any]:
-        m_seconds = self.config.model.forecast.m
-        history_seconds = self.config.model.forecast.history
-        sampling_freq = self.config.data.sampling_frequency
-        m = int(m_seconds * sampling_freq)
-        history = int(history_seconds * sampling_freq)
-
-        if Yp_val is None:
-            Zp_val_local, Yp_val_local, Xp_val_local = self.predict(Y_list)
-            Yp_val = Yp_val_local
-            Zp_val = Zp_val_local
-
-        # set_steps_ahead(1..m) rebuilds m output heads on the DPAD model, which
-        # is O(seconds) per call. Hoisting it out of the per-trial loop turns a
-        # multi-hour step into minutes.
-        self.idSys.set_steps_ahead(list(range(1, m + 1)))
-        self.idSys.set_multi_step_with_data_gen(True, noise_samples=0)
-        block_samples = self.idSys.block_samples
-
-        def _stack_last(steps_list):
-            out = [
-                arr[-1:, :] if arr is not None and len(arr.shape) == 2 else None
-                for arr in steps_list
-            ]
-            valid = [v for v in out if v is not None]
-            return np.vstack(valid) if valid else None
-
-        def _forecast_raw(Y_past):
-            ny = Y_past.shape[1]
-            remainder = Y_past.shape[0] % block_samples
-            if remainder != 0:
-                pad_len = block_samples - remainder
-                Y_padded = np.concatenate(
-                    [Y_past, np.zeros((pad_len, ny))], axis=0
-                )
-            else:
-                Y_padded = Y_past
-            preds = self.idSys.predict(Y_padded)
-            Zf = _stack_last(preds[:m])
-            Yf = _stack_last(preds[m : 2 * m])
-            Xf = _stack_last(preds[2 * m : 3 * m])
-            return Zf, Yf, Xf
-
-        results = {
-            "m": m,
-            "Y_future_true": [],
-            "Y_future_pred": [],
-            "Y_concat_for_plot": [],
-            "Z_future_true": [],
-            "Z_future_pred": [],
-            "Z_concat_for_plot": [],
-            "X_future_pred": [],
-            "pearson_per_channel": [],
-            "pearson_per_channel_Z": [],
-        }
-
-        try:
-            for idx, Y in enumerate(Y_list):
-                T = Y.shape[0]
-                if history + m > T:
-                    raise ValueError(
-                        f"history + m ({history} + {m} = {history + m}) must not exceed trial length T={T}"
-                    )
-
-                Y_history = Y[:history]
-                Y_future_true = Y[history : history + m]
-
-                Z = Z_list[idx] if Z_list is not None and idx < len(Z_list) else None
-                Z_future_true = Z[history : history + m] if Z is not None else None
-                Z_history = Z[:history] if Z is not None else None
-
-                Zf, Yf, Xf = _forecast_raw(Y_history)
-
-                if Yf is not None:
-                    Y_concat = np.concatenate([Y_history, Yf], axis=0)
-                    r_list, _ = pearson_r_per_channel([Y_future_true], [Yf])
-                    r_list = r_list[0] if isinstance(r_list, list) else r_list
-                else:
-                    Y_concat = Y_history
-                    r_list = []
-
-                Z_concat = (
-                    np.concatenate([Z_history, Zf], axis=0)
-                    if Z_history is not None and Zf is not None
-                    else None
-                )
-
-                if Z_future_true is not None and Zf is not None:
-                    r_list_Z, _ = pearson_r_per_channel([Z_future_true], [Zf])
-                    r_list_Z = r_list_Z[0] if isinstance(r_list_Z, list) else r_list_Z
-                else:
-                    r_list_Z = []
-
-                results["Y_future_true"].append(Y_future_true.tolist())
-                results["Y_future_pred"].append(
-                    Yf.tolist() if Yf is not None else None
-                )
-                results["Y_concat_for_plot"].append(Y_concat.tolist())
-                results["Z_future_true"].append(
-                    Z_future_true.tolist() if Z_future_true is not None else None
-                )
-                results["Z_future_pred"].append(
-                    Zf.tolist() if Zf is not None else None
-                )
-                results["Z_concat_for_plot"].append(
-                    Z_concat.tolist() if Z_concat is not None else None
-                )
-                results["X_future_pred"].append(
-                    Xf.tolist() if Xf is not None else None
-                )
-                results["pearson_per_channel"].append(r_list)
-                results["pearson_per_channel_Z"].append(r_list_Z)
-        finally:
-            self.idSys.set_steps_ahead([1])
-            self.idSys.set_multi_step_with_data_gen(False)
-
-        flat_r = [
-            v
-            for r in results["pearson_per_channel"]
-            if r
-            for v in r
-            if v is not None and not np.isnan(v)
-        ]
-        results["pearson_overall_mean"] = float(np.mean(flat_r)) if flat_r else np.nan
-
-        flat_r_Z = [
-            v
-            for r in results["pearson_per_channel_Z"]
-            if r
-            for v in r
-            if v is not None and not np.isnan(v)
-        ]
-        results["pearson_overall_mean_Z"] = (
-            float(np.mean(flat_r_Z)) if flat_r_Z else np.nan
-        )
-
-        return results
 
 
 class DPADFramework(BaseFramework):
@@ -1288,9 +585,9 @@ class DPADFramework(BaseFramework):
         return DPADWrapper(self.config)
 
 
-class VARMAOLSWrapper:
+class VARMAOLSWrapper(BaseWrapper):
     """
-    VARMA(p, q) estimation via Ridge regression using a Long-VAR residual proxy.
+    VARMA(p, q) estimation via strict OLS using a Long-VAR residual proxy.
 
     All channels (neural + behavioral) are modeled jointly in one multivariate
     system, capturing cross-channel dynamics bidirectionally.
@@ -1298,13 +595,13 @@ class VARMAOLSWrapper:
     Algorithm:
         1. Fit a high-order VAR to approximate the process and recover residuals.
         2. Build a design matrix: [intercept, AR lags of data, MA lags of residuals].
-        3. Solve via Ridge regression (alpha=0.01) — regularized fit per output channel.
+        3. Solve via ``np.linalg.lstsq`` — unregularised OLS across all K outputs
+           jointly.
         4. Forecast recursively: feed predictions back, future errors = 0.
     """
 
     def __init__(self, config: Config):
-        self.config = config
-        self.logger = get_logger()
+        super().__init__(config)
 
         # VARMA orders: p = AR lags, q = MA lags; long_ar_lags = order of Long-VAR used for residual proxy
         self.p = getattr(config.model, "p", 20)
@@ -1349,6 +646,30 @@ class VARMAOLSWrapper:
     def __setstate__(self, state):
         self.__dict__.update(state)
         self.logger = get_logger()
+
+    @staticmethod
+    def _apply_hamming_trial_edge_taper(data: np.ndarray, n_taper: int) -> np.ndarray:
+        """Hamming-shaped edge taper on first/last ``n_taper`` samples of a trial.
+
+        Reduces boundary power so concatenated trials have smooth transitions
+        — necessary when the design matrix stitches trials head-to-tail for
+        AR/MA lag regression.
+        """
+        if n_taper <= 0:
+            return data
+        T, K = data.shape
+        if T <= 2 * n_taper:
+            n_taper = max(0, (T - 1) // 2)
+            if n_taper <= 0:
+                return data
+        out = np.array(data, copy=True, dtype=np.float64)
+        h = np.hamming(2 * n_taper)
+        ramp_up = (h[:n_taper] - h[0]) / (h[n_taper - 1] - h[0])
+        ramp_down = (h[n_taper:] - h[-1]) / (h[n_taper] - h[-1])
+        for ch in range(K):
+            out[:n_taper, ch] *= ramp_up
+            out[-n_taper:, ch] *= ramp_down
+        return out
 
     def _normalize_trial(
         self, data: np.ndarray, channel_offset: int, n_channels: int
@@ -1443,7 +764,7 @@ class VARMAOLSWrapper:
         return X_matrix
 
     def train(self, Y: TrialList, Z: Optional[TrialList] = None):
-        self.logger.info("Training VARMA-Ridge model (per-channel z-scoring)...")
+        self.logger.info("Training VARMA-OLS model (per-channel z-scoring)...")
 
         p = self.p
         q = self.q
@@ -1490,7 +811,7 @@ class VARMAOLSWrapper:
 
         # Log normalization statistics per channel
         self.logger.info(
-            f"VARMA-Ridge params: p={p}, q={q}, long_ar_lags={long_ar_lags}, "
+            f"VARMA-OLS params: p={p}, q={q}, long_ar_lags={long_ar_lags}, "
             f"n_channels_Y={self.n_channels_Y}, n_channels_Z={self.n_channels_Z}, "
             f"K={self.K}"
         )
@@ -1528,7 +849,7 @@ class VARMAOLSWrapper:
                 data_trial = np.concatenate([y_trial_zscored, z_trial_zscored], axis=1)
             else:
                 data_trial = y_trial_zscored
-            data_trial = _apply_hamming_trial_edge_taper(data_trial, n_taper)
+            data_trial = self._apply_hamming_trial_edge_taper(data_trial, n_taper)
             tapered_trials.append(data_trial)
 
         # Long-VAR on concatenated tapered z-scored data
@@ -1577,7 +898,7 @@ class VARMAOLSWrapper:
             )
 
         if not all_X:
-            raise ValueError("No trials were long enough for VARMA-Ridge fitting.")
+            raise ValueError("No trials were long enough for VARMA-OLS fitting.")
 
         # Single global fit: stack all trials; beta shape (1 + p*K + q*K, K)
         X_full = np.concatenate(all_X, axis=0)
@@ -1587,15 +908,22 @@ class VARMAOLSWrapper:
             f"Design matrix shape: {X_full.shape}, Target shape: {Y_full.shape}"
         )
 
-        # Fit Ridge for each output channel separately
-        self.beta = np.zeros((X_full.shape[1], self.K))
-        for ch_idx in range(self.K):
-            ridge = Ridge(alpha=0.01, fit_intercept=False)
-            ridge.fit(X_full, Y_full[:, ch_idx])
-            self.beta[:, ch_idx] = ridge.coef_
+        # Ridge regression (Tikhonov). OLS on multivariate VARMA produced
+        # unstable companion eigenvalues that triggered aggressive AR-root
+        # stabilization (gamma << 1) and crippled all but the first channel.
+        # Ridge keeps the fit stable; intercept (column 0 of X_full) is not
+        # penalised. alpha defaults to 1.0; configurable via config.model.
+        ridge_alpha = float(getattr(self.config.model, "ridge_alpha", 1.0))
+        n_features = X_full.shape[1]
+        penalty = ridge_alpha * np.eye(n_features)
+        penalty[0, 0] = 0.0  # do not penalise intercept
+        XtX = X_full.T @ X_full + penalty
+        XtY = X_full.T @ Y_full
+        self.beta = np.linalg.solve(XtX, XtY)
+        self.logger.info(f"VARMA-Ridge fit: alpha={ridge_alpha}, beta shape={self.beta.shape}")
 
         self.logger.info(
-            f"VARMA-Ridge training complete. "
+            f"VARMA-OLS training complete. "
             f"Beta shape: {self.beta.shape}, "
             f"n_features={self.beta.shape[0]}, K={self.beta.shape[1]}"
         )
@@ -1692,7 +1020,7 @@ class VARMAOLSWrapper:
 
     def _predict_trial(self, data_zscored: np.ndarray) -> np.ndarray:
         """
-        One-step-ahead prediction for a single trial using the fitted VARMA-Ridge model.
+        One-step-ahead prediction for a single trial using the fitted VARMA-OLS model.
 
         Parameters
         ----------
@@ -1807,26 +1135,7 @@ class VARMAOLSWrapper:
 
         return all_Zp, all_Yp, None
 
-    def validate(self, Y: TrialList, Z: Optional[TrialList] = None) -> Dict[str, Any]:
-        Zp, Yp, Xp = self.predict(Y, Z)
-        r_list, r_mean = pearson_r_per_channel(Y, Yp)
-        result = {
-            "Y": Y,
-            "Zp": Zp,
-            "Yp": Yp,
-            "Xp": Xp,
-            "Yp_shape": state_shape(Yp),
-            "Zp_shape": (None if Zp is None else state_shape(Zp)),
-            "Xp_shape": None,
-            "pearson_r_per_channel": r_list,
-            "pearson_r_mean": r_mean,
-        }
-        return result
-
-    def test(self, Y: TrialList, Z: Optional[TrialList] = None) -> Dict[str, Any]:
-        return self.validate(Y, Z)
-
-    def _forecast_from_history(
+    def _recursive_forecast(
         self,
         history_data: np.ndarray,
         history_resid: np.ndarray,
@@ -1919,7 +1228,7 @@ class VARMAOLSWrapper:
             history_resid = np.zeros((q, self.K))
 
         # Forecast using actual history (no padding, no effective_data slicing)
-        forecasts_zscored = self._forecast_from_history(
+        forecasts_zscored = self._recursive_forecast(
             history_data, history_resid, m
         )
 
@@ -1940,141 +1249,6 @@ class VARMAOLSWrapper:
 
         return Zf, Yf, None
 
-    def validate_forecast(
-        self,
-        Y_list: TrialList,
-        Z_list: Optional[TrialList] = None,
-        margin: Optional[float] = None,
-        Yp_val: Optional[TrialList] = None,
-        Zp_val: Optional[TrialList] = None,
-    ) -> Dict[str, Any]:
-        """Fixed-horizon forecast evaluation: for each trial, take first `history` samples as past, forecast `m` steps, compare to true future."""
-        m_seconds = self.forecast_m
-        history_seconds = self.forecast_history
-        sampling_freq = self.sampling_freq
-        m = int(m_seconds * sampling_freq)
-        history = int(history_seconds * sampling_freq)
-
-        if Yp_val is None:
-            self.logger.info("Yp_val not provided, running prediction...")
-            Zp_val, Yp_val, _ = self.predict(Y_list)
-
-        all_residuals = []
-        for y_true, y_pred in zip(Y_list, Yp_val):
-            if y_pred is not None:
-                all_residuals.append(y_true - y_pred)
-
-        if all_residuals:
-            all_residuals_concat = np.concatenate(all_residuals, axis=0)
-            residual_mean = np.mean(all_residuals_concat, axis=0)
-            residual_std = np.std(all_residuals_concat, axis=0)
-        else:
-            residual_mean = 0.0
-            residual_std = 0.0
-
-        results = {
-            "m": m,
-            "Y_future_true": [],
-            "Y_future_pred": [],
-            "Y_concat_for_plot": [],
-            "Z_future_true": [],
-            "Z_future_pred": [],
-            "Z_concat_for_plot": [],
-            "X_future_pred": [],
-            "pearson_per_channel": [],
-            "pearson_per_channel_Z": [],
-            "residual_mean": (
-                residual_mean.tolist()
-                if isinstance(residual_mean, np.ndarray)
-                else residual_mean
-            ),
-            "residual_std": (
-                residual_std.tolist()
-                if isinstance(residual_std, np.ndarray)
-                else residual_std
-            ),
-        }
-
-        for idx, Y in enumerate(Y_list):
-            T = Y.shape[0]
-            if history + m > T:
-                raise ValueError(
-                    f"history + m ({history} + {m} = {history + m}) must not exceed trial length T={T}"
-                )
-
-            if margin is not None and isinstance(margin, (int, float)) and margin > 0:
-                history_end = int(margin * sampling_freq)
-            else:
-                history_end = history
-
-            Y_past = Y[:history_end]
-            Y_future_true = Y[history_end : history_end + m]
-
-            Z = Z_list[idx] if Z_list is not None and idx < len(Z_list) else None
-            Z_future_true = Z[history_end : history_end + m] if Z is not None else None
-            Z_past = Z[:history_end] if Z is not None else None
-
-            Zf, Yf, _ = self.forecast(m, Y_past, Z_past=Z_past)
-
-            Y_concat = np.concatenate([Y_past, Yf], axis=0)
-            Z_concat = (
-                np.concatenate([Z_past, Zf], axis=0)
-                if Z_past is not None and Zf is not None
-                else None
-            )
-
-            r_list, _ = pearson_r_per_channel([Y_future_true], [Yf])
-            r_list = (
-                r_list[0] if isinstance(r_list, list) and len(r_list) > 0 else r_list
-            )
-
-            if Z_future_true is not None and Zf is not None:
-                r_list_Z, _ = pearson_r_per_channel([Z_future_true], [Zf])
-                r_list_Z = (
-                    r_list_Z[0]
-                    if isinstance(r_list_Z, list) and len(r_list_Z) > 0
-                    else r_list_Z
-                )
-            else:
-                r_list_Z = []
-
-            results["Y_future_true"].append(Y_future_true.tolist())
-            results["Y_future_pred"].append(Yf.tolist())
-            results["Y_concat_for_plot"].append(Y_concat.tolist())
-            results["Z_future_true"].append(
-                Z_future_true.tolist() if Z_future_true is not None else None
-            )
-            results["Z_future_pred"].append(Zf.tolist() if Zf is not None else None)
-            results["Z_concat_for_plot"].append(
-                Z_concat.tolist() if Z_concat is not None else None
-            )
-            results["X_future_pred"].append(None)
-            results["pearson_per_channel"].append(r_list)
-            results["pearson_per_channel_Z"].append(r_list_Z)
-
-        flat_r = []
-        for r in results["pearson_per_channel"]:
-            if r is None:
-                continue
-            for v in r:
-                if v is not None and not np.isnan(v):
-                    flat_r.append(float(v))
-        results["pearson_overall_mean"] = (
-            float(np.mean(flat_r)) if len(flat_r) > 0 else np.nan
-        )
-
-        flat_r_Z = []
-        for r in results["pearson_per_channel_Z"]:
-            if r is None or not r:
-                continue
-            for v in r:
-                if v is not None and not np.isnan(v):
-                    flat_r_Z.append(float(v))
-        results["pearson_overall_mean_Z"] = (
-            float(np.mean(flat_r_Z)) if len(flat_r_Z) > 0 else np.nan
-        )
-
-        return results
 
 
 class VARMAOLSFramework(BaseFramework):

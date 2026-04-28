@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 from datetime import datetime
 
-import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -19,7 +18,7 @@ from utils.classification import (
     run_lda_fit_and_test_only,
     _load_framework_for_forecast,
 )
-from utils.classification_disk_cache import (
+from utils.classification.cache import (
     build_flipped_epoched_key,
     build_lda_fit_key,
     build_standard_epoched_key,

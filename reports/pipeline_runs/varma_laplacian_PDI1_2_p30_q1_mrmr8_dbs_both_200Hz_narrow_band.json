@@ -1,0 +1,62 @@
+{
+  "pipeline": "varma",
+  "variant": "varma_laplacian_PDI1_2_p30_q1_mrmr8_dbs_both_200Hz_narrow_band",
+  "phases": [
+    "channel_select",
+    "train",
+    "cross_cond",
+    "classify"
+  ],
+  "started_at": "2026-04-27T22:06:59.229385",
+  "finished_at": "2026-04-27T22:08:44.773746",
+  "state": {
+    "timestamps": {
+      "both": "20260427_220703",
+      "on": "20260427_220736",
+      "off": "20260427_220756"
+    },
+    "channels": [
+      "ECOG_3_beta_12_17_raw",
+      "ECOG_3_beta_17_22_raw",
+      "ECOG_2_beta_12_17_raw",
+      "ECOG_2_beta_17_22_raw",
+      "ECOG_4_beta_12_17_raw",
+      "ECOG_4_beta_17_22_raw",
+      "ECOG_3_theta_4_8_raw",
+      "ECOG_3_beta_22_27_raw"
+    ],
+    "channel_select_info": {
+      "method": "mrmr_diagnostic",
+      "K": 8,
+      "selection_path": "/home/bobby/repos/latent-neural-dynamics-modeling/results/varma_channel_selection_laplacian_PDI1_2.json"
+    },
+    "best_hm": {
+      "standard": {
+        "h": 0.5,
+        "m": 0.5,
+        "cv_ba": -1.0
+      }
+    }
+  },
+  "mode": "laplacian",
+  "participant": "PDI1",
+  "session": "2",
+  "p": 30,
+  "q": 1,
+  "long_ar_lags": 30,
+  "top_n": 8,
+  "psid_source": "psid_laplacian_PDI1_2_nx_55_n15_i100_dbs_both_200Hz_narrow_band_mrmr8",
+  "psid_nx": 55,
+  "psid_n1": 15,
+  "channels": [
+    "ECOG_3_beta_12_17_raw",
+    "ECOG_3_beta_17_22_raw",
+    "ECOG_2_beta_12_17_raw",
+    "ECOG_2_beta_17_22_raw",
+    "ECOG_4_beta_12_17_raw",
+    "ECOG_4_beta_17_22_raw",
+    "ECOG_3_theta_4_8_raw",
+    "ECOG_3_beta_22_27_raw"
+  ],
+  "channels_tag": "mrmr8"
+}

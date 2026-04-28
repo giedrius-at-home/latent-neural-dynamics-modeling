@@ -1,7 +1,6 @@
 from pathlib import Path
 import mne
 import numpy as np
-from utils.logger import get_logger
 from scipy.signal import hilbert
 
 

@@ -1,0 +1,62 @@
+{
+  "pipeline": "varma",
+  "variant": "varma_behavioral_PDI4_2_p30_q1_mrmr8_dbs_both_200Hz_narrow_band",
+  "phases": [
+    "channel_select",
+    "train",
+    "cross_cond",
+    "classify"
+  ],
+  "started_at": "2026-04-27T14:28:39.253476",
+  "finished_at": "2026-04-27T14:29:55.880166",
+  "state": {
+    "timestamps": {
+      "both": "20260427_142840",
+      "on": "20260427_142902",
+      "off": "20260427_142916"
+    },
+    "channels": [
+      "ECOG_3_theta_4_8_raw",
+      "ECOG_3_gamma_60_65_raw",
+      "ECOG_2_alpha_8_12_raw",
+      "ECOG_4_theta_4_8_raw",
+      "ECOG_1_beta_12_17_raw",
+      "ECOG_1_gamma_40_45_raw",
+      "ECOG_1_theta_4_8_raw",
+      "ECOG_1_beta_17_22_raw"
+    ],
+    "channel_select_info": {
+      "method": "mrmr_diagnostic",
+      "K": 8,
+      "selection_path": "/home/bobby/repos/latent-neural-dynamics-modeling/results/varma_channel_selection_behavioral_PDI4_2.json"
+    },
+    "best_hm": {
+      "standard": {
+        "h": 0.5,
+        "m": 0.5,
+        "cv_ba": -1.0
+      }
+    }
+  },
+  "mode": "behavioral",
+  "participant": "PDI4",
+  "session": "2",
+  "p": 30,
+  "q": 1,
+  "long_ar_lags": 30,
+  "top_n": 8,
+  "psid_source": "psid_behavioral_PDI4_2_nx_150_n7_i100_dbs_both_200Hz_narrow_band_mrmr8",
+  "psid_nx": 150,
+  "psid_n1": 7,
+  "channels": [
+    "ECOG_3_theta_4_8_raw",
+    "ECOG_3_gamma_60_65_raw",
+    "ECOG_2_alpha_8_12_raw",
+    "ECOG_4_theta_4_8_raw",
+    "ECOG_1_beta_12_17_raw",
+    "ECOG_1_gamma_40_45_raw",
+    "ECOG_1_theta_4_8_raw",
+    "ECOG_1_beta_17_22_raw"
+  ],
+  "channels_tag": "mrmr8"
+}

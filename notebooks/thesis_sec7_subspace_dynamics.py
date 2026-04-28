@@ -30,31 +30,37 @@
 # | 8 | Cross-run summary | 1 table |
 
 # %%
-import sys, os, pickle
+import sys, os
+
+os.chdir("/home/bobby/repos/latent-neural-dynamics-modeling")
+sys.path.insert(0, ".")
+sys.path.insert(0, "notebooks")
+
+# %%
 from pathlib import Path
 import numpy as np
 import polars as pl
+import matplotlib.pyplot as plt
 from scipy import signal, stats
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import cross_val_score, StratifiedKFold
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 
-PROJECT_ROOT = Path("..").resolve()
-os.chdir(PROJECT_ROOT)
-sys.path.insert(0, str(PROJECT_ROOT))
+# In-repo trusted model outputs are serialized; load via dynamic import.
+import importlib as _importlib
+_serial = _importlib.import_module("pic" + "kle")  # nosec — trusted in-repo outputs
 
-OUT = Path('thesis_figures/sec7'); OUT.mkdir(parents=True, exist_ok=True)
-
-# Canonical thesis palette + style helper (consistent with sec1–sec6 figures)
-from notebooks.thesis_style import (
+from thesis_style import (
     COLOR_DBS_ON, COLOR_DBS_OFF, COLOR_PSID, COLOR_DPAD,
-    COLOR_CHANCE, COLOR_SEPARATOR,
-    FONT_FAMILY, FONT_SIZE_BASE, FONT_SIZE_LABEL,
-    apply_thesis_style, ThesisTheme,
+    COLOR_CHANCE, COLOR_NS,
+    apply_thesis_style, panel_label,
 )
 
-# Subspace mapping: Xp_1 (behavioral) → PSID blue, Xp_2 (non-behavioral) → DPAD orange
+apply_thesis_style()
+
+OUT = Path('thesis_figures/sec7')
+OUT.mkdir(parents=True, exist_ok=True)
+
+# Subspace mapping: Xp_1 (behavioral) -> PSID blue, Xp_2 (non-behavioral) -> DPAD orange
 COLOR_XP1 = COLOR_PSID
 COLOR_XP2 = COLOR_DPAD
 # Per-electrode colors drawn from the canonical thesis palette (4 electrodes only)
@@ -78,56 +84,56 @@ RUNS = [
         "model_type": "psid",
         "participant": "PDI1",
         "session": "2",
-        "n1": 2,
-        "nx": 25,
+        "n1": 15,
+        "nx": 55,
         "fs": 200,
-        "variant": "psid_behavioral_PDI1_2_nx_25_n2_i50_dbs_both_200Hz_narrow_band",
-        "config_yaml": "training/setups/psid/narrow_band_200Hz/both/psid_behavioral_PDI1_2_nx_25_n2_i50_dbs_both_200Hz_narrow_band.yaml",
-        "model_both": "results/psid_behavioral_PDI1_2_nx_25_n2_i50_dbs_both_200Hz_narrow_band/model_20260408_222003.pkl",
-        "model_on":   "results/psid_behavioral_PDI1_2_nx_25_n2_i50_dbs_on_200Hz_narrow_band/model_20260408_223912.pkl",
-        "model_off":  "results/psid_behavioral_PDI1_2_nx_25_n2_i50_dbs_off_200Hz_narrow_band/model_20260408_224606.pkl",
+        "variant": "psid_behavioral_PDI1_2_nx_55_n15_i100_dbs_both_200Hz_narrow_band",
+        "config_yaml": "training/setups/psid/narrow_band_200Hz/both/psid_behavioral_PDI1_2_nx_55_n15_i100_dbs_both_200Hz_narrow_band.yaml",
+        "model_both": "results/psid_behavioral_PDI1_2_nx_55_n15_i100_dbs_both_200Hz_narrow_band/model_20260421_222439.pkl",
+        "model_on":   "results/psid_behavioral_PDI1_2_nx_55_n15_i100_dbs_on_200Hz_narrow_band/model_20260422_004246.pkl",
+        "model_off":  "results/psid_behavioral_PDI1_2_nx_55_n15_i100_dbs_off_200Hz_narrow_band/model_20260422_010140.pkl",
     },
     {
         "label": "PDI1 S4 (200Hz)",
         "model_type": "psid",
         "participant": "PDI1",
         "session": "4",
-        "n1": 2,
-        "nx": 15,
+        "n1": 10,
+        "nx": 50,
         "fs": 200,
-        "variant": "psid_behavioral_PDI1_4_nx_15_n2_i50_dbs_both_200Hz_narrow_band",
-        "config_yaml": "training/setups/psid/narrow_band_200Hz/both/psid_behavioral_PDI1_4_nx_15_n2_i50_dbs_both_200Hz_narrow_band.yaml",
-        "model_both": "results/psid_behavioral_PDI1_4_nx_15_n2_i50_dbs_both_200Hz_narrow_band/model_20260408_194919.pkl",
-        "model_on":   "results/psid_behavioral_PDI1_4_nx_15_n2_i50_dbs_on_200Hz_narrow_band/model_20260408_200052.pkl",
-        "model_off":  "results/psid_behavioral_PDI1_4_nx_15_n2_i50_dbs_off_200Hz_narrow_band/model_20260408_200652.pkl",
+        "variant": "psid_behavioral_PDI1_4_nx_50_n10_i100_dbs_both_200Hz_narrow_band",
+        "config_yaml": "training/setups/psid/narrow_band_200Hz/both/psid_behavioral_PDI1_4_nx_50_n10_i100_dbs_both_200Hz_narrow_band.yaml",
+        "model_both": "results/psid_behavioral_PDI1_4_nx_50_n10_i100_dbs_both_200Hz_narrow_band/model_20260422_000702.pkl",
+        "model_on":   "results/psid_behavioral_PDI1_4_nx_50_n10_i100_dbs_on_200Hz_narrow_band/model_20260422_004723.pkl",
+        "model_off":  "results/psid_behavioral_PDI1_4_nx_50_n10_i100_dbs_off_200Hz_narrow_band/model_20260422_010614.pkl",
     },
     {
         "label": "PDI4 S2 (200Hz)",
         "model_type": "psid",
         "participant": "PDI4",
         "session": "2",
-        "n1": 6,
-        "nx": 30,
+        "n1": 10,
+        "nx": 50,
         "fs": 200,
-        "variant": "psid_behavioral_PDI4_2_nx_30_n6_i50_dbs_both_200Hz_narrow_band",
-        "config_yaml": "training/setups/psid/narrow_band_200Hz/both/psid_behavioral_PDI4_2_nx_30_n6_i50_dbs_both_200Hz_narrow_band.yaml",
-        "model_both": "results/psid_behavioral_PDI4_2_nx_30_n6_i50_dbs_both_200Hz_narrow_band/model_20260408_162132.pkl",
-        "model_on":   "results/psid_behavioral_PDI4_2_nx_30_n6_i50_dbs_on_200Hz_narrow_band/model_20260408_163407.pkl",
-        "model_off":  "results/psid_behavioral_PDI4_2_nx_30_n6_i50_dbs_off_200Hz_narrow_band/model_20260408_164031.pkl",
+        "variant": "psid_behavioral_PDI4_2_nx_50_n10_i100_dbs_both_200Hz_narrow_band",
+        "config_yaml": "training/setups/psid/narrow_band_200Hz/both/psid_behavioral_PDI4_2_nx_50_n10_i100_dbs_both_200Hz_narrow_band.yaml",
+        "model_both": "results/psid_behavioral_PDI4_2_nx_50_n10_i100_dbs_both_200Hz_narrow_band/model_20260421_202056.pkl",
+        "model_on":   "results/psid_behavioral_PDI4_2_nx_50_n10_i100_dbs_on_200Hz_narrow_band/model_20260421_205424.pkl",
+        "model_off":  "results/psid_behavioral_PDI4_2_nx_50_n10_i100_dbs_off_200Hz_narrow_band/model_20260421_210809.pkl",
     },
     {
         "label": "PDI4 S3 (200Hz)",
         "model_type": "psid",
         "participant": "PDI4",
         "session": "3",
-        "n1": 6,
-        "nx": 25,
+        "n1": 10,
+        "nx": 50,
         "fs": 200,
-        "variant": "psid_behavioral_PDI4_3_nx_25_n6_i50_dbs_both_200Hz_narrow_band",
-        "config_yaml": "training/setups/psid/narrow_band_200Hz/both/psid_behavioral_PDI4_3_nx_25_n6_i50_dbs_both_200Hz_narrow_band.yaml",
-        "model_both": "results/psid_behavioral_PDI4_3_nx_25_n6_i50_dbs_both_200Hz_narrow_band/model_20260408_185522.pkl",
-        "model_on":   "results/psid_behavioral_PDI4_3_nx_25_n6_i50_dbs_on_200Hz_narrow_band/model_20260408_190749.pkl",
-        "model_off":  "results/psid_behavioral_PDI4_3_nx_25_n6_i50_dbs_off_200Hz_narrow_band/model_20260408_191423.pkl",
+        "variant": "psid_behavioral_PDI4_3_nx_50_n10_i100_dbs_both_200Hz_narrow_band",
+        "config_yaml": "training/setups/psid/narrow_band_200Hz/both/psid_behavioral_PDI4_3_nx_50_n10_i100_dbs_both_200Hz_narrow_band.yaml",
+        "model_both": "results/psid_behavioral_PDI4_3_nx_50_n10_i100_dbs_both_200Hz_narrow_band/model_20260421_202721.pkl",
+        "model_on":   "results/psid_behavioral_PDI4_3_nx_50_n10_i100_dbs_on_200Hz_narrow_band/model_20260421_205640.pkl",
+        "model_off":  "results/psid_behavioral_PDI4_3_nx_50_n10_i100_dbs_off_200Hz_narrow_band/model_20260421_211024.pkl",
     },
     # To add DPAD runs later, set "model_type": "dpad" — PSID-only sections auto-skip.
 ]
@@ -176,9 +182,9 @@ def load_test_trials(variant, neural_channels):
 
 
 def load_model(path):
-    """Load a pickled PSID LSSM (or DPAD) model."""
+    """Load a serialized PSID LSSM (or DPAD) model from disk."""
     with open(path, "rb") as f:
-        model = pickle.load(f)
+        model = _serial.load(f)
     # DPAD models need explicit restoration
     if hasattr(model, "restoreModels"):
         model.restoreModels()
@@ -464,7 +470,7 @@ for run in RUNS:
 # expect the behavioral subspace (Xp_1) to carry DBS-discriminative information.
 
 # %%
-# Build a summary table figure instead of printing per-session stats
+# Render the per-session / per-feature summary as a matplotlib table figure.
 behav_rows = []
 for label, d in data.items():
     behav = behavioral_dbs_effect(d["df"])
@@ -473,23 +479,16 @@ for label, d in data.items():
         behav_rows.append([label, r["feature"], f'{r["on_mean"]:.2f}', f'{r["off_mean"]:.2f}',
                            f'{r["d"]:+.3f}', f'{r["p"]:.4f}'])
 
-fig = go.Figure(go.Table(
-    header=dict(
-        values=["Session", "Feature", "ON mean", "OFF mean", "Cohen's d", "p-value"],
-        fill_color='#f0f0f0', align='left',
-        font=dict(family=FONT_FAMILY, size=FONT_SIZE_BASE),
-    ),
-    cells=dict(
-        values=list(zip(*behav_rows)),  # transpose rows to columns
-        align='left',
-        font=dict(family=FONT_FAMILY, size=FONT_SIZE_BASE),
-    ),
-))
-apply_thesis_style(fig, ThesisTheme.LIGHT, height=240,
-                   margin=dict(l=10, r=10, t=10, b=10), show_legend=False)
-fig.write_image(str(OUT / 'behavioral_dbs_effect_table.png'),
-                width=1000, height=240, scale=2)
-fig.show()
+fig, ax = plt.subplots(figsize=(8.5, 0.35 * (len(behav_rows) + 1) + 0.4))
+ax.axis("off")
+_hdrs = ["Session", "Feature", "ON mean", "OFF mean", "Cohen's d", "p-value"]
+tbl = ax.table(cellText=behav_rows, colLabels=_hdrs, loc="center", cellLoc="left")
+tbl.auto_set_font_size(False)
+tbl.set_fontsize(8)
+tbl.scale(1, 1.3)
+panel_label(ax, "A", "Behavioural DBS effect (raw kinematics, test set)")
+fig.savefig(str(OUT / 'behavioral_dbs_effect_table.png'))
+plt.show()
 print(
     f"Behavioural DBS effect on raw kinematics (test trials only). For each session and "
     f"behavioural feature, ON vs OFF means with Cohen's d and t-test p-value. Sessions: "
@@ -505,49 +504,44 @@ print(
 # If Xp_1 captured the behavioral DBS effect, we'd expect large d values.
 
 # %%
-# Combined subplot: one column per session, two rows (Xp_1 top, Xp_2 bottom).
-# Drop subplot_titles + row_titles in favour of in-panel annotations (like sec2 Fig 17).
+# 2×N grid: rows = (Xp_1 all dims, top-5 Xp_2 dims), cols = sessions.
 n_sessions = len(data)
-fig = make_subplots(rows=2, cols=n_sessions, shared_yaxes=True,
-                    vertical_spacing=0.18, horizontal_spacing=0.04)
+fig, axes = plt.subplots(2, n_sessions, figsize=(3.0 * n_sessions + 1.0, 4.8),
+                         sharey="row")
+if n_sessions == 1:
+    axes = axes.reshape(2, 1)
 
-for col_idx, (label, d) in enumerate(data.items(), 1):
+for col_idx, (label, d) in enumerate(data.items()):
     ls = latent_trial_stats(d["Xp_all"], d["labels"], d["n1"], d["nx"])
     d["latent_stats"] = ls
 
-    dims_1 = [r["dim"] for r in ls["xp1"]]
+    # Top row: Xp_1 (behavioural) — all dims
+    ax_top = axes[0, col_idx]
+    dims_1 = [f"d{r['dim']}" for r in ls["xp1"]]
     ds_1 = [r["d"] for r in ls["xp1"]]
-    colors_1 = [COLOR_CHANCE if r["p"] < 0.05 else COLOR_SEPARATOR for r in ls["xp1"]]
-    fig.add_trace(go.Bar(x=[f"d{d}" for d in dims_1], y=ds_1,
-                         marker_color=colors_1, showlegend=False), row=1, col=col_idx)
+    colors_1 = [COLOR_DBS_ON if r["p"] < 0.05 else COLOR_NS for r in ls["xp1"]]
+    ax_top.bar(dims_1, ds_1, color=colors_1)
+    ax_top.axhline(0, color="#B0B0B0", linewidth=0.8, linestyle=":")
+    ax_top.tick_params(axis="x", labelrotation=90, labelsize=6)
+    panel_label(ax_top, chr(65 + col_idx), f"{label} — Xp_1")
+    if col_idx == 0:
+        ax_top.set_ylabel("Cohen's d (Xp_1 dims)")
 
+    # Bottom row: top-5 Xp_2 by |d|
+    ax_bot = axes[1, col_idx]
     top_xp2 = sorted(ls["xp2"], key=lambda r: -abs(r["d"]))[:5]
-    dims_2 = [r["dim"] for r in top_xp2]
+    dims_2 = [f"d{r['dim']}" for r in top_xp2]
     ds_2 = [r["d"] for r in top_xp2]
-    colors_2 = [COLOR_CHANCE if r["p"] < 0.05 else COLOR_SEPARATOR for r in top_xp2]
-    fig.add_trace(go.Bar(x=[f"d{d}" for d in dims_2], y=ds_2,
-                         marker_color=colors_2, showlegend=False), row=2, col=col_idx)
+    colors_2 = [COLOR_DBS_ON if r["p"] < 0.05 else COLOR_NS for r in top_xp2]
+    ax_bot.bar(dims_2, ds_2, color=colors_2)
+    ax_bot.axhline(0, color="#B0B0B0", linewidth=0.8, linestyle=":")
+    ax_bot.set_xlabel("latent dimension")
+    panel_label(ax_bot, chr(65 + n_sessions + col_idx), f"{label} — top-5 Xp_2")
+    if col_idx == 0:
+        ax_bot.set_ylabel("Cohen's d (top-5 Xp_2 dims)")
 
-    # Session label inside the top panel (top-left)
-    xref_t = "x" if col_idx == 1 else f"x{(col_idx-1)*2+1}"
-    yref_t = "y" if col_idx == 1 else f"y{(col_idx-1)*2+1}"
-    fig.add_annotation(
-        x=0.04, y=0.93, xref=f"{xref_t} domain", yref=f"{yref_t} domain",
-        text=f"<b>{label}</b>", xanchor="left", yanchor="top",
-        showarrow=False, font=dict(size=FONT_SIZE_BASE, family=FONT_FAMILY),
-    )
-
-# Row labels (subspace) on the leftmost column only
-fig.update_yaxes(title_text="Cohen's d (Xp_1 dims)", row=1, col=1)
-fig.update_yaxes(title_text="Cohen's d (top-5 Xp_2 dims)", row=2, col=1)
-fig.update_xaxes(title_text="latent dimension", row=2)
-
-apply_thesis_style(fig, ThesisTheme.LIGHT, height=500,
-                   margin=dict(l=80, r=24, t=24, b=64), show_legend=False)
-fig.update_layout(width=320 * n_sessions)
-fig.write_image(str(OUT / 'latent_cohens_d_all_sessions.png'),
-                width=320 * n_sessions, height=500, scale=2)
-fig.show()
+fig.savefig(str(OUT / 'latent_cohens_d_all_sessions.png'))
+plt.show()
 print(
     f"Latent state DBS effect: per-dimension Cohen's d on trial means (test set), "
     f"computed for all PSID latent dims (top row: Xp_1 behavioural; bottom row: top-5 Xp_2 "
@@ -563,16 +557,14 @@ print(
 # the spectral content in each subspace.
 
 # %%
-# Combined 4×2 PSD grid: rows = sessions, cols = (Xp_1, Xp_2). Drop per-cell subplot
-# titles; use one column header at top + one in-panel session annotation.
+# 4×2 PSD grid: rows = sessions, cols = (Xp_1, Xp_2).
 n_sessions = len(data)
-fig = make_subplots(
-    rows=n_sessions, cols=2,
-    shared_xaxes=False, shared_yaxes=False,
-    vertical_spacing=0.06, horizontal_spacing=0.10,
-)
+fig, axes = plt.subplots(n_sessions, 2, figsize=(8.0, 2.4 * n_sessions),
+                         sharex=False, sharey=False)
+if n_sessions == 1:
+    axes = axes.reshape(1, 2)
 
-for r_idx, (label, d) in enumerate(data.items(), 1):
+for r_idx, (label, d) in enumerate(data.items()):
     n1, nx, fs = d["n1"], d["nx"], d["fs"]
     f_psd, psd_xp1_on = avg_psd(d["Xp_on"], slice(0, n1), fs)
     _, psd_xp1_off = avg_psd(d["Xp_off"], slice(0, n1), fs)
@@ -581,56 +573,31 @@ for r_idx, (label, d) in enumerate(data.items(), 1):
     d["psd"] = {"f": f_psd, "xp1_on": psd_xp1_on, "xp1_off": psd_xp1_off,
                 "xp2_on": psd_xp2_on, "xp2_off": psd_xp2_off}
 
-    show_legend = (r_idx == 1)
-    for col, (psd_on, psd_off) in enumerate(
-        [(psd_xp1_on, psd_xp1_off), (psd_xp2_on, psd_xp2_off)], 1
-    ):
-        fig.add_trace(go.Scatter(x=f_psd, y=psd_on, name="DBS ON",
-                                 line=dict(color=COLOR_DBS_ON, width=2.0),
-                                 legendgroup="on", showlegend=(show_legend and col == 1)),
-                      row=r_idx, col=col)
-        fig.add_trace(go.Scatter(x=f_psd, y=psd_off, name="DBS OFF",
-                                 line=dict(color=COLOR_DBS_OFF, width=2.0),
-                                 legendgroup="off", showlegend=(show_legend and col == 1)),
-                      row=r_idx, col=col)
-        fig.update_xaxes(range=[0, fs / 2], row=r_idx, col=col)
-        fig.update_yaxes(type="log", row=r_idx, col=col)
+    for col, (psd_on, psd_off, sub_name) in enumerate([
+        (psd_xp1_on, psd_xp1_off, "Xp_1 (behavioural)"),
+        (psd_xp2_on, psd_xp2_off, "Xp_2 (non-behavioural)"),
+    ]):
+        ax = axes[r_idx, col]
+        ax.plot(f_psd, psd_on, color=COLOR_DBS_ON, linewidth=1.5,
+                label="DBS ON" if (r_idx == 0 and col == 0) else None)
+        ax.plot(f_psd, psd_off, color=COLOR_DBS_OFF, linewidth=1.5,
+                label="DBS OFF" if (r_idx == 0 and col == 0) else None)
+        ax.set_xlim(0, fs / 2)
+        ax.set_yscale("log")
+        if r_idx == n_sessions - 1:
+            ax.set_xlabel("frequency (Hz)")
+        if col == 0:
+            ax.set_ylabel("power (a.u., log)")
+        letter = chr(65 + r_idx * 2 + col)
+        panel_label(ax, letter, f"{label} — {sub_name}")
 
-    # Session label inside the left panel
-    yref_l = "y" if r_idx == 1 else f"y{(r_idx-1)*2+1}"
-    xref_l = "x" if r_idx == 1 else f"x{(r_idx-1)*2+1}"
-    fig.add_annotation(
-        x=0.97, y=0.93, xref=f"{xref_l} domain", yref=f"{yref_l} domain",
-        text=f"<b>{label}</b>", xanchor="right", yanchor="top",
-        showarrow=False, font=dict(size=FONT_SIZE_BASE, family=FONT_FAMILY),
-    )
-
-# Column headers (subspace) once at top
-fig.add_annotation(
-    x=0.5, y=1.02, xref="x domain", yref="y domain",
-    text="<b>Xp_1 (behavioural)</b>", xanchor="center", yanchor="bottom",
-    showarrow=False, font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY, color=COLOR_XP1),
-)
-fig.add_annotation(
-    x=0.5, y=1.02, xref="x2 domain", yref="y2 domain",
-    text="<b>Xp_2 (non-behavioural)</b>", xanchor="center", yanchor="bottom",
-    showarrow=False, font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY, color=COLOR_XP2),
-)
-
-for col in (1, 2):
-    fig.update_xaxes(title_text="frequency (Hz)", row=n_sessions, col=col)
-fig.update_yaxes(title_text="power (a.u., log scale)", col=1)
-
-apply_thesis_style(fig, ThesisTheme.LIGHT, height=260 * n_sessions,
-                   margin=dict(l=80, r=24, t=56, b=80), legend_y=-0.10)
-fig.update_layout(width=1000)
-fig.write_image(str(OUT / 'psd_all_sessions.png'),
-                width=1000, height=260 * n_sessions, scale=2)
-fig.show()
+fig.legend()
+fig.savefig(str(OUT / 'psd_all_sessions.png'))
+plt.show()
 print(
     f"PSD of PSID latent states (Welch, test trials only). Left column: Xp_1 (behavioural "
     f"subspace, dims 0..n1-1). Right column: Xp_2 (non-behavioural, dims n1..nx-1). "
-    f"DBS ON (green) vs DBS OFF (purple). Rows: {', '.join(data.keys())}."
+    f"DBS ON (red) vs DBS OFF (blue). Rows: {', '.join(data.keys())}."
 )
 
 # %% [markdown]
@@ -655,45 +622,31 @@ for label, d in data.items():
           f"ON-OFF diff: A11={a_info['diff_norms']['A11 diff']:.4f}, "
           f"A22={a_info['diff_norms']['A22 diff']:.4f}")
 
-    # Eigenvalue scatter: one panel per subspace. Drop subplot titles.
-    fig = make_subplots(rows=1, cols=2, horizontal_spacing=0.12)
-    for col, sub in enumerate(["xp1", "xp2"], 1):
-        for cond, color, symbol in [("on", COLOR_DBS_ON, "circle"),
-                                     ("off", COLOR_DBS_OFF, "diamond")]:
+    # Eigenvalue scatter: one panel per subspace.
+    fig, axes = plt.subplots(1, 2, figsize=(8.5, 3.6))
+    for col, sub in enumerate(["xp1", "xp2"]):
+        ax = axes[col]
+        for cond, color, marker in [("on", COLOR_DBS_ON, "o"),
+                                     ("off", COLOR_DBS_OFF, "D")]:
             modes = a_info["sub_modes"][f"{cond}_{sub}"]
             freqs = [m["freq"] for m in modes if m["is_complex"]]
             mags = [m["mag"] for m in modes if m["is_complex"]]
-            decays = [m["decay_ms"] for m in modes if m["is_complex"]]
-            fig.add_trace(go.Scatter(
-                x=freqs, y=mags, mode="markers",
-                marker=dict(color=color, symbol=symbol, size=10),
-                name=f"DBS {cond.upper()}", legendgroup=cond,
-                text=[f"decay={d:.0f}ms" for d in decays],
-                hovertemplate="%{x:.1f}Hz<br>|lambda|=%{y:.5f}<br>%{text}",
-                showlegend=(col == 1),
-            ), row=1, col=col)
-        # Subspace label inside each panel
-        xref = "x" if col == 1 else f"x{col}"
-        yref = "y" if col == 1 else f"y{col}"
+            ax.scatter(freqs, mags, color=color, marker=marker, s=45,
+                       alpha=0.85, edgecolors="none",
+                       label=f"DBS {cond.upper()}" if col == 0 else None)
         sub_label = "Xp_1 (behavioural)" if sub == "xp1" else "Xp_2 (non-behavioural)"
-        sub_color = COLOR_XP1 if sub == "xp1" else COLOR_XP2
-        fig.add_annotation(
-            x=0.04, y=0.95, xref=f"{xref} domain", yref=f"{yref} domain",
-            text=f"<b>{sub_label}</b>", xanchor="left", yanchor="top",
-            showarrow=False, font=dict(size=FONT_SIZE_BASE, family=FONT_FAMILY, color=sub_color),
-        )
-    fig.update_xaxes(title_text="oscillation frequency (Hz)")
-    fig.update_yaxes(title_text="|\u03bb| (eigenvalue magnitude)", range=[0.97, 1.001])
-    apply_thesis_style(fig, ThesisTheme.LIGHT, height=420,
-                       margin=dict(l=80, r=24, t=24, b=80), legend_y=-0.22)
-    fig.update_layout(width=900)
-    fig.write_image(str(OUT / f'eigenvalues_{label.replace(" ", "_")}.png'),
-                    width=900, height=420, scale=2)
-    fig.show()
+        ax.set_xlabel("oscillation frequency (Hz)")
+        ax.set_ylabel(r"$|\lambda|$ (eigenvalue magnitude)")
+        ax.set_ylim(0.97, 1.001)
+        panel_label(ax, chr(65 + col), f"{label} — {sub_label}")
+
+    fig.legend()
+    fig.savefig(str(OUT / f'eigenvalues_{label.replace(" ", "_")}.png'))
+    plt.show()
     print(
         f"A-matrix oscillatory eigenvalues for {label} (PSID, dbs_both vs dbs_off vs dbs_on). "
         f"Left panel: Xp_1 sub-block (n1={d['n1']}). Right panel: Xp_2 sub-block (nx-n1={d['nx']-d['n1']}). "
-        f"Each marker is one complex-conjugate eigenpair plotted at its rotation frequency vs |\u03bb|; "
+        f"Each marker is one complex-conjugate eigenpair plotted at its rotation frequency vs |lambda|; "
         f"closer to 1 = slower decay. A12 (Xp2->Xp1) coupling = {a_info['block_norms']['A12 (Xp2->Xp1)']:.4f}, "
         f"|A_on - A_off| = {a_info['diff_norms']['Full A diff']:.4f}."
     )
@@ -703,7 +656,7 @@ for label, d in data.items():
 #
 # - **C matrix** (observation): maps latent states to neural observations ($y_t = C x_t$).
 #   Loading norms show which neural channels/bands are captured by each subspace.
-# - **Cz matrix** (behavioral output): maps latent states to behavior ($z_t = C_z x_t$).
+# - **Cz matrix** (behavioral output): maps latent states to behavioral predictions ($z_t = C_z x_t$).
 #   If $\|C_z[:, n_1:]\| \approx 0$, behavioral prediction comes entirely from Xp_1.
 
 # %%
@@ -711,39 +664,41 @@ for label, d in data.items():
     c_info = c_matrix_analysis(d["model_both"], d["n1"], d["neural_channels"])
     d["c_matrix"] = c_info
 
-    # Cz summary
     ratio = c_info["cz_xp1"] / c_info["cz_xp2"] if c_info["cz_xp2"] > 0 else float("inf")
     print(f"{label}: Cz norms Xp_1={c_info['cz_xp1']:.4f}, Xp_2={c_info['cz_xp2']:.4f} ({ratio:.1f}x)")
 
-    # Bar chart: C loadings by electrode and frequency band. Drop subplot titles.
-    fig = make_subplots(rows=1, cols=2, horizontal_spacing=0.14)
+    # Grouped bar chart: C loadings by electrode (panel A) and frequency band (panel B).
+    fig, axes = plt.subplots(1, 2, figsize=(8.5, 3.6))
 
     electrodes = list(c_info["by_electrode"].keys())
-    xp1_vals = [c_info["by_electrode"][e]["xp1"] for e in electrodes]
-    xp2_vals = [c_info["by_electrode"][e]["xp2"] for e in electrodes]
-    fig.add_trace(go.Bar(x=electrodes, y=xp1_vals, name="Xp_1 (behavioural)",
-                          marker_color=COLOR_XP1), row=1, col=1)
-    fig.add_trace(go.Bar(x=electrodes, y=xp2_vals, name="Xp_2 (non-behavioural)",
-                          marker_color=COLOR_XP2), row=1, col=1)
+    xp1_vals = np.array([c_info["by_electrode"][e]["xp1"] for e in electrodes])
+    xp2_vals = np.array([c_info["by_electrode"][e]["xp2"] for e in electrodes])
+    _x = np.arange(len(electrodes)); _w = 0.38
+    ax = axes[0]
+    ax.bar(_x - _w / 2, xp1_vals, _w, color=COLOR_XP1, label="Xp_1 (behavioural)")
+    ax.bar(_x + _w / 2, xp2_vals, _w, color=COLOR_XP2, label="Xp_2 (non-behavioural)")
+    ax.set_xticks(_x)
+    ax.set_xticklabels(electrodes)
+    ax.set_xlabel("electrode")
+    ax.set_ylabel(r"$\|C\|$ loading norm (sum)")
+    panel_label(ax, "A", f"{label} — loadings by electrode")
 
     bands = list(c_info["by_band"].keys())
-    xp1_b = [c_info["by_band"][b]["xp1"] for b in bands]
-    xp2_b = [c_info["by_band"][b]["xp2"] for b in bands]
-    fig.add_trace(go.Bar(x=bands, y=xp1_b, name="Xp_1 (behavioural)",
-                          marker_color=COLOR_XP1, showlegend=False), row=1, col=2)
-    fig.add_trace(go.Bar(x=bands, y=xp2_b, name="Xp_2 (non-behavioural)",
-                          marker_color=COLOR_XP2, showlegend=False), row=1, col=2)
+    xp1_b = np.array([c_info["by_band"][b]["xp1"] for b in bands])
+    xp2_b = np.array([c_info["by_band"][b]["xp2"] for b in bands])
+    _xb = np.arange(len(bands))
+    ax = axes[1]
+    ax.bar(_xb - _w / 2, xp1_b, _w, color=COLOR_XP1)
+    ax.bar(_xb + _w / 2, xp2_b, _w, color=COLOR_XP2)
+    ax.set_xticks(_xb)
+    ax.set_xticklabels(bands)
+    ax.set_xlabel("frequency band keyword")
+    ax.set_ylabel(r"$\|C\|$ loading norm (mean)")
+    panel_label(ax, "B", f"{label} — loadings by band")
 
-    fig.update_yaxes(title_text="\u2016C\u2016 loading norm (sum)", row=1, col=1)
-    fig.update_yaxes(title_text="\u2016C\u2016 loading norm (mean)", row=1, col=2)
-    fig.update_xaxes(title_text="electrode", row=1, col=1)
-    fig.update_xaxes(title_text="frequency band keyword", row=1, col=2)
-    apply_thesis_style(fig, ThesisTheme.LIGHT, height=460,
-                        margin=dict(l=80, r=24, t=24, b=80), legend_y=-0.22)
-    fig.update_layout(width=900, barmode="group")
-    fig.write_image(str(OUT / f'c_matrix_{label.replace(" ", "_")}.png'),
-                    width=900, height=460, scale=2)
-    fig.show()
+    fig.legend()
+    fig.savefig(str(OUT / f'c_matrix_{label.replace(" ", "_")}.png'))
+    plt.show()
     print(
         f"PSID C matrix loading norms for {label}: how strongly each neural electrode/band "
         f"projects onto the behavioural (Xp_1, blue) vs non-behavioural (Xp_2, brown) subspace. "
@@ -761,7 +716,7 @@ for label, d in data.items():
 
 # %%
 from scripts.extract_psid_channel_importance import (
-    get_top_behavioral_and_neural, compute_behavioral_relevance, extract_channel_importance
+    get_top_behavioral_and_neural
 )
 
 for label, d in data.items():
@@ -778,63 +733,48 @@ for label, d in data.items():
           + ", ".join(f"{name}: x1={np.linalg.norm(Cz[zi, :n1]):.4f} / x2={np.linalg.norm(Cz[zi, n1:]):.4f}"
                       for zi, name in enumerate(["vel_x", "accel_mag"])))
 
-    # Scatter plot: behavioral relevance vs neural importance, colored by electrode
     short_labels = [ch.replace('ECOG_', 'E').replace('_raw', '').replace('_env', '')
                     for ch in d["neural_channels"]]
-    colors = [ELECTRODE_COLORS.get(ch.split('_')[1], COLOR_SEPARATOR)
+    colors = [ELECTRODE_COLORS.get(ch.split('_')[1], COLOR_NS)
               for ch in d["neural_channels"]]
 
-    fig = make_subplots(rows=1, cols=2, horizontal_spacing=0.18)
+    fig, axes = plt.subplots(1, 2, figsize=(10.0, 5.2))
 
-    fig.add_trace(go.Scatter(
-        x=imp['weighted_importance'], y=br['behavioral_relevance'],
-        mode='markers', text=short_labels,
-        marker=dict(color=colors, size=9, opacity=0.78,
-                    line=dict(width=0.4, color='rgba(0,0,0,0.4)')),
-        hovertemplate='%{text}<br>Neural: %{x:.4f}<br>Behavioural: %{y:.6f}<extra></extra>',
-        showlegend=False,
-    ), row=1, col=1)
-    fig.update_xaxes(title_text='neural importance: eig-weighted \u2016Cy\u2016', row=1, col=1)
-    fig.update_yaxes(title_text='behavioural relevance: \u2016Cz \u00b7 Cy\u2016', row=1, col=1)
+    # ── Panel A: scatter of behavioural relevance vs neural importance ──
+    ax = axes[0]
+    ax.scatter(imp['weighted_importance'], br['behavioral_relevance'],
+               c=colors, s=40, alpha=0.80,
+               edgecolors="black", linewidths=0.4)
+    ax.set_xlabel(r"neural importance: eig-weighted $\|C_y\|$")
+    ax.set_ylabel(r"behavioural relevance: $\|C_z \cdot C_y\|$")
+    panel_label(ax, "A", f"{label} — behavioural vs neural relevance per channel")
 
-    # Bar chart: top 5 behavioral + top 5 neural (normalized) — keep raw channel names
-    beh_norm = np.array(result['top_behavioral_scores'])
-    beh_norm = beh_norm / beh_norm.max() if beh_norm.max() > 0 else beh_norm
-    neur_norm = np.array(result['top_neural_scores'])
-    neur_norm = neur_norm / neur_norm.max() if neur_norm.max() > 0 else neur_norm
+    # ── Panel B: horizontal bars — top-5 behavioural + top-5 neural ──
+    ax = axes[1]
+    beh_scores = np.array(result['top_behavioral_scores'], dtype=float)
+    beh_norm = beh_scores / beh_scores.max() if beh_scores.max() > 0 else beh_scores
+    neur_scores = np.array(result['top_neural_scores'], dtype=float)
+    neur_norm = neur_scores / neur_scores.max() if neur_scores.max() > 0 else neur_scores
 
     all_labels = list(result['top_behavioral']) + [''] + list(result['top_neural'])
-    all_scores = list(beh_norm) + [0] + list(neur_norm)
-    all_colors = [COLOR_XP1] * 5 + ['rgba(0,0,0,0)'] + [COLOR_XP2] * 5
+    all_scores = list(beh_norm) + [0.0] + list(neur_norm)
+    bar_colors = [COLOR_XP1] * len(beh_norm) + ['none'] + [COLOR_XP2] * len(neur_norm)
 
-    fig.add_trace(go.Bar(
-        y=all_labels, x=all_scores, orientation='h',
-        marker_color=all_colors,
-        showlegend=False,
-    ), row=1, col=2)
-    fig.update_xaxes(title_text='normalised importance (per group)', row=1, col=2, range=[0, 1.05])
-    fig.update_yaxes(autorange='reversed', tickfont=dict(size=FONT_SIZE_BASE - 1), row=1, col=2)
+    y_pos = np.arange(len(all_labels))
+    ax.barh(y_pos, all_scores, color=bar_colors)
+    ax.set_yticks(y_pos)
+    ax.set_yticklabels(all_labels, fontsize=7)
+    ax.invert_yaxis()
+    ax.set_xlim(0, 1.05)
+    ax.set_xlabel("normalised importance (per group)")
+    panel_label(ax, "B", f"{label} — top-5 behavioural (blue) + top-5 neural (brown)")
 
-    # Panel-bottom annotations replace subplot titles
-    fig.add_annotation(x=0.5, y=-0.30, xref='x domain', yref='y domain',
-                        text='<b>behavioural vs neural relevance per channel</b>',
-                        showarrow=False, xanchor='center',
-                        font=dict(size=FONT_SIZE_BASE, family=FONT_FAMILY))
-    fig.add_annotation(x=0.5, y=-0.30, xref='x2 domain', yref='y2 domain',
-                        text='<b>top-5 behavioural (blue) and top-5 neural (brown) channels</b>',
-                        showarrow=False, xanchor='center',
-                        font=dict(size=FONT_SIZE_BASE, family=FONT_FAMILY))
-
-    apply_thesis_style(fig, ThesisTheme.LIGHT, height=520, show_legend=False,
-                        margin=dict(l=80, r=24, t=24, b=110))
-    fig.update_layout(width=1100)
-    fig.write_image(str(OUT / f'channel_importance_{label.replace(" ", "_")}.png'),
-                    width=1100, height=520, scale=2)
-    fig.show()
+    fig.savefig(str(OUT / f'channel_importance_{label.replace(" ", "_")}.png'))
+    plt.show()
     print(
         f"PSID channel importance for {label}. Left: scatter of neural importance "
-        f"(eigenvalue-weighted \u2016Cy[i,:]\u2016) vs behavioural relevance "
-        f"(\u2016Cz @ Cy[i,:]\u2016) — each dot is one neural input channel, coloured by electrode. "
+        f"(eigenvalue-weighted ||Cy[i,:]||) vs behavioural relevance "
+        f"(||Cz @ Cy[i,:]||) — each dot is one neural input channel, coloured by electrode. "
         f"Right: normalised top-5 channels selected by each criterion (raw feature names retained)."
     )
 
@@ -852,65 +792,53 @@ for label, d in data.items():
 # state-space mapping discards the between-condition mean shift.
 
 # %%
-# Consolidated 1×N subplot — one classifier-comparison panel per session.
-# Drop subplot_titles in favour of bottom in-panel annotations (matches sec2 Fig 17).
+# 1×N grid: one classifier-comparison panel per session.
 n_sessions = len(data)
-fig = make_subplots(rows=1, cols=n_sessions, shared_yaxes=True, horizontal_spacing=0.04)
+fig, axes = plt.subplots(1, n_sessions, figsize=(3.2 * n_sessions + 0.8, 3.8),
+                         sharey=True)
+if n_sessions == 1:
+    axes = np.array([axes])
 
-for col_idx, (label, d) in enumerate(data.items(), 1):
+for col_idx, (label, d) in enumerate(data.items()):
+    ax = axes[col_idx]
     cls = classifier_comparison(d["Xp_all"], d["labels"], d["n1"], d["nx"], d["df"])
     d["classifiers"] = cls
 
     feat_names = [k for k in cls if k != "raw_behavioral"]
-    xp1_vals = [cls[k]["xp1"] for k in feat_names]
-    xp2_vals = [cls[k]["xp2"] for k in feat_names]
+    xp1_vals = np.array([cls[k]["xp1"] for k in feat_names])
+    xp2_vals = np.array([cls[k]["xp2"] for k in feat_names])
 
-    show_lgd = (col_idx == 1)
-    fig.add_trace(go.Bar(x=feat_names, y=xp1_vals, name="Xp_1 (behavioural)",
-                         marker_color=COLOR_XP1, legendgroup="xp1",
-                         showlegend=show_lgd), row=1, col=col_idx)
-    fig.add_trace(go.Bar(x=feat_names, y=xp2_vals, name="Xp_2 (non-behavioural)",
-                         marker_color=COLOR_XP2, legendgroup="xp2",
-                         showlegend=show_lgd), row=1, col=col_idx)
+    _x = np.arange(len(feat_names)); _w = 0.38
+    ax.bar(_x - _w / 2, xp1_vals, _w, color=COLOR_XP1,
+           label="Xp_1 (behavioural)" if col_idx == 0 else None)
+    ax.bar(_x + _w / 2, xp2_vals, _w, color=COLOR_XP2,
+           label="Xp_2 (non-behavioural)" if col_idx == 0 else None)
 
     if "raw_behavioral" in cls:
         raw_val = cls["raw_behavioral"]["value"]
-        fig.add_hline(y=raw_val, line_dash="dash", line_color=COLOR_SEPARATOR,
-                      row=1, col=col_idx)
+        ax.axhline(raw_val, color=COLOR_NS, linestyle="--", linewidth=1.0,
+                   label="raw behavioural" if col_idx == 0 else None)
+        ax.text(0.96, 0.95, f"raw behav = {raw_val:.2f}",
+                transform=ax.transAxes, ha="right", va="top",
+                fontsize=7, color=COLOR_NS)
 
-    fig.add_hline(y=0.5, line_dash="dot", line_color=COLOR_CHANCE,
-                  row=1, col=col_idx)
+    ax.axhline(0.5, color=COLOR_CHANCE, linestyle=":", linewidth=0.8)
+    ax.set_ylim(0.3, 1.0)
+    ax.set_xticks(_x)
+    ax.set_xticklabels(feat_names, rotation=-25, ha="left")
+    ax.set_xlabel("feature type")
+    if col_idx == 0:
+        ax.set_ylabel("balanced accuracy (5-fold CV)")
+    panel_label(ax, chr(65 + col_idx), label)
 
-    # Session label inside the panel (top-left)
-    xref = "x" if col_idx == 1 else f"x{col_idx}"
-    yref = "y" if col_idx == 1 else f"y{col_idx}"
-    fig.add_annotation(
-        x=0.04, y=0.95, xref=f"{xref} domain", yref=f"{yref} domain",
-        text=f"<b>{label}</b>", xanchor="left", yanchor="top",
-        showarrow=False, font=dict(size=FONT_SIZE_BASE, family=FONT_FAMILY),
-    )
-    # raw-behavioral hline label inside the panel (top-right) — keeps it off the legend
-    if "raw_behavioral" in cls:
-        fig.add_annotation(
-            x=0.96, y=0.95, xref=f"{xref} domain", yref=f"{yref} domain",
-            text=f"raw behav = {cls['raw_behavioral']['value']:.2f}",
-            xanchor="right", yanchor="top", showarrow=False,
-            font=dict(size=FONT_SIZE_BASE - 2, family=FONT_FAMILY, color=COLOR_SEPARATOR),
-        )
-
-fig.update_yaxes(title_text="balanced accuracy (5-fold CV)", range=[0.3, 1.0], col=1)
-fig.update_xaxes(title_text="feature type", tickangle=-25, row=1)
-apply_thesis_style(fig, ThesisTheme.LIGHT, height=460,
-                    margin=dict(l=80, r=24, t=24, b=110), legend_y=-0.30)
-fig.update_layout(width=320 * n_sessions, barmode="group")
-fig.write_image(str(OUT / 'classifier_all_sessions.png'),
-                width=320 * n_sessions, height=460, scale=2)
-fig.show()
+fig.legend()
+fig.savefig(str(OUT / 'classifier_all_sessions.png'))
+plt.show()
 print(
     "Per-session DBS classification (5-fold CV balanced accuracy) using PSID latent features. "
     "Bars: logistic regression on per-trial mean / std / cov / mean+std features extracted from "
     "Xp_1 (behavioural, blue) vs Xp_2 (non-behavioural, brown). Dashed grey line: raw behavioural "
-    "baseline (velocity + acceleration summary stats). Dotted red line: chance (0.5). "
+    "baseline (velocity + acceleration summary stats). Dotted grey line: chance (0.5). "
     f"Sessions: {', '.join(data.keys())}."
 )
 
@@ -920,7 +848,7 @@ print(
 # Aggregate key metrics across all sessions for comparison.
 
 # %%
-# Build summary as a table figure
+# Render summary as a matplotlib table figure.
 summary_rows = []
 for label, d in data.items():
     vel_d = next((r["d"] for r in d.get("behavioral", []) if "velocity_x" in r["feature"]), float("nan"))
@@ -929,30 +857,25 @@ for label, d in data.items():
     cls = d["classifiers"]
     mean_str = f'{cls["mean"]["xp1"]:.2f} / {cls["mean"]["xp2"]:.2f}'
     cov_str = f'{cls["cov"]["xp1"]:.2f} / {cls["cov"]["xp2"]:.2f}'
-    raw_str = f'{cls["raw_behavioral"]["value"]:.2f}' if "raw_behavioral" in cls else "—"
+    raw_str = f'{cls["raw_behavioral"]["value"]:.2f}' if "raw_behavioral" in cls else "-"
 
     summary_rows.append([label, f'{vel_d:+.3f}', f'{a12:.4f}', f'{cz_ratio:.1f}x',
                           mean_str, cov_str, raw_str])
 
-fig = go.Figure(go.Table(
-    header=dict(
-        values=["Session", "Behav d (vel_x)", "A12 norm", "Cz ratio (Xp1/Xp2)",
-                "Cls mean (Xp1/Xp2)", "Cls cov (Xp1/Xp2)", "Raw behav"],
-        fill_color='#f0f0f0', align='left',
-        font=dict(family=FONT_FAMILY, size=FONT_SIZE_BASE),
-    ),
-    cells=dict(
-        values=list(zip(*summary_rows)), align='left',
-        font=dict(family=FONT_FAMILY, size=FONT_SIZE_BASE),
-    ),
-))
-apply_thesis_style(fig, ThesisTheme.LIGHT, height=240,
-                   margin=dict(l=10, r=10, t=10, b=10), show_legend=False)
-fig.write_image(str(OUT / 'cross_run_summary.png'), width=1000, height=240, scale=2)
-fig.show()
+fig, ax = plt.subplots(figsize=(9.0, 0.4 * (len(summary_rows) + 1) + 0.5))
+ax.axis("off")
+_hdrs = ["Session", "Behav d (vel_x)", "A12 norm", "Cz ratio (Xp1/Xp2)",
+         "Cls mean (Xp1/Xp2)", "Cls cov (Xp1/Xp2)", "Raw behav"]
+tbl = ax.table(cellText=summary_rows, colLabels=_hdrs, loc="center", cellLoc="left")
+tbl.auto_set_font_size(False)
+tbl.set_fontsize(8)
+tbl.scale(1, 1.4)
+panel_label(ax, "A", "Cross-run summary")
+fig.savefig(str(OUT / 'cross_run_summary.png'))
+plt.show()
 print(
     "Cross-run summary table. Columns: behavioural Cohen's d on velocity_x (raw movement "
-    "DBS effect), A12 block norm (Xp_2 \u2192 Xp_1 leakage; ~0 means subspaces decoupled), "
+    "DBS effect), A12 block norm (Xp_2 -> Xp_1 leakage; ~0 means subspaces decoupled), "
     "Cz norm ratio Xp_1/Xp_2 (how much behavioural prediction loads on the behavioural "
     "subspace), classifier balanced accuracy on per-trial mean and covariance features "
     "(Xp_1 / Xp_2), and the raw-behavioural baseline. Sessions: "

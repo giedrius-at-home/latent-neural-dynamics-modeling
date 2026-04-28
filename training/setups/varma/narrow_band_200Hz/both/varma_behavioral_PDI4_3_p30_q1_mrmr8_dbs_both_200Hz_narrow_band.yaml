@@ -1,0 +1,41 @@
+model:
+  name: varma_behavioral_PDI4_3_p30_q1_mrmr8_dbs_both_200Hz_narrow_band
+  p: 30
+  q: 1
+  long_ar_lags: 30
+  trial_edge_taper_sec: 0.1
+  ridge_alpha: 1.0
+  time_first: true
+  fast: true
+  reuse_splits: true
+  forecast:
+    m: 2
+    history: 5
+data:
+  root: resampled_recordings/participants_at_200Hz_scaled_1e6_narrow_band
+  participant: PDI4
+  session: '3'
+  blocks: all
+  channels:
+    neural_input:
+    - ECOG_2_gamma_30_35_raw
+    - ECOG_4_theta_4_8_raw
+    - ECOG_1_theta_4_8_raw
+    - ECOG_2_gamma_70_75_raw
+    - ECOG_2_beta_17_22_raw
+    - ECOG_3_alpha_8_12_raw
+    - ECOG_3_theta_4_8_raw
+    - ECOG_3_gamma_40_45_raw
+    output_type: behavioral
+    output:
+    - tracing_velocity_x
+    - tracing_acceleration_magnitude
+  split:
+    within_session_split: true
+  batch_size: 32
+  sampling_frequency: 200
+  dbs_condition: both
+results:
+  save_dir: results/varma_behavioral_PDI4_3_p30_q1_mrmr8_dbs_both_200Hz_narrow_band
+  log_dir: results/varma_behavioral_PDI4_3_p30_q1_mrmr8_dbs_both_200Hz_narrow_band/logs
+  checkpoint_dir: checkpoints

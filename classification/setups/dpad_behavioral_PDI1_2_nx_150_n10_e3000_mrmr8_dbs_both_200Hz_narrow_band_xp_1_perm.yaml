@@ -1,0 +1,29 @@
+run:
+  variant: dpad_behavioral_PDI1_2_nx_150_n10_e3000_mrmr8_dbs_both_200Hz_narrow_band
+  run_ts: '20260424_084659'
+classification:
+  n_splits: 5
+  epoch_length: 0.5
+  epoch_overlap: 0.25
+  sampling_freq: 200
+  h:
+  - 2.0
+  m:
+  - 0.5
+  n1: 10
+  nx: 150
+  permutation_test: true
+  n_permutations: 100
+  param_grid:
+    LDA:
+      classifier__solver:
+      - lsqr
+      classifier__shrinkage:
+      - auto
+  flipped: false
+  prediction_feature_source: Xp_1
+  forecast_feature_source: Xp_1
+results:
+  project_root: /home/bobby/repos/latent-neural-dynamics-modeling
+  results_dir: /home/bobby/repos/latent-neural-dynamics-modeling/results/classification/dpad_behavioral_PDI1_2_nx_150_n10_e3000_mrmr8_dbs_both_200Hz_narrow_band
+  log_dir: /home/bobby/repos/latent-neural-dynamics-modeling/logs/classification

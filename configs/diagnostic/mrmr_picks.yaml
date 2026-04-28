@@ -1,0 +1,441 @@
+method: 'Mazzanti mrmr-selection (MIQ): MI relevance (sklearn mutual_info_regression,
+  random_state=0) averaged across targets via vote-rank over 3K pool; Pearson redundancy'
+source: scripts/_pipeline_common.py:mrmr_top_k_from_diagnostic
+K: 8
+sessions:
+  PDI1_S2:
+    ecog:
+      K: 8
+      selected:
+      - ECOG_3_beta_12_17_raw
+      - ECOG_3_theta_4_8_raw
+      - ECOG_3_beta_27_30_raw
+      - ECOG_2_theta_4_8_raw
+      - ECOG_2_gamma_70_75_raw
+      - ECOG_2_gamma_30_35_raw
+      - ECOG_1_theta_4_8_raw
+      - ECOG_3_gamma_40_45_raw
+    laplacian:
+      K: 8
+      selected:
+      - ECOG_3_beta_12_17_raw
+      - ECOG_3_beta_17_22_raw
+      - ECOG_2_beta_12_17_raw
+      - ECOG_2_beta_17_22_raw
+      - ECOG_4_beta_12_17_raw
+      - ECOG_4_beta_17_22_raw
+      - ECOG_3_theta_4_8_raw
+      - ECOG_3_beta_22_27_raw
+    lfp_z:
+      K: 8
+      selected:
+      - LAPLACIAN_14-16_LFP_beta_22_27_raw
+      - LAPLACIAN_14-16_LFP_theta_4_8_raw
+      - LAPLACIAN_14-16_LFP_alpha_8_12_raw
+      - LAPLACIAN_14-16_LFP_beta_12_17_raw
+      - LAPLACIAN_14-16_LFP_beta_27_30_raw
+      - LAPLACIAN_14-16_LFP_gamma_45_50_raw
+      - LAPLACIAN_14-16_LFP_gamma_35_40_raw
+      - LAPLACIAN_14-16_LFP_gamma_70_75_raw
+      relevance:
+        LAPLACIAN_14-16_LFP_theta_4_8_raw: 0.010902049834473182
+        LAPLACIAN_14-16_LFP_alpha_8_12_raw: 0.008277945944538345
+        LAPLACIAN_14-16_LFP_beta_12_17_raw: 0.006621070998279244
+        LAPLACIAN_14-16_LFP_beta_17_22_raw: 0.0006966449432970201
+        LAPLACIAN_14-16_LFP_beta_22_27_raw: 0.00458800548786753
+        LAPLACIAN_14-16_LFP_beta_27_30_raw: 0.003388106480521902
+        LAPLACIAN_14-16_LFP_gamma_30_35_raw: 0.0
+        LAPLACIAN_14-16_LFP_gamma_35_40_raw: 0.002962082442729219
+        LAPLACIAN_14-16_LFP_gamma_40_45_raw: 0.001984539684991571
+        LAPLACIAN_14-16_LFP_gamma_45_50_raw: 0.002639196675305211
+        LAPLACIAN_14-16_LFP_gamma_50_55_raw: 0.0
+        LAPLACIAN_14-16_LFP_gamma_55_60_raw: 0.002977367331282732
+        LAPLACIAN_14-16_LFP_gamma_60_65_raw: 0.0008555991737790869
+        LAPLACIAN_14-16_LFP_gamma_70_75_raw: 0.0014176136303487574
+        LAPLACIAN_14-16_LFP_gamma_75_80_raw: 0.0009333426699140723
+      vote_rank:
+        LAPLACIAN_14-16_LFP_theta_4_8_raw: 22.0
+        LAPLACIAN_14-16_LFP_alpha_8_12_raw: 22.0
+        LAPLACIAN_14-16_LFP_beta_12_17_raw: 22.0
+        LAPLACIAN_14-16_LFP_beta_17_22_raw: 14.0
+        LAPLACIAN_14-16_LFP_beta_22_27_raw: 27.0
+        LAPLACIAN_14-16_LFP_beta_27_30_raw: 19.0
+        LAPLACIAN_14-16_LFP_gamma_30_35_raw: 10.0
+        LAPLACIAN_14-16_LFP_gamma_35_40_raw: 16.0
+        LAPLACIAN_14-16_LFP_gamma_40_45_raw: 13.0
+        LAPLACIAN_14-16_LFP_gamma_45_50_raw: 18.0
+        LAPLACIAN_14-16_LFP_gamma_50_55_raw: 5.0
+        LAPLACIAN_14-16_LFP_gamma_55_60_raw: 14.0
+        LAPLACIAN_14-16_LFP_gamma_60_65_raw: 8.0
+        LAPLACIAN_14-16_LFP_gamma_70_75_raw: 16.0
+        LAPLACIAN_14-16_LFP_gamma_75_80_raw: 14.0
+    lfp_z_predictability:
+      K: 8
+      selected:
+      - LAPLACIAN_14-16_LFP_alpha_8_12_raw
+      - LAPLACIAN_14-16_LFP_theta_4_8_raw
+      - LAPLACIAN_14-16_LFP_beta_12_17_raw
+      - LAPLACIAN_14-16_LFP_beta_17_22_raw
+      - LAPLACIAN_14-16_LFP_gamma_30_35_raw
+      - LAPLACIAN_14-16_LFP_beta_22_27_raw
+      - LAPLACIAN_14-16_LFP_beta_27_30_raw
+      - LAPLACIAN_14-16_LFP_gamma_45_50_raw
+      relevance_mean_across_ecog:
+        LAPLACIAN_14-16_LFP_theta_4_8_raw: 0.005820216709906549
+        LAPLACIAN_14-16_LFP_alpha_8_12_raw: 0.006134650118833325
+        LAPLACIAN_14-16_LFP_beta_12_17_raw: 0.005920152623306022
+        LAPLACIAN_14-16_LFP_beta_17_22_raw: 0.005030820943411148
+        LAPLACIAN_14-16_LFP_beta_22_27_raw: 0.004716569752515065
+        LAPLACIAN_14-16_LFP_beta_27_30_raw: 0.003982689349910284
+        LAPLACIAN_14-16_LFP_gamma_30_35_raw: 0.004816350739577579
+        LAPLACIAN_14-16_LFP_gamma_35_40_raw: 0.003645964565129134
+        LAPLACIAN_14-16_LFP_gamma_40_45_raw: 0.002858218818052312
+        LAPLACIAN_14-16_LFP_gamma_45_50_raw: 0.0031488515548867262
+        LAPLACIAN_14-16_LFP_gamma_50_55_raw: 0.003663269861230297
+        LAPLACIAN_14-16_LFP_gamma_55_60_raw: 0.003304679245017361
+        LAPLACIAN_14-16_LFP_gamma_60_65_raw: 0.0022736152903204262
+        LAPLACIAN_14-16_LFP_gamma_70_75_raw: 0.0022154894717313577
+        LAPLACIAN_14-16_LFP_gamma_75_80_raw: 0.0026547910377408596
+      vote_rank:
+        LAPLACIAN_14-16_LFP_theta_4_8_raw: 616.0
+        LAPLACIAN_14-16_LFP_alpha_8_12_raw: 647.0
+        LAPLACIAN_14-16_LFP_beta_12_17_raw: 611.0
+        LAPLACIAN_14-16_LFP_beta_17_22_raw: 562.0
+        LAPLACIAN_14-16_LFP_beta_22_27_raw: 489.0
+        LAPLACIAN_14-16_LFP_beta_27_30_raw: 472.0
+        LAPLACIAN_14-16_LFP_gamma_30_35_raw: 547.0
+        LAPLACIAN_14-16_LFP_gamma_35_40_raw: 427.0
+        LAPLACIAN_14-16_LFP_gamma_40_45_raw: 381.0
+        LAPLACIAN_14-16_LFP_gamma_45_50_raw: 450.0
+        LAPLACIAN_14-16_LFP_gamma_50_55_raw: 421.0
+        LAPLACIAN_14-16_LFP_gamma_55_60_raw: 449.0
+        LAPLACIAN_14-16_LFP_gamma_60_65_raw: 337.0
+        LAPLACIAN_14-16_LFP_gamma_70_75_raw: 398.0
+        LAPLACIAN_14-16_LFP_gamma_75_80_raw: 393.0
+  PDI1_S4:
+    ecog:
+      K: 8
+      selected:
+      - ECOG_4_gamma_75_80_raw
+      - ECOG_1_theta_4_8_raw
+      - ECOG_1_beta_17_22_raw
+      - ECOG_3_theta_4_8_raw
+      - ECOG_2_theta_4_8_raw
+      - ECOG_2_gamma_50_55_raw
+      - ECOG_3_alpha_8_12_raw
+      - ECOG_4_theta_4_8_raw
+    laplacian:
+      K: 8
+      selected:
+      - ECOG_3_beta_17_22_raw
+      - ECOG_1_beta_22_27_raw
+      - ECOG_3_beta_22_27_raw
+      - ECOG_3_beta_12_17_raw
+      - ECOG_1_beta_17_22_raw
+      - ECOG_2_gamma_75_80_raw
+      - ECOG_2_beta_17_22_raw
+      - ECOG_3_alpha_8_12_raw
+    lfp_z:
+      K: 8
+      selected:
+      - LAPLACIAN_14-16_LFP_theta_4_8_raw
+      - LAPLACIAN_14-16_LFP_gamma_60_65_raw
+      - LAPLACIAN_14-16_LFP_beta_17_22_raw
+      - LAPLACIAN_14-16_LFP_beta_12_17_raw
+      - LAPLACIAN_14-16_LFP_alpha_8_12_raw
+      - LAPLACIAN_14-16_LFP_beta_22_27_raw
+      - LAPLACIAN_14-16_LFP_gamma_30_35_raw
+      - LAPLACIAN_14-16_LFP_gamma_40_45_raw
+      relevance:
+        LAPLACIAN_14-16_LFP_theta_4_8_raw: 0.015213197514681198
+        LAPLACIAN_14-16_LFP_alpha_8_12_raw: 0.006081195127714878
+        LAPLACIAN_14-16_LFP_beta_12_17_raw: 0.006740424265337275
+        LAPLACIAN_14-16_LFP_beta_17_22_raw: 0.005950032462248789
+        LAPLACIAN_14-16_LFP_beta_22_27_raw: 0.001680286212214277
+        LAPLACIAN_14-16_LFP_beta_27_30_raw: 0.0
+        LAPLACIAN_14-16_LFP_gamma_30_35_raw: 0.0024637210818481137
+        LAPLACIAN_14-16_LFP_gamma_35_40_raw: 0.0004410335504387852
+        LAPLACIAN_14-16_LFP_gamma_40_45_raw: 0.001839120989862053
+        LAPLACIAN_14-16_LFP_gamma_45_50_raw: 0.0010880052999406864
+        LAPLACIAN_14-16_LFP_gamma_50_55_raw: 0.0022312750393673753
+        LAPLACIAN_14-16_LFP_gamma_55_60_raw: 0.0
+        LAPLACIAN_14-16_LFP_gamma_60_65_raw: 0.005530490342048555
+        LAPLACIAN_14-16_LFP_gamma_70_75_raw: 0.001240031566204003
+        LAPLACIAN_14-16_LFP_gamma_75_80_raw: 0.001250466627183311
+      vote_rank:
+        LAPLACIAN_14-16_LFP_theta_4_8_raw: 27.0
+        LAPLACIAN_14-16_LFP_alpha_8_12_raw: 19.0
+        LAPLACIAN_14-16_LFP_beta_12_17_raw: 20.0
+        LAPLACIAN_14-16_LFP_beta_17_22_raw: 24.0
+        LAPLACIAN_14-16_LFP_beta_22_27_raw: 17.0
+        LAPLACIAN_14-16_LFP_beta_27_30_raw: 10.0
+        LAPLACIAN_14-16_LFP_gamma_30_35_raw: 17.0
+        LAPLACIAN_14-16_LFP_gamma_35_40_raw: 10.0
+        LAPLACIAN_14-16_LFP_gamma_40_45_raw: 17.0
+        LAPLACIAN_14-16_LFP_gamma_45_50_raw: 12.0
+        LAPLACIAN_14-16_LFP_gamma_50_55_raw: 16.0
+        LAPLACIAN_14-16_LFP_gamma_55_60_raw: 4.0
+        LAPLACIAN_14-16_LFP_gamma_60_65_raw: 27.0
+        LAPLACIAN_14-16_LFP_gamma_70_75_raw: 9.0
+        LAPLACIAN_14-16_LFP_gamma_75_80_raw: 11.0
+    lfp_z_predictability:
+      K: 8
+      selected:
+      - LAPLACIAN_14-16_LFP_alpha_8_12_raw
+      - LAPLACIAN_14-16_LFP_theta_4_8_raw
+      - LAPLACIAN_14-16_LFP_beta_17_22_raw
+      - LAPLACIAN_14-16_LFP_beta_12_17_raw
+      - LAPLACIAN_14-16_LFP_gamma_30_35_raw
+      - LAPLACIAN_14-16_LFP_gamma_35_40_raw
+      - LAPLACIAN_14-16_LFP_beta_27_30_raw
+      - LAPLACIAN_14-16_LFP_beta_22_27_raw
+      relevance_mean_across_ecog:
+        LAPLACIAN_14-16_LFP_theta_4_8_raw: 0.012222282906391217
+        LAPLACIAN_14-16_LFP_alpha_8_12_raw: 0.013673636646863777
+        LAPLACIAN_14-16_LFP_beta_12_17_raw: 0.013333400059705862
+        LAPLACIAN_14-16_LFP_beta_17_22_raw: 0.012215526555208796
+        LAPLACIAN_14-16_LFP_beta_22_27_raw: 0.01148573769917139
+        LAPLACIAN_14-16_LFP_beta_27_30_raw: 0.012471124938358594
+        LAPLACIAN_14-16_LFP_gamma_30_35_raw: 0.010510791901349684
+        LAPLACIAN_14-16_LFP_gamma_35_40_raw: 0.012580364993861925
+        LAPLACIAN_14-16_LFP_gamma_40_45_raw: 0.011025316353275564
+        LAPLACIAN_14-16_LFP_gamma_45_50_raw: 0.011186803977076136
+        LAPLACIAN_14-16_LFP_gamma_50_55_raw: 0.01017728348701669
+        LAPLACIAN_14-16_LFP_gamma_55_60_raw: 0.010167414748863098
+        LAPLACIAN_14-16_LFP_gamma_60_65_raw: 0.008632099860875098
+        LAPLACIAN_14-16_LFP_gamma_70_75_raw: 0.006054259723122879
+        LAPLACIAN_14-16_LFP_gamma_75_80_raw: 0.004823625323968687
+      vote_rank:
+        LAPLACIAN_14-16_LFP_theta_4_8_raw: 667.0
+        LAPLACIAN_14-16_LFP_alpha_8_12_raw: 703.0
+        LAPLACIAN_14-16_LFP_beta_12_17_raw: 603.0
+        LAPLACIAN_14-16_LFP_beta_17_22_raw: 643.0
+        LAPLACIAN_14-16_LFP_beta_22_27_raw: 466.0
+        LAPLACIAN_14-16_LFP_beta_27_30_raw: 481.0
+        LAPLACIAN_14-16_LFP_gamma_30_35_raw: 507.0
+        LAPLACIAN_14-16_LFP_gamma_35_40_raw: 483.0
+        LAPLACIAN_14-16_LFP_gamma_40_45_raw: 431.0
+        LAPLACIAN_14-16_LFP_gamma_45_50_raw: 411.0
+        LAPLACIAN_14-16_LFP_gamma_50_55_raw: 374.0
+        LAPLACIAN_14-16_LFP_gamma_55_60_raw: 443.0
+        LAPLACIAN_14-16_LFP_gamma_60_65_raw: 358.0
+        LAPLACIAN_14-16_LFP_gamma_70_75_raw: 311.0
+        LAPLACIAN_14-16_LFP_gamma_75_80_raw: 319.0
+  PDI4_S2:
+    ecog:
+      K: 8
+      selected:
+      - ECOG_3_theta_4_8_raw
+      - ECOG_3_gamma_60_65_raw
+      - ECOG_2_alpha_8_12_raw
+      - ECOG_4_theta_4_8_raw
+      - ECOG_1_beta_12_17_raw
+      - ECOG_1_gamma_40_45_raw
+      - ECOG_1_theta_4_8_raw
+      - ECOG_1_beta_17_22_raw
+    laplacian:
+      K: 8
+      selected:
+      - ECOG_4_theta_4_8_raw
+      - ECOG_4_beta_12_17_raw
+      - ECOG_4_gamma_75_80_raw
+      - ECOG_2_beta_17_22_raw
+      - ECOG_3_gamma_70_75_raw
+      - ECOG_3_beta_12_17_raw
+      - ECOG_3_theta_4_8_raw
+      - ECOG_1_alpha_8_12_raw
+    lfp_z:
+      K: 8
+      selected:
+      - LAPLACIAN_14-16_LFP_theta_4_8_raw
+      - LAPLACIAN_14-16_LFP_beta_12_17_raw
+      - LAPLACIAN_14-16_LFP_alpha_8_12_raw
+      - LAPLACIAN_14-16_LFP_gamma_30_35_raw
+      - LAPLACIAN_14-16_LFP_beta_17_22_raw
+      - LAPLACIAN_14-16_LFP_beta_22_27_raw
+      - LAPLACIAN_14-16_LFP_gamma_55_60_raw
+      - LAPLACIAN_14-16_LFP_gamma_60_65_raw
+      relevance:
+        LAPLACIAN_14-16_LFP_theta_4_8_raw: 0.03323299842769245
+        LAPLACIAN_14-16_LFP_alpha_8_12_raw: 0.022475672840208905
+        LAPLACIAN_14-16_LFP_beta_12_17_raw: 0.015436220812864221
+        LAPLACIAN_14-16_LFP_beta_17_22_raw: 0.013100898879235157
+        LAPLACIAN_14-16_LFP_beta_22_27_raw: 0.007562608184223052
+        LAPLACIAN_14-16_LFP_beta_27_30_raw: 0.0
+        LAPLACIAN_14-16_LFP_gamma_30_35_raw: 0.008710407095851469
+        LAPLACIAN_14-16_LFP_gamma_35_40_raw: 0.00030134043741769645
+        LAPLACIAN_14-16_LFP_gamma_40_45_raw: 0.004526641729187375
+        LAPLACIAN_14-16_LFP_gamma_45_50_raw: 0.004774681687967686
+        LAPLACIAN_14-16_LFP_gamma_50_55_raw: 0.0021678029822589373
+        LAPLACIAN_14-16_LFP_gamma_55_60_raw: 0.013017865791332017
+        LAPLACIAN_14-16_LFP_gamma_60_65_raw: 0.00531135454252718
+        LAPLACIAN_14-16_LFP_gamma_70_75_raw: 0.0
+        LAPLACIAN_14-16_LFP_gamma_75_80_raw: 0.0007423946936895298
+      vote_rank:
+        LAPLACIAN_14-16_LFP_theta_4_8_raw: 30.0
+        LAPLACIAN_14-16_LFP_alpha_8_12_raw: 22.0
+        LAPLACIAN_14-16_LFP_beta_12_17_raw: 28.0
+        LAPLACIAN_14-16_LFP_beta_17_22_raw: 19.0
+        LAPLACIAN_14-16_LFP_beta_22_27_raw: 19.0
+        LAPLACIAN_14-16_LFP_beta_27_30_raw: 7.0
+        LAPLACIAN_14-16_LFP_gamma_30_35_raw: 21.0
+        LAPLACIAN_14-16_LFP_gamma_35_40_raw: 8.0
+        LAPLACIAN_14-16_LFP_gamma_40_45_raw: 14.0
+        LAPLACIAN_14-16_LFP_gamma_45_50_raw: 15.0
+        LAPLACIAN_14-16_LFP_gamma_50_55_raw: 10.0
+        LAPLACIAN_14-16_LFP_gamma_55_60_raw: 19.0
+        LAPLACIAN_14-16_LFP_gamma_60_65_raw: 16.0
+        LAPLACIAN_14-16_LFP_gamma_70_75_raw: 3.0
+        LAPLACIAN_14-16_LFP_gamma_75_80_raw: 9.0
+    lfp_z_predictability:
+      K: 8
+      selected:
+      - LAPLACIAN_14-16_LFP_theta_4_8_raw
+      - LAPLACIAN_14-16_LFP_alpha_8_12_raw
+      - LAPLACIAN_14-16_LFP_beta_12_17_raw
+      - LAPLACIAN_14-16_LFP_beta_17_22_raw
+      - LAPLACIAN_14-16_LFP_beta_22_27_raw
+      - LAPLACIAN_14-16_LFP_beta_27_30_raw
+      - LAPLACIAN_14-16_LFP_gamma_40_45_raw
+      - LAPLACIAN_14-16_LFP_gamma_75_80_raw
+      relevance_mean_across_ecog:
+        LAPLACIAN_14-16_LFP_theta_4_8_raw: 0.002854180147354842
+        LAPLACIAN_14-16_LFP_alpha_8_12_raw: 0.0016677655733963626
+        LAPLACIAN_14-16_LFP_beta_12_17_raw: 0.0018771344342452276
+        LAPLACIAN_14-16_LFP_beta_17_22_raw: 0.0018571108802376557
+        LAPLACIAN_14-16_LFP_beta_22_27_raw: 0.0017877886380203527
+        LAPLACIAN_14-16_LFP_beta_27_30_raw: 0.0018859439109548829
+        LAPLACIAN_14-16_LFP_gamma_30_35_raw: 0.0014352544987728422
+        LAPLACIAN_14-16_LFP_gamma_35_40_raw: 0.001699742714978895
+        LAPLACIAN_14-16_LFP_gamma_40_45_raw: 0.0021983671885867917
+        LAPLACIAN_14-16_LFP_gamma_45_50_raw: 0.0011979943991006585
+        LAPLACIAN_14-16_LFP_gamma_50_55_raw: 0.0019213257625164016
+        LAPLACIAN_14-16_LFP_gamma_55_60_raw: 0.001996007272311943
+        LAPLACIAN_14-16_LFP_gamma_60_65_raw: 0.0025533659716183415
+        LAPLACIAN_14-16_LFP_gamma_70_75_raw: 0.0037034838001536543
+        LAPLACIAN_14-16_LFP_gamma_75_80_raw: 0.004197195801455885
+      vote_rank:
+        LAPLACIAN_14-16_LFP_theta_4_8_raw: 636.0
+        LAPLACIAN_14-16_LFP_alpha_8_12_raw: 579.0
+        LAPLACIAN_14-16_LFP_beta_12_17_raw: 565.0
+        LAPLACIAN_14-16_LFP_beta_17_22_raw: 547.0
+        LAPLACIAN_14-16_LFP_beta_22_27_raw: 541.0
+        LAPLACIAN_14-16_LFP_beta_27_30_raw: 496.0
+        LAPLACIAN_14-16_LFP_gamma_30_35_raw: 430.0
+        LAPLACIAN_14-16_LFP_gamma_35_40_raw: 434.0
+        LAPLACIAN_14-16_LFP_gamma_40_45_raw: 478.0
+        LAPLACIAN_14-16_LFP_gamma_45_50_raw: 407.0
+        LAPLACIAN_14-16_LFP_gamma_50_55_raw: 418.0
+        LAPLACIAN_14-16_LFP_gamma_55_60_raw: 402.0
+        LAPLACIAN_14-16_LFP_gamma_60_65_raw: 439.0
+        LAPLACIAN_14-16_LFP_gamma_70_75_raw: 367.0
+        LAPLACIAN_14-16_LFP_gamma_75_80_raw: 461.0
+  PDI4_S3:
+    ecog:
+      K: 8
+      selected:
+      - ECOG_2_gamma_30_35_raw
+      - ECOG_4_theta_4_8_raw
+      - ECOG_1_theta_4_8_raw
+      - ECOG_2_gamma_70_75_raw
+      - ECOG_2_beta_17_22_raw
+      - ECOG_3_alpha_8_12_raw
+      - ECOG_3_theta_4_8_raw
+      - ECOG_3_gamma_40_45_raw
+    laplacian:
+      K: 8
+      selected:
+      - ECOG_2_gamma_40_45_raw
+      - ECOG_3_gamma_60_65_raw
+      - ECOG_3_gamma_75_80_raw
+      - ECOG_2_beta_27_30_raw
+      - ECOG_4_theta_4_8_raw
+      - ECOG_1_gamma_70_75_raw
+      - ECOG_3_gamma_55_60_raw
+      - ECOG_3_beta_17_22_raw
+    lfp_z:
+      K: 8
+      selected:
+      - LAPLACIAN_14-16_LFP_theta_4_8_raw
+      - LAPLACIAN_14-16_LFP_alpha_8_12_raw
+      - LAPLACIAN_14-16_LFP_gamma_75_80_raw
+      - LAPLACIAN_14-16_LFP_beta_12_17_raw
+      - LAPLACIAN_14-16_LFP_beta_22_27_raw
+      - LAPLACIAN_14-16_LFP_beta_27_30_raw
+      - LAPLACIAN_14-16_LFP_gamma_60_65_raw
+      - LAPLACIAN_14-16_LFP_gamma_55_60_raw
+      relevance:
+        LAPLACIAN_14-16_LFP_theta_4_8_raw: 0.02139903453660663
+        LAPLACIAN_14-16_LFP_alpha_8_12_raw: 0.015945164713142113
+        LAPLACIAN_14-16_LFP_beta_12_17_raw: 0.011743482532748928
+        LAPLACIAN_14-16_LFP_beta_17_22_raw: 0.001733485013442504
+        LAPLACIAN_14-16_LFP_beta_22_27_raw: 0.007451825350098584
+        LAPLACIAN_14-16_LFP_beta_27_30_raw: 0.005389957353366004
+        LAPLACIAN_14-16_LFP_gamma_30_35_raw: 0.0033196215388420214
+        LAPLACIAN_14-16_LFP_gamma_35_40_raw: 0.0026387486546854966
+        LAPLACIAN_14-16_LFP_gamma_40_45_raw: 0.0011747755988498199
+        LAPLACIAN_14-16_LFP_gamma_45_50_raw: 0.0
+        LAPLACIAN_14-16_LFP_gamma_50_55_raw: 0.0
+        LAPLACIAN_14-16_LFP_gamma_55_60_raw: 0.003455141511064852
+        LAPLACIAN_14-16_LFP_gamma_60_65_raw: 0.005207565367712164
+        LAPLACIAN_14-16_LFP_gamma_70_75_raw: 3.928690910104393e-05
+        LAPLACIAN_14-16_LFP_gamma_75_80_raw: 0.0075126962950311515
+      vote_rank:
+        LAPLACIAN_14-16_LFP_theta_4_8_raw: 27.0
+        LAPLACIAN_14-16_LFP_alpha_8_12_raw: 26.0
+        LAPLACIAN_14-16_LFP_beta_12_17_raw: 22.0
+        LAPLACIAN_14-16_LFP_beta_17_22_raw: 11.0
+        LAPLACIAN_14-16_LFP_beta_22_27_raw: 22.0
+        LAPLACIAN_14-16_LFP_beta_27_30_raw: 22.0
+        LAPLACIAN_14-16_LFP_gamma_30_35_raw: 12.0
+        LAPLACIAN_14-16_LFP_gamma_35_40_raw: 16.0
+        LAPLACIAN_14-16_LFP_gamma_40_45_raw: 9.0
+        LAPLACIAN_14-16_LFP_gamma_45_50_raw: 5.0
+        LAPLACIAN_14-16_LFP_gamma_50_55_raw: 3.0
+        LAPLACIAN_14-16_LFP_gamma_55_60_raw: 17.0
+        LAPLACIAN_14-16_LFP_gamma_60_65_raw: 20.0
+        LAPLACIAN_14-16_LFP_gamma_70_75_raw: 4.0
+        LAPLACIAN_14-16_LFP_gamma_75_80_raw: 24.0
+    lfp_z_predictability:
+      K: 8
+      selected:
+      - LAPLACIAN_14-16_LFP_alpha_8_12_raw
+      - LAPLACIAN_14-16_LFP_theta_4_8_raw
+      - LAPLACIAN_14-16_LFP_beta_12_17_raw
+      - LAPLACIAN_14-16_LFP_gamma_60_65_raw
+      - LAPLACIAN_14-16_LFP_gamma_50_55_raw
+      - LAPLACIAN_14-16_LFP_beta_17_22_raw
+      - LAPLACIAN_14-16_LFP_beta_22_27_raw
+      - LAPLACIAN_14-16_LFP_gamma_55_60_raw
+      relevance_mean_across_ecog:
+        LAPLACIAN_14-16_LFP_theta_4_8_raw: 0.0021571685722907427
+        LAPLACIAN_14-16_LFP_alpha_8_12_raw: 0.003214992921020299
+        LAPLACIAN_14-16_LFP_beta_12_17_raw: 0.0019476381748463555
+        LAPLACIAN_14-16_LFP_beta_17_22_raw: 0.002520102590009099
+        LAPLACIAN_14-16_LFP_beta_22_27_raw: 0.0019152064578671357
+        LAPLACIAN_14-16_LFP_beta_27_30_raw: 0.0016248215504327756
+        LAPLACIAN_14-16_LFP_gamma_30_35_raw: 0.0019808469846933335
+        LAPLACIAN_14-16_LFP_gamma_35_40_raw: 0.002346550749298067
+        LAPLACIAN_14-16_LFP_gamma_40_45_raw: 0.00248730515633017
+        LAPLACIAN_14-16_LFP_gamma_45_50_raw: 0.002424687094488546
+        LAPLACIAN_14-16_LFP_gamma_50_55_raw: 0.01000462488580623
+        LAPLACIAN_14-16_LFP_gamma_55_60_raw: 0.011370093930098735
+        LAPLACIAN_14-16_LFP_gamma_60_65_raw: 0.01194974481052952
+        LAPLACIAN_14-16_LFP_gamma_70_75_raw: 0.004373305576150092
+        LAPLACIAN_14-16_LFP_gamma_75_80_raw: 0.0036073021295098
+      vote_rank:
+        LAPLACIAN_14-16_LFP_theta_4_8_raw: 573.0
+        LAPLACIAN_14-16_LFP_alpha_8_12_raw: 600.0
+        LAPLACIAN_14-16_LFP_beta_12_17_raw: 548.0
+        LAPLACIAN_14-16_LFP_beta_17_22_raw: 510.0
+        LAPLACIAN_14-16_LFP_beta_22_27_raw: 488.0
+        LAPLACIAN_14-16_LFP_beta_27_30_raw: 423.0
+        LAPLACIAN_14-16_LFP_gamma_30_35_raw: 448.0
+        LAPLACIAN_14-16_LFP_gamma_35_40_raw: 446.0
+        LAPLACIAN_14-16_LFP_gamma_40_45_raw: 438.0
+        LAPLACIAN_14-16_LFP_gamma_45_50_raw: 431.0
+        LAPLACIAN_14-16_LFP_gamma_50_55_raw: 515.0
+        LAPLACIAN_14-16_LFP_gamma_55_60_raw: 470.0
+        LAPLACIAN_14-16_LFP_gamma_60_65_raw: 532.0
+        LAPLACIAN_14-16_LFP_gamma_70_75_raw: 401.0
+        LAPLACIAN_14-16_LFP_gamma_75_80_raw: 377.0
