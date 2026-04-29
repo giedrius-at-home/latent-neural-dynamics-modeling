@@ -232,11 +232,19 @@ def compose_thesis_figure(spec: ThesisFigureSpec, results_root: Path):
     )
 
     off = extract_trial_z_series(
-        res_p, res_d, res_v_off_use, i_off, spec.channel_idx,
+        res_p,
+        res_d,
+        res_v_off_use,
+        i_off,
+        spec.channel_idx,
         varma_trial_idx=idx_v_off,
     )
     on = extract_trial_z_series(
-        res_p, res_d, res_v_on_use, i_on, spec.channel_idx,
+        res_p,
+        res_d,
+        res_v_on_use,
+        i_on,
+        spec.channel_idx,
         varma_trial_idx=idx_v_on,
     )
 
@@ -295,7 +303,9 @@ def compose_thesis_figure(spec: ThesisFigureSpec, results_root: Path):
             used_decl = True
         else:
             ch_name, used_decl = resolve_output_channel_display(
-                res_p, spec.channel_idx, declared_outputs=THESIS_DECLARED_BEHAVIORAL_OUTPUTS
+                res_p,
+                spec.channel_idx,
+                declared_outputs=THESIS_DECLARED_BEHAVIORAL_OUTPUTS,
             )
     y_axis_label = d_score_axis_label(ch_name)
     caption = thesis_exemplar_tagline(

@@ -118,7 +118,9 @@ def collect_forecast_horizon_rmse(
     Uses Z_future_* or Y_future_* from parquet when present.
     """
     if forecast_target not in ("Z", "Y"):
-        raise ThesisDataError(f"collect_forecast_horizon_rmse: forecast_target must be Z or Y, got {forecast_target!r}.")
+        raise ThesisDataError(
+            f"collect_forecast_horizon_rmse: forecast_target must be Z or Y, got {forecast_target!r}."
+        )
     if not triplet_specs:
         raise ThesisDataError("collect_forecast_horizon_rmse: triplet_specs is empty.")
     k_true = "Y_future_true" if forecast_target == "Y" else "Z_future_true"
@@ -133,8 +135,12 @@ def collect_forecast_horizon_rmse(
     n_on = 0
 
     for tri in triplet_specs:
-        res_p = load_split_results_required(results_root, tri.psid_variant, tri.psid_run_ts, split)
-        res_v = load_split_results_required(results_root, tri.varma_variant, tri.varma_run_ts, split)
+        res_p = load_split_results_required(
+            results_root, tri.psid_variant, tri.psid_run_ts, split
+        )
+        res_v = load_split_results_required(
+            results_root, tri.varma_variant, tri.varma_run_ts, split
+        )
         if not res_p.get(k_true) or not res_p.get(k_pred):
             raise ThesisDataError(
                 f"Forecast horizon: PSID triplet {tri.label!r} missing {k_true} / {k_pred}."
@@ -221,10 +227,14 @@ def collect_forecast_horizon_rmse(
         if group:
             min_lens.append(min(r.shape[0] for r in group))
     if not min_lens:
-        raise ThesisDataError("Forecast horizon: zero-length future windows after stacking.")
+        raise ThesisDataError(
+            "Forecast horizon: zero-length future windows after stacking."
+        )
     m_plot = int(min(min_lens))
     if m_plot <= 0:
-        raise ThesisDataError("Forecast horizon: zero-length future windows after stacking.")
+        raise ThesisDataError(
+            "Forecast horizon: zero-length future windows after stacking."
+        )
 
     idx = np.arange(0, m_plot, sample_every, dtype=int)
     dt_ms = 1000.0 / sampling_hz
@@ -277,7 +287,11 @@ def collect_forecast_horizon_rmse(
     _global_step = min(_global_step, m_plot - 1)
 
     def _per_trial_at_step(rows: List[np.ndarray]) -> List[float]:
-        return [float(r[_global_step]) for r in rows if _global_step < len(r) and np.isfinite(r[_global_step])]
+        return [
+            float(r[_global_step])
+            for r in rows
+            if _global_step < len(r) and np.isfinite(r[_global_step])
+        ]
 
     return ForecastHorizonRmseData(
         x_ms=x_ms,

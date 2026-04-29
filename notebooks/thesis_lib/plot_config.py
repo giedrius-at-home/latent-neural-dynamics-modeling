@@ -45,27 +45,27 @@ NX_VALS = [60, 65, 70, 75, 80]
 N1_VALS = [6, 8, 10, 12]
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
-RESULTS_ROOT = Path(
-    os.environ.get("RESULTS_PATH", _PROJECT_ROOT / "results")
-).resolve()
+RESULTS_ROOT = Path(os.environ.get("RESULTS_PATH", _PROJECT_ROOT / "results")).resolve()
 
 GRID_SEARCH_PARQUET = RESULTS_ROOT / "psid_grid_search_narrow_band" / "results.parquet"
 
 
 def apply_style() -> None:
     """Set matplotlib rcParams for thesis figures."""
-    plt.rcParams.update({
-        "font.family": "sans-serif",
-        "font.sans-serif": ["Arial", "Helvetica", "DejaVu Sans"],
-        "font.size": STYLE["tick_size"],
-        "axes.titlesize": STYLE["title_size"],
-        "axes.labelsize": STYLE["label_size"],
-        "xtick.labelsize": STYLE["tick_size"],
-        "ytick.labelsize": STYLE["tick_size"],
-        "legend.fontsize": STYLE["tick_size"],
-        "axes.spines.top": False,
-        "axes.spines.right": False,
-    })
+    plt.rcParams.update(
+        {
+            "font.family": "sans-serif",
+            "font.sans-serif": ["Arial", "Helvetica", "DejaVu Sans"],
+            "font.size": STYLE["tick_size"],
+            "axes.titlesize": STYLE["title_size"],
+            "axes.labelsize": STYLE["label_size"],
+            "xtick.labelsize": STYLE["tick_size"],
+            "ytick.labelsize": STYLE["tick_size"],
+            "legend.fontsize": STYLE["tick_size"],
+            "axes.spines.top": False,
+            "axes.spines.right": False,
+        }
+    )
 
 
 def load_results_for_triplet(triplet) -> List[Dict[str, Any]]:
@@ -83,6 +83,7 @@ def load_results_for_triplet(triplet) -> List[Dict[str, Any]]:
         return []
 
     trials: List[Dict[str, Any]] = []
+
     # Avoid `x or []` — Y/Z/stim may be numpy arrays (`bool(arr)` is ambiguous).
     def _seq(key: str) -> list:
         v = res.get(key)
@@ -115,13 +116,15 @@ def load_results_for_triplet(triplet) -> List[Dict[str, Any]]:
         else:
             stim = "off"
 
-        trials.append({
-            "Y": y,
-            "Z": z,
-            "stim": stim,
-            "participant_id": pid,
-            "session": sess,
-        })
+        trials.append(
+            {
+                "Y": y,
+                "Z": z,
+                "stim": stim,
+                "participant_id": pid,
+                "session": sess,
+            }
+        )
     return trials
 
 

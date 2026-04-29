@@ -355,7 +355,9 @@ class Tester:
             / f"trial={meta['trial']}"
         )
 
-    def _write_trial_partition(self, trial_result: dict, results_path: Path, meta: dict):
+    def _write_trial_partition(
+        self, trial_result: dict, results_path: Path, meta: dict
+    ):
         partition_dir = self._trial_partition_dir(results_path, meta)
         partition_dir.mkdir(parents=True, exist_ok=True)
 
@@ -539,27 +541,17 @@ class Tester:
             prep_group = f.create_group("preprocessing")
             YPrep = getattr(idSys, "YPrepModel", None)
             ZPrep = getattr(idSys, "ZPrepModel", None)
-            create_dataset(
-                prep_group, "Y_mean", getattr(YPrep, "mean", None)
-            )
-            create_dataset(
-                prep_group, "Y_std", getattr(YPrep, "std", None)
-            )
-            create_dataset(
-                prep_group, "Z_mean", getattr(ZPrep, "mean", None)
-            )
-            create_dataset(
-                prep_group, "Z_std", getattr(ZPrep, "std", None)
-            )
+            create_dataset(prep_group, "Y_mean", getattr(YPrep, "mean", None))
+            create_dataset(prep_group, "Y_std", getattr(YPrep, "std", None))
+            create_dataset(prep_group, "Z_mean", getattr(ZPrep, "mean", None))
+            create_dataset(prep_group, "Z_std", getattr(ZPrep, "std", None))
 
             stats_group = f.create_group("analysis_stats")
             n1 = self.model_params.n1
             nx = self.model_params.nx
 
             A_11 = A[0:n1, 0:n1]
-            stats_group.create_dataset(
-                "eigvals_relevant", data=np.linalg.eigvals(A_11)
-            )
+            stats_group.create_dataset("eigvals_relevant", data=np.linalg.eigvals(A_11))
 
             A_22 = A[n1:nx, n1:nx]
             stats_group.create_dataset(

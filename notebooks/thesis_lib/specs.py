@@ -152,7 +152,9 @@ class ThesisPsidCyImportanceSpec:
     split: str = "test"
     theme: ThesisTheme = ThesisTheme.LIGHT
     show_beta_box: bool = True
-    importance_gamma: float = 0.5  # power transform applied to [0,1] importance; <1 expands dim values (0.5 = sqrt)
+    importance_gamma: float = (
+        0.5  # power transform applied to [0,1] importance; <1 expands dim values (0.5 = sqrt)
+    )
     caption: str = ""
 
 
@@ -164,7 +166,9 @@ class ThesisPsidCzSpec:
     """
 
     section_title: str
-    rows: tuple[PsidCyRow, ...]  # reuses PsidCyPanel / PsidCyRow (same sessions, same model pkl)
+    rows: tuple[
+        PsidCyRow, ...
+    ]  # reuses PsidCyPanel / PsidCyRow (same sessions, same model pkl)
     split: str = "test"
     theme: ThesisTheme = ThesisTheme.LIGHT
     caption: str = ""
@@ -536,7 +540,9 @@ _TRIPLET_PDI4_S3 = AlignedTriplet(
 _ALL_TRIPLETS = [_TRIPLET_PDI1_S2, _TRIPLET_PDI1_S4, _TRIPLET_PDI4_S2, _TRIPLET_PDI4_S3]
 
 
-def infer_varma_off_on_run_ts(varma_variant: str, varma_run_ts: str) -> tuple[str, str] | None:
+def infer_varma_off_on_run_ts(
+    varma_variant: str, varma_run_ts: str
+) -> tuple[str, str] | None:
     """
     For a ``dbs_both`` VARMA variant + joint run timestamp, return matching OFF/ON VARMA run timestamps
     when they appear in ``_ALL_TRIPLETS``; otherwise None.
@@ -1235,15 +1241,31 @@ THESIS_PSID_CY_IMPORTANCE: list[ThesisPsidCyImportanceSpec] = [
             PsidCyRow(
                 participant_label="PDI1",
                 panels=(
-                    PsidCyPanel("S2", _TRIPLET_PDI1_S2.psid_variant, _TRIPLET_PDI1_S2.psid_run_ts),
-                    PsidCyPanel("S4", _TRIPLET_PDI1_S4.psid_variant, _TRIPLET_PDI1_S4.psid_run_ts),
+                    PsidCyPanel(
+                        "S2",
+                        _TRIPLET_PDI1_S2.psid_variant,
+                        _TRIPLET_PDI1_S2.psid_run_ts,
+                    ),
+                    PsidCyPanel(
+                        "S4",
+                        _TRIPLET_PDI1_S4.psid_variant,
+                        _TRIPLET_PDI1_S4.psid_run_ts,
+                    ),
                 ),
             ),
             PsidCyRow(
                 participant_label="PDI4",
                 panels=(
-                    PsidCyPanel("S2", _TRIPLET_PDI4_S2.psid_variant, _TRIPLET_PDI4_S2.psid_run_ts),
-                    PsidCyPanel("S3", _TRIPLET_PDI4_S3.psid_variant, _TRIPLET_PDI4_S3.psid_run_ts),
+                    PsidCyPanel(
+                        "S2",
+                        _TRIPLET_PDI4_S2.psid_variant,
+                        _TRIPLET_PDI4_S2.psid_run_ts,
+                    ),
+                    PsidCyPanel(
+                        "S3",
+                        _TRIPLET_PDI4_S3.psid_variant,
+                        _TRIPLET_PDI4_S3.psid_run_ts,
+                    ),
                 ),
             ),
         ),
@@ -1265,15 +1287,31 @@ THESIS_PSID_CZ_HEATMAP: list[ThesisPsidCzSpec] = [
             PsidCyRow(
                 participant_label="PDI1",
                 panels=(
-                    PsidCyPanel("S2", _TRIPLET_PDI1_S2.psid_variant, _TRIPLET_PDI1_S2.psid_run_ts),
-                    PsidCyPanel("S4", _TRIPLET_PDI1_S4.psid_variant, _TRIPLET_PDI1_S4.psid_run_ts),
+                    PsidCyPanel(
+                        "S2",
+                        _TRIPLET_PDI1_S2.psid_variant,
+                        _TRIPLET_PDI1_S2.psid_run_ts,
+                    ),
+                    PsidCyPanel(
+                        "S4",
+                        _TRIPLET_PDI1_S4.psid_variant,
+                        _TRIPLET_PDI1_S4.psid_run_ts,
+                    ),
                 ),
             ),
             PsidCyRow(
                 participant_label="PDI4",
                 panels=(
-                    PsidCyPanel("S2", _TRIPLET_PDI4_S2.psid_variant, _TRIPLET_PDI4_S2.psid_run_ts),
-                    PsidCyPanel("S3", _TRIPLET_PDI4_S3.psid_variant, _TRIPLET_PDI4_S3.psid_run_ts),
+                    PsidCyPanel(
+                        "S2",
+                        _TRIPLET_PDI4_S2.psid_variant,
+                        _TRIPLET_PDI4_S2.psid_run_ts,
+                    ),
+                    PsidCyPanel(
+                        "S3",
+                        _TRIPLET_PDI4_S3.psid_variant,
+                        _TRIPLET_PDI4_S3.psid_run_ts,
+                    ),
                 ),
             ),
         ),
@@ -1353,25 +1391,105 @@ THESIS_CLASSIFICATION_F1: list[ThesisClassificationF1Spec] = [
         section_title="Figure F1 — DBS classification (balanced accuracy)",
         points=(
             # PDI1 S2
-            ClassificationF1PickleRef("PDI1", "S2", "xp", "psid_behavioral_PDI1_2_nx_4_n2_i35_dbs_both_200Hz_narrow_band/20260411_000914/LDA_Xp_prediction.pkl"),
-            ClassificationF1PickleRef("PDI1", "S2", "xp_1", "psid_behavioral_PDI1_2_nx_4_n2_i35_dbs_both_200Hz_narrow_band/20260411_000914/LDA_Xp_1_prediction.pkl"),
-            ClassificationF1PickleRef("PDI1", "S2", "xp_2", "psid_behavioral_PDI1_2_nx_4_n2_i35_dbs_both_200Hz_narrow_band/20260411_000914/LDA_Xp_2_prediction.pkl"),
-            ClassificationF1PickleRef("PDI1", "S2", "xp_with_dbs", "psid_behavioral_PDI1_2_nx_4_n2_i35_dbs_both_200Hz_narrow_band/20260411_000914/LDA_Xp_with_dbs_prediction.pkl"),
+            ClassificationF1PickleRef(
+                "PDI1",
+                "S2",
+                "xp",
+                "psid_behavioral_PDI1_2_nx_4_n2_i35_dbs_both_200Hz_narrow_band/20260411_000914/LDA_Xp_prediction.pkl",
+            ),
+            ClassificationF1PickleRef(
+                "PDI1",
+                "S2",
+                "xp_1",
+                "psid_behavioral_PDI1_2_nx_4_n2_i35_dbs_both_200Hz_narrow_band/20260411_000914/LDA_Xp_1_prediction.pkl",
+            ),
+            ClassificationF1PickleRef(
+                "PDI1",
+                "S2",
+                "xp_2",
+                "psid_behavioral_PDI1_2_nx_4_n2_i35_dbs_both_200Hz_narrow_band/20260411_000914/LDA_Xp_2_prediction.pkl",
+            ),
+            ClassificationF1PickleRef(
+                "PDI1",
+                "S2",
+                "xp_with_dbs",
+                "psid_behavioral_PDI1_2_nx_4_n2_i35_dbs_both_200Hz_narrow_band/20260411_000914/LDA_Xp_with_dbs_prediction.pkl",
+            ),
             # PDI1 S4
-            ClassificationF1PickleRef("PDI1", "S4", "xp", "psid_behavioral_PDI1_4_nx_25_n2_i50_dbs_both_200Hz_narrow_band/20260411_034923/LDA_Xp_prediction.pkl"),
-            ClassificationF1PickleRef("PDI1", "S4", "xp_1", "psid_behavioral_PDI1_4_nx_25_n2_i50_dbs_both_200Hz_narrow_band/20260411_034923/LDA_Xp_1_prediction.pkl"),
-            ClassificationF1PickleRef("PDI1", "S4", "xp_2", "psid_behavioral_PDI1_4_nx_25_n2_i50_dbs_both_200Hz_narrow_band/20260411_034923/LDA_Xp_2_prediction.pkl"),
-            ClassificationF1PickleRef("PDI1", "S4", "xp_with_dbs", "psid_behavioral_PDI1_4_nx_25_n2_i50_dbs_both_200Hz_narrow_band/20260411_034923/LDA_Xp_with_dbs_prediction.pkl"),
+            ClassificationF1PickleRef(
+                "PDI1",
+                "S4",
+                "xp",
+                "psid_behavioral_PDI1_4_nx_25_n2_i50_dbs_both_200Hz_narrow_band/20260411_034923/LDA_Xp_prediction.pkl",
+            ),
+            ClassificationF1PickleRef(
+                "PDI1",
+                "S4",
+                "xp_1",
+                "psid_behavioral_PDI1_4_nx_25_n2_i50_dbs_both_200Hz_narrow_band/20260411_034923/LDA_Xp_1_prediction.pkl",
+            ),
+            ClassificationF1PickleRef(
+                "PDI1",
+                "S4",
+                "xp_2",
+                "psid_behavioral_PDI1_4_nx_25_n2_i50_dbs_both_200Hz_narrow_band/20260411_034923/LDA_Xp_2_prediction.pkl",
+            ),
+            ClassificationF1PickleRef(
+                "PDI1",
+                "S4",
+                "xp_with_dbs",
+                "psid_behavioral_PDI1_4_nx_25_n2_i50_dbs_both_200Hz_narrow_band/20260411_034923/LDA_Xp_with_dbs_prediction.pkl",
+            ),
             # PDI4 S2
-            ClassificationF1PickleRef("PDI4", "S2", "xp", "psid_behavioral_PDI4_2_nx_30_n6_i50_dbs_both_200Hz_narrow_band/20260408_162132/LDA_Xp_prediction.pkl"),
-            ClassificationF1PickleRef("PDI4", "S2", "xp_1", "psid_behavioral_PDI4_2_nx_30_n6_i50_dbs_both_200Hz_narrow_band/20260408_162132/LDA_Xp_1_prediction.pkl"),
-            ClassificationF1PickleRef("PDI4", "S2", "xp_2", "psid_behavioral_PDI4_2_nx_30_n6_i50_dbs_both_200Hz_narrow_band/20260408_162132/LDA_Xp_2_prediction.pkl"),
-            ClassificationF1PickleRef("PDI4", "S2", "xp_with_dbs", "psid_behavioral_PDI4_2_nx_30_n6_i50_dbs_both_200Hz_narrow_band/20260408_162132/LDA_Xp_with_dbs_prediction.pkl"),
+            ClassificationF1PickleRef(
+                "PDI4",
+                "S2",
+                "xp",
+                "psid_behavioral_PDI4_2_nx_30_n6_i50_dbs_both_200Hz_narrow_band/20260408_162132/LDA_Xp_prediction.pkl",
+            ),
+            ClassificationF1PickleRef(
+                "PDI4",
+                "S2",
+                "xp_1",
+                "psid_behavioral_PDI4_2_nx_30_n6_i50_dbs_both_200Hz_narrow_band/20260408_162132/LDA_Xp_1_prediction.pkl",
+            ),
+            ClassificationF1PickleRef(
+                "PDI4",
+                "S2",
+                "xp_2",
+                "psid_behavioral_PDI4_2_nx_30_n6_i50_dbs_both_200Hz_narrow_band/20260408_162132/LDA_Xp_2_prediction.pkl",
+            ),
+            ClassificationF1PickleRef(
+                "PDI4",
+                "S2",
+                "xp_with_dbs",
+                "psid_behavioral_PDI4_2_nx_30_n6_i50_dbs_both_200Hz_narrow_band/20260408_162132/LDA_Xp_with_dbs_prediction.pkl",
+            ),
             # PDI4 S3
-            ClassificationF1PickleRef("PDI4", "S3", "xp", "psid_behavioral_PDI4_3_nx_25_n6_i50_dbs_both_200Hz_narrow_band/20260408_185522/LDA_Xp_prediction.pkl"),
-            ClassificationF1PickleRef("PDI4", "S3", "xp_1", "psid_behavioral_PDI4_3_nx_25_n6_i50_dbs_both_200Hz_narrow_band/20260408_185522/LDA_Xp_1_prediction.pkl"),
-            ClassificationF1PickleRef("PDI4", "S3", "xp_2", "psid_behavioral_PDI4_3_nx_25_n6_i50_dbs_both_200Hz_narrow_band/20260408_185522/LDA_Xp_2_prediction.pkl"),
-            ClassificationF1PickleRef("PDI4", "S3", "xp_with_dbs", "psid_behavioral_PDI4_3_nx_25_n6_i50_dbs_both_200Hz_narrow_band/20260408_185522/LDA_Xp_with_dbs_prediction.pkl"),
+            ClassificationF1PickleRef(
+                "PDI4",
+                "S3",
+                "xp",
+                "psid_behavioral_PDI4_3_nx_25_n6_i50_dbs_both_200Hz_narrow_band/20260408_185522/LDA_Xp_prediction.pkl",
+            ),
+            ClassificationF1PickleRef(
+                "PDI4",
+                "S3",
+                "xp_1",
+                "psid_behavioral_PDI4_3_nx_25_n6_i50_dbs_both_200Hz_narrow_band/20260408_185522/LDA_Xp_1_prediction.pkl",
+            ),
+            ClassificationF1PickleRef(
+                "PDI4",
+                "S3",
+                "xp_2",
+                "psid_behavioral_PDI4_3_nx_25_n6_i50_dbs_both_200Hz_narrow_band/20260408_185522/LDA_Xp_2_prediction.pkl",
+            ),
+            ClassificationF1PickleRef(
+                "PDI4",
+                "S3",
+                "xp_with_dbs",
+                "psid_behavioral_PDI4_3_nx_25_n6_i50_dbs_both_200Hz_narrow_band/20260408_185522/LDA_Xp_with_dbs_prediction.pkl",
+            ),
         ),
         caption=DEFAULT_CLASSIFICATION_F1_CAPTION,
     ),
@@ -1456,9 +1574,7 @@ DEFAULT_FORECAST_CAPTION = (
     "DPAD excluded when forecast trajectories are not available for a comparable pipeline."
 )
 
-DEFAULT_NEURAL_FORECAST_CAPTION = (
-    "Same pooling and z-scoring as behavioral horizon panels, applied to neural Y_future_* columns."
-)
+DEFAULT_NEURAL_FORECAST_CAPTION = "Same pooling and z-scoring as behavioral horizon panels, applied to neural Y_future_* columns."
 
 THESIS_NEURAL_FORECAST_FIGURES: list[ThesisForecastRmseSpec] = [
     ThesisForecastRmseSpec(

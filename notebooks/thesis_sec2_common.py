@@ -3,25 +3,32 @@
 Each sec2{a..e}.ipynb does `from thesis_sec2_common import *` as its first cell.
 All constants / specs / triplets live here so edits propagate to every notebook.
 """
+
 from __future__ import annotations
 
 import sys
 import os
-os.chdir('/home/bobby/repos/latent-neural-dynamics-modeling')
-sys.path.insert(0, '.')
+
+os.chdir("/home/bobby/repos/latent-neural-dynamics-modeling")
+sys.path.insert(0, ".")
 
 from pathlib import Path
 import numpy as np
 
-OUT = Path('thesis_figures/sec2')
+OUT = Path("thesis_figures/sec2")
 OUT.mkdir(parents=True, exist_ok=True)
-results_root = Path('results').resolve()
+results_root = Path("results").resolve()
 
 from thesis_specs import (
-    AlignedTriplet, StripPanelEntry, ThesisTheme,
-    ThesisAggregateRmseSpec, ThesisStripPanelsSpec,
-    ThesisNeuralTimeseriesSpec, ThesisNeuralBandHeatmapSpec,
-    ThesisForecastRmseSpec, ThesisC2ForecastSpec,
+    AlignedTriplet,
+    StripPanelEntry,
+    ThesisTheme,
+    ThesisAggregateRmseSpec,
+    ThesisStripPanelsSpec,
+    ThesisNeuralTimeseriesSpec,
+    ThesisNeuralBandHeatmapSpec,
+    ThesisForecastRmseSpec,
+    ThesisC2ForecastSpec,
 )
 
 # ---------------------------------------------------------------------------
@@ -114,7 +121,10 @@ TRIPLET_LAP_PDI1_S4 = _triplets_by_key[("PDI1_S4", "laplacian")]
 TRIPLET_LAP_PDI4_S2 = _triplets_by_key[("PDI4_S2", "laplacian")]
 TRIPLET_LAP_PDI4_S3 = _triplets_by_key[("PDI4_S3", "laplacian")]
 ALL_TRIPLETS_LAP = [
-    TRIPLET_LAP_PDI1_S2, TRIPLET_LAP_PDI1_S4, TRIPLET_LAP_PDI4_S2, TRIPLET_LAP_PDI4_S3,
+    TRIPLET_LAP_PDI1_S2,
+    TRIPLET_LAP_PDI1_S4,
+    TRIPLET_LAP_PDI4_S2,
+    TRIPLET_LAP_PDI4_S3,
 ]
 
 # Laplacian LFP output-band order (column index in Z). Test parquets don't store
@@ -123,10 +133,21 @@ ALL_TRIPLETS_LAP = [
 LAPLACIAN_BAND_NAMES = (
     "theta_4-8",
     "alpha_8-12",
-    "beta_12-17", "beta_17-22", "beta_22-27", "beta_27-30",
-    "gamma_30-35", "gamma_35-40", "gamma_40-45", "gamma_45-50",
-    "gamma_50-55", "gamma_55-60", "gamma_60-65", "gamma_70-75", "gamma_75-80",
+    "beta_12-17",
+    "beta_17-22",
+    "beta_22-27",
+    "beta_27-30",
+    "gamma_30-35",
+    "gamma_35-40",
+    "gamma_40-45",
+    "gamma_45-50",
+    "gamma_50-55",
+    "gamma_55-60",
+    "gamma_60-65",
+    "gamma_70-75",
+    "gamma_75-80",
 )
+
 
 def laplacian_band_label(idx: int) -> str:
     """Readable LFP band name by Z-column index (fallback when output_channels is empty)."""
@@ -134,14 +155,20 @@ def laplacian_band_label(idx: int) -> str:
         return LAPLACIAN_BAND_NAMES[idx]
     return f"band_{idx}"
 
+
 # Spec lists
 THESIS_AGGREGATE_FIGURES = [
-    ThesisAggregateRmseSpec(section_title="Pooled RMSE ch0", channel_idx=0, triplets=ALL_TRIPLETS),
-    ThesisAggregateRmseSpec(section_title="Pooled RMSE ch1", channel_idx=1, triplets=ALL_TRIPLETS),
+    ThesisAggregateRmseSpec(
+        section_title="Pooled RMSE ch0", channel_idx=0, triplets=ALL_TRIPLETS
+    ),
+    ThesisAggregateRmseSpec(
+        section_title="Pooled RMSE ch1", channel_idx=1, triplets=ALL_TRIPLETS
+    ),
 ]
 THESIS_STRIP_PANELS = [
     ThesisStripPanelsSpec(
-        section_title="Session-mean RMSE strip plots", channel_idx=0,
+        section_title="Session-mean RMSE strip plots",
+        channel_idx=0,
         panels=[
             StripPanelEntry(panel_label="PDI1 S2", triplet=TRIPLET_PDI1_S2),
             StripPanelEntry(panel_label="PDI1 S4", triplet=TRIPLET_PDI1_S4),
@@ -152,42 +179,74 @@ THESIS_STRIP_PANELS = [
 ]
 THESIS_NEURAL_TIMESERIES = [
     ThesisNeuralTimeseriesSpec(
-        section_title=tri.label.replace("_", " "), participant_label=tri.label.split("_")[0],
-        psid_variant=tri.psid_variant, dpad_variant=tri.dpad_variant, varma_variant=tri.varma_variant,
-        psid_run_ts=tri.psid_run_ts, dpad_run_ts=tri.dpad_run_ts, varma_run_ts=tri.varma_run_ts,
-        split="test", trial_idx_off=off, trial_idx_on=on, neural_y_channel_idx=5,
-        neural_y_feature_name="ECOG_1_beta_27_30_raw", use_adjacent_off_on_trials=True,
+        section_title=tri.label.replace("_", " "),
+        participant_label=tri.label.split("_")[0],
+        psid_variant=tri.psid_variant,
+        dpad_variant=tri.dpad_variant,
+        varma_variant=tri.varma_variant,
+        psid_run_ts=tri.psid_run_ts,
+        dpad_run_ts=tri.dpad_run_ts,
+        varma_run_ts=tri.varma_run_ts,
+        split="test",
+        trial_idx_off=off,
+        trial_idx_on=on,
+        neural_y_channel_idx=5,
+        neural_y_feature_name="ECOG_1_beta_27_30_raw",
+        use_adjacent_off_on_trials=True,
         exemplar_layout="side_by_side",
-        varma_run_ts_off=tri.varma_run_ts_off, varma_run_ts_on=tri.varma_run_ts_on,
+        varma_run_ts_off=tri.varma_run_ts_off,
+        varma_run_ts_on=tri.varma_run_ts_on,
     )
     for tri, (off, on) in zip(ALL_TRIPLETS, [(11, 27), (17, 5), (5, 18), (9, 25)])
 ]
 THESIS_NEURAL_BAND_HEATMAPS = [
     ThesisNeuralBandHeatmapSpec(
-        section_title="Neural band Pearson r", triplets=ALL_TRIPLETS,
+        section_title="Neural band Pearson r",
+        triplets=ALL_TRIPLETS,
         band_row_order=("Theta", "Alpha", "Beta"),
     ),
 ]
 THESIS_NEURAL_FORECAST_FIGURES = [
     ThesisForecastRmseSpec(
-        section_title="Neural forecast RMSE", channel_idx=5, triplets=ALL_TRIPLETS,
-        forecast_target="Y", neural_y_feature_name="ECOG_1_beta_27_30_raw",
+        section_title="Neural forecast RMSE",
+        channel_idx=5,
+        triplets=ALL_TRIPLETS,
+        forecast_target="Y",
+        neural_y_feature_name="ECOG_1_beta_27_30_raw",
     ),
 ]
-_TRIAL_INDICES = {"PDI1_S2": (11, 27), "PDI1_S4": (17, 5), "PDI4_S2": (5, 18), "PDI4_S3": (9, 25)}
+_TRIAL_INDICES = {
+    "PDI1_S2": (11, 27),
+    "PDI1_S4": (17, 5),
+    "PDI4_S2": (5, 18),
+    "PDI4_S3": (9, 25),
+}
 THESIS_C2_FORECASTS = [
     ThesisC2ForecastSpec(
-        section_title=tri.label, participant_label=tri.label.split("_")[0],
-        psid_variant=tri.psid_variant, dpad_variant=tri.dpad_variant, varma_variant=tri.varma_variant,
-        psid_run_ts=tri.psid_run_ts, dpad_run_ts=tri.dpad_run_ts, varma_run_ts=tri.varma_run_ts,
-        split="test", trial_idx_off=_TRIAL_INDICES[tri.label][0], trial_idx_on=_TRIAL_INDICES[tri.label][1],
-        channel_idx=5, forecast_target="Y", neural_y_feature_name="ECOG_1_beta_27_30_raw",
-        varma_run_ts_off=tri.varma_run_ts_off, varma_run_ts_on=tri.varma_run_ts_on,
+        section_title=tri.label,
+        participant_label=tri.label.split("_")[0],
+        psid_variant=tri.psid_variant,
+        dpad_variant=tri.dpad_variant,
+        varma_variant=tri.varma_variant,
+        psid_run_ts=tri.psid_run_ts,
+        dpad_run_ts=tri.dpad_run_ts,
+        varma_run_ts=tri.varma_run_ts,
+        split="test",
+        trial_idx_off=_TRIAL_INDICES[tri.label][0],
+        trial_idx_on=_TRIAL_INDICES[tri.label][1],
+        channel_idx=5,
+        forecast_target="Y",
+        neural_y_feature_name="ECOG_1_beta_27_30_raw",
+        varma_run_ts_off=tri.varma_run_ts_off,
+        varma_run_ts_on=tri.varma_run_ts_on,
     )
     for tri in ALL_TRIPLETS
 ]
 
-THESIS_DECLARED_BEHAVIORAL_OUTPUTS = ("tracing_velocity_x", "tracing_acceleration_magnitude")
+THESIS_DECLARED_BEHAVIORAL_OUTPUTS = (
+    "tracing_velocity_x",
+    "tracing_acceleration_magnitude",
+)
 
 # ---------------------------------------------------------------------------
 # Matplotlib boxplot builders — shared across sec2b / sec2c / sec2d / model_validation.
@@ -201,10 +260,15 @@ _METRIC_FILENAME_SUFFIX = {"rmse": "rmse", "pearson": "pearson", "vaf": "vaf"}
 def _boxplot_colored(ax, vals, x_pos, color, *, fill_alpha=0.45, width=0.7):
     """One matplotlib box at ``x_pos`` with a filled body + coloured whiskers."""
     from matplotlib.colors import to_rgba
+
     face = (*to_rgba(color)[:3], fill_alpha)
     bp = ax.boxplot(
-        [vals], positions=[x_pos], widths=width, patch_artist=True,
-        showfliers=False, manage_ticks=False,
+        [vals],
+        positions=[x_pos],
+        widths=width,
+        patch_artist=True,
+        showfliers=False,
+        manage_ticks=False,
     )
     for box in bp["boxes"]:
         box.set(facecolor=face, edgecolor=color, linewidth=1.2)
@@ -215,8 +279,13 @@ def _boxplot_colored(ax, vals, x_pos, color, *, fill_alpha=0.45, width=0.7):
 
 
 def mpl_rmse_boxplot(
-    data, metric="rmse", target_label: str = "",
-    *, figsize=(8.0, 3.8), jitter: float = 0.12, rng_seed: int = 42,
+    data,
+    metric="rmse",
+    target_label: str = "",
+    *,
+    figsize=(8.0, 3.8),
+    jitter: float = 0.12,
+    rng_seed: int = 42,
 ):
     """Two-panel box + strip: DBS-OFF | DBS-ON, one box per model, dots per participant.
 
@@ -260,7 +329,9 @@ def mpl_rmse_boxplot(
     fig, axes = plt.subplots(1, 2, figsize=figsize, sharey=True)
     legend_pids = set()
 
-    for ax, cond_cells, cond_title in zip(axes, (off_cells, on_cells), ("DBS-OFF", "DBS-ON")):
+    for ax, cond_cells, cond_title in zip(
+        axes, (off_cells, on_cells), ("DBS-OFF", "DBS-ON")
+    ):
         for mi, (model, col, cell_idx) in enumerate(zip(models, colors, cond_cells)):
             vals, pids = _vp(cell_idx)
             if not vals:
@@ -278,10 +349,18 @@ def mpl_rmse_boxplot(
 
     # Participant legend (single shared, placed by matplotlib).
     from matplotlib.lines import Line2D
+
     handles = [
-        Line2D([], [], marker="o", linestyle="", markersize=6,
-               markerfacecolor=PARTICIPANT_COLORS.get(p, "#888888"),
-               markeredgecolor="none", label=p)
+        Line2D(
+            [],
+            [],
+            marker="o",
+            linestyle="",
+            markersize=6,
+            markerfacecolor=PARTICIPANT_COLORS.get(p, "#888888"),
+            markeredgecolor="none",
+            label=p,
+        )
         for p in sorted(legend_pids)
     ]
     if handles:
@@ -290,15 +369,25 @@ def mpl_rmse_boxplot(
 
 
 def mpl_session_grouped_boxplot(
-    data, metric="rmse", target_label: str = "",
-    *, figsize=(10.0, 4.6), jitter: float = 0.12, rng_seed: int = 42,
+    data,
+    metric="rmse",
+    target_label: str = "",
+    *,
+    figsize=(10.0, 4.6),
+    jitter: float = 0.12,
+    rng_seed: int = 42,
 ):
     """Two-panel 3-model × 4-session grouped boxplot (24 boxes). Matplotlib replacement
     for the plotly ``build_session_grouped_boxplot``. Dots coloured by model.
     """
     import matplotlib.pyplot as plt
     from matplotlib.colors import to_rgba
-    from thesis_style import COLOR_PSID, COLOR_DPAD, COLOR_VARMA, panel_label as _panel_label
+    from thesis_style import (
+        COLOR_PSID,
+        COLOR_DPAD,
+        COLOR_VARMA,
+        panel_label as _panel_label,
+    )
     from thesis_utils import metric_axis_label, metric_y_range
 
     rng = np.random.default_rng(rng_seed)
@@ -310,17 +399,24 @@ def mpl_session_grouped_boxplot(
     group_gap = 1
     xpos = {
         (m, s): mi * (n_sess + group_gap) + si
-        for mi, m in enumerate(models) for si, s in enumerate(sessions)
+        for mi, m in enumerate(models)
+        for si, s in enumerate(sessions)
     }
 
     all_vals = [
-        v for cond in ("off", "on") for m in models for s in sessions
-        for v in data.scores[cond][m][s] if np.isfinite(v)
+        v
+        for cond in ("off", "on")
+        for m in models
+        for s in sessions
+        for v in data.scores[cond][m][s]
+        if np.isfinite(v)
     ]
     y_min, y_max = metric_y_range(metric, np.asarray(all_vals, dtype=float))
 
     fig, axes = plt.subplots(1, 2, figsize=figsize, sharey=True)
-    for ax, cond, letter, title in zip(axes, ("off", "on"), ("A", "B"), ("DBS-OFF", "DBS-ON")):
+    for ax, cond, letter, title in zip(
+        axes, ("off", "on"), ("A", "B"), ("DBS-OFF", "DBS-ON")
+    ):
         for m, col in zip(models, model_colors):
             for s in sessions:
                 vals = [v for v in data.scores[cond][m][s] if np.isfinite(v)]
@@ -330,9 +426,13 @@ def mpl_session_grouped_boxplot(
                 _boxplot_colored(ax, vals, xp, col, width=0.7)
                 jt = rng.uniform(-jitter, jitter, size=len(vals))
                 dot_col = (*to_rgba(col)[:3], 0.55)
-                ax.scatter(xp + jt, vals, s=6, color=[dot_col] * len(vals), linewidths=0)
+                ax.scatter(
+                    xp + jt, vals, s=6, color=[dot_col] * len(vals), linewidths=0
+                )
         ax.set_xticks([xpos[(m, s)] for m in models for s in sessions])
-        ax.set_xticklabels([s for m in models for s in sessions], rotation=45, ha="right")
+        ax.set_xticklabels(
+            [s for m in models for s in sessions], rotation=45, ha="right"
+        )
         ax.set_ylim(y_min, y_max)
         _panel_label(ax, letter, title)
     axes[0].set_ylabel(metric_axis_label(metric))
@@ -340,9 +440,16 @@ def mpl_session_grouped_boxplot(
 
 
 def write_boxplot_three_metrics(
-    *, collector, fig_num: int, filename_stem: str, target_label: str,
-    theme=ThesisTheme.LIGHT, rng_seed: int = 42, caption_header: str = "",
-    metrics=None, builder=None,
+    *,
+    collector,
+    fig_num: int,
+    filename_stem: str,
+    target_label: str,
+    theme=ThesisTheme.LIGHT,
+    rng_seed: int = 42,
+    caption_header: str = "",
+    metrics=None,
+    builder=None,
 ):
     """Emit one PNG per metric for a boxplot scope.
 
@@ -357,6 +464,7 @@ def write_boxplot_three_metrics(
     (``rmse``) figure so the caller can ``fig.savefig`` / ``plt.show`` once.
     """
     from thesis_utils import METRIC_KINDS, metric_display_name
+
     if metrics is None:
         metrics = METRIC_KINDS
     if builder is None:
@@ -367,7 +475,9 @@ def write_boxplot_three_metrics(
         try:
             agg = collector(metric)
         except Exception as e:
-            print(f"  ! {metric_display_name(metric)} ({target_label}): collection failed: {e}")
+            print(
+                f"  ! {metric_display_name(metric)} ({target_label}): collection failed: {e}"
+            )
             continue
         fig = builder(agg, metric=metric, target_label=target_label, rng_seed=rng_seed)
         suffix = _METRIC_FILENAME_SUFFIX[metric]
@@ -398,9 +508,11 @@ def _model_layout(data):
     figure doesn't render an empty DPAD panel."""
     show = getattr(data, "show_dpad", True)
     if show:
-        rows = data.trial_rmse_with_participant if (
-            getattr(data, "trial_rmse_with_participant", None)
-        ) else data.trial_rmse
+        rows = (
+            data.trial_rmse_with_participant
+            if (getattr(data, "trial_rmse_with_participant", None))
+            else data.trial_rmse
+        )
         dpad_filled = any(len(rows[i]) for i in (2, 3))
         if not dpad_filled:
             show = False
@@ -411,16 +523,25 @@ def _model_layout(data):
 
 def _vals_at(data, idx):
     """Finite values for one of the 6 cells, falling back to ``trial_rmse``."""
-    rows = data.trial_rmse_with_participant[idx] if (
-        getattr(data, "trial_rmse_with_participant", None)
-        and len(data.trial_rmse_with_participant[idx])
-    ) else [(float(v), "?") for v in data.trial_rmse[idx]]
+    rows = (
+        data.trial_rmse_with_participant[idx]
+        if (
+            getattr(data, "trial_rmse_with_participant", None)
+            and len(data.trial_rmse_with_participant[idx])
+        )
+        else [(float(v), "?") for v in data.trial_rmse[idx]]
+    )
     return [r[0] for r in rows if np.isfinite(r[0])]
 
 
 def mpl_raincloud(
-    data, metric="rmse", target_label: str = "",
-    *, figsize=(8.0, 3.8), jitter: float = 0.10, rng_seed: int = 42,
+    data,
+    metric="rmse",
+    target_label: str = "",
+    *,
+    figsize=(8.0, 3.8),
+    jitter: float = 0.10,
+    rng_seed: int = 42,
 ):
     """Half-violin + strip + median bar; one panel per model, two columns
     (DBS-OFF | DBS-ON). Honest distribution shape on small N."""
@@ -447,17 +568,31 @@ def mpl_raincloud(
                 continue
             arr = np.asarray(vals, dtype=float)
             # Half-violin (right side only of x_pos - 0.18).
-            v = ax.violinplot([arr], positions=[x_pos - 0.18], widths=0.55,
-                              showmeans=False, showmedians=False, showextrema=False)
+            v = ax.violinplot(
+                [arr],
+                positions=[x_pos - 0.18],
+                widths=0.55,
+                showmeans=False,
+                showmedians=False,
+                showextrema=False,
+            )
             for body in v["bodies"]:
                 paths = body.get_paths()[0]
                 # Clip to the right half (>= x_pos - 0.18) to make it half-violin.
-                paths.vertices[:, 0] = np.clip(paths.vertices[:, 0], x_pos - 0.18, np.inf)
+                paths.vertices[:, 0] = np.clip(
+                    paths.vertices[:, 0], x_pos - 0.18, np.inf
+                )
                 body.set(facecolor=color, edgecolor=color, alpha=0.30, linewidth=0.8)
             # Strip dots offset to the right.
             jt = rng.uniform(-jitter, jitter, size=len(arr))
-            ax.scatter(np.full_like(arr, x_pos + 0.10) + jt, arr,
-                       s=10, c=color, alpha=0.55, linewidths=0)
+            ax.scatter(
+                np.full_like(arr, x_pos + 0.10) + jt,
+                arr,
+                s=10,
+                c=color,
+                alpha=0.55,
+                linewidths=0,
+            )
             # Median bar.
             med = float(np.median(arr))
             ax.hlines(med, x_pos - 0.05, x_pos + 0.30, colors=color, linewidth=2.0)
@@ -470,8 +605,12 @@ def mpl_raincloud(
 
 
 def mpl_ecdf(
-    data, metric="rmse", target_label: str = "",
-    *, figsize=(8.0, 3.8), rng_seed: int = 42,
+    data,
+    metric="rmse",
+    target_label: str = "",
+    *,
+    figsize=(8.0, 3.8),
+    rng_seed: int = 42,
 ):
     """ECDF per (model × DBS) — tail comparison without box distortion.
     One panel per DBS condition; one line per model; OFF=blue, ON=red is
@@ -495,8 +634,14 @@ def mpl_ecdf(
                 continue
             arr = np.sort(np.asarray(vals, dtype=float))
             y = np.arange(1, len(arr) + 1) / len(arr)
-            ax.step(arr, y, where="post", color=color_map[model], linewidth=1.5,
-                    label=f"{model} (n={len(arr)})")
+            ax.step(
+                arr,
+                y,
+                where="post",
+                color=color_map[model],
+                linewidth=1.5,
+                label=f"{model} (n={len(arr)})",
+            )
         ax.set_title(title)
         ax.set_xlim(x_min, x_max)
         ax.set_ylim(0, 1)
@@ -507,8 +652,13 @@ def mpl_ecdf(
 
 
 def mpl_block_running(
-    data, metric="rmse", target_label: str = "",
-    *, figsize=(9.0, 4.0), n_blocks: int = 12, rng_seed: int = 42,
+    data,
+    metric="rmse",
+    target_label: str = "",
+    *,
+    figsize=(9.0, 4.0),
+    n_blocks: int = 12,
+    rng_seed: int = 42,
 ):
     """Trial-order block running: per-trial scores binned into ``n_blocks``
     equal-count chronological bins; strip dots per bin + median curve. Reveals
@@ -545,11 +695,24 @@ def mpl_block_running(
                 centers.append(center)
                 medians.append(float(np.median(bin_vals)))
                 jt = rng.uniform(-0.012, 0.012, size=len(bin_vals))
-                ax.scatter(np.full_like(bin_vals, center) + jt, bin_vals,
-                           s=8, color=color, alpha=0.30, linewidths=0)
+                ax.scatter(
+                    np.full_like(bin_vals, center) + jt,
+                    bin_vals,
+                    s=8,
+                    color=color,
+                    alpha=0.30,
+                    linewidths=0,
+                )
             if centers:
-                ax.plot(centers, medians, color=color, linewidth=2.0, marker="o",
-                        markersize=4, label=model)
+                ax.plot(
+                    centers,
+                    medians,
+                    color=color,
+                    linewidth=2.0,
+                    marker="o",
+                    markersize=4,
+                    label=model,
+                )
         ax.set_xlim(0, 1)
         ax.set_xlabel("trial position (chronological, normalised)")
         ax.set_title(title)
@@ -560,9 +723,15 @@ def mpl_block_running(
 
 
 def mpl_cascade_train_val_test(
-    data_train, data_val, data_test,
-    metric="rmse", target_label: str = "",
-    *, figsize=(9.0, 4.0), jitter: float = 0.06, rng_seed: int = 42,
+    data_train,
+    data_val,
+    data_test,
+    metric="rmse",
+    target_label: str = "",
+    *,
+    figsize=(9.0, 4.0),
+    jitter: float = 0.06,
+    rng_seed: int = 42,
 ):
     """Train→val→test cascade with paired median arrows. Two panels
     (DBS-OFF, DBS-ON); per panel x=[train, val, test] × models. Strip dots
@@ -598,7 +767,8 @@ def mpl_cascade_train_val_test(
             split_medians = []
             for si, (split_name, d) in enumerate(splits):
                 xp = mi * (n_splits + group_gap) + si
-                xticks.append(xp); xlabels.append(split_name)
+                xticks.append(xp)
+                xlabels.append(split_name)
                 if d is None:
                     continue
                 vals = _vals_at(d, cell_idx)
@@ -606,25 +776,42 @@ def mpl_cascade_train_val_test(
                     continue
                 arr = np.asarray(vals, dtype=float)
                 jt = rng.uniform(-jitter, jitter, size=len(arr))
-                ax.scatter(np.full_like(arr, xp) + jt, arr, s=8,
-                           color=color, alpha=0.30, linewidths=0)
+                ax.scatter(
+                    np.full_like(arr, xp) + jt,
+                    arr,
+                    s=8,
+                    color=color,
+                    alpha=0.30,
+                    linewidths=0,
+                )
                 med = float(np.median(arr))
                 ax.hlines(med, xp - 0.30, xp + 0.30, colors=color, linewidth=2.0)
                 split_medians.append((xp, med))
             # Paired-median arrow: train→val→test for this model.
             for (x0, y0), (x1, y1) in zip(split_medians[:-1], split_medians[1:]):
                 ax.annotate(
-                    "", xy=(x1, y1), xytext=(x0, y0),
+                    "",
+                    xy=(x1, y1),
+                    xytext=(x0, y0),
                     arrowprops=dict(arrowstyle="->", color=color, lw=1.2, alpha=0.8),
                 )
-        ax.set_xticks(xticks); ax.set_xticklabels(xlabels, rotation=45, ha="right")
+        ax.set_xticks(xticks)
+        ax.set_xticklabels(xlabels, rotation=45, ha="right")
         ax.set_title(title)
         ax.set_ylim(y_min, y_max)
         # Model band labels above the model groups.
         for mi, model in enumerate(models):
             x_center = mi * (n_splits + group_gap) + (n_splits - 1) / 2
-            ax.text(x_center, 1.02, model, transform=ax.get_xaxis_transform(),
-                    ha="center", va="bottom", fontsize=9, color=color_map[model])
+            ax.text(
+                x_center,
+                1.02,
+                model,
+                transform=ax.get_xaxis_transform(),
+                ha="center",
+                va="bottom",
+                fontsize=9,
+                color=color_map[model],
+            )
     axes[0].set_ylabel(metric_axis_label(metric))
     return fig
 
@@ -634,7 +821,10 @@ def mpl_forest_per_cell_model(
     cells: list[str],
     models: list[str] = ("PSID", "DPAD", "VARMA"),
     metric: str = "pearson",
-    *, figsize=(8.5, 5.0), n_bootstrap: int = 1000, rng_seed: int = 42,
+    *,
+    figsize=(8.5, 5.0),
+    n_bootstrap: int = 1000,
+    rng_seed: int = 42,
 ):
     """A1 forest plot — per-cell × model with bootstrap 95% CI; pooled rows on top.
 
@@ -653,8 +843,14 @@ def mpl_forest_per_cell_model(
     rng = np.random.default_rng(rng_seed)
 
     def _ci(vals: np.ndarray) -> tuple[float, float, float]:
-        boot = rng.choice(vals, size=(n_bootstrap, len(vals)), replace=True).mean(axis=1)
-        return float(vals.mean()), float(np.percentile(boot, 2.5)), float(np.percentile(boot, 97.5))
+        boot = rng.choice(vals, size=(n_bootstrap, len(vals)), replace=True).mean(
+            axis=1
+        )
+        return (
+            float(vals.mean()),
+            float(np.percentile(boot, 2.5)),
+            float(np.percentile(boot, 97.5)),
+        )
 
     fig, axes = plt.subplots(1, 2, figsize=figsize, sharey=True)
     for ax, dbs, title in zip(axes, ("off", "on"), ("DBS-OFF", "DBS-ON")):
@@ -672,17 +868,30 @@ def mpl_forest_per_cell_model(
                 if len(v) == 0:
                     continue
                 cell_means.append(v.mean())
-                cell_ses.append(v.std(ddof=1) / np.sqrt(len(v)) if len(v) > 1 else np.nan)
+                cell_ses.append(
+                    v.std(ddof=1) / np.sqrt(len(v)) if len(v) > 1 else np.nan
+                )
             if cell_means:
-                w = np.array([1.0 / s**2 if np.isfinite(s) and s > 0 else 1.0 for s in cell_ses])
+                w = np.array(
+                    [1.0 / s**2 if np.isfinite(s) and s > 0 else 1.0 for s in cell_ses]
+                )
                 pooled = float(np.average(cell_means, weights=w))
                 pooled_se = float(1.0 / np.sqrt(w.sum()))
-                ax.errorbar(pooled, y, xerr=1.96 * pooled_se,
-                            fmt=marker_map[model], color=color_map[model],
-                            markersize=10, capsize=3, lw=1.8,
-                            markeredgecolor="black", markeredgewidth=0.6,
-                            linestyle="--")
-            ytick_pos.append(y); ytick_lab.append(f"POOLED {model}")
+                ax.errorbar(
+                    pooled,
+                    y,
+                    xerr=1.96 * pooled_se,
+                    fmt=marker_map[model],
+                    color=color_map[model],
+                    markersize=10,
+                    capsize=3,
+                    lw=1.8,
+                    markeredgecolor="black",
+                    markeredgewidth=0.6,
+                    linestyle="--",
+                )
+            ytick_pos.append(y)
+            ytick_lab.append(f"POOLED {model}")
             y += 1.0
         y += 0.6  # gap to per-cell rows
         # Per-cell × model rows.
@@ -690,19 +899,38 @@ def mpl_forest_per_cell_model(
             for model in models:
                 v = per_cell_data.get((c, model, dbs))
                 if v is None or len(v) == 0:
-                    ax.plot(0.5 if metric == "pearson" else 0.0,
-                            y, "x", color="#888888", markersize=8)
+                    ax.plot(
+                        0.5 if metric == "pearson" else 0.0,
+                        y,
+                        "x",
+                        color="#888888",
+                        markersize=8,
+                    )
                 else:
-                    v = np.asarray(v, float); v = v[np.isfinite(v)]
+                    v = np.asarray(v, float)
+                    v = v[np.isfinite(v)]
                     if len(v) == 0:
-                        ax.plot(0.5 if metric == "pearson" else 0.0,
-                                y, "x", color="#888888", markersize=8)
+                        ax.plot(
+                            0.5 if metric == "pearson" else 0.0,
+                            y,
+                            "x",
+                            color="#888888",
+                            markersize=8,
+                        )
                     else:
                         m, lo, hi = _ci(v)
-                        ax.errorbar(m, y, xerr=[[m - lo], [hi - m]],
-                                    fmt=marker_map[model], color=color_map[model],
-                                    markersize=6, capsize=2, lw=1.2)
-                ytick_pos.append(y); ytick_lab.append(f"{c} {model}")
+                        ax.errorbar(
+                            m,
+                            y,
+                            xerr=[[m - lo], [hi - m]],
+                            fmt=marker_map[model],
+                            color=color_map[model],
+                            markersize=6,
+                            capsize=2,
+                            lw=1.2,
+                        )
+                ytick_pos.append(y)
+                ytick_lab.append(f"{c} {model}")
                 y += 1.0
             y += 0.4  # gap between cells
 
@@ -729,12 +957,26 @@ def mpl_forest_per_cell_model(
 # Components do not overlap. Vertical orientation: metric on y-axis.
 # ───────────────────────────────────────────────────────────────────────
 
-def kde_half_violin_vert(ax, vals, *, x_anchor, color, alpha, hatch=None,
-                          logy=False, bw=0.55, width=0.18, pad=1.0,
-                          npts=400, side="right"):
+
+def kde_half_violin_vert(
+    ax,
+    vals,
+    *,
+    x_anchor,
+    color,
+    alpha,
+    hatch=None,
+    logy=False,
+    bw=0.55,
+    width=0.18,
+    pad=1.0,
+    npts=400,
+    side="right",
+):
     """Vertical half-violin grown from `x_anchor` outward by up to `width`."""
     import matplotlib.pyplot as plt  # noqa: F401
     from scipy.stats import gaussian_kde
+
     y_in = np.log10(vals) if logy else np.asarray(vals, dtype=float)
     if y_in.size < 2 or np.allclose(y_in.std(), 0.0):
         return
@@ -753,32 +995,44 @@ def kde_half_violin_vert(ax, vals, *, x_anchor, color, alpha, hatch=None,
         xs_l = x_anchor - dens
         xs_r = np.full_like(dens, x_anchor)
     ax.fill_betweenx(
-        ys_plot, xs_l, xs_r,
-        facecolor=color, alpha=alpha,
+        ys_plot,
+        xs_l,
+        xs_r,
+        facecolor=color,
+        alpha=alpha,
         edgecolor=(color if hatch else "none"),
         linewidth=(0.6 if hatch else 0.0),
-        hatch=hatch, zorder=2,
+        hatch=hatch,
+        zorder=2,
     )
 
 
-def mpl_per_cell_yz_box(data_y_r, data_y_nrmse, data_z_r, data_z_nrmse, cells,
-                        *, models=("PSID", "DPAD", "VARMA"), mode_label=""):
+def mpl_per_cell_yz_box(
+    data_y_r,
+    data_y_nrmse,
+    data_z_r,
+    data_z_nrmse,
+    cells,
+    *,
+    models=("PSID", "DPAD", "VARMA"),
+    mode_label="",
+):
     """4 metric rows × N cells. Box hue = framework; DBS-OFF lighter, DBS-ON
     hatched darker. Mirrors pooled-raincloud Y/Z encoding convention."""
     import matplotlib.pyplot as plt
     from thesis_style import COLOR_PSID, COLOR_DPAD, COLOR_VARMA, panel_label
+
     model_color = {"PSID": COLOR_PSID, "DPAD": COLOR_DPAD, "VARMA": COLOR_VARMA}
     dbs_alpha = {"off": 0.30, "on": 0.85}
     dbs_hatch = {"off": None, "on": "////"}
     n_cells = len(cells)
-    fig, axes = plt.subplots(4, n_cells, figsize=(2.6 * n_cells, 8.4),
-                              sharex=True)
+    fig, axes = plt.subplots(4, n_cells, figsize=(2.6 * n_cells, 8.4), sharex=True)
     if n_cells == 1:
         axes = axes.reshape(4, 1)
     rows = [
-        (data_y_r,     "Y  Pearson r"),
+        (data_y_r, "Y  Pearson r"),
         (data_y_nrmse, "Y  NRMSE"),
-        (data_z_r,     "Z  Pearson r"),
+        (data_z_r, "Z  Pearson r"),
         (data_z_nrmse, "Z  NRMSE"),
     ]
     panel_letters = "ABCD"
@@ -794,17 +1048,22 @@ def mpl_per_cell_yz_box(data_y_r, data_y_nrmse, data_z_r, data_z_nrmse, cells,
                     a = dbs_alpha[d]
                     hatch = dbs_hatch[d]
                     xp = mi + (di - 0.5) * 0.36
-                    box_kwargs = dict(facecolor=color, alpha=a,
-                                      edgecolor=color, linewidth=0.8)
+                    box_kwargs = dict(
+                        facecolor=color, alpha=a, edgecolor=color, linewidth=0.8
+                    )
                     if hatch is not None:
                         box_kwargs["hatch"] = hatch
                     ax.boxplot(
-                        [vals], positions=[xp], widths=0.32, patch_artist=True,
+                        [vals],
+                        positions=[xp],
+                        widths=0.32,
+                        patch_artist=True,
                         showfliers=False,
                         boxprops=box_kwargs,
                         medianprops=dict(color=color, linewidth=1.2),
                         whiskerprops=dict(color=color, linewidth=0.8),
-                        capprops=dict(color=color, linewidth=0.8))
+                        capprops=dict(color=color, linewidth=0.8),
+                    )
             ax.set_xticks(range(len(models)))
             ax.set_xticklabels(models if row == 3 else [])
             ax.set_xlim(-0.6, len(models) - 0.4)
@@ -815,58 +1074,90 @@ def mpl_per_cell_yz_box(data_y_r, data_y_nrmse, data_z_r, data_z_nrmse, cells,
     if mode_label:
         fig.suptitle(mode_label, fontsize=10, y=0.995)
     handles = [
-        plt.Rectangle((0, 0), 1, 1, facecolor="#888888", alpha=0.30,
-                      edgecolor="none"),
-        plt.Rectangle((0, 0), 1, 1, facecolor="#888888", alpha=0.85,
-                      edgecolor="#555555", linewidth=0.6, hatch="////"),
+        plt.Rectangle((0, 0), 1, 1, facecolor="#888888", alpha=0.30, edgecolor="none"),
+        plt.Rectangle(
+            (0, 0),
+            1,
+            1,
+            facecolor="#888888",
+            alpha=0.85,
+            edgecolor="#555555",
+            linewidth=0.6,
+            hatch="////",
+        ),
     ]
-    fig.legend(handles, ["DBS-OFF", "DBS-ON"], loc="lower center",
-               ncol=2, frameon=False, fontsize=9,
-               bbox_to_anchor=(0.5, -0.06))
+    fig.legend(
+        handles,
+        ["DBS-OFF", "DBS-ON"],
+        loc="lower center",
+        ncol=2,
+        frameon=False,
+        fontsize=9,
+        bbox_to_anchor=(0.5, -0.06),
+    )
     fig.subplots_adjust(bottom=0.12)
     return fig
 
 
-def _raincloud_paired_layout(ax, mi, vals, *, color, alpha, hatch, side,
-                              logy, rng, strip_cap, kde_width=0.18):
+def _raincloud_paired_layout(
+    ax, mi, vals, *, color, alpha, hatch, side, logy, rng, strip_cap, kde_width=0.18
+):
     """Render one (slot mi, side) raincloud component. Lays out from slot
     center outward: strip → box → violin. No overlap."""
     strip_x = mi - 0.08 if side == "left" else mi + 0.08
-    box_x   = mi - 0.20 if side == "left" else mi + 0.20
-    anchor  = mi - 0.30 if side == "left" else mi + 0.30
+    box_x = mi - 0.20 if side == "left" else mi + 0.20
+    anchor = mi - 0.30 if side == "left" else mi + 0.30
     kde_half_violin_vert(
-        ax, vals, x_anchor=anchor, color=color, alpha=alpha,
-        hatch=hatch, logy=logy, bw=0.55, width=kde_width, side=side)
-    box_kwargs = dict(facecolor=color, alpha=alpha,
-                      edgecolor=color, linewidth=1.0)
+        ax,
+        vals,
+        x_anchor=anchor,
+        color=color,
+        alpha=alpha,
+        hatch=hatch,
+        logy=logy,
+        bw=0.55,
+        width=kde_width,
+        side=side,
+    )
+    box_kwargs = dict(facecolor=color, alpha=alpha, edgecolor=color, linewidth=1.0)
     if hatch is not None:
         box_kwargs["hatch"] = hatch
     ax.boxplot(
-        [vals], positions=[box_x], widths=0.08,
-        vert=True, patch_artist=True, showfliers=False,
+        [vals],
+        positions=[box_x],
+        widths=0.08,
+        vert=True,
+        patch_artist=True,
+        showfliers=False,
         boxprops=box_kwargs,
         medianprops=dict(color=color, linewidth=1.4),
         whiskerprops=dict(color=color, linewidth=1.0),
-        capprops=dict(color=color, linewidth=1.0))
+        capprops=dict(color=color, linewidth=1.0),
+    )
     if len(vals) > strip_cap:
         idx = rng.choice(len(vals), size=strip_cap, replace=False)
         sv = vals[idx]
     else:
         sv = vals
     jx = rng.uniform(-0.04, 0.04, size=len(sv))
-    ax.scatter(strip_x + jx, sv, c=color, alpha=min(alpha, 0.35),
-               s=7, linewidths=0)
+    ax.scatter(strip_x + jx, sv, c=color, alpha=min(alpha, 0.35), s=7, linewidths=0)
 
 
-def mpl_raincloud_dbs_pair_vert(pool_r, pool_n, *,
-                                 models=("PSID", "DPAD", "VARMA"),
-                                 rng_seed=42, strip_cap=80,
-                                 figsize=(7.0, 9.0)):
+def mpl_raincloud_dbs_pair_vert(
+    pool_r,
+    pool_n,
+    *,
+    models=("PSID", "DPAD", "VARMA"),
+    rng_seed=42,
+    strip_cap=80,
+    figsize=(7.0, 9.0),
+):
     """Vertical raincloud, 2 stacked panels (top=r, bottom=NRMSE log).
     Per framework slot: DBS-OFF mirrored left, DBS-ON mirrored right
     (DBS palette colors, both solid)."""
     import matplotlib.pyplot as plt
     from thesis_style import COLOR_DBS_OFF, COLOR_DBS_ON, panel_label
+
     rng = np.random.default_rng(rng_seed)
     fig, axes = plt.subplots(2, 1, figsize=figsize)
     panels = [
@@ -880,8 +1171,14 @@ def mpl_raincloud_dbs_pair_vert(pool_r, pool_n, *,
         if logy:
             ax.set_yscale("log")
         if chance_y is not None:
-            ax.axhline(chance_y, color="black", linestyle=":",
-                       linewidth=0.6, alpha=0.30, zorder=0)
+            ax.axhline(
+                chance_y,
+                color="black",
+                linestyle=":",
+                linewidth=0.6,
+                alpha=0.30,
+                zorder=0,
+            )
         for mi, m in enumerate(models):
             for d in ("off", "on"):
                 vals = data.get((m, d))
@@ -892,36 +1189,69 @@ def mpl_raincloud_dbs_pair_vert(pool_r, pool_n, *,
                     if len(vals) == 0:
                         continue
                 _raincloud_paired_layout(
-                    ax, mi, vals,
-                    color=dbs_color[d], alpha=0.45, hatch=None,
-                    side=dbs_side[d], logy=logy, rng=rng,
-                    strip_cap=strip_cap)
+                    ax,
+                    mi,
+                    vals,
+                    color=dbs_color[d],
+                    alpha=0.45,
+                    hatch=None,
+                    side=dbs_side[d],
+                    logy=logy,
+                    rng=rng,
+                    strip_cap=strip_cap,
+                )
         ax.set_xticks(range(len(models)))
         ax.set_xticklabels(models)
         ax.set_xlim(-0.55, len(models) - 0.45)
         ax.set_ylabel(ylabel)
     handles = [
-        plt.Rectangle((0, 0), 1, 1, facecolor=COLOR_DBS_OFF, alpha=0.7,
-                      edgecolor="black", linewidth=0.6),
-        plt.Rectangle((0, 0), 1, 1, facecolor=COLOR_DBS_ON, alpha=0.7,
-                      edgecolor="black", linewidth=0.6),
+        plt.Rectangle(
+            (0, 0),
+            1,
+            1,
+            facecolor=COLOR_DBS_OFF,
+            alpha=0.7,
+            edgecolor="black",
+            linewidth=0.6,
+        ),
+        plt.Rectangle(
+            (0, 0),
+            1,
+            1,
+            facecolor=COLOR_DBS_ON,
+            alpha=0.7,
+            edgecolor="black",
+            linewidth=0.6,
+        ),
     ]
-    fig.legend(handles, ["DBS-OFF", "DBS-ON"], loc="lower center",
-               ncol=2, frameon=False, fontsize=9,
-               bbox_to_anchor=(0.5, -0.06))
+    fig.legend(
+        handles,
+        ["DBS-OFF", "DBS-ON"],
+        loc="lower center",
+        ncol=2,
+        frameon=False,
+        fontsize=9,
+        bbox_to_anchor=(0.5, -0.06),
+    )
     fig.subplots_adjust(bottom=0.10)
     return fig
 
 
-def mpl_raincloud_yz_pair_vert(pool_r, pool_n, *,
-                                models=("PSID", "DPAD", "VARMA"),
-                                rng_seed=42, strip_cap=80,
-                                figsize=(7.0, 9.0)):
+def mpl_raincloud_yz_pair_vert(
+    pool_r,
+    pool_n,
+    *,
+    models=("PSID", "DPAD", "VARMA"),
+    rng_seed=42,
+    strip_cap=80,
+    figsize=(7.0, 9.0),
+):
     """Vertical raincloud, 2 stacked panels (top=r, bottom=NRMSE log).
     Per framework slot: Y mirrored left (solid lighter), Z mirrored right
     (hatched darker). Slot color = framework hue."""
     import matplotlib.pyplot as plt
     from thesis_style import COLOR_PSID, COLOR_DPAD, COLOR_VARMA, panel_label
+
     model_color = {"PSID": COLOR_PSID, "DPAD": COLOR_DPAD, "VARMA": COLOR_VARMA}
     target_alpha = {"Y": 0.30, "Z": 0.85}
     target_hatch = {"Y": None, "Z": "////"}
@@ -937,8 +1267,14 @@ def mpl_raincloud_yz_pair_vert(pool_r, pool_n, *,
         if logy:
             ax.set_yscale("log")
         if chance_y is not None:
-            ax.axhline(chance_y, color="black", linestyle=":",
-                       linewidth=0.6, alpha=0.30, zorder=0)
+            ax.axhline(
+                chance_y,
+                color="black",
+                linestyle=":",
+                linewidth=0.6,
+                alpha=0.30,
+                zorder=0,
+            )
         for mi, m in enumerate(models):
             color = model_color[m]
             for t in ("Y", "Z"):
@@ -950,23 +1286,43 @@ def mpl_raincloud_yz_pair_vert(pool_r, pool_n, *,
                     if len(vals) == 0:
                         continue
                 _raincloud_paired_layout(
-                    ax, mi, vals,
-                    color=color, alpha=target_alpha[t],
-                    hatch=target_hatch[t], side=target_side[t],
-                    logy=logy, rng=rng, strip_cap=strip_cap)
+                    ax,
+                    mi,
+                    vals,
+                    color=color,
+                    alpha=target_alpha[t],
+                    hatch=target_hatch[t],
+                    side=target_side[t],
+                    logy=logy,
+                    rng=rng,
+                    strip_cap=strip_cap,
+                )
         ax.set_xticks(range(len(models)))
         ax.set_xticklabels(models)
         ax.set_xlim(-0.55, len(models) - 0.45)
         ax.set_ylabel(ylabel)
     handles = [
-        plt.Rectangle((0, 0), 1, 1, facecolor="#888888", alpha=0.30,
-                      edgecolor="none"),
-        plt.Rectangle((0, 0), 1, 1, facecolor="#888888", alpha=0.85,
-                      edgecolor="#555555", linewidth=0.6, hatch="////"),
+        plt.Rectangle((0, 0), 1, 1, facecolor="#888888", alpha=0.30, edgecolor="none"),
+        plt.Rectangle(
+            (0, 0),
+            1,
+            1,
+            facecolor="#888888",
+            alpha=0.85,
+            edgecolor="#555555",
+            linewidth=0.6,
+            hatch="////",
+        ),
     ]
-    fig.legend(handles, ["Y (neural self-recon)", "Z (target decoding)"],
-               loc="lower center", ncol=2, frameon=False, fontsize=9,
-               bbox_to_anchor=(0.5, -0.06))
+    fig.legend(
+        handles,
+        ["Y (neural self-recon)", "Z (target decoding)"],
+        loc="lower center",
+        ncol=2,
+        frameon=False,
+        fontsize=9,
+        bbox_to_anchor=(0.5, -0.06),
+    )
     fig.subplots_adjust(bottom=0.10)
     return fig
 
@@ -986,8 +1342,9 @@ def pool_dbs_cells(per_cell_data, cells, *, models=("PSID", "DPAD", "VARMA")):
     return out
 
 
-def pool_yz_dbs_cells(per_cell_y, per_cell_z, cells,
-                       *, models=("PSID", "DPAD", "VARMA")):
+def pool_yz_dbs_cells(
+    per_cell_y, per_cell_z, cells, *, models=("PSID", "DPAD", "VARMA")
+):
     """Pool Y and Z dicts across cells AND DBS into dict[(model, target)]."""
     out: dict = {}
     for m in models:

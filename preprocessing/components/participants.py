@@ -176,7 +176,9 @@ def construct_participants_table(
             participants = participants.drop("is_fragmented")
 
         if participants.is_empty():
-            logger.info(f"Skipping empty partition after fragmented filter: {p_partition_path}")
+            logger.info(
+                f"Skipping empty partition after fragmented filter: {p_partition_path}"
+            )
             continue
 
         participants, all_band_channels = _add_full_data(participants, config)
@@ -316,6 +318,7 @@ def _add_ieeg_data(
             )
 
             for ch in ecog_present:
+
                 def _subtract_mean(row, ch_name=ch):
                     s = row[ch_name]
                     m = row["_ecog_car_mean"]
@@ -336,7 +339,9 @@ def _add_ieeg_data(
 
             participants_ = participants_.drop("_ecog_car_mean")
         else:
-            logger.info("apply_car=True but fewer than 2 ECOG channels present; skipping CAR")
+            logger.info(
+                "apply_car=True but fewer than 2 ECOG channels present; skipping CAR"
+            )
 
     # Process ECOG channels (ECOG_1 to ECOG_4)
     logger.info("Processing ECOG channels")

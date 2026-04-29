@@ -80,7 +80,9 @@ def _finite_ys_for_autoscale(
     return out
 
 
-def _y_range_from_values(vals: list[float], pad_frac: float = 0.08) -> tuple[float, float]:
+def _y_range_from_values(
+    vals: list[float], pad_frac: float = 0.08
+) -> tuple[float, float]:
     if not vals:
         return -2.5, 2.5
     lo, hi = min(vals), max(vals)
@@ -138,7 +140,13 @@ def build_dbs_stacked_figure(
         name: str,
         leg_group: str,
     ) -> None:
-        if half is None or not np.isfinite(half) or half <= 0 or _all_nan(y_hat) or len(t) != len(y_hat):
+        if (
+            half is None
+            or not np.isfinite(half)
+            or half <= 0
+            or _all_nan(y_hat)
+            or len(t) != len(y_hat)
+        ):
             return
         upper = np.asarray(y_hat, dtype=float) + half
         lower = np.asarray(y_hat, dtype=float) - half
@@ -189,19 +197,37 @@ def build_dbs_stacked_figure(
 
         if has_session_bands:
             _add_rmse_band(
-                row, False, t, zp, panel.band_rmse_psid,
-                COLOR_PSID_BAND_FILL, COLOR_PSID_BAND_LINE,
-                "PSID ±1 SEM", "psid_sess_rmse",
+                row,
+                False,
+                t,
+                zp,
+                panel.band_rmse_psid,
+                COLOR_PSID_BAND_FILL,
+                COLOR_PSID_BAND_LINE,
+                "PSID ±1 SEM",
+                "psid_sess_rmse",
             )
             _add_rmse_band(
-                row, False, t, zd, panel.band_rmse_dpad,
-                COLOR_DPAD_BAND_FILL, COLOR_DPAD_BAND_LINE,
-                "DPAD ±1 SEM", "dpad_sess_rmse",
+                row,
+                False,
+                t,
+                zd,
+                panel.band_rmse_dpad,
+                COLOR_DPAD_BAND_FILL,
+                COLOR_DPAD_BAND_LINE,
+                "DPAD ±1 SEM",
+                "dpad_sess_rmse",
             )
             _add_rmse_band(
-                row, False, t, zv, panel.band_rmse_varma,
-                COLOR_VARMA_BAND_FILL, COLOR_VARMA_BAND_LINE,
-                "VARMA ±1 SEM", "varma_sess_rmse",
+                row,
+                False,
+                t,
+                zv,
+                panel.band_rmse_varma,
+                COLOR_VARMA_BAND_FILL,
+                COLOR_VARMA_BAND_LINE,
+                "VARMA ±1 SEM",
+                "varma_sess_rmse",
             )
         elif (
             show_psid_sigma_band
@@ -308,7 +334,10 @@ def build_dbs_stacked_figure(
         y_ranges.append(
             _y_range_from_values(
                 _finite_ys_for_autoscale(
-                    zt, zp, zd, zv,
+                    zt,
+                    zp,
+                    zd,
+                    zv,
                     panel.band_rmse_psid if has_session_bands else None,
                     panel.band_rmse_dpad if has_session_bands else None,
                     panel.band_rmse_varma if has_session_bands else None,
@@ -480,7 +509,9 @@ def build_combined_gap_exemplar_figure(
     c_true = true_line_color(theme)
     _pd = prediction_line_dash
 
-    def _prep(p: ThesisPanelData) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    def _prep(
+        p: ThesisPanelData,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         t_raw = np.asarray(p.t_abs, dtype=float)
         t = t_raw if use_absolute_time else (t_raw - t_raw[0])
         return _slice_trial_center(
@@ -497,7 +528,9 @@ def build_combined_gap_exemplar_figure(
     tn, ztn, zpn, zdn, zvn = _prep(panel_on)
     if to.size == 0 or tn.size == 0:
         fig = go.Figure()
-        fig.add_annotation(text="Insufficient time samples for combined exemplar", showarrow=False)
+        fig.add_annotation(
+            text="Insufficient time samples for combined exemplar", showarrow=False
+        )
         return fig
 
     t_cat, ys_cat = _concat_gap(
@@ -525,9 +558,21 @@ def build_combined_gap_exemplar_figure(
     abs_lbl = [f"{tv:.1f}" for tv in tickvals]
 
     vals = _finite_ys_for_autoscale(
-        zto, zpo, zdo, zvo, panel_off.band_rmse_psid, panel_off.band_rmse_dpad, panel_off.band_rmse_varma
+        zto,
+        zpo,
+        zdo,
+        zvo,
+        panel_off.band_rmse_psid,
+        panel_off.band_rmse_dpad,
+        panel_off.band_rmse_varma,
     ) + _finite_ys_for_autoscale(
-        ztn, zpn, zdn, zvn, panel_on.band_rmse_psid, panel_on.band_rmse_dpad, panel_on.band_rmse_varma
+        ztn,
+        zpn,
+        zdn,
+        zvn,
+        panel_on.band_rmse_psid,
+        panel_on.band_rmse_dpad,
+        panel_on.band_rmse_varma,
     )
     y0, y1 = _y_range_from_values(vals)
 
@@ -647,7 +692,9 @@ def build_combined_gap_exemplar_figure(
                 y=zp_c,
                 mode="lines",
                 name="y_hat_PSID",
-                line=dict(color=COLOR_PSID, width=WIDTH_PSID, dash=_pd if _pd else None),
+                line=dict(
+                    color=COLOR_PSID, width=WIDTH_PSID, dash=_pd if _pd else None
+                ),
                 opacity=OPACITY_PSID,
                 connectgaps=False,
             )
@@ -659,7 +706,9 @@ def build_combined_gap_exemplar_figure(
                 y=zd_c,
                 mode="lines",
                 name="y_hat_DPAD",
-                line=dict(color=COLOR_DPAD, width=WIDTH_DPAD, dash=_pd if _pd else None),
+                line=dict(
+                    color=COLOR_DPAD, width=WIDTH_DPAD, dash=_pd if _pd else None
+                ),
                 opacity=OPACITY_DPAD,
                 connectgaps=False,
             )
@@ -671,7 +720,9 @@ def build_combined_gap_exemplar_figure(
                 y=zv_c,
                 mode="lines",
                 name="y_hat_VARMA",
-                line=dict(color=COLOR_VARMA, width=WIDTH_VARMA, dash="8 2" if _pd else "dash"),
+                line=dict(
+                    color=COLOR_VARMA, width=WIDTH_VARMA, dash="8 2" if _pd else "dash"
+                ),
                 opacity=OPACITY_VARMA,
                 connectgaps=False,
             )
@@ -734,13 +785,19 @@ def build_combined_gap_exemplar_figure(
             tickmode="array",
             tickvals=tickvals,
             ticktext=abs_lbl,
-            title=dict(text=THESIS_TIME_AXIS_TITLE, font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY, color=c_true)),
+            title=dict(
+                text=THESIS_TIME_AXIS_TITLE,
+                font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY, color=c_true),
+            ),
             range=[lo - 0.02 * (hi - lo), hi + 0.02 * (hi - lo)],
             showgrid=True,
             gridcolor=grid,
         ),
         yaxis=dict(
-            title=dict(text=y_axis_label, font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY, color=c_true)),
+            title=dict(
+                text=y_axis_label,
+                font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY, color=c_true),
+            ),
             range=[y0, y1],
             showgrid=True,
             gridcolor=grid,
@@ -790,7 +847,9 @@ def _slice_trial_tail(
     t_hi = float(np.nanmax(t))
     t_lo = t_hi - float(seg_s)
     m = t >= t_lo
-    arrays = [np.asarray(a, dtype=float).ravel() for a in (z_true, z_psid, z_dpad, z_varma)]
+    arrays = [
+        np.asarray(a, dtype=float).ravel() for a in (z_true, z_psid, z_dpad, z_varma)
+    ]
     return (t[m],) + tuple(a[m] for a in arrays)  # type: ignore[return-value]
 
 
@@ -819,7 +878,9 @@ def build_side_by_side_exemplar_figure(
         t_raw = np.asarray(p.t_abs, dtype=float)
         # Make trial-relative (0 = trial start), then slice last segment_s seconds
         t_trial = (t_raw - t_raw[0]) if t_raw.size > 0 else t_raw
-        t_sl, *zs = _slice_trial_tail(t_trial, segment_s, p.z_true, p.z_psid, p.z_dpad, p.z_varma)
+        t_sl, *zs = _slice_trial_tail(
+            t_trial, segment_s, p.z_true, p.z_psid, p.z_dpad, p.z_varma
+        )
         # trial_offset = start of window in trial-relative coords (e.g. 8.0)
         trial_offset = float(np.nanmin(t_sl)) if t_sl.size > 0 else 0.0
         # window-relative time: 0 → ~segment_s  (used for traces)
@@ -841,15 +902,22 @@ def build_side_by_side_exemplar_figure(
         fig.add_annotation(text="Insufficient time samples", showarrow=False)
         return fig
 
-    vals = (
-        _finite_ys_for_autoscale(
-            zto, zpo, zdo, zvo,
-            panel_off.band_rmse_psid, panel_off.band_rmse_dpad, panel_off.band_rmse_varma,
-        )
-        + _finite_ys_for_autoscale(
-            ztn, zpn, zdn, zvn,
-            panel_on.band_rmse_psid, panel_on.band_rmse_dpad, panel_on.band_rmse_varma,
-        )
+    vals = _finite_ys_for_autoscale(
+        zto,
+        zpo,
+        zdo,
+        zvo,
+        panel_off.band_rmse_psid,
+        panel_off.band_rmse_dpad,
+        panel_off.band_rmse_varma,
+    ) + _finite_ys_for_autoscale(
+        ztn,
+        zpn,
+        zdn,
+        zvn,
+        panel_on.band_rmse_psid,
+        panel_on.band_rmse_dpad,
+        panel_on.band_rmse_varma,
     )
     y0, y1 = _y_range_from_values(vals)
 
@@ -864,13 +932,13 @@ def build_side_by_side_exemplar_figure(
         win_vals = np.linspace(w0, w1, n_ticks)
         trial_vals = win_vals + trial_offset
         return (
-            [float(v) for v in win_vals],                # tick positions (window coords)
-            [f"{v:.2f}" for v in win_vals],               # bottom labels: "0.00" … "1.00"
-            [f"{v:.1f}" for v in trial_vals],             # top labels: "8.0" … "9.0"
+            [float(v) for v in win_vals],  # tick positions (window coords)
+            [f"{v:.2f}" for v in win_vals],  # bottom labels: "0.00" … "1.00"
+            [f"{v:.1f}" for v in trial_vals],  # top labels: "8.0" … "9.0"
         )
 
     ticks_off, win_text_off, trial_text_off = _dual_ticks(to, off_offset)
-    ticks_on,  win_text_on,  trial_text_on  = _dual_ticks(tn, on_offset)
+    ticks_on, win_text_on, trial_text_on = _dual_ticks(tn, on_offset)
 
     for col, t, zt, zp, zd, zv, panel in (
         (1, to, zto, zpo, zdo, zvo, panel_off),
@@ -882,9 +950,30 @@ def build_side_by_side_exemplar_figure(
 
         # RMSE ribbon bands (session-mean ± half-width)
         for y_hat, half, fc, lc, name, lg in (
-            (zp, panel.band_rmse_psid,  COLOR_PSID_BAND_FILL,  COLOR_PSID_BAND_LINE,  "PSID ± mean RMSE",  "bps"),
-            (zd, panel.band_rmse_dpad,  COLOR_DPAD_BAND_FILL,  COLOR_DPAD_BAND_LINE,  "DPAD ± mean RMSE",  "bpd"),
-            (zv, panel.band_rmse_varma, COLOR_VARMA_BAND_FILL, COLOR_VARMA_BAND_LINE, "VARMA ± mean RMSE", "bpv"),
+            (
+                zp,
+                panel.band_rmse_psid,
+                COLOR_PSID_BAND_FILL,
+                COLOR_PSID_BAND_LINE,
+                "PSID ± mean RMSE",
+                "bps",
+            ),
+            (
+                zd,
+                panel.band_rmse_dpad,
+                COLOR_DPAD_BAND_FILL,
+                COLOR_DPAD_BAND_LINE,
+                "DPAD ± mean RMSE",
+                "bpd",
+            ),
+            (
+                zv,
+                panel.band_rmse_varma,
+                COLOR_VARMA_BAND_FILL,
+                COLOR_VARMA_BAND_LINE,
+                "VARMA ± mean RMSE",
+                "bpv",
+            ),
         ):
             if half is None or not np.isfinite(half) or half <= 0:
                 continue
@@ -895,71 +984,107 @@ def build_side_by_side_exemplar_figure(
             yb = np.concatenate([yh + half, (yh - half)[::-1]])
             fig.add_trace(
                 go.Scatter(
-                    x=xb, y=yb, fill="toself",
-                    fillcolor=fc, line=dict(color=lc, width=0.5),
-                    name=name, legendgroup=lg, showlegend=False,
+                    x=xb,
+                    y=yb,
+                    fill="toself",
+                    fillcolor=fc,
+                    line=dict(color=lc, width=0.5),
+                    name=name,
+                    legendgroup=lg,
+                    showlegend=False,
                     hoverinfo="skip",
                 ),
-                row=1, col=col,
+                row=1,
+                col=col,
             )
 
         show_leg = col == 1
         fig.add_trace(
             go.Scatter(
-                x=t, y=zt, name=true_series_name, mode="lines",
+                x=t,
+                y=zt,
+                name=true_series_name,
+                mode="lines",
                 line=dict(color=c_true, width=WIDTH_TRUE),
-                legendgroup="true", showlegend=show_leg,
+                legendgroup="true",
+                showlegend=show_leg,
             ),
-            row=1, col=col,
+            row=1,
+            col=col,
         )
         fig.add_trace(
             go.Scatter(
-                x=t, y=zp, name="y_hat_PSID", mode="lines",
+                x=t,
+                y=zp,
+                name="y_hat_PSID",
+                mode="lines",
                 line=dict(color=COLOR_PSID, width=WIDTH_PSID, dash=_pd),
                 opacity=OPACITY_PSID,
-                legendgroup="psid", showlegend=show_leg,
+                legendgroup="psid",
+                showlegend=show_leg,
             ),
-            row=1, col=col,
+            row=1,
+            col=col,
         )
         fig.add_trace(
             go.Scatter(
-                x=t, y=zd, name="y_hat_DPAD", mode="lines",
+                x=t,
+                y=zd,
+                name="y_hat_DPAD",
+                mode="lines",
                 line=dict(color=COLOR_DPAD, width=WIDTH_DPAD, dash=_pd),
                 opacity=OPACITY_DPAD,
-                legendgroup="dpad", showlegend=show_leg,
+                legendgroup="dpad",
+                showlegend=show_leg,
             ),
-            row=1, col=col,
+            row=1,
+            col=col,
         )
         fig.add_trace(
             go.Scatter(
-                x=t, y=zv, name="y_hat_VARMA", mode="lines",
+                x=t,
+                y=zv,
+                name="y_hat_VARMA",
+                mode="lines",
                 line=dict(color=COLOR_VARMA, width=WIDTH_VARMA, dash=_pd),
                 opacity=OPACITY_VARMA,
-                legendgroup="varma", showlegend=show_leg,
+                legendgroup="varma",
+                showlegend=show_leg,
             ),
-            row=1, col=col,
+            row=1,
+            col=col,
         )
 
     for col in (1, 2):
         fig.update_yaxes(
             title_text=y_axis_label if col == 1 else "",
-            showgrid=True, gridcolor=grid,
+            showgrid=True,
+            gridcolor=grid,
             range=[y0, y1],
-            row=1, col=col,
+            row=1,
+            col=col,
         )
 
     # Bottom axes: window-relative time (0 → segment_s)
     fig.update_xaxes(
-        tickmode="array", tickvals=ticks_off, ticktext=win_text_off,
+        tickmode="array",
+        tickvals=ticks_off,
+        ticktext=win_text_off,
         title_text="Time (s)",
-        showgrid=True, gridcolor=grid,
-        row=1, col=1,
+        showgrid=True,
+        gridcolor=grid,
+        row=1,
+        col=1,
     )
     fig.update_xaxes(
-        tickmode="array", tickvals=ticks_on, ticktext=win_text_on,
+        tickmode="array",
+        tickvals=ticks_on,
+        ticktext=win_text_on,
         title_text="Time (s)",
-        showgrid=True, gridcolor=grid,
-        row=1, col=2,
+        showgrid=True,
+        gridcolor=grid,
+        row=1,
+        col=2,
     )
 
     # Top axes: trial-relative time (e.g. 8.0 → 9.0 s from trial start)

@@ -31,10 +31,16 @@ from dashboard.thesis.constants import (
     paper_colors,
     true_line_color,
 )
+
 logger = logging.getLogger(__name__)
 
 # Stage display names and colors
-_STAGE_LABELS = ["Stage 1\n(model1)", "Stage 2\n(model1_Cy)", "Stage 3\n(model2)", "Stage 4\n(model2_Cz)"]
+_STAGE_LABELS = [
+    "Stage 1\n(model1)",
+    "Stage 2\n(model1_Cy)",
+    "Stage 3\n(model2)",
+    "Stage 4\n(model2_Cz)",
+]
 _STAGE_KEYS = ["model1", "model1_Cy", "model2", "model2_Cz"]
 _STAGE_COLORS = ["#185FA5", "#0F6E56", "#993C1D", "#854F0B"]
 _STAGE_RULE_COLOR = "rgba(100,100,100,0.3)"
@@ -61,7 +67,9 @@ _COLOR_PSID = "#185FA5"
 _COLOR_DPAD = "#993C1D"
 
 
-def _load_training_history(results_root: Path, dir_name: str) -> Optional[Dict[str, Any]]:
+def _load_training_history(
+    results_root: Path, dir_name: str
+) -> Optional[Dict[str, Any]]:
     path = results_root / dir_name / "training_history.json"
     if not path.is_file():
         return None
@@ -87,7 +95,9 @@ def build_dpad_training_curves_figure(
         shared_yaxes=False,
     )
 
-    for idx, (dir_name, sess_label) in enumerate(zip(_DPAD_SESSION_GLOBS, _SESSION_LABELS)):
+    for idx, (dir_name, sess_label) in enumerate(
+        zip(_DPAD_SESSION_GLOBS, _SESSION_LABELS)
+    ):
         row = idx // 2 + 1
         col = idx % 2 + 1
         show_leg = idx == 0
@@ -96,11 +106,14 @@ def build_dpad_training_curves_figure(
         if hist is None:
             fig.add_annotation(
                 text=f"No training_history.json<br>in {dir_name}",
-                x=0.5, y=0.5,
-                xref="x domain", yref="y domain",
+                x=0.5,
+                y=0.5,
+                xref="x domain",
+                yref="y domain",
                 showarrow=False,
                 font=dict(size=FONT_SIZE_TICK, family=FONT_FAMILY, color=fg),
-                row=row, col=col,
+                row=row,
+                col=col,
             )
             continue
 
@@ -142,11 +155,16 @@ def build_dpad_training_curves_figure(
             fig.add_vline(
                 x=bx,
                 line=dict(color=_STAGE_RULE_COLOR, width=0.8, dash="dash"),
-                row=row, col=col,
+                row=row,
+                col=col,
             )
             # Stage label at top of boundary — descriptive names
             _stage_short_names = ["Init", "Cy", "State", "Cz"]
-            stage_label = _stage_short_names[bi + 1] if bi + 1 < len(_stage_short_names) else f"S{bi + 2}"
+            stage_label = (
+                _stage_short_names[bi + 1]
+                if bi + 1 < len(_stage_short_names)
+                else f"S{bi + 2}"
+            )
             fig.add_annotation(
                 x=bx,
                 y=1.02,
@@ -156,7 +174,8 @@ def build_dpad_training_curves_figure(
                 showarrow=False,
                 font=dict(size=FONT_SIZE_TICK - 1, family=FONT_FAMILY, color=fg),
                 xanchor="center",
-                row=row, col=col,
+                row=row,
+                col=col,
             )
 
         # Train loss
@@ -171,7 +190,8 @@ def build_dpad_training_curves_figure(
                 line=dict(color=_COLOR_DPAD, width=2.8),
                 connectgaps=False,
             ),
-            row=row, col=col,
+            row=row,
+            col=col,
         )
         # Val loss
         if any(np.isfinite(v) for v in all_val_loss):
@@ -186,7 +206,8 @@ def build_dpad_training_curves_figure(
                     line=dict(color=_COLOR_PSID, width=2.4, dash="dot"),
                     connectgaps=False,
                 ),
-                row=row, col=col,
+                row=row,
+                col=col,
             )
 
     # Axis styling
@@ -202,7 +223,8 @@ def build_dpad_training_curves_figure(
                 tickfont=dict(size=FONT_SIZE_TICK),
                 title_text="Epoch" if r == 2 else "",
                 title_font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY),
-                row=r, col=c,
+                row=r,
+                col=c,
             )
             fig.update_yaxes(
                 showgrid=True,
@@ -214,15 +236,23 @@ def build_dpad_training_curves_figure(
                 tickfont=dict(size=FONT_SIZE_TICK),
                 title_text="Loss" if c == 1 else "",
                 title_font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY),
-                row=r, col=c,
+                row=r,
+                col=c,
             )
 
     # Stage legend annotation
-    stage_labels_flat = ["Init (model1)", "Cy (model1_Cy)", "State (model2)", "Cz (model2_Cz)"]
+    stage_labels_flat = [
+        "Init (model1)",
+        "Cy (model1_Cy)",
+        "State (model2)",
+        "Cz (model2_Cz)",
+    ]
     annotation_text = "  |  ".join(stage_labels_flat)
     fig.add_annotation(
-        x=0.5, y=-0.07,
-        xref="paper", yref="paper",
+        x=0.5,
+        y=-0.07,
+        xref="paper",
+        yref="paper",
         text=annotation_text,
         showarrow=False,
         font=dict(size=FONT_SIZE_TICK - 1, family=FONT_FAMILY, color=fg),
@@ -232,7 +262,10 @@ def build_dpad_training_curves_figure(
     fig.update_annotations(font=dict(family=FONT_FAMILY, size=FONT_SIZE_TICK, color=fg))
 
     from dashboard.thesis.constants import apply_thesis_style
-    apply_thesis_style(fig, theme, height=720, margin=dict(l=72, r=24, t=72, b=80), legend_y=-0.08)
+
+    apply_thesis_style(
+        fig, theme, height=720, margin=dict(l=72, r=24, t=72, b=80), legend_y=-0.08
+    )
     return fig
 
 
@@ -256,9 +289,7 @@ def build_dpad_training_time_figure(
         hist = _load_training_history(Path(results_root), dir_name)
         if hist is not None:
             total = sum(
-                float(hist[s].get("fit_time_s", 0.0))
-                for s in _STAGE_KEYS
-                if s in hist
+                float(hist[s].get("fit_time_s", 0.0)) for s in _STAGE_KEYS if s in hist
             )
         else:
             total = float("nan")
@@ -306,7 +337,10 @@ def build_dpad_training_time_figure(
             )
 
     from dashboard.thesis.constants import apply_thesis_style
-    apply_thesis_style(fig, theme, height=380, margin=dict(l=72, r=24, t=36, b=80), legend_y=-0.20)
+
+    apply_thesis_style(
+        fig, theme, height=380, margin=dict(l=72, r=24, t=36, b=80), legend_y=-0.20
+    )
     fig.update_layout(
         barmode="group",
         xaxis=dict(

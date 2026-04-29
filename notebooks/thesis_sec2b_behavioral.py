@@ -29,9 +29,10 @@
 
 # %%
 import sys, os
-os.chdir('/home/bobby/repos/latent-neural-dynamics-modeling')
-sys.path.insert(0, '.')
-sys.path.insert(0, 'notebooks')
+
+os.chdir("/home/bobby/repos/latent-neural-dynamics-modeling")
+sys.path.insert(0, ".")
+sys.path.insert(0, "notebooks")
 
 import numpy as np
 import polars as pl
@@ -39,17 +40,25 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import to_rgba
 
 from thesis_style import (
-    COLOR_DPAD, COLOR_PSID, COLOR_VARMA, PARTICIPANT_COLORS,
-    apply_thesis_style, panel_label,
+    COLOR_DPAD,
+    COLOR_PSID,
+    COLOR_VARMA,
+    PARTICIPANT_COLORS,
+    apply_thesis_style,
+    panel_label,
 )
 from thesis_sec2_common import *
 
 from thesis_utils import (
-    collect_pooled_rmse, collect_session_grouped, pick_best_feature_for_psid,
-    metric_axis_label, metric_y_range,
+    collect_pooled_rmse,
+    collect_session_grouped,
+    pick_best_feature_for_psid,
+    metric_axis_label,
+    metric_y_range,
 )
 from thesis_loaders import (
-    load_split_results_required, output_channel_label,
+    load_split_results_required,
+    output_channel_label,
 )
 
 apply_thesis_style()
@@ -57,12 +66,12 @@ apply_thesis_style()
 
 def resolve_output_channel_display(split_res, channel_idx, *, declared_outputs):
     """Inline fallback: saved output_channels first, then declared_outputs list."""
-    name = output_channel_label(split_res, channel_idx, fallback='')
+    name = output_channel_label(split_res, channel_idx, fallback="")
     if name:
         return name, False
     if 0 <= channel_idx < len(declared_outputs):
-        return str(declared_outputs[channel_idx]).replace('_', ' '), True
-    raise ValueError(f'channel_idx={channel_idx} has no resolvable label')
+        return str(declared_outputs[channel_idx]).replace("_", " "), True
+    raise ValueError(f"channel_idx={channel_idx} has no resolvable label")
 
 
 # %% [markdown]
@@ -74,24 +83,34 @@ def resolve_output_channel_display(split_res, channel_idx, *, declared_outputs):
 fig_num = 7
 for spec in THESIS_AGGREGATE_FIGURES:
     ch, _ = resolve_output_channel_display(
-        load_split_results_required(results_root, spec.triplets[0].psid_variant,
-                                     spec.triplets[0].psid_run_ts, spec.split),
-        spec.channel_idx, declared_outputs=THESIS_DECLARED_BEHAVIORAL_OUTPUTS,
+        load_split_results_required(
+            results_root,
+            spec.triplets[0].psid_variant,
+            spec.triplets[0].psid_run_ts,
+            spec.split,
+        ),
+        spec.channel_idx,
+        declared_outputs=THESIS_DECLARED_BEHAVIORAL_OUTPUTS,
     )
 
     def _collect(metric, _spec=spec):
         return collect_session_grouped(
-            results_root, _spec.triplets, _spec.channel_idx,
-            split=_spec.split, metric=metric,
+            results_root,
+            _spec.triplets,
+            _spec.channel_idx,
+            split=_spec.split,
+            metric=metric,
         )
 
     fig = write_boxplot_three_metrics(
-        collector=_collect, fig_num=fig_num,
+        collector=_collect,
+        fig_num=fig_num,
         filename_stem=f'pooled_{ch.replace(" ", "_")}',
-        target_label=ch, rng_seed=spec.jitter_seed,
+        target_label=ch,
+        rng_seed=spec.jitter_seed,
         builder=mpl_session_grouped_boxplot,
     )
-    panel_letter = chr(ord('A') + (fig_num - 7))
+    panel_letter = chr(ord("A") + (fig_num - 7))
     if fig is not None:
         plt.show()
     print(
@@ -109,21 +128,33 @@ for spec in THESIS_AGGREGATE_FIGURES:
 fig_num = 9
 for spec in THESIS_AGGREGATE_FIGURES:
     ch, _ = resolve_output_channel_display(
-        load_split_results_required(results_root, spec.triplets[0].psid_variant,
-                                     spec.triplets[0].psid_run_ts, spec.split),
-        spec.channel_idx, declared_outputs=THESIS_DECLARED_BEHAVIORAL_OUTPUTS,
+        load_split_results_required(
+            results_root,
+            spec.triplets[0].psid_variant,
+            spec.triplets[0].psid_run_ts,
+            spec.split,
+        ),
+        spec.channel_idx,
+        declared_outputs=THESIS_DECLARED_BEHAVIORAL_OUTPUTS,
     )
     for tri in spec.triplets:
+
         def _collect(metric, _tri=tri, _spec=spec):
             return collect_pooled_rmse(
-                results_root, [_tri], _spec.channel_idx, split=_spec.split,
-                run_wilcoxon=False, metric=metric,
+                results_root,
+                [_tri],
+                _spec.channel_idx,
+                split=_spec.split,
+                run_wilcoxon=False,
+                metric=metric,
             )
 
         fig = write_boxplot_three_metrics(
-            collector=_collect, fig_num=fig_num,
+            collector=_collect,
+            fig_num=fig_num,
             filename_stem=f'session_{tri.label}_{ch.replace(" ", "_")}',
-            target_label=f"{tri.label} - {ch}", rng_seed=spec.jitter_seed,
+            target_label=f"{tri.label} - {ch}",
+            rng_seed=spec.jitter_seed,
         )
         if fig is not None:
             plt.show()
@@ -145,29 +176,45 @@ for spec in THESIS_AGGREGATE_FIGURES:
 # %%
 fig_num = 46
 for tri in ALL_TRIPLETS_LAP:
-    res_p = load_split_results_required(results_root, tri.psid_variant, tri.psid_run_ts, 'test')
-    Z0 = res_p['Z'][0] if res_p.get('Z') else None
+    res_p = load_split_results_required(
+        results_root, tri.psid_variant, tri.psid_run_ts, "test"
+    )
+    Z0 = res_p["Z"][0] if res_p.get("Z") else None
     n_bands = min(np.asarray(Z0).shape) if Z0 is not None else len(LAPLACIAN_BAND_NAMES)
     band_indices = list(range(min(n_bands, len(LAPLACIAN_BAND_NAMES))))
 
     def _collect(metric, _tri=tri, _res_p=res_p, _idxs=band_indices):
-        best_idx = pick_best_feature_for_psid(_res_p, _idxs, metric, target='Z')
+        best_idx = pick_best_feature_for_psid(_res_p, _idxs, metric, target="Z")
         return collect_pooled_rmse(
-            results_root, [_tri], best_idx, split='test',
-            run_wilcoxon=False, metric=metric, include_dpad=False,
+            results_root,
+            [_tri],
+            best_idx,
+            split="test",
+            run_wilcoxon=False,
+            metric=metric,
+            include_dpad=False,
         )
 
-    best_name_idx = pick_best_feature_for_psid(res_p, band_indices, 'pearson', target='Z')
-    band_stem = laplacian_band_label(best_name_idx).replace('.', '').replace('/', '_')
+    best_name_idx = pick_best_feature_for_psid(
+        res_p, band_indices, "pearson", target="Z"
+    )
+    band_stem = laplacian_band_label(best_name_idx).replace(".", "").replace("/", "_")
 
     fig = write_boxplot_three_metrics(
-        collector=_collect, fig_num=fig_num,
-        filename_stem=f'session_{tri.label}_lfp_{band_stem}',
-        target_label=f'{tri.label} LFP', rng_seed=42,
+        collector=_collect,
+        fig_num=fig_num,
+        filename_stem=f"session_{tri.label}_lfp_{band_stem}",
+        target_label=f"{tri.label} LFP",
+        rng_seed=42,
     )
     if fig is not None:
         plt.show()
-    picks = {m: laplacian_band_label(pick_best_feature_for_psid(res_p, band_indices, m, target='Z')) for m in ('rmse', 'pearson', 'vaf')}
+    picks = {
+        m: laplacian_band_label(
+            pick_best_feature_for_psid(res_p, band_indices, m, target="Z")
+        )
+        for m in ("rmse", "pearson", "vaf")
+    }
     print(
         f"Fig {fig_num}: {tri.label} LFP reconstruction — per-metric best bands picked from PSID test split.\n"
         f"  RMSE-best: {picks['rmse']}  |  Pearson-best: {picks['pearson']}  |  VAF-best: {picks['vaf']}.\n"
@@ -189,8 +236,9 @@ from thesis_lib.session_strip_rmse import collect_strip_figure_data
 
 strip_spec = THESIS_STRIP_PANELS[0]
 panel_triplets = [(e.panel_label, e.triplet) for e in strip_spec.panels]
-strip_data = collect_strip_figure_data(results_root, panel_triplets,
-                                        strip_spec.channel_idx, split=strip_spec.split)
+strip_data = collect_strip_figure_data(
+    results_root, panel_triplets, strip_spec.channel_idx, split=strip_spec.split
+)
 rng = np.random.default_rng(strip_spec.jitter_seed)
 
 ncols = strip_spec.ncols
@@ -203,7 +251,9 @@ model_colors = [COLOR_PSID, COLOR_DPAD, COLOR_VARMA]
 _OFF_CELLS = [0, 2, 4]
 _ON_CELLS = [1, 3, 5]
 
-fig_17, axes = plt.subplots(nrows, ncols, figsize=(11.5, max(3.2, 2.3 * nrows)), sharey=True)
+fig_17, axes = plt.subplots(
+    nrows, ncols, figsize=(11.5, max(3.2, 2.3 * nrows)), sharey=True
+)
 axes = np.atleast_1d(axes).ravel()
 
 for pi, panel in enumerate(strip_data.panels):
@@ -211,15 +261,22 @@ for pi, panel in enumerate(strip_data.panels):
     for mi, (model, mc, off_cell, on_cell) in enumerate(
         zip(models, model_colors, _OFF_CELLS, _ON_CELLS)
     ):
-        for cond_label, cell_idx, alpha in (("OFF", off_cell, 0.80), ("ON", on_cell, 0.45)):
+        for cond_label, cell_idx, alpha in (
+            ("OFF", off_cell, 0.80),
+            ("ON", on_cell, 0.45),
+        ):
             vals = [v for v in panel.trial_rmse[cell_idx] if np.isfinite(v)]
             if not vals:
                 continue
             xpos = mi * 2 + (0 if cond_label == "OFF" else 1)
             face = (*to_rgba(mc)[:3], alpha * 0.35)
             bp = ax.boxplot(
-                [vals], positions=[xpos], widths=0.7, patch_artist=True,
-                showfliers=False, manage_ticks=False,
+                [vals],
+                positions=[xpos],
+                widths=0.7,
+                patch_artist=True,
+                showfliers=False,
+                manage_ticks=False,
             )
             for box in bp["boxes"]:
                 box.set(facecolor=face, edgecolor=mc, linewidth=1.2)
@@ -228,14 +285,18 @@ for pi, panel in enumerate(strip_data.panels):
                     ln.set(color=mc, linewidth=1.0)
             jt = rng.uniform(-jitter * 0.4, jitter * 0.4, size=len(vals))
             dot_color = (*to_rgba(mc)[:3], alpha * 0.75)
-            ax.scatter(xpos + jt, vals, s=8, color=[dot_color] * len(vals), linewidths=0)
+            ax.scatter(
+                xpos + jt, vals, s=8, color=[dot_color] * len(vals), linewidths=0
+            )
 
     # Vertical separators between model groups.
     for xv in (1.5, 3.5):
         ax.axvline(xv, color="#AAAAAA", linewidth=0.7, linestyle="--", alpha=0.5)
 
     ax.set_xticks(range(6))
-    ax.set_xticklabels(["PSID\nOFF", "PSID\nON", "DPAD\nOFF", "DPAD\nON", "VARMA\nOFF", "VARMA\nON"])
+    ax.set_xticklabels(
+        ["PSID\nOFF", "PSID\nON", "DPAD\nOFF", "DPAD\nON", "VARMA\nOFF", "VARMA\nON"]
+    )
     ax.set_ylim(0, strip_data.y_max)
     panel_label(ax, chr(ord("A") + pi), panel.panel_label)
 
@@ -245,7 +306,7 @@ for ax in axes[n_panels:]:
 for ax_row in np.atleast_2d(axes.reshape(nrows, ncols)):
     ax_row[0].set_ylabel("RMSE [z]")
 
-fig_17.savefig(str(OUT / 'fig_017_strip_plots.png'))
+fig_17.savefig(str(OUT / "fig_017_strip_plots.png"))
 plt.show()
 print(
     "Fig 17: Per-session box-plus-strip of test-trial behavioural RMSE (z-scored, channel 0). "

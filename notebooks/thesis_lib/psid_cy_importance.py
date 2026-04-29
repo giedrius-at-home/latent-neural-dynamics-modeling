@@ -39,7 +39,9 @@ class BandColumnLayout:
 def _n_band_cols(n_features: int) -> int:
     """Derive bands-per-contact from total feature count."""
     if n_features % _N_CONTACTS != 0:
-        raise ValueError(f"Feature count {n_features} not divisible by {_N_CONTACTS} contacts")
+        raise ValueError(
+            f"Feature count {n_features} not divisible by {_N_CONTACTS} contacts"
+        )
     return n_features // _N_CONTACTS
 
 
@@ -119,12 +121,17 @@ def band_layout_from_channels(input_channels: Sequence[str]) -> BandColumnLayout
         beta_col_start = float(lo) - 0.5
         beta_col_end = float(hi) + 0.5
 
-    return BandColumnLayout(spans=tuple(spans_list), beta_col_start=beta_col_start, beta_col_end=beta_col_end)
+    return BandColumnLayout(
+        spans=tuple(spans_list),
+        beta_col_start=beta_col_start,
+        beta_col_end=beta_col_end,
+    )
 
 
 def _channels_from_training_yaml(variant: str) -> List[str]:
     """Load neural_input channels from the training YAML config for this variant."""
     import re, yaml
+
     m = re.search(r"(PDI\d+)_(\d+)", variant)
     if not m:
         raise ValueError(f"Cannot parse participant/session from variant: {variant}")
@@ -215,7 +222,11 @@ def compute_cy_signed_heatmap(
         raise ValueError(f"Cy must be 2D; got shape {cy.shape}")
     # Derive n_features from the Cy matrix itself (authoritative)
     n_features = cy.shape[0]
-    if n_features == _N_CONTACTS and cy.shape[1] % _N_CONTACTS == 0 and cy.shape[1] > _N_CONTACTS:
+    if (
+        n_features == _N_CONTACTS
+        and cy.shape[1] % _N_CONTACTS == 0
+        and cy.shape[1] > _N_CONTACTS
+    ):
         cy = cy.T
         n_features = cy.shape[0]
     if n_features % _N_CONTACTS != 0:

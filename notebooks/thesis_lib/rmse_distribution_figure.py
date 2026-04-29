@@ -140,7 +140,9 @@ def build_rmse_distribution_figure(
     ymax_data = 0.0
     for i in range(6):
         if np.isfinite(means[i]):
-            ymax_data = max(ymax_data, float(means[i] + (sems[i] if np.isfinite(sems[i]) else 0)))
+            ymax_data = max(
+                ymax_data, float(means[i] + (sems[i] if np.isfinite(sems[i]) else 0))
+            )
     if show_dots:
         all_pts = []
         for i in range(6):
@@ -311,7 +313,11 @@ def build_rmse_boxplot_figure(
         )
 
     def _get_vals(cell_idx: int, model_idx: int) -> tuple[list[float], list[str]]:
-        rows = cells_with_pid[cell_idx] if has_pid else [(v, "?") for v in data.trial_rmse[cell_idx]]
+        rows = (
+            cells_with_pid[cell_idx]
+            if has_pid
+            else [(v, "?") for v in data.trial_rmse[cell_idx]]
+        )
         vals = [r[0] for r in rows if np.isfinite(r[0])]
         pids = [str(r[1]) for r in rows if np.isfinite(r[0])]
         return vals, pids
@@ -319,7 +325,9 @@ def build_rmse_boxplot_figure(
     # Clip y-axis to the 95th percentile of pooled values so IQR boxes stay legible
     # even when a handful of outliers inflate the range (e.g. PSID baseline trials).
     all_vals: list[float] = []
-    for col_idx, (_, cell_ids) in enumerate([("DBS-OFF", _OFF_CELLS), ("DBS-ON", _ON_CELLS)]):
+    for col_idx, (_, cell_ids) in enumerate(
+        [("DBS-OFF", _OFF_CELLS), ("DBS-ON", _ON_CELLS)]
+    ):
         for mi in range(3):
             cell_idx = cell_ids[mi]
             vals_tmp, _ = _get_vals(cell_idx, mi)
@@ -331,7 +339,9 @@ def build_rmse_boxplot_figure(
     else:
         y_max = 0.0
 
-    for col_idx, (cond_label, cell_ids) in enumerate([("DBS-OFF", _OFF_CELLS), ("DBS-ON", _ON_CELLS)]):
+    for col_idx, (cond_label, cell_ids) in enumerate(
+        [("DBS-OFF", _OFF_CELLS), ("DBS-ON", _ON_CELLS)]
+    ):
         for mi, (model, col) in enumerate(zip(models, model_colors)):
             cell_idx = cell_ids[mi]
             vals, pids = _get_vals(cell_idx, mi)

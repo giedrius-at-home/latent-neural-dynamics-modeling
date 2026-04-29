@@ -10,6 +10,7 @@ Layout:
                       the LDA orchestration functions consumed by
                       ``classification/compute.py``.
 """
+
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 

@@ -100,11 +100,13 @@ def create_splits(
     def _summarize(name: str, df: pl.DataFrame) -> str:
         if df.height == 0:
             return f"{name}=0 trials"
-        ep = int(df.select(pl.col("n_epochs").sum()).item()) if "n_epochs" in df.columns else df.height
+        ep = (
+            int(df.select(pl.col("n_epochs").sum()).item())
+            if "n_epochs" in df.columns
+            else df.height
+        )
         if "stim" in df.columns:
-            dbs_cnt = (
-                df.group_by("stim").agg(pl.len().alias("n")).sort("stim")
-            )
+            dbs_cnt = df.group_by("stim").agg(pl.len().alias("n")).sort("stim")
             dbs_str = ", ".join(
                 f"{r['stim']}:{r['n']}" for r in dbs_cnt.iter_rows(named=True)
             )

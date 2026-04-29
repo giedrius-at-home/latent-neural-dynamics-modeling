@@ -63,11 +63,7 @@ def _intrarun_key(
     history_horizon: Optional[float],
     forecast_horizon: Optional[float],
 ) -> Tuple[Any, ...]:
-    run_id = (
-        str(config.run.dbs_both.variant)
-        if flipped
-        else str(config.run.variant)
-    )
+    run_id = str(config.run.dbs_both.variant) if flipped else str(config.run.variant)
     return (
         run_id,
         flipped,

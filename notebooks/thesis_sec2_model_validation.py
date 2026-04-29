@@ -38,9 +38,10 @@
 
 # %%
 import sys, os
-os.chdir('/home/bobby/repos/latent-neural-dynamics-modeling')
-sys.path.insert(0, '.')
-sys.path.insert(0, 'notebooks')
+
+os.chdir("/home/bobby/repos/latent-neural-dynamics-modeling")
+sys.path.insert(0, ".")
+sys.path.insert(0, "notebooks")
 
 from pathlib import Path
 import numpy as np
@@ -49,24 +50,44 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap, to_rgba
 
 from thesis_style import (
-    COLOR_PSID, COLOR_DPAD, COLOR_VARMA,
-    COLOR_DBS_OFF, COLOR_DBS_ON, COLOR_NS, COLOR_TRUE, COLOR_CHANCE,
-    apply_thesis_style, panel_label, hex_to_rgba,
+    COLOR_PSID,
+    COLOR_DPAD,
+    COLOR_VARMA,
+    COLOR_DBS_OFF,
+    COLOR_DBS_ON,
+    COLOR_NS,
+    COLOR_TRUE,
+    COLOR_CHANCE,
+    apply_thesis_style,
+    panel_label,
+    hex_to_rgba,
 )
 from thesis_sec2_common import *
 
 from thesis_utils import (
-    AggregateRmseData, _key_index_map, _sem, normalize_stim,
-    collect_pooled_rmse, collect_session_grouped, collect_neural_band_metric,
-    pick_best_feature_for_psid, trial_metric_y_for_model,
-    trial_metric_forecast_for_model, metric_axis_label, metric_y_range,
+    AggregateRmseData,
+    _key_index_map,
+    _sem,
+    normalize_stim,
+    collect_pooled_rmse,
+    collect_session_grouped,
+    collect_neural_band_metric,
+    pick_best_feature_for_psid,
+    trial_metric_y_for_model,
+    trial_metric_forecast_for_model,
+    metric_axis_label,
+    metric_y_range,
     metric_display_name,
 )
 from thesis_loaders import (
-    load_split_results, load_split_results_required,
-    channels_as_str_list, resolve_input_channels,
-    resolve_neural_y_channel_idx, neural_y_feature_label,
-    has_dpad_data, output_channel_label,
+    load_split_results,
+    load_split_results_required,
+    channels_as_str_list,
+    resolve_input_channels,
+    resolve_neural_y_channel_idx,
+    neural_y_feature_label,
+    has_dpad_data,
+    output_channel_label,
 )
 
 apply_thesis_style()
@@ -74,12 +95,12 @@ apply_thesis_style()
 
 def resolve_output_channel_display(split_res, channel_idx, *, declared_outputs):
     """Inline fallback: saved output_channels first, then declared_outputs list."""
-    name = output_channel_label(split_res, channel_idx, fallback='')
+    name = output_channel_label(split_res, channel_idx, fallback="")
     if name:
         return name, False
     if 0 <= channel_idx < len(declared_outputs):
-        return str(declared_outputs[channel_idx]).replace('_', ' '), True
-    raise ValueError(f'channel_idx={channel_idx} has no resolvable label')
+        return str(declared_outputs[channel_idx]).replace("_", " "), True
+    raise ValueError(f"channel_idx={channel_idx} has no resolvable label")
 
 
 # %% [markdown]
@@ -89,21 +110,31 @@ def resolve_output_channel_display(split_res, channel_idx, *, declared_outputs):
 fig_num = 7
 for spec in THESIS_AGGREGATE_FIGURES:
     ch, _ = resolve_output_channel_display(
-        load_split_results_required(results_root, spec.triplets[0].psid_variant,
-                                     spec.triplets[0].psid_run_ts, spec.split),
-        spec.channel_idx, declared_outputs=THESIS_DECLARED_BEHAVIORAL_OUTPUTS,
+        load_split_results_required(
+            results_root,
+            spec.triplets[0].psid_variant,
+            spec.triplets[0].psid_run_ts,
+            spec.split,
+        ),
+        spec.channel_idx,
+        declared_outputs=THESIS_DECLARED_BEHAVIORAL_OUTPUTS,
     )
 
     def _collect(metric, _spec=spec):
         return collect_session_grouped(
-            results_root, _spec.triplets, _spec.channel_idx,
-            split=_spec.split, metric=metric,
+            results_root,
+            _spec.triplets,
+            _spec.channel_idx,
+            split=_spec.split,
+            metric=metric,
         )
 
     fig = write_boxplot_three_metrics(
-        collector=_collect, fig_num=fig_num,
+        collector=_collect,
+        fig_num=fig_num,
         filename_stem=f'pooled_{ch.replace(" ", "_")}',
-        target_label=ch, rng_seed=spec.jitter_seed,
+        target_label=ch,
+        rng_seed=spec.jitter_seed,
         builder=mpl_session_grouped_boxplot,
     )
     if fig is not None:
@@ -122,21 +153,33 @@ for spec in THESIS_AGGREGATE_FIGURES:
 fig_num = 9
 for spec in THESIS_AGGREGATE_FIGURES:
     ch, _ = resolve_output_channel_display(
-        load_split_results_required(results_root, spec.triplets[0].psid_variant,
-                                     spec.triplets[0].psid_run_ts, spec.split),
-        spec.channel_idx, declared_outputs=THESIS_DECLARED_BEHAVIORAL_OUTPUTS,
+        load_split_results_required(
+            results_root,
+            spec.triplets[0].psid_variant,
+            spec.triplets[0].psid_run_ts,
+            spec.split,
+        ),
+        spec.channel_idx,
+        declared_outputs=THESIS_DECLARED_BEHAVIORAL_OUTPUTS,
     )
     for tri in spec.triplets:
+
         def _collect(metric, _tri=tri, _spec=spec):
             return collect_pooled_rmse(
-                results_root, [_tri], _spec.channel_idx,
-                split=_spec.split, run_wilcoxon=False, metric=metric,
+                results_root,
+                [_tri],
+                _spec.channel_idx,
+                split=_spec.split,
+                run_wilcoxon=False,
+                metric=metric,
             )
 
         fig = write_boxplot_three_metrics(
-            collector=_collect, fig_num=fig_num,
+            collector=_collect,
+            fig_num=fig_num,
             filename_stem=f'session_{tri.label}_{ch.replace(" ", "_")}',
-            target_label=f'{tri.label} - {ch}', rng_seed=spec.jitter_seed,
+            target_label=f"{tri.label} - {ch}",
+            rng_seed=spec.jitter_seed,
         )
         if fig is not None:
             plt.show()
@@ -160,7 +203,10 @@ from thesis_lib.session_strip_rmse import collect_strip_figure_data
 strip_spec = THESIS_STRIP_PANELS[0]
 panel_triplets = [(e.panel_label, e.triplet) for e in strip_spec.panels]
 strip_data = collect_strip_figure_data(
-    results_root, panel_triplets, strip_spec.channel_idx, split=strip_spec.split,
+    results_root,
+    panel_triplets,
+    strip_spec.channel_idx,
+    split=strip_spec.split,
 )
 rng = np.random.default_rng(strip_spec.jitter_seed)
 
@@ -174,7 +220,9 @@ model_colors = [COLOR_PSID, COLOR_DPAD, COLOR_VARMA]
 _OFF_CELLS = [0, 2, 4]
 _ON_CELLS = [1, 3, 5]
 
-fig_17, axes = plt.subplots(nrows, ncols, figsize=(11.5, max(3.2, 2.3 * nrows)), sharey=True)
+fig_17, axes = plt.subplots(
+    nrows, ncols, figsize=(11.5, max(3.2, 2.3 * nrows)), sharey=True
+)
 axes = np.atleast_1d(axes).ravel()
 
 for pi, panel in enumerate(strip_data.panels):
@@ -182,15 +230,22 @@ for pi, panel in enumerate(strip_data.panels):
     for mi, (model, mc, off_cell, on_cell) in enumerate(
         zip(models, model_colors, _OFF_CELLS, _ON_CELLS)
     ):
-        for cond_label, cell_idx, alpha in (("OFF", off_cell, 0.80), ("ON", on_cell, 0.45)):
+        for cond_label, cell_idx, alpha in (
+            ("OFF", off_cell, 0.80),
+            ("ON", on_cell, 0.45),
+        ):
             vals = [v for v in panel.trial_rmse[cell_idx] if np.isfinite(v)]
             if not vals:
                 continue
             xpos = mi * 2 + (0 if cond_label == "OFF" else 1)
             face = (*to_rgba(mc)[:3], alpha * 0.35)
             bp = ax.boxplot(
-                [vals], positions=[xpos], widths=0.7, patch_artist=True,
-                showfliers=False, manage_ticks=False,
+                [vals],
+                positions=[xpos],
+                widths=0.7,
+                patch_artist=True,
+                showfliers=False,
+                manage_ticks=False,
             )
             for box in bp["boxes"]:
                 box.set(facecolor=face, edgecolor=mc, linewidth=1.2)
@@ -199,13 +254,17 @@ for pi, panel in enumerate(strip_data.panels):
                     ln.set(color=mc, linewidth=1.0)
             jt = rng.uniform(-jitter * 0.4, jitter * 0.4, size=len(vals))
             dot_color = (*to_rgba(mc)[:3], alpha * 0.75)
-            ax.scatter(xpos + jt, vals, s=8, color=[dot_color] * len(vals), linewidths=0)
+            ax.scatter(
+                xpos + jt, vals, s=8, color=[dot_color] * len(vals), linewidths=0
+            )
 
     for xv in (1.5, 3.5):
         ax.axvline(xv, color="#AAAAAA", linewidth=0.7, linestyle="--", alpha=0.5)
 
     ax.set_xticks(range(6))
-    ax.set_xticklabels(["PSID\nOFF", "PSID\nON", "DPAD\nOFF", "DPAD\nON", "VARMA\nOFF", "VARMA\nON"])
+    ax.set_xticklabels(
+        ["PSID\nOFF", "PSID\nON", "DPAD\nOFF", "DPAD\nON", "VARMA\nOFF", "VARMA\nON"]
+    )
     ax.set_ylim(0, strip_data.y_max)
     panel_label(ax, chr(ord("A") + pi), panel.panel_label)
 
@@ -213,9 +272,9 @@ for ax in axes[n_panels:]:
     ax.set_visible(False)
 
 for ax_row in np.atleast_2d(axes.reshape(nrows, ncols)):
-    ax_row[0].set_ylabel(metric_axis_label('rmse'))
+    ax_row[0].set_ylabel(metric_axis_label("rmse"))
 
-fig_17.savefig(str(OUT / 'fig_017_strip_plots.png'))
+fig_17.savefig(str(OUT / "fig_017_strip_plots.png"))
 plt.show()
 print(
     "Fig 17: Per-session box-plus-strip of test-trial behavioural RMSE (z-scored, channel 0). "
@@ -237,7 +296,9 @@ from thesis_lib.exemplar_trials import (
     resolve_off_on_indices_from_spec,
 )
 from thesis_lib.loaders import (
-    extract_trial_y_series, thesis_exemplar_tagline, ThesisDataError,
+    extract_trial_y_series,
+    thesis_exemplar_tagline,
+    ThesisDataError,
 )
 from thesis_lib.specs import infer_varma_off_on_run_ts
 from thesis_lib.transforms import rmse_z, z_true_and_preds
@@ -251,7 +312,9 @@ def _slice_trial_tail(t_abs, seg_s, z_true, z_psid, z_dpad, z_varma):
     t_hi = float(np.nanmax(t))
     t_lo = t_hi - float(seg_s)
     m = t >= t_lo
-    arrays = [np.asarray(a, dtype=float).ravel() for a in (z_true, z_psid, z_dpad, z_varma)]
+    arrays = [
+        np.asarray(a, dtype=float).ravel() for a in (z_true, z_psid, z_dpad, z_varma)
+    ]
     return (t[m],) + tuple(a[m] for a in arrays)
 
 
@@ -260,7 +323,12 @@ def _mpl_side_by_side_exemplar(panel_off, panel_on, y_axis_label, *, segment_s=1
         t_raw = np.asarray(p["t_abs"], dtype=float)
         t_trial = (t_raw - t_raw[0]) if t_raw.size > 0 else t_raw
         t_sl, zt, zp, zd, zv = _slice_trial_tail(
-            t_trial, segment_s, p["z_true"], p["z_psid"], p["z_dpad"], p["z_varma"],
+            t_trial,
+            segment_s,
+            p["z_true"],
+            p["z_psid"],
+            p["z_dpad"],
+            p["z_varma"],
         )
         trial_offset = float(np.nanmin(t_sl)) if t_sl.size > 0 else 0.0
         t_win = (t_sl - trial_offset) if t_sl.size > 0 else t_sl
@@ -294,9 +362,13 @@ def _mpl_side_by_side_exemplar(panel_off, panel_on, y_axis_label, *, segment_s=1
         if not np.all(np.isnan(zp)):
             ax.plot(t, zp, color=COLOR_PSID, linewidth=1.2, label="PSID")
         if not np.all(np.isnan(zd)):
-            ax.plot(t, zd, color=COLOR_DPAD, linewidth=1.2, linestyle="--", label="DPAD")
+            ax.plot(
+                t, zd, color=COLOR_DPAD, linewidth=1.2, linestyle="--", label="DPAD"
+            )
         if not np.all(np.isnan(zv)):
-            ax.plot(t, zv, color=COLOR_VARMA, linewidth=1.2, linestyle=":", label="VARMA")
+            ax.plot(
+                t, zv, color=COLOR_VARMA, linewidth=1.2, linestyle=":", label="VARMA"
+            )
 
         ax.set_xlabel("Time (s)")
         panel_label(ax, letter, title)
@@ -307,20 +379,30 @@ def _mpl_side_by_side_exemplar(panel_off, panel_on, y_axis_label, *, segment_s=1
 
 
 def compose_thesis_neural_figure(spec, results_root):
-    res_p = load_split_results_required(results_root, spec.psid_variant, spec.psid_run_ts, spec.split)
-    res_d = load_split_results(results_root, spec.dpad_variant, spec.dpad_run_ts, spec.split)
-    res_v = load_split_results_required(results_root, spec.varma_variant, spec.varma_run_ts, spec.split)
+    res_p = load_split_results_required(
+        results_root, spec.psid_variant, spec.psid_run_ts, spec.split
+    )
+    res_d = load_split_results(
+        results_root, spec.dpad_variant, spec.dpad_run_ts, spec.split
+    )
+    res_v = load_split_results_required(
+        results_root, spec.varma_variant, spec.varma_run_ts, spec.split
+    )
 
     ch_idx = spec.neural_y_channel_idx
     best_pair = find_best_trial_indices_per_condition(
-        res_p, channel_idx=ch_idx, input_mode="neural",
+        res_p,
+        channel_idx=ch_idx,
+        input_mode="neural",
     )
     if best_pair is not None:
         i_off, i_on = best_pair
     else:
         i_off, i_on = resolve_off_on_indices_from_spec(
-            trial_idx_off=spec.trial_idx_off, trial_idx_on=spec.trial_idx_on,
-            use_adjacent_off_on_trials=spec.use_adjacent_off_on_trials, split_res=res_p,
+            trial_idx_off=spec.trial_idx_off,
+            trial_idx_on=spec.trial_idx_on,
+            use_adjacent_off_on_trials=spec.use_adjacent_off_on_trials,
+            split_res=res_p,
         )
 
     res_v_off = res_v_on = None
@@ -361,40 +443,83 @@ def compose_thesis_neural_figure(spec, results_root):
     map_v_on = _lib_kim(res_v_on_use)
 
     band_p_off, band_d_off, band_v_off = _session_mean_rmse_y_triplet(
-        res_p, res_d, res_v_off_use, map_v_off, i_off, ch_idx, "off",
+        res_p,
+        res_d,
+        res_v_off_use,
+        map_v_off,
+        i_off,
+        ch_idx,
+        "off",
     )
     band_p_on, band_d_on, band_v_on = _session_mean_rmse_y_triplet(
-        res_p, res_d, res_v_on_use, map_v_on, i_on, ch_idx, "on",
+        res_p,
+        res_d,
+        res_v_on_use,
+        map_v_on,
+        i_on,
+        ch_idx,
+        "on",
     )
 
     off = extract_trial_y_series(
-        res_p, res_d, res_v_off_use, i_off, ch_idx, varma_trial_idx=idx_v_off,
+        res_p,
+        res_d,
+        res_v_off_use,
+        i_off,
+        ch_idx,
+        varma_trial_idx=idx_v_off,
     )
     on = extract_trial_y_series(
-        res_p, res_d, res_v_on_use, i_on, ch_idx, varma_trial_idx=idx_v_on,
+        res_p,
+        res_d,
+        res_v_on_use,
+        i_on,
+        ch_idx,
+        varma_trial_idx=idx_v_on,
     )
 
-    zt_o, zp_o, zd_o, zv_o = z_true_and_preds(off.z_true_raw, off.z_psid, off.z_dpad, off.z_varma)
-    zt_n, zp_n, zd_n, zv_n = z_true_and_preds(on.z_true_raw, on.z_psid, on.z_dpad, on.z_varma)
+    zt_o, zp_o, zd_o, zv_o = z_true_and_preds(
+        off.z_true_raw, off.z_psid, off.z_dpad, off.z_varma
+    )
+    zt_n, zp_n, zd_n, zv_n = z_true_and_preds(
+        on.z_true_raw, on.z_psid, on.z_dpad, on.z_varma
+    )
 
     panel_off = dict(
-        t_abs=off.t_abs, z_true=zt_o, z_psid=zp_o, z_dpad=zd_o, z_varma=zv_o,
-        band_rmse_psid=band_p_off, band_rmse_dpad=band_d_off, band_rmse_varma=band_v_off,
+        t_abs=off.t_abs,
+        z_true=zt_o,
+        z_psid=zp_o,
+        z_dpad=zd_o,
+        z_varma=zv_o,
+        band_rmse_psid=band_p_off,
+        band_rmse_dpad=band_d_off,
+        band_rmse_varma=band_v_off,
     )
     panel_on = dict(
-        t_abs=on.t_abs, z_true=zt_n, z_psid=zp_n, z_dpad=zd_n, z_varma=zv_n,
-        band_rmse_psid=band_p_on, band_rmse_dpad=band_d_on, band_rmse_varma=band_v_on,
+        t_abs=on.t_abs,
+        z_true=zt_n,
+        z_psid=zp_n,
+        z_dpad=zd_n,
+        z_varma=zv_n,
+        band_rmse_psid=band_p_on,
+        band_rmse_dpad=band_d_on,
+        band_rmse_varma=band_v_on,
     )
 
-    y_meta = neural_y_feature_label(res_p, ch_idx, neural_y_feature_name=spec.neural_y_feature_name)
-    caption = thesis_exemplar_tagline(res_p, i_off, i_on, y_meta,
-                                      participant_label=spec.participant_label)
+    y_meta = neural_y_feature_label(
+        res_p, ch_idx, neural_y_feature_name=spec.neural_y_feature_name
+    )
+    caption = thesis_exemplar_tagline(
+        res_p, i_off, i_on, y_meta, participant_label=spec.participant_label
+    )
     ce = (spec.caption_extra or "").strip()
     if ce:
         caption = f"{caption} · {ce}"
 
     fig = _mpl_side_by_side_exemplar(
-        panel_off, panel_on, y_axis_label=f"z-score — {y_meta}",
+        panel_off,
+        panel_on,
+        y_axis_label=f"z-score — {y_meta}",
         segment_s=spec.exemplar_mid_segment_s,
     )
     return fig, caption
@@ -427,9 +552,13 @@ _BLUE = LinearSegmentedColormap.from_list(
 _BLUE_R = _BLUE.reversed()
 
 _METRIC_CFG = {
-    "pearson": dict(label="Pearson r", vmin=0.0, vmax=1.0, cmap=_BLUE, ticks=[0.0, 0.5, 1.0]),
-    "vaf":     dict(label="VAF",       vmin=0.0, vmax=1.0, cmap=_BLUE, ticks=[0.0, 0.5, 1.0]),
-    "rmse":    dict(label="RMSE [z]",  vmin=0.0, vmax=1.2, cmap=_BLUE_R, ticks=[0.0, 0.5, 1.0]),
+    "pearson": dict(
+        label="Pearson r", vmin=0.0, vmax=1.0, cmap=_BLUE, ticks=[0.0, 0.5, 1.0]
+    ),
+    "vaf": dict(label="VAF", vmin=0.0, vmax=1.0, cmap=_BLUE, ticks=[0.0, 0.5, 1.0]),
+    "rmse": dict(
+        label="RMSE [z]", vmin=0.0, vmax=1.2, cmap=_BLUE_R, ticks=[0.0, 0.5, 1.0]
+    ),
 }
 _COL_COLORS = {"PSID": COLOR_PSID, "DPAD": COLOR_DPAD, "VARMA": COLOR_VARMA}
 
@@ -440,22 +569,35 @@ def _draw_band_heatmap(data, cfg):
     z_off = np.asarray(data.z_off, dtype=float)
     z_on = np.asarray(data.z_on, dtype=float)
 
-    fig, axes = plt.subplots(1, 2, figsize=(max(6.0, 1.2 * len(x_labels) * 2 + 2.0), 3.2),
-                              sharey=True)
+    fig, axes = plt.subplots(
+        1, 2, figsize=(max(6.0, 1.2 * len(x_labels) * 2 + 2.0), 3.2), sharey=True
+    )
     im = None
     for ax, z_mat, badge in zip(axes, (z_off, z_on), ("DBS-OFF", "DBS-ON")):
-        im = ax.imshow(z_mat, cmap=cfg["cmap"], vmin=cfg["vmin"], vmax=cfg["vmax"],
-                       aspect="auto")
+        im = ax.imshow(
+            z_mat, cmap=cfg["cmap"], vmin=cfg["vmin"], vmax=cfg["vmax"], aspect="auto"
+        )
         for ri in range(z_mat.shape[0]):
             for ci in range(z_mat.shape[1]):
                 v = z_mat[ri, ci]
                 if not np.isfinite(v):
                     continue
                 norm = (v - cfg["vmin"]) / max(1e-9, cfg["vmax"] - cfg["vmin"])
-                txt_c = "white" if (cfg["cmap"] is _BLUE and norm > 0.55) or \
-                                    (cfg["cmap"] is _BLUE_R and norm < 0.45) else "black"
-                ax.text(ci, ri, f"{v:.2f}", ha="center", va="center",
-                        fontsize=7, color=txt_c)
+                txt_c = (
+                    "white"
+                    if (cfg["cmap"] is _BLUE and norm > 0.55)
+                    or (cfg["cmap"] is _BLUE_R and norm < 0.45)
+                    else "black"
+                )
+                ax.text(
+                    ci,
+                    ri,
+                    f"{v:.2f}",
+                    ha="center",
+                    va="center",
+                    fontsize=7,
+                    color=txt_c,
+                )
         ax.set_xticks(np.arange(len(x_labels)))
         ax.set_xticklabels(x_labels)
         for lbl, col in zip(ax.get_xticklabels(), x_labels):
@@ -465,8 +607,15 @@ def _draw_band_heatmap(data, cfg):
         badge_color = COLOR_DBS_OFF if badge == "DBS-OFF" else COLOR_DBS_ON
         ax.set_title(badge, color=badge_color)
 
-    fig.colorbar(im, ax=axes.ravel().tolist(), orientation="horizontal",
-                 shrink=0.55, pad=0.20, ticks=cfg["ticks"], label=cfg["label"])
+    fig.colorbar(
+        im,
+        ax=axes.ravel().tolist(),
+        orientation="horizontal",
+        shrink=0.55,
+        pad=0.20,
+        ticks=cfg["ticks"],
+        label=cfg["label"],
+    )
     return fig
 
 
@@ -474,11 +623,14 @@ nb_spec = THESIS_NEURAL_BAND_HEATMAPS[0]
 first_fig = None
 for metric in ("rmse", "pearson", "vaf"):
     nb_data = collect_neural_band_metric(
-        results_root, nb_spec.triplets, metric=metric, split=nb_spec.split,
+        results_root,
+        nb_spec.triplets,
+        metric=metric,
+        split=nb_spec.split,
         band_row_order=nb_spec.band_row_order,
     )
     fig = _draw_band_heatmap(nb_data, _METRIC_CFG[metric])
-    fig.savefig(str(OUT / f'fig_022_neural_band_{metric}.png'))
+    fig.savefig(str(OUT / f"fig_022_neural_band_{metric}.png"))
     if first_fig is None:
         first_fig = fig
 
@@ -500,24 +652,31 @@ from thesis_lib.forecast_horizon_rmse import collect_forecast_horizon_rmse
 _FC_NAIVE = "#444441"
 
 
-def build_forecast_rmse_figure(data, *, x_max_ms=1000.0, y_axis_title=None,
-                                column_name=""):
+def build_forecast_rmse_figure(
+    data, *, x_max_ms=1000.0, y_axis_title=None, column_name=""
+):
     y_title = y_axis_title or metric_axis_label("rmse")
     x = data.x_ms
 
     fig, axes = plt.subplots(1, 2, figsize=(8.5, 3.8), sharey=True)
 
     ymax = float(data.naive_rmse) * 1.12
-    for arr in (data.mean_psid_off, data.mean_varma_off,
-                data.mean_psid_on, data.mean_varma_on):
+    for arr in (
+        data.mean_psid_off,
+        data.mean_varma_off,
+        data.mean_psid_on,
+        data.mean_varma_on,
+    ):
         if arr.size:
             finite = arr[np.isfinite(arr)]
             if finite.size:
                 ymax = max(ymax, float(np.nanmax(finite)) * 1.08)
-    for m, s in ((data.mean_psid_off, data.sem_psid_off),
-                 (data.mean_varma_off, data.sem_varma_off),
-                 (data.mean_psid_on, data.sem_psid_on),
-                 (data.mean_varma_on, data.sem_varma_on)):
+    for m, s in (
+        (data.mean_psid_off, data.sem_psid_off),
+        (data.mean_varma_off, data.sem_varma_off),
+        (data.mean_psid_on, data.sem_psid_on),
+        (data.mean_varma_on, data.sem_varma_on),
+    ):
         if m.size and s.size and m.shape == s.shape:
             u = m + s
             u = u[np.isfinite(u)]
@@ -531,17 +690,49 @@ def build_forecast_rmse_figure(data, *, x_max_ms=1000.0, y_axis_title=None,
             ax.set_visible(False)
             return
         if mean_p.size and sem_p.size and mean_p.shape == sem_p.shape:
-            ax.fill_between(x, mean_p - sem_p, mean_p + sem_p,
-                            color=COLOR_PSID, alpha=0.15, linewidth=0)
+            ax.fill_between(
+                x,
+                mean_p - sem_p,
+                mean_p + sem_p,
+                color=COLOR_PSID,
+                alpha=0.15,
+                linewidth=0,
+            )
         if mean_v.size and sem_v.size and mean_v.shape == sem_v.shape:
-            ax.fill_between(x, mean_v - sem_v, mean_v + sem_v,
-                            color=COLOR_VARMA, alpha=0.15, linewidth=0)
-        ax.plot(x, mean_p, color=COLOR_PSID, linewidth=1.6,
-                marker="o", markersize=4, label="PSID" if show_legend else None)
-        ax.plot(x, mean_v, color=COLOR_VARMA, linewidth=1.6, linestyle="--",
-                marker="s", markersize=4, label="VARMA" if show_legend else None)
-        ax.axhline(float(data.naive_rmse), color=_FC_NAIVE, linewidth=1.0,
-                   linestyle=":", label="Naïve (mean prediction)" if show_legend else None)
+            ax.fill_between(
+                x,
+                mean_v - sem_v,
+                mean_v + sem_v,
+                color=COLOR_VARMA,
+                alpha=0.15,
+                linewidth=0,
+            )
+        ax.plot(
+            x,
+            mean_p,
+            color=COLOR_PSID,
+            linewidth=1.6,
+            marker="o",
+            markersize=4,
+            label="PSID" if show_legend else None,
+        )
+        ax.plot(
+            x,
+            mean_v,
+            color=COLOR_VARMA,
+            linewidth=1.6,
+            linestyle="--",
+            marker="s",
+            markersize=4,
+            label="VARMA" if show_legend else None,
+        )
+        ax.axhline(
+            float(data.naive_rmse),
+            color=_FC_NAIVE,
+            linewidth=1.0,
+            linestyle=":",
+            label="Naïve (mean prediction)" if show_legend else None,
+        )
 
         ax.set_xlim(0, x_max_ms)
         ax.set_xticks([0, 250, 500, 750, 1000])
@@ -549,12 +740,26 @@ def build_forecast_rmse_figure(data, *, x_max_ms=1000.0, y_axis_title=None,
         ax.set_xlabel("Forecast horizon [ms]")
         panel_label(ax, letter, badge)
 
-    _panel(axes[0], data.mean_psid_off, data.sem_psid_off,
-           data.mean_varma_off, data.sem_varma_off, "DBS-OFF", "A",
-           show_legend=True)
-    _panel(axes[1], data.mean_psid_on, data.sem_psid_on,
-           data.mean_varma_on, data.sem_varma_on, "DBS-ON", "B",
-           show_legend=False)
+    _panel(
+        axes[0],
+        data.mean_psid_off,
+        data.sem_psid_off,
+        data.mean_varma_off,
+        data.sem_varma_off,
+        "DBS-OFF",
+        "A",
+        show_legend=True,
+    )
+    _panel(
+        axes[1],
+        data.mean_psid_on,
+        data.sem_psid_on,
+        data.mean_varma_on,
+        data.sem_varma_on,
+        "DBS-ON",
+        "B",
+        show_legend=False,
+    )
 
     axes[0].set_ylabel(y_title)
     handles, labels = axes[0].get_legend_handles_labels()
@@ -569,31 +774,54 @@ def build_forecast_rmse_figure_or_empty(data, *, y_axis_title=None, column_name=
     if data is None or data.x_ms.size == 0:
         fig, ax = plt.subplots(figsize=(6.0, 2.5))
         ax.text(
-            0.5, 0.5,
+            0.5,
+            0.5,
             "No forecast data (need Z_future_true / Z_future_pred in test parquet for PSID and VARMA).",
-            ha="center", va="center", transform=ax.transAxes, color=COLOR_NS,
+            ha="center",
+            va="center",
+            transform=ax.transAxes,
+            color=COLOR_NS,
         )
         ax.set_axis_off()
         return fig
-    return build_forecast_rmse_figure(data, y_axis_title=y_axis_title, column_name=column_name)
+    return build_forecast_rmse_figure(
+        data, y_axis_title=y_axis_title, column_name=column_name
+    )
 
 
 fc_spec = THESIS_NEURAL_FORECAST_FIGURES[0]
 fc_data = collect_forecast_horizon_rmse(
-    results_root, fc_spec.triplets, channel_idx=fc_spec.channel_idx, split=fc_spec.split,
-    sampling_hz=fc_spec.sampling_hz, sample_every=fc_spec.sample_every,
-    naive_rmse=fc_spec.naive_rmse, forecast_target=fc_spec.forecast_target,
+    results_root,
+    fc_spec.triplets,
+    channel_idx=fc_spec.channel_idx,
+    split=fc_spec.split,
+    sampling_hz=fc_spec.sampling_hz,
+    sample_every=fc_spec.sample_every,
+    naive_rmse=fc_spec.naive_rmse,
+    forecast_target=fc_spec.forecast_target,
     neural_y_feature_name=fc_spec.neural_y_feature_name,
 )
-res_fc = load_split_results_required(results_root, fc_spec.triplets[0].psid_variant,
-                                      fc_spec.triplets[0].psid_run_ts, fc_spec.split)
-ch_ix = resolve_neural_y_channel_idx(res_fc, fc_spec.neural_y_feature_name, fc_spec.channel_idx)
-inn = channels_as_str_list(res_fc.get('input_channels'))
-neu_lbl = inn[ch_ix] if ch_ix < len(inn) else neural_y_feature_label(
-    res_fc, ch_ix, neural_y_feature_name=fc_spec.neural_y_feature_name)
+res_fc = load_split_results_required(
+    results_root,
+    fc_spec.triplets[0].psid_variant,
+    fc_spec.triplets[0].psid_run_ts,
+    fc_spec.split,
+)
+ch_ix = resolve_neural_y_channel_idx(
+    res_fc, fc_spec.neural_y_feature_name, fc_spec.channel_idx
+)
+inn = channels_as_str_list(res_fc.get("input_channels"))
+neu_lbl = (
+    inn[ch_ix]
+    if ch_ix < len(inn)
+    else neural_y_feature_label(
+        res_fc, ch_ix, neural_y_feature_name=fc_spec.neural_y_feature_name
+    )
+)
 fig = build_forecast_rmse_figure_or_empty(
-    fc_data, y_axis_title=metric_axis_label("rmse"), column_name=neu_lbl)
-fig.savefig(str(OUT / 'fig_023_neural_forecast_rmse.png'))
+    fc_data, y_axis_title=metric_axis_label("rmse"), column_name=neu_lbl
+)
+fig.savefig(str(OUT / "fig_023_neural_forecast_rmse.png"))
 plt.show()
 print(
     f"Fig 23: Neural forecast RMSE vs. horizon for channel '{neu_lbl}'. "
@@ -604,17 +832,27 @@ print(
 # %% [markdown]
 # ## Figs 24-28: Neural forecast metric distributions (pooled + per-session)
 
+
 # %%
-def _collect_forecast_trial_metric(triplet_specs, channel_idx, metric, *,
-                                   forecast_target="Y",
-                                   neural_y_feature_name="ECOG_1_theta_4_8_raw",
-                                   split="test"):
+def _collect_forecast_trial_metric(
+    triplet_specs,
+    channel_idx,
+    metric,
+    *,
+    forecast_target="Y",
+    neural_y_feature_name="ECOG_1_theta_4_8_raw",
+    split="test",
+):
     cells = [[] for _ in range(6)]
     cells_with_pid = [[] for _ in range(6)]
 
     for tri in triplet_specs:
-        res_p = load_split_results_required(results_root, tri.psid_variant, tri.psid_run_ts, split)
-        res_v = load_split_results_required(results_root, tri.varma_variant, tri.varma_run_ts, split)
+        res_p = load_split_results_required(
+            results_root, tri.psid_variant, tri.psid_run_ts, split
+        )
+        res_v = load_split_results_required(
+            results_root, tri.varma_variant, tri.varma_run_ts, split
+        )
         ch_use = (
             resolve_neural_y_channel_idx(res_p, neural_y_feature_name, channel_idx)
             if forecast_target == "Y"
@@ -623,49 +861,64 @@ def _collect_forecast_trial_metric(triplet_specs, channel_idx, metric, *,
         mp = _key_index_map(res_p)
         mv = _key_index_map(res_v)
         common = set(mp.keys()) & set(mv.keys())
-        for k in sorted(common, key=lambda x: (str(x[0]), str(x[1]), str(x[2]), str(x[3]))):
+        for k in sorted(
+            common, key=lambda x: (str(x[0]), str(x[1]), str(x[2]), str(x[3]))
+        ):
             i_p, i_v = mp[k], mv[k]
             stim = normalize_stim(res_p["stim"][i_p])
             if stim is None:
                 continue
-            r_p = trial_metric_forecast_for_model(res_p, i_p, ch_use, metric,
-                                                  forecast_target=forecast_target)
-            r_v = trial_metric_forecast_for_model(res_v, i_v, ch_use, metric,
-                                                  forecast_target=forecast_target)
+            r_p = trial_metric_forecast_for_model(
+                res_p, i_p, ch_use, metric, forecast_target=forecast_target
+            )
+            r_v = trial_metric_forecast_for_model(
+                res_v, i_v, ch_use, metric, forecast_target=forecast_target
+            )
             if not (np.isfinite(r_p) and np.isfinite(r_v)):
                 continue
             pid = str(k[0])
             if stim == "off":
-                cells[0].append(r_p); cells_with_pid[0].append((r_p, pid))
-                cells[4].append(r_v); cells_with_pid[4].append((r_v, pid))
+                cells[0].append(r_p)
+                cells_with_pid[0].append((r_p, pid))
+                cells[4].append(r_v)
+                cells_with_pid[4].append((r_v, pid))
             else:
-                cells[1].append(r_p); cells_with_pid[1].append((r_p, pid))
-                cells[5].append(r_v); cells_with_pid[5].append((r_v, pid))
+                cells[1].append(r_p)
+                cells_with_pid[1].append((r_p, pid))
+                cells[5].append(r_v)
+                cells_with_pid[5].append((r_v, pid))
 
     means = tuple(float(np.mean(c)) if len(c) else float("nan") for c in cells)
     sems = tuple(_sem(np.array(c)) if len(c) > 1 else float("nan") for c in cells)
     return AggregateRmseData(
-        means=means, sems=sems,
+        means=means,
+        sems=sems,
         trial_rmse=tuple(cells),
         trial_rmse_with_participant=tuple(cells_with_pid),
         n_triplets_used=len(triplet_specs),
     )
 
 
-res_first = load_split_results_required(results_root, ALL_TRIPLETS[0].psid_variant,
-                                         ALL_TRIPLETS[0].psid_run_ts, "test")
+res_first = load_split_results_required(
+    results_root, ALL_TRIPLETS[0].psid_variant, ALL_TRIPLETS[0].psid_run_ts, "test"
+)
 ch_ix_neural = resolve_neural_y_channel_idx(res_first, "ECOG_1_theta_4_8_raw", 0)
 inn0 = channels_as_str_list(res_first.get("input_channels"))
-neu_lbl_pooled = inn0[ch_ix_neural] if ch_ix_neural < len(inn0) else "ECOG_1_theta_4_8_raw"
+neu_lbl_pooled = (
+    inn0[ch_ix_neural] if ch_ix_neural < len(inn0) else "ECOG_1_theta_4_8_raw"
+)
 
 # Fig 24: pooled forecast metric
 fig = write_boxplot_three_metrics(
     collector=lambda m: _collect_forecast_trial_metric(
-        ALL_TRIPLETS, 0, m, forecast_target="Y",
+        ALL_TRIPLETS,
+        0,
+        m,
+        forecast_target="Y",
         neural_y_feature_name="ECOG_1_theta_4_8_raw",
     ),
     fig_num=24,
-    filename_stem='pooled_forecast',
+    filename_stem="pooled_forecast",
     target_label=f"forecast - {neu_lbl_pooled}",
 )
 if fig is not None:
@@ -680,11 +933,14 @@ fig_num = 25
 for tri in ALL_TRIPLETS:
     fig = write_boxplot_three_metrics(
         collector=lambda m, _tri=tri: _collect_forecast_trial_metric(
-            [_tri], 0, m, forecast_target="Y",
+            [_tri],
+            0,
+            m,
+            forecast_target="Y",
             neural_y_feature_name="ECOG_1_theta_4_8_raw",
         ),
         fig_num=fig_num,
-        filename_stem=f'session_forecast_{tri.label}',
+        filename_stem=f"session_forecast_{tri.label}",
         target_label=f"{tri.label} forecast - {neu_lbl_pooled}",
     )
     if fig is not None:
@@ -710,7 +966,8 @@ _FORECAST_FUT_ALPHA = 0.07
 def _trial_forecast_rmse(res, k_true, k_pred, trial_idx, channel_idx):
     if res is None:
         return float("nan")
-    zt = res.get(k_true); zp = res.get(k_pred)
+    zt = res.get(k_true)
+    zp = res.get(k_pred)
     if zt is None or zp is None or trial_idx >= len(zt) or trial_idx >= len(zp):
         return float("nan")
     err = _per_step_abs_err_z_future(zt[trial_idx], zp[trial_idx], channel_idx)
@@ -719,7 +976,7 @@ def _trial_forecast_rmse(res, k_true, k_pred, trial_idx, channel_idx):
     finite = err[np.isfinite(err)]
     if finite.size == 0:
         return float("nan")
-    return float(np.sqrt(np.mean(finite ** 2)))
+    return float(np.sqrt(np.mean(finite**2)))
 
 
 def _select_best_forecast_trial(res_p, res_v, res_v_split, ch_use, condition_stim):
@@ -741,7 +998,10 @@ def _select_best_forecast_trial(res_p, res_v, res_v_split, ch_use, condition_sti
         r_p = _trial_forecast_rmse(res_p, "Y_future_true", "Y_future_pred", i_p, ch_use)
         r_v = _trial_forecast_rmse(
             res_v_split if res_v_split is not None else res_v,
-            "Y_future_true", "Y_future_pred", jv, ch_use,
+            "Y_future_true",
+            "Y_future_pred",
+            jv,
+            ch_use,
         )
         if not (np.isfinite(r_p) and np.isfinite(r_v)):
             continue
@@ -754,17 +1014,27 @@ def _select_best_forecast_trial(res_p, res_v, res_v_split, ch_use, condition_sti
 
 
 def _resolve_varma_off_on(spec):
-    res_p = load_split_results_required(results_root, spec.psid_variant, spec.psid_run_ts, "test")
-    res_v = load_split_results_required(results_root, spec.varma_variant, spec.varma_run_ts, "test")
+    res_p = load_split_results_required(
+        results_root, spec.psid_variant, spec.psid_run_ts, "test"
+    )
+    res_v = load_split_results_required(
+        results_root, spec.varma_variant, spec.varma_run_ts, "test"
+    )
     res_v_off = res_v_on = None
     if "dbs_both" in spec.varma_variant:
         v_off_var = spec.varma_variant.replace("dbs_both", "dbs_off")
         v_on_var = spec.varma_variant.replace("dbs_both", "dbs_on")
         if spec.varma_run_ts_off:
-            res_v_off = load_split_results_required(results_root, v_off_var, spec.varma_run_ts_off, "test")
+            res_v_off = load_split_results_required(
+                results_root, v_off_var, spec.varma_run_ts_off, "test"
+            )
         if spec.varma_run_ts_on:
-            res_v_on = load_split_results_required(results_root, v_on_var, spec.varma_run_ts_on, "test")
-    ch_use = resolve_neural_y_channel_idx(res_p, spec.neural_y_feature_name, spec.channel_idx)
+            res_v_on = load_split_results_required(
+                results_root, v_on_var, spec.varma_run_ts_on, "test"
+            )
+    ch_use = resolve_neural_y_channel_idx(
+        res_p, spec.neural_y_feature_name, spec.channel_idx
+    )
     return res_p, res_v, res_v_off, res_v_on, ch_use
 
 
@@ -783,20 +1053,41 @@ def _mpl_forecast_panel(rowdata, neu_lbl, condition_label):
 
     fig, ax = plt.subplots(figsize=(8.5, 3.2))
     if t_full.size and n_hist > 0:
-        ax.axvspan(float(t_full[0]), float(t_full[n_hist - 1]),
-                   color=COLOR_DBS_OFF, alpha=_FORECAST_CTX_ALPHA, linewidth=0)
+        ax.axvspan(
+            float(t_full[0]),
+            float(t_full[n_hist - 1]),
+            color=COLOR_DBS_OFF,
+            alpha=_FORECAST_CTX_ALPHA,
+            linewidth=0,
+        )
     if t_full.size and n_hist < len(t_full):
-        ax.axvspan(float(t_full[n_hist]), float(t_full[-1]),
-                   color=COLOR_DBS_ON, alpha=_FORECAST_FUT_ALPHA, linewidth=0)
-        ax.axvline(float(t_full[n_hist]), color="#444441", linewidth=1.0,
-                   linestyle="--", alpha=0.6)
+        ax.axvspan(
+            float(t_full[n_hist]),
+            float(t_full[-1]),
+            color=COLOR_DBS_ON,
+            alpha=_FORECAST_FUT_ALPHA,
+            linewidth=0,
+        )
+        ax.axvline(
+            float(t_full[n_hist]),
+            color="#444441",
+            linewidth=1.0,
+            linestyle="--",
+            alpha=0.6,
+        )
 
     ax.plot(t_plot, _gap(z_true), color=COLOR_TRUE, linewidth=1.4, label="y_true")
     if not np.all(np.isnan(z_psid)):
         ax.plot(t_plot, _gap(z_psid), color=COLOR_PSID, linewidth=1.2, label="PSID")
     if not np.all(np.isnan(z_varma)):
-        ax.plot(t_plot, _gap(z_varma), color=COLOR_VARMA, linewidth=1.2,
-                linestyle=(0, (4, 1)), label="VARMA")
+        ax.plot(
+            t_plot,
+            _gap(z_varma),
+            color=COLOR_VARMA,
+            linewidth=1.2,
+            linestyle=(0, (4, 1)),
+            label="VARMA",
+        )
 
     ax.set_xlabel("trial time (s)")
     ax.set_ylabel(f"z-score — {neu_lbl}")
@@ -811,31 +1102,55 @@ for c2_spec in THESIS_C2_FORECASTS:
     inn = channels_as_str_list(res_p.get("input_channels"))
     neu_lbl_c = inn[ch_use] if ch_use < len(inn) else c2_spec.neural_y_feature_name
 
-    for cond_lbl, cond_stim, rv_split in (("OFF", "off", res_v_off), ("ON", "on", res_v_on)):
+    for cond_lbl, cond_stim, rv_split in (
+        ("OFF", "off", res_v_off),
+        ("ON", "on", res_v_on),
+    ):
         i_best, jv_best, rmse_p, rmse_v = _select_best_forecast_trial(
-            res_p, res_v, rv_split, ch_use, cond_stim,
+            res_p,
+            res_v,
+            rv_split,
+            ch_use,
+            cond_stim,
         )
         if i_best is None:
-            print(f"Fig {fig_num}: SKIP - no aligned forecast trial for "
-                  f"{c2_spec.section_title} {cond_lbl}.")
+            print(
+                f"Fig {fig_num}: SKIP - no aligned forecast trial for "
+                f"{c2_spec.section_title} {cond_lbl}."
+            )
             fig_num += 1
             continue
         rv_use = rv_split if rv_split is not None else res_v
         rowdata = _forecast_rowdata(
-            res_p, None, rv_use, i_best, ch_use, c2_spec,
-            sigma_z=None, varma_trial_idx=jv_best,
+            res_p,
+            None,
+            rv_use,
+            i_best,
+            ch_use,
+            c2_spec,
+            sigma_z=None,
+            varma_trial_idx=jv_best,
         )
         if rowdata is None:
-            print(f"Fig {fig_num}: SKIP - forecast row data unavailable for "
-                  f"{c2_spec.section_title} {cond_lbl}.")
+            print(
+                f"Fig {fig_num}: SKIP - forecast row data unavailable for "
+                f"{c2_spec.section_title} {cond_lbl}."
+            )
             fig_num += 1
             continue
         fig = _mpl_forecast_panel(rowdata, neu_lbl_c, cond_lbl)
-        fig.savefig(str(OUT / f'fig_{fig_num:03d}_neural_forecast_{c2_spec.section_title}_{cond_lbl}.png'))
+        fig.savefig(
+            str(
+                OUT
+                / f"fig_{fig_num:03d}_neural_forecast_{c2_spec.section_title}_{cond_lbl}.png"
+            )
+        )
         plt.show()
         keys_p = (
-            res_p.get("participant_id"), res_p.get("session"),
-            res_p.get("block"), res_p.get("trial"),
+            res_p.get("participant_id"),
+            res_p.get("session"),
+            res_p.get("block"),
+            res_p.get("trial"),
         )
 
         def _g(seq, idx, default="?"):
@@ -843,6 +1158,7 @@ for c2_spec in THESIS_C2_FORECASTS:
                 return seq[idx]
             except Exception:
                 return default
+
         pid_v = _g(keys_p[0], i_best) if keys_p[0] is not None else "?"
         sess_v = _g(keys_p[1], i_best) if keys_p[1] is not None else "?"
         blk_v = _g(keys_p[2], i_best) if keys_p[2] is not None else "?"
@@ -865,14 +1181,26 @@ for c2_spec in THESIS_C2_FORECASTS:
 vanilla_fig_num = 37
 
 _VANILLA_SESSIONS = [
-    ("PDI1_S2", "psid_behavioral_PDI1_2_nx_80_n12_i40_dbs_both_narrow_band",
-                "psid_behavioral_PDI1_2_nx_80_n12_i40_vanilla_dbs_both_narrow_band"),
-    ("PDI1_S4", "psid_behavioral_PDI1_4_nx_80_n6_i40_dbs_both_narrow_band",
-                "psid_behavioral_PDI1_4_nx_80_n6_i40_vanilla_dbs_both_narrow_band"),
-    ("PDI4_S2", "psid_behavioral_PDI4_2_nx_80_n10_i40_dbs_both_narrow_band",
-                "psid_behavioral_PDI4_2_nx_80_n10_i40_vanilla_dbs_both_narrow_band"),
-    ("PDI4_S3", "psid_behavioral_PDI4_3_nx65_n10_i40_dbs_both_narrow_band",
-                "psid_behavioral_PDI4_3_nx65_n10_i40_vanilla_dbs_both_narrow_band"),
+    (
+        "PDI1_S2",
+        "psid_behavioral_PDI1_2_nx_80_n12_i40_dbs_both_narrow_band",
+        "psid_behavioral_PDI1_2_nx_80_n12_i40_vanilla_dbs_both_narrow_band",
+    ),
+    (
+        "PDI1_S4",
+        "psid_behavioral_PDI1_4_nx_80_n6_i40_dbs_both_narrow_band",
+        "psid_behavioral_PDI1_4_nx_80_n6_i40_vanilla_dbs_both_narrow_band",
+    ),
+    (
+        "PDI4_S2",
+        "psid_behavioral_PDI4_2_nx_80_n10_i40_dbs_both_narrow_band",
+        "psid_behavioral_PDI4_2_nx_80_n10_i40_vanilla_dbs_both_narrow_band",
+    ),
+    (
+        "PDI4_S3",
+        "psid_behavioral_PDI4_3_nx65_n10_i40_dbs_both_narrow_band",
+        "psid_behavioral_PDI4_3_nx65_n10_i40_vanilla_dbs_both_narrow_band",
+    ),
 ]
 
 labels = []
@@ -887,19 +1215,29 @@ for label, improved_dir, vanilla_dir in _VANILLA_SESSIONS:
     ]:
         res_path = results_root / result_dir
         if not res_path.exists():
-            r_list.append(np.nan); rmse_z_list.append(np.nan); rmse_y_list.append(np.nan)
+            r_list.append(np.nan)
+            rmse_z_list.append(np.nan)
+            rmse_y_list.append(np.nan)
             continue
         train_dir = res_path / "train"
-        parquets = list(train_dir.glob("test_results_*.parquet")) if train_dir.exists() else []
+        parquets = (
+            list(train_dir.glob("test_results_*.parquet")) if train_dir.exists() else []
+        )
         if not parquets:
-            r_list.append(np.nan); rmse_z_list.append(np.nan); rmse_y_list.append(np.nan)
+            r_list.append(np.nan)
+            rmse_z_list.append(np.nan)
+            rmse_y_list.append(np.nan)
             continue
         try:
             tdf = pl.read_parquet(parquets[0])
             for col_name in ["metric_pearson_r_mean_Z", "pearson_mean_Z"]:
                 if col_name in tdf.columns:
                     vals = tdf[col_name].to_list()
-                    valid = [v for v in vals if v is not None and not (isinstance(v, float) and np.isnan(v))]
+                    valid = [
+                        v
+                        for v in vals
+                        if v is not None and not (isinstance(v, float) and np.isnan(v))
+                    ]
                     r_list.append(float(np.mean(valid)) if valid else np.nan)
                     break
             else:
@@ -914,7 +1252,9 @@ for label, improved_dir, vanilla_dir in _VANILLA_SESSIONS:
             else:
                 rmse_y_list.append(np.nan)
         except Exception:
-            r_list.append(np.nan); rmse_z_list.append(np.nan); rmse_y_list.append(np.nan)
+            r_list.append(np.nan)
+            rmse_z_list.append(np.nan)
+            rmse_y_list.append(np.nan)
     labels.append(label)
 
 _C_IMP, _C_VAN = COLOR_PSID, "#D97706"
@@ -925,26 +1265,39 @@ _w = 0.38
 
 fig, axes = plt.subplots(1, 3, figsize=(9.5, 3.5))
 _panel_data = [
-    (np.asarray(r_improved_z, dtype=float), np.asarray(r_vanilla_z, dtype=float),
-     "Pearson r", "A", "Pearson r - behavioural"),
-    (np.asarray(rmse_improved_z, dtype=float), np.asarray(rmse_vanilla_z, dtype=float),
-     "RMSE [z]", "B", "RMSE(z) - behavioural"),
-    (np.asarray(rmse_improved_y, dtype=float), np.asarray(rmse_vanilla_y, dtype=float),
-     "RMSE [z]", "C", "RMSE(z) - neural"),
+    (
+        np.asarray(r_improved_z, dtype=float),
+        np.asarray(r_vanilla_z, dtype=float),
+        "Pearson r",
+        "A",
+        "Pearson r - behavioural",
+    ),
+    (
+        np.asarray(rmse_improved_z, dtype=float),
+        np.asarray(rmse_vanilla_z, dtype=float),
+        "RMSE [z]",
+        "B",
+        "RMSE(z) - behavioural",
+    ),
+    (
+        np.asarray(rmse_improved_y, dtype=float),
+        np.asarray(rmse_vanilla_y, dtype=float),
+        "RMSE [z]",
+        "C",
+        "RMSE(z) - neural",
+    ),
 ]
 for ci, (y_imp, y_van, y_title, letter, panel_desc) in enumerate(_panel_data):
     ax = axes[ci]
-    ax.bar(_x - _w / 2, y_imp, _w, color=_C_IMP,
-           label=_LBL_IMP if ci == 0 else None)
-    ax.bar(_x + _w / 2, y_van, _w, color=_C_VAN,
-           label=_LBL_VAN if ci == 0 else None)
+    ax.bar(_x - _w / 2, y_imp, _w, color=_C_IMP, label=_LBL_IMP if ci == 0 else None)
+    ax.bar(_x + _w / 2, y_van, _w, color=_C_VAN, label=_LBL_VAN if ci == 0 else None)
     ax.set_xticks(_x)
     ax.set_xticklabels(labels)
     ax.set_ylabel(y_title)
     panel_label(ax, letter, panel_desc)
 
 fig.legend()
-fig.savefig(str(OUT / f'fig_{vanilla_fig_num:03d}_vanilla_comparison.png'))
+fig.savefig(str(OUT / f"fig_{vanilla_fig_num:03d}_vanilla_comparison.png"))
 plt.show()
 print(
     f"Fig {vanilla_fig_num}: PSID vanilla vs RTS + A regularization on the same nx/n1 grid "
@@ -958,6 +1311,7 @@ print(
 # %%
 import json as _gs_json
 import importlib as _importlib
+
 _gs_serial = _importlib.import_module("pic" + "kle")  # nosec — trusted in-repo outputs
 
 _GS_SELECTED = {
@@ -1047,7 +1401,9 @@ for si, (pid, sess, label) in enumerate(_GS_SESSIONS):
             if matches:
                 mat[n1i, xi] = max(matches)
 
-    im = ax.imshow(mat, cmap="Blues", vmin=_vmin, vmax=_vmax, origin="lower", aspect="auto")
+    im = ax.imshow(
+        mat, cmap="Blues", vmin=_vmin, vmax=_vmax, origin="lower", aspect="auto"
+    )
     _im = im
 
     for n1i in range(len(_all_n1)):
@@ -1056,8 +1412,15 @@ for si, (pid, sess, label) in enumerate(_GS_SESSIONS):
             if np.isfinite(val):
                 norm = (val - _vmin) / max(1e-9, (_vmax - _vmin))
                 text_color = "white" if norm > 0.55 else "black"
-                ax.text(xi, n1i, f"{val:.3f}", ha="center", va="center",
-                        fontsize=8, color=text_color)
+                ax.text(
+                    xi,
+                    n1i,
+                    f"{val:.3f}",
+                    ha="center",
+                    va="center",
+                    fontsize=8,
+                    color=text_color,
+                )
 
     ax.set_xticks(np.arange(len(_all_nx)))
     ax.set_xticklabels([str(v) for v in _all_nx])
@@ -1069,22 +1432,43 @@ for si, (pid, sess, label) in enumerate(_GS_SESSIONS):
         ax.set_ylabel(r"$n_1$")
 
     if not rows_arr:
-        ax.text(0.5, 0.5, "no grid-search data", ha="center", va="center",
-                transform=ax.transAxes, style="italic", color=COLOR_NS)
+        ax.text(
+            0.5,
+            0.5,
+            "no grid-search data",
+            ha="center",
+            va="center",
+            transform=ax.transAxes,
+            style="italic",
+            color=COLOR_NS,
+        )
 
     picked = _GS_SELECTED.get(label)
-    if rows_arr and picked is not None and picked[0] in _all_nx and picked[1] in _all_n1:
+    if (
+        rows_arr
+        and picked is not None
+        and picked[0] in _all_nx
+        and picked[1] in _all_n1
+    ):
         bx = _all_nx.index(picked[0])
         by = _all_n1.index(picked[1])
-        ax.add_patch(plt.Rectangle((bx - 0.5, by - 0.5), 1.0, 1.0,
-                                    fill=False, edgecolor=COLOR_CHANCE, linewidth=2.0))
+        ax.add_patch(
+            plt.Rectangle(
+                (bx - 0.5, by - 0.5),
+                1.0,
+                1.0,
+                fill=False,
+                edgecolor=COLOR_CHANCE,
+                linewidth=2.0,
+            )
+        )
 
     panel_label(ax, _panel_letters[si], label)
 
 if _im is not None:
     fig.colorbar(_im, ax=axes.ravel().tolist(), shrink=0.7, label="Balanced accuracy")
 
-fig.savefig(str(OUT / 'fig_038_grid_search_ba_heatmap.png'))
+fig.savefig(str(OUT / "fig_038_grid_search_ba_heatmap.png"))
 plt.show()
 
 _have = [label for label, rows_arr in _gs_data.items() if rows_arr]
@@ -1102,12 +1486,16 @@ print(
 # Per-session PSID-best neural channel picked on Pearson r from DPAD ∩ VARMA top-5 candidates
 # so all three models are scored on the same channel.
 
+
 # %%
-def _resolve_per_session_channels(triplet_specs, *, pick_metric="pearson", split="test"):
+def _resolve_per_session_channels(
+    triplet_specs, *, pick_metric="pearson", split="test"
+):
     out = {}
     for tri in triplet_specs:
         res_p = load_split_results_required(
-            results_root, tri.psid_variant, tri.psid_run_ts, split)
+            results_root, tri.psid_variant, tri.psid_run_ts, split
+        )
         ch_p = resolve_input_channels(res_p, tri.psid_variant)
         ch_d = resolve_input_channels(None, tri.dpad_variant)
         ch_v = resolve_input_channels(None, tri.varma_variant)
@@ -1116,7 +1504,8 @@ def _resolve_per_session_channels(triplet_specs, *, pick_metric="pearson", split
             common = [c for c in (ch_d or ch_v) if c in ch_p] or list(ch_p)
         psid_ix_candidates = [ch_p.index(c) for c in common]
         best_psid_ix = pick_best_feature_for_psid(
-            res_p, psid_ix_candidates, metric=pick_metric, target="Y")
+            res_p, psid_ix_candidates, metric=pick_metric, target="Y"
+        )
         best_name = ch_p[best_psid_ix]
         out[tri.label] = dict(
             name=best_name,
@@ -1142,10 +1531,18 @@ def _collect_pooled_metric_y(triplet_specs, session_channels, metric, split="tes
         ix_p, ix_d, ix_v = ix["psid"], ix["dpad"], ix["varma"]
         if ix_p is None or ix_v is None:
             continue
-        res_p = load_split_results_required(results_root, tri.psid_variant, tri.psid_run_ts, split)
-        res_v = load_split_results_required(results_root, tri.varma_variant, tri.varma_run_ts, split)
+        res_p = load_split_results_required(
+            results_root, tri.psid_variant, tri.psid_run_ts, split
+        )
+        res_v = load_split_results_required(
+            results_root, tri.varma_variant, tri.varma_run_ts, split
+        )
         has_dp = show_dpad and bool(tri.dpad_run_ts) and ix_d is not None
-        res_d = load_split_results(results_root, tri.dpad_variant, tri.dpad_run_ts, split) if has_dp else None
+        res_d = (
+            load_split_results(results_root, tri.dpad_variant, tri.dpad_run_ts, split)
+            if has_dp
+            else None
+        )
         mp, mv = _key_index_map(res_p), _key_index_map(res_v)
         md = _key_index_map(res_d) if res_d else {}
         common = set(mp.keys()) & set(mv.keys())
@@ -1154,7 +1551,9 @@ def _collect_pooled_metric_y(triplet_specs, session_channels, metric, split="tes
         if not common:
             continue
         n_ok += 1
-        for k in sorted(common, key=lambda x: (str(x[0]), str(x[1]), str(x[2]), str(x[3]))):
+        for k in sorted(
+            common, key=lambda x: (str(x[0]), str(x[1]), str(x[2]), str(x[3]))
+        ):
             i_p, i_v = mp[k], mv[k]
             stim = normalize_stim(res_p["stim"][i_p])
             if stim is None:
@@ -1164,34 +1563,48 @@ def _collect_pooled_metric_y(triplet_specs, session_channels, metric, split="tes
                 r_v = trial_metric_y_for_model(res_v, i_v, ix_v, metric)
                 r_d = (
                     trial_metric_y_for_model(res_d, md[k], ix_d, metric)
-                    if (res_d and k in md and ix_d is not None) else float("nan")
+                    if (res_d and k in md and ix_d is not None)
+                    else float("nan")
                 )
             except (ValueError, IndexError, KeyError):
                 continue
             pid = str(k[0])
             d_ok = show_dpad and np.isfinite(r_d)
             if stim == "off":
-                cells[0].append(r_p); cells[4].append(r_v)
+                cells[0].append(r_p)
+                cells[4].append(r_v)
                 cells_pid[0].append((r_p, pid))
                 cells_pid[4].append((r_v, pid))
                 if d_ok:
-                    cells[2].append(r_d); cells_pid[2].append((r_d, pid))
+                    cells[2].append(r_d)
+                    cells_pid[2].append((r_d, pid))
             else:
-                cells[1].append(r_p); cells[5].append(r_v)
+                cells[1].append(r_p)
+                cells[5].append(r_v)
                 cells_pid[1].append((r_p, pid))
                 cells_pid[5].append((r_v, pid))
                 if d_ok:
-                    cells[3].append(r_d); cells_pid[3].append((r_d, pid))
+                    cells[3].append(r_d)
+                    cells_pid[3].append((r_d, pid))
     means = tuple(
-        float(np.mean([v for v in c if np.isfinite(v)])) if any(np.isfinite(v) for v in c) else float("nan")
+        (
+            float(np.mean([v for v in c if np.isfinite(v)]))
+            if any(np.isfinite(v) for v in c)
+            else float("nan")
+        )
         for c in cells
     )
     sems = tuple(
-        _sem(np.array([v for v in c if np.isfinite(v)]))
-        if sum(1 for v in c if np.isfinite(v)) > 1 else float("nan") for c in cells
+        (
+            _sem(np.array([v for v in c if np.isfinite(v)]))
+            if sum(1 for v in c if np.isfinite(v)) > 1
+            else float("nan")
+        )
+        for c in cells
     )
     return AggregateRmseData(
-        means=means, sems=sems,
+        means=means,
+        sems=sems,
         trial_rmse=tuple(cells),
         trial_rmse_with_participant=tuple(cells_pid),
         n_triplets_used=n_ok,
@@ -1200,7 +1613,9 @@ def _collect_pooled_metric_y(triplet_specs, session_channels, metric, split="tes
 
 
 _session_channels = _resolve_per_session_channels(ALL_TRIPLETS, pick_metric="pearson")
-_pick_summary = ", ".join(f"{lbl}: {sc['name']}" for lbl, sc in _session_channels.items())
+_pick_summary = ", ".join(
+    f"{lbl}: {sc['name']}" for lbl, sc in _session_channels.items()
+)
 
 # Fig 39: pooled across 4 sessions
 fig = write_boxplot_three_metrics(
@@ -1221,9 +1636,11 @@ fig_num = 40
 for tri in ALL_TRIPLETS:
     sc = _session_channels[tri.label]
     fig = write_boxplot_three_metrics(
-        collector=lambda m, _tri=tri: _collect_pooled_metric_y([_tri], _session_channels, m),
+        collector=lambda m, _tri=tri: _collect_pooled_metric_y(
+            [_tri], _session_channels, m
+        ),
         fig_num=fig_num,
-        filename_stem=f'session_neural_pred_{tri.label}',
+        filename_stem=f"session_neural_pred_{tri.label}",
         target_label=f"{tri.label} - {sc['name']}",
     )
     if fig is not None:
@@ -1236,5 +1653,5 @@ for tri in ALL_TRIPLETS:
     fig_num += 1
 
 # %%
-n = len(list(OUT.glob('*.png')))
-print(f'Section 2 total: {n} figures')
+n = len(list(OUT.glob("*.png")))
+print(f"Section 2 total: {n} figures")

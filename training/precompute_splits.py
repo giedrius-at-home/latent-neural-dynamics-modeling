@@ -28,7 +28,11 @@ import polars as pl
 import yaml
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DATA_ROOT = PROJECT_ROOT / "resampled_recordings" / "participants_at_200Hz_scaled_1e6_narrow_band"
+DATA_ROOT = (
+    PROJECT_ROOT
+    / "resampled_recordings"
+    / "participants_at_200Hz_scaled_1e6_narrow_band"
+)
 OUT_DIR = PROJECT_ROOT / "configs" / "splits"
 
 
@@ -42,9 +46,15 @@ def block_metadata(participant: str, session: str) -> pl.DataFrame:
         df = pl.read_parquet(pq_files[0])
         block_id = int(b.name.split("=")[1])
         stim_vals = [str(v).lower() for v in df["stim"].unique().to_list()]
-        dbs = "mixed" if len(set(stim_vals)) > 1 else ("on" if stim_vals[0] in ("on", "true", "1") else "off")
+        dbs = (
+            "mixed"
+            if len(set(stim_vals)) > 1
+            else ("on" if stim_vals[0] in ("on", "true", "1") else "off")
+        )
         trial_col = "trial" if "trial" in df.columns else "trial_number"
-        rows.append({"block": block_id, "dbs": dbs, "n_trials": df[trial_col].n_unique()})
+        rows.append(
+            {"block": block_id, "dbs": dbs, "n_trials": df[trial_col].n_unique()}
+        )
     return pl.DataFrame(rows).sort("block")
 
 
@@ -67,8 +77,7 @@ def allocate(blocks_df: pl.DataFrame, train_frac: float, test_frac: float) -> di
                 fold_map[b] = "val"
     else:
         per_cond = {
-            c: blocks_df.filter(pl.col("dbs") == c)["block"].to_list()
-            for c in conds
+            c: blocks_df.filter(pl.col("dbs") == c)["block"].to_list() for c in conds
         }
         min_n = min(len(v) for v in per_cond.values())
         n_train = round(train_frac * min_n)
@@ -130,9 +139,7 @@ def main():
         off_n = meta.filter(pl.col("dbs") == "off").height
         on_n = meta.filter(pl.col("dbs") == "on").height
         dbs_of = meta.with_columns(pl.col("block").cast(pl.Int64))
-        cond_by_block = {
-            r["block"]: r["dbs"] for r in dbs_of.iter_rows(named=True)
-        }
+        cond_by_block = {r["block"]: r["dbs"] for r in dbs_of.iter_rows(named=True)}
         trials_by_block = {
             r["block"]: r["n_trials"] for r in meta.iter_rows(named=True)
         }

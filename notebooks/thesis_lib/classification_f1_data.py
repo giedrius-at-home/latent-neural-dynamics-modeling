@@ -110,8 +110,8 @@ class ClassificationRocCurve:
     participant_label: str
     session_label: str
     group: FeatureGroupF1
-    fpr: Any   # np.ndarray
-    tpr: Any   # np.ndarray
+    fpr: Any  # np.ndarray
+    tpr: Any  # np.ndarray
     roc_auc: float
 
 
@@ -138,14 +138,16 @@ def collect_classification_roc_curves(
         if fpr is None or tpr is None:
             continue
         try:
-            out.append(ClassificationRocCurve(
-                participant_label=ref.participant_label,
-                session_label=ref.session_label,
-                group=ref.group,
-                fpr=_np.asarray(fpr, dtype=float),
-                tpr=_np.asarray(tpr, dtype=float),
-                roc_auc=float(auc),
-            ))
+            out.append(
+                ClassificationRocCurve(
+                    participant_label=ref.participant_label,
+                    session_label=ref.session_label,
+                    group=ref.group,
+                    fpr=_np.asarray(fpr, dtype=float),
+                    tpr=_np.asarray(tpr, dtype=float),
+                    roc_auc=float(auc),
+                )
+            )
         except Exception:
             continue
     return out

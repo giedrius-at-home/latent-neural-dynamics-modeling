@@ -29,8 +29,15 @@ class TrialDataset(Dataset):
         )
 
         meta_cols = [
-            "participant_id", "session", "block", "trial", "time",
-            "chunk_margin", "margined_duration", "stim", "offset",
+            "participant_id",
+            "session",
+            "block",
+            "trial",
+            "time",
+            "chunk_margin",
+            "margined_duration",
+            "stim",
+            "offset",
         ]
         needed_cols = list(meta_cols)
         needed_cols.extend(self.neural_input)

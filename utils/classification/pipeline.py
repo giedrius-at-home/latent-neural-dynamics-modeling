@@ -6,6 +6,7 @@ So instead of ``GridSearchCV`` we just fit the pipeline across
 ``ChronoGroupsSplit`` folds, collect balanced accuracy per fold, and re-fit on
 the full training pool for the final ``best_pipeline``.
 """
+
 from typing import Any, Dict, Optional, Tuple
 import warnings
 

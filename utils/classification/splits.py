@@ -4,6 +4,7 @@
 balanced class coverage in test while preserving chronological grouping in
 train. Consumed by ``run_grid_search_cv`` and ``run_permutation_test``.
 """
+
 from typing import Any, Optional
 
 import numpy as np

@@ -168,10 +168,16 @@ def collect_within_cross_rmse(
 
     for tri in triplet_specs:
         psid_off = load_split_results_required(
-            results_root, _variant_off(tri.psid_variant), triplet_branch_timestamp(tri, "psid", "off"), split
+            results_root,
+            _variant_off(tri.psid_variant),
+            triplet_branch_timestamp(tri, "psid", "off"),
+            split,
         )
         psid_on = load_split_results_required(
-            results_root, _variant_on(tri.psid_variant), triplet_branch_timestamp(tri, "psid", "on"), split
+            results_root,
+            _variant_on(tri.psid_variant),
+            triplet_branch_timestamp(tri, "psid", "on"),
+            split,
         )
         psid_on_eval_off = load_split_results_required(
             results_root,
@@ -188,10 +194,16 @@ def collect_within_cross_rmse(
         _dpad_available = bool(tri.dpad_run_ts_off and tri.dpad_run_ts_on)
         if _dpad_available:
             dpad_off = load_split_results(
-                results_root, _variant_off(tri.dpad_variant), triplet_branch_timestamp(tri, "dpad", "off"), split
+                results_root,
+                _variant_off(tri.dpad_variant),
+                triplet_branch_timestamp(tri, "dpad", "off"),
+                split,
             )
             dpad_on = load_split_results(
-                results_root, _variant_on(tri.dpad_variant), triplet_branch_timestamp(tri, "dpad", "on"), split
+                results_root,
+                _variant_on(tri.dpad_variant),
+                triplet_branch_timestamp(tri, "dpad", "on"),
+                split,
             )
             dpad_on_eval_off = load_split_results(
                 results_root,
@@ -208,10 +220,16 @@ def collect_within_cross_rmse(
         else:
             dpad_off = dpad_on = dpad_on_eval_off = dpad_off_eval_on = None
         varma_off = load_split_results_required(
-            results_root, _variant_off(tri.varma_variant), triplet_branch_timestamp(tri, "varma", "off"), split
+            results_root,
+            _variant_off(tri.varma_variant),
+            triplet_branch_timestamp(tri, "varma", "off"),
+            split,
         )
         varma_on = load_split_results_required(
-            results_root, _variant_on(tri.varma_variant), triplet_branch_timestamp(tri, "varma", "on"), split
+            results_root,
+            _variant_on(tri.varma_variant),
+            triplet_branch_timestamp(tri, "varma", "on"),
+            split,
         )
         varma_on_eval_off = load_split_results_required(
             results_root,
@@ -231,83 +249,123 @@ def collect_within_cross_rmse(
         common_off = set(mp_off.keys())
         common_on = set(mp_on.keys())
 
-        for k in sorted(common_off, key=lambda x: (str(x[0]), str(x[1]), str(x[2]), str(x[3]))):
+        for k in sorted(
+            common_off, key=lambda x: (str(x[0]), str(x[1]), str(x[2]), str(x[3]))
+        ):
             i = mp_off[k]
             try:
                 r = trial_rmse_z_for_model(psid_off, i, channel_idx)
                 out.psid_off_within.append(r)
             except Exception:
                 continue
-            i_cross = _key_index_map(psid_on_eval_off).get(k) if psid_on_eval_off else None
+            i_cross = (
+                _key_index_map(psid_on_eval_off).get(k) if psid_on_eval_off else None
+            )
             if i_cross is not None:
                 try:
-                    out.psid_off_cross.append(trial_rmse_z_for_model(psid_on_eval_off, i_cross, channel_idx))
+                    out.psid_off_cross.append(
+                        trial_rmse_z_for_model(psid_on_eval_off, i_cross, channel_idx)
+                    )
                 except Exception:
                     pass
 
             i_d = _key_index_map(dpad_off).get(k) if dpad_off else None
             if i_d is not None:
                 try:
-                    out.dpad_off_within.append(trial_rmse_z_for_model(dpad_off, i_d, channel_idx))
+                    out.dpad_off_within.append(
+                        trial_rmse_z_for_model(dpad_off, i_d, channel_idx)
+                    )
                 except Exception:
                     pass
-            i_d_cross = _key_index_map(dpad_on_eval_off).get(k) if dpad_on_eval_off else None
+            i_d_cross = (
+                _key_index_map(dpad_on_eval_off).get(k) if dpad_on_eval_off else None
+            )
             if i_d_cross is not None:
                 try:
-                    out.dpad_off_cross.append(trial_rmse_z_for_model(dpad_on_eval_off, i_d_cross, channel_idx))
+                    out.dpad_off_cross.append(
+                        trial_rmse_z_for_model(dpad_on_eval_off, i_d_cross, channel_idx)
+                    )
                 except Exception:
                     pass
 
             i_v = _key_index_map(varma_off).get(k) if varma_off else None
             if i_v is not None:
                 try:
-                    out.varma_off_within.append(trial_rmse_z_for_model(varma_off, i_v, channel_idx))
+                    out.varma_off_within.append(
+                        trial_rmse_z_for_model(varma_off, i_v, channel_idx)
+                    )
                 except Exception:
                     pass
-            i_v_cross = _key_index_map(varma_on_eval_off).get(k) if varma_on_eval_off else None
+            i_v_cross = (
+                _key_index_map(varma_on_eval_off).get(k) if varma_on_eval_off else None
+            )
             if i_v_cross is not None:
                 try:
-                    out.varma_off_cross.append(trial_rmse_z_for_model(varma_on_eval_off, i_v_cross, channel_idx))
+                    out.varma_off_cross.append(
+                        trial_rmse_z_for_model(
+                            varma_on_eval_off, i_v_cross, channel_idx
+                        )
+                    )
                 except Exception:
                     pass
 
-        for k in sorted(common_on, key=lambda x: (str(x[0]), str(x[1]), str(x[2]), str(x[3]))):
+        for k in sorted(
+            common_on, key=lambda x: (str(x[0]), str(x[1]), str(x[2]), str(x[3]))
+        ):
             i = mp_on[k]
             try:
                 r = trial_rmse_z_for_model(psid_on, i, channel_idx)
                 out.psid_on_within.append(r)
             except Exception:
                 continue
-            i_cross = _key_index_map(psid_off_eval_on).get(k) if psid_off_eval_on else None
+            i_cross = (
+                _key_index_map(psid_off_eval_on).get(k) if psid_off_eval_on else None
+            )
             if i_cross is not None:
                 try:
-                    out.psid_on_cross.append(trial_rmse_z_for_model(psid_off_eval_on, i_cross, channel_idx))
+                    out.psid_on_cross.append(
+                        trial_rmse_z_for_model(psid_off_eval_on, i_cross, channel_idx)
+                    )
                 except Exception:
                     pass
 
             i_d = _key_index_map(dpad_on).get(k) if dpad_on else None
             if i_d is not None:
                 try:
-                    out.dpad_on_within.append(trial_rmse_z_for_model(dpad_on, i_d, channel_idx))
+                    out.dpad_on_within.append(
+                        trial_rmse_z_for_model(dpad_on, i_d, channel_idx)
+                    )
                 except Exception:
                     pass
-            i_d_cross = _key_index_map(dpad_off_eval_on).get(k) if dpad_off_eval_on else None
+            i_d_cross = (
+                _key_index_map(dpad_off_eval_on).get(k) if dpad_off_eval_on else None
+            )
             if i_d_cross is not None:
                 try:
-                    out.dpad_on_cross.append(trial_rmse_z_for_model(dpad_off_eval_on, i_d_cross, channel_idx))
+                    out.dpad_on_cross.append(
+                        trial_rmse_z_for_model(dpad_off_eval_on, i_d_cross, channel_idx)
+                    )
                 except Exception:
                     pass
 
             i_v = _key_index_map(varma_on).get(k) if varma_on else None
             if i_v is not None:
                 try:
-                    out.varma_on_within.append(trial_rmse_z_for_model(varma_on, i_v, channel_idx))
+                    out.varma_on_within.append(
+                        trial_rmse_z_for_model(varma_on, i_v, channel_idx)
+                    )
                 except Exception:
                     pass
-            i_v_cross = _key_index_map(varma_off_eval_on).get(k) if varma_off_eval_on else None
+            i_v_cross = (
+                _key_index_map(varma_off_eval_on).get(k) if varma_off_eval_on else None
+            )
             if i_v_cross is not None:
                 try:
-                    out.varma_on_cross.append(trial_rmse_z_for_model(varma_off_eval_on, i_v_cross, channel_idx))
+                    out.varma_on_cross.append(
+                        trial_rmse_z_for_model(
+                            varma_off_eval_on, i_v_cross, channel_idx
+                        )
+                    )
                 except Exception:
                     pass
 
@@ -370,10 +428,18 @@ def collect_pooled_rmse(
 
     n_ok = 0
     for tri in triplet_specs:
-        res_p = load_split_results_required(results_root, tri.psid_variant, tri.psid_run_ts, split)
-        res_v = load_split_results_required(results_root, tri.varma_variant, tri.varma_run_ts, split)
+        res_p = load_split_results_required(
+            results_root, tri.psid_variant, tri.psid_run_ts, split
+        )
+        res_v = load_split_results_required(
+            results_root, tri.varma_variant, tri.varma_run_ts, split
+        )
         has_dpad = bool(tri.dpad_run_ts)
-        res_d = load_split_results(results_root, tri.dpad_variant, tri.dpad_run_ts, split) if has_dpad else None
+        res_d = (
+            load_split_results(results_root, tri.dpad_variant, tri.dpad_run_ts, split)
+            if has_dpad
+            else None
+        )
 
         mp = _key_index_map(res_p)
         mv = _key_index_map(res_v)
@@ -387,14 +453,20 @@ def collect_pooled_rmse(
             )
 
         n_ok += 1
-        for k in sorted(common_pd, key=lambda x: (str(x[0]), str(x[1]), str(x[2]), str(x[3]))):
+        for k in sorted(
+            common_pd, key=lambda x: (str(x[0]), str(x[1]), str(x[2]), str(x[3]))
+        ):
             i_p, i_v = mp[k], mv[k]
             stim = normalize_stim(res_p["stim"][i_p])
             if stim is None:
                 continue
             try:
                 r_p = trial_rmse_z_for_model(res_p, i_p, channel_idx)
-                r_d = trial_rmse_z_for_model(res_d, md[k], channel_idx) if res_d and k in md else float("nan")
+                r_d = (
+                    trial_rmse_z_for_model(res_d, md[k], channel_idx)
+                    if res_d and k in md
+                    else float("nan")
+                )
                 r_v = trial_rmse_z_for_model(res_v, i_v, channel_idx)
             except Exception as e:
                 logger.debug("Skip trial %s: %s", k, e)

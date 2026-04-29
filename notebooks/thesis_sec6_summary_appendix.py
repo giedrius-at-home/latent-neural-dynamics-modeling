@@ -27,9 +27,10 @@
 
 # %%
 import sys, os
-os.chdir('/home/bobby/repos/latent-neural-dynamics-modeling')
-sys.path.insert(0, '.')
-sys.path.insert(0, 'notebooks')
+
+os.chdir("/home/bobby/repos/latent-neural-dynamics-modeling")
+sys.path.insert(0, ".")
+sys.path.insert(0, "notebooks")
 
 from pathlib import Path
 import numpy as np
@@ -50,20 +51,29 @@ from thesis_style import (
 
 apply_thesis_style()
 
-OUT = Path('thesis_figures/sec6'); OUT.mkdir(parents=True, exist_ok=True)
-results_root = Path('results').resolve()
+OUT = Path("thesis_figures/sec6")
+OUT.mkdir(parents=True, exist_ok=True)
+results_root = Path("results").resolve()
 
 # ---------------------------------------------------------------------------
 # Inline session config — dataclass types only from specs.py
 # ---------------------------------------------------------------------------
 from thesis_lib.specs import (
-    LatentPhasePanel, LatentPhaseRow, ThesisLatentPhaseSpec,
-    PsidCyPanel, PsidCyRow, ThesisPsidCyImportanceSpec, ThesisPsidCzSpec,
+    LatentPhasePanel,
+    LatentPhaseRow,
+    ThesisLatentPhaseSpec,
+    PsidCyPanel,
+    PsidCyRow,
+    ThesisPsidCyImportanceSpec,
+    ThesisPsidCzSpec,
 )
 
 # -- Session triplets — loaded from thesis_triplets.csv via thesis_sec2_common --
 from thesis_sec2_common import (
-    TRIPLET_PDI1_S2, TRIPLET_PDI1_S4, TRIPLET_PDI4_S2, TRIPLET_PDI4_S3,
+    TRIPLET_PDI1_S2,
+    TRIPLET_PDI1_S4,
+    TRIPLET_PDI4_S2,
+    TRIPLET_PDI4_S3,
 )
 
 # -- Spec objects -----------------------------------------------------------
@@ -72,18 +82,44 @@ THESIS_LATENT_PHASE = [
     ThesisLatentPhaseSpec(
         section_title="Latent phase-space trajectories",
         rows=(
-            LatentPhaseRow("PDI1", (
-                LatentPhasePanel("S2", TRIPLET_PDI1_S2.psid_variant, TRIPLET_PDI1_S2.psid_run_ts,
-                                 TRIPLET_PDI1_S2.dpad_variant, TRIPLET_PDI1_S2.dpad_run_ts),
-                LatentPhasePanel("S4", TRIPLET_PDI1_S4.psid_variant, TRIPLET_PDI1_S4.psid_run_ts,
-                                 TRIPLET_PDI1_S4.dpad_variant, TRIPLET_PDI1_S4.dpad_run_ts),
-            )),
-            LatentPhaseRow("PDI4", (
-                LatentPhasePanel("S2", TRIPLET_PDI4_S2.psid_variant, TRIPLET_PDI4_S2.psid_run_ts,
-                                 TRIPLET_PDI4_S2.dpad_variant, TRIPLET_PDI4_S2.dpad_run_ts),
-                LatentPhasePanel("S3", TRIPLET_PDI4_S3.psid_variant, TRIPLET_PDI4_S3.psid_run_ts,
-                                 TRIPLET_PDI4_S3.dpad_variant, TRIPLET_PDI4_S3.dpad_run_ts),
-            )),
+            LatentPhaseRow(
+                "PDI1",
+                (
+                    LatentPhasePanel(
+                        "S2",
+                        TRIPLET_PDI1_S2.psid_variant,
+                        TRIPLET_PDI1_S2.psid_run_ts,
+                        TRIPLET_PDI1_S2.dpad_variant,
+                        TRIPLET_PDI1_S2.dpad_run_ts,
+                    ),
+                    LatentPhasePanel(
+                        "S4",
+                        TRIPLET_PDI1_S4.psid_variant,
+                        TRIPLET_PDI1_S4.psid_run_ts,
+                        TRIPLET_PDI1_S4.dpad_variant,
+                        TRIPLET_PDI1_S4.dpad_run_ts,
+                    ),
+                ),
+            ),
+            LatentPhaseRow(
+                "PDI4",
+                (
+                    LatentPhasePanel(
+                        "S2",
+                        TRIPLET_PDI4_S2.psid_variant,
+                        TRIPLET_PDI4_S2.psid_run_ts,
+                        TRIPLET_PDI4_S2.dpad_variant,
+                        TRIPLET_PDI4_S2.dpad_run_ts,
+                    ),
+                    LatentPhasePanel(
+                        "S3",
+                        TRIPLET_PDI4_S3.psid_variant,
+                        TRIPLET_PDI4_S3.psid_run_ts,
+                        TRIPLET_PDI4_S3.dpad_variant,
+                        TRIPLET_PDI4_S3.dpad_run_ts,
+                    ),
+                ),
+            ),
         ),
     ),
 ]
@@ -92,14 +128,28 @@ THESIS_PSID_CY_IMPORTANCE = [
     ThesisPsidCyImportanceSpec(
         section_title="PSID Cy importance",
         rows=(
-            PsidCyRow("PDI1", (
-                PsidCyPanel("S2", TRIPLET_PDI1_S2.psid_variant, TRIPLET_PDI1_S2.psid_run_ts),
-                PsidCyPanel("S4", TRIPLET_PDI1_S4.psid_variant, TRIPLET_PDI1_S4.psid_run_ts),
-            )),
-            PsidCyRow("PDI4", (
-                PsidCyPanel("S2", TRIPLET_PDI4_S2.psid_variant, TRIPLET_PDI4_S2.psid_run_ts),
-                PsidCyPanel("S3", TRIPLET_PDI4_S3.psid_variant, TRIPLET_PDI4_S3.psid_run_ts),
-            )),
+            PsidCyRow(
+                "PDI1",
+                (
+                    PsidCyPanel(
+                        "S2", TRIPLET_PDI1_S2.psid_variant, TRIPLET_PDI1_S2.psid_run_ts
+                    ),
+                    PsidCyPanel(
+                        "S4", TRIPLET_PDI1_S4.psid_variant, TRIPLET_PDI1_S4.psid_run_ts
+                    ),
+                ),
+            ),
+            PsidCyRow(
+                "PDI4",
+                (
+                    PsidCyPanel(
+                        "S2", TRIPLET_PDI4_S2.psid_variant, TRIPLET_PDI4_S2.psid_run_ts
+                    ),
+                    PsidCyPanel(
+                        "S3", TRIPLET_PDI4_S3.psid_variant, TRIPLET_PDI4_S3.psid_run_ts
+                    ),
+                ),
+            ),
         ),
         split="test",
         show_beta_box=True,
@@ -110,14 +160,28 @@ THESIS_PSID_CZ_HEATMAP = [
     ThesisPsidCzSpec(
         section_title="PSID Cz readout matrix",
         rows=(
-            PsidCyRow("PDI1", (
-                PsidCyPanel("S2", TRIPLET_PDI1_S2.psid_variant, TRIPLET_PDI1_S2.psid_run_ts),
-                PsidCyPanel("S4", TRIPLET_PDI1_S4.psid_variant, TRIPLET_PDI1_S4.psid_run_ts),
-            )),
-            PsidCyRow("PDI4", (
-                PsidCyPanel("S2", TRIPLET_PDI4_S2.psid_variant, TRIPLET_PDI4_S2.psid_run_ts),
-                PsidCyPanel("S3", TRIPLET_PDI4_S3.psid_variant, TRIPLET_PDI4_S3.psid_run_ts),
-            )),
+            PsidCyRow(
+                "PDI1",
+                (
+                    PsidCyPanel(
+                        "S2", TRIPLET_PDI1_S2.psid_variant, TRIPLET_PDI1_S2.psid_run_ts
+                    ),
+                    PsidCyPanel(
+                        "S4", TRIPLET_PDI1_S4.psid_variant, TRIPLET_PDI1_S4.psid_run_ts
+                    ),
+                ),
+            ),
+            PsidCyRow(
+                "PDI4",
+                (
+                    PsidCyPanel(
+                        "S2", TRIPLET_PDI4_S2.psid_variant, TRIPLET_PDI4_S2.psid_run_ts
+                    ),
+                    PsidCyPanel(
+                        "S3", TRIPLET_PDI4_S3.psid_variant, TRIPLET_PDI4_S3.psid_run_ts
+                    ),
+                ),
+            ),
         ),
         split="test",
     ),
@@ -154,8 +218,10 @@ def _common_xy_mesh(
     ymin, ymax = float(np.min(ys)), float(np.max(ys))
     dx = xmax - xmin + 1e-9
     dy = ymax - ymin + 1e-9
-    return (np.linspace(xmin - pad * dx, xmax + pad * dx, grid_n),
-            np.linspace(ymin - pad * dy, ymax + pad * dy, grid_n))
+    return (
+        np.linspace(xmin - pad * dx, xmax + pad * dx, grid_n),
+        np.linspace(ymin - pad * dy, ymax + pad * dy, grid_n),
+    )
 
 
 def _draw_kde_panel(ax, x_off, y_off, x_on, y_on, grid_n, p_lo, p_hi):
@@ -183,9 +249,14 @@ def _draw_kde_panel(ax, x_off, y_off, x_on, y_on, grid_n, p_lo, p_hi):
         levels = sorted({t_lo, t_hi, float(np.nanmax(z))})
         if len(levels) < 2:
             continue
-        ax.contourf(XX, YY, z, levels=levels,
-                    colors=[hex_to_rgba(color, 0.25), hex_to_rgba(color, 0.45)],
-                    extend="neither")
+        ax.contourf(
+            XX,
+            YY,
+            z,
+            levels=levels,
+            colors=[hex_to_rgba(color, 0.25), hex_to_rgba(color, 0.45)],
+            extend="neither",
+        )
         ax.contour(XX, YY, z, levels=[t_hi], colors=[color], linewidths=0.8)
     return True
 
@@ -213,7 +284,12 @@ for lp_spec in THESIS_LATENT_PHASE:
                     lp_spec.trajectory_seed,
                 )
             except Exception as e:
-                logger.warning("Panel load failed %s %s: %s", rspec.participant_label, panel.session_label, e)
+                logger.warning(
+                    "Panel load failed %s %s: %s",
+                    rspec.participant_label,
+                    panel.session_label,
+                    e,
+                )
                 cache[(pi, ci)] = None
 
     fig, axes = plt.subplots(n_rows, max_cols, figsize=(7.2, 2.0 * n_rows + 0.3))
@@ -240,36 +316,72 @@ for lp_spec in THESIS_LATENT_PHASE:
             model_tag = "PSID" if is_psid else "DPAD"
             subtitle = f"{rspec.participant_label} {panel.session_label} - {model_tag}"
             if data is None:
-                ax.text(0.5, 0.5, "data unavailable",
-                        ha="center", va="center", transform=ax.transAxes,
-                        style="italic", color=COLOR_NS)
+                ax.text(
+                    0.5,
+                    0.5,
+                    "data unavailable",
+                    ha="center",
+                    va="center",
+                    transform=ax.transAxes,
+                    style="italic",
+                    color=COLOR_NS,
+                )
                 panel_label(ax, panel_letters[letter_idx], subtitle)
                 letter_idx += 1
-                ax.set_xticks([]); ax.set_yticks([])
+                ax.set_xticks([])
+                ax.set_yticks([])
                 continue
 
             if is_psid:
-                drew = _draw_kde_panel(ax,
-                                       data.x_psid_off, data.y_psid_off,
-                                       data.x_psid_on, data.y_psid_on,
-                                       lp_spec.kde_grid, p_lo, p_hi)
+                drew = _draw_kde_panel(
+                    ax,
+                    data.x_psid_off,
+                    data.y_psid_off,
+                    data.x_psid_on,
+                    data.y_psid_on,
+                    lp_spec.kde_grid,
+                    p_lo,
+                    p_hi,
+                )
             else:
-                has_dpad = (len(np.asarray(data.x_dpad_off).ravel()) >= 2
-                            or len(np.asarray(data.x_dpad_on).ravel()) >= 2)
+                has_dpad = (
+                    len(np.asarray(data.x_dpad_off).ravel()) >= 2
+                    or len(np.asarray(data.x_dpad_on).ravel()) >= 2
+                )
                 if has_dpad:
-                    drew = _draw_kde_panel(ax,
-                                           data.x_dpad_off, data.y_dpad_off,
-                                           data.x_dpad_on, data.y_dpad_on,
-                                           lp_spec.kde_grid, p_lo, p_hi)
+                    drew = _draw_kde_panel(
+                        ax,
+                        data.x_dpad_off,
+                        data.y_dpad_off,
+                        data.x_dpad_on,
+                        data.y_dpad_on,
+                        lp_spec.kde_grid,
+                        p_lo,
+                        p_hi,
+                    )
                     v1, v2 = data.pca_variance_ratio
                     if v1 > 1e-9 or v2 > 1e-9:
-                        ax.text(0.97, 0.03, f"PC1: {v1:.0%} · PC2: {v2:.0%}",
-                                ha="right", va="bottom", transform=ax.transAxes,
-                                fontsize=7, color=COLOR_NS)
+                        ax.text(
+                            0.97,
+                            0.03,
+                            f"PC1: {v1:.0%} · PC2: {v2:.0%}",
+                            ha="right",
+                            va="bottom",
+                            transform=ax.transAxes,
+                            fontsize=7,
+                            color=COLOR_NS,
+                        )
                 else:
-                    ax.text(0.5, 0.5, "DPAD retraining at 200 Hz\n(data unavailable)",
-                            ha="center", va="center", transform=ax.transAxes,
-                            style="italic", color=COLOR_NS)
+                    ax.text(
+                        0.5,
+                        0.5,
+                        "DPAD retraining at 200 Hz\n(data unavailable)",
+                        ha="center",
+                        va="center",
+                        transform=ax.transAxes,
+                        style="italic",
+                        color=COLOR_NS,
+                    )
                     drew = False
 
             if ci == 0:
@@ -281,17 +393,20 @@ for lp_spec in THESIS_LATENT_PHASE:
 
     # Shared condition legend
     import matplotlib.patches as mpatches
+
     legend_handles = [
         mpatches.Patch(color=hex_to_rgba(COLOR_DBS_OFF, 0.45), label="DBS-OFF"),
         mpatches.Patch(color=hex_to_rgba(COLOR_DBS_ON, 0.45), label="DBS-ON"),
     ]
     fig.legend(handles=legend_handles)
 
-    fig.savefig(str(OUT / 'fig_059_latent_phase.png'))
+    fig.savefig(str(OUT / "fig_059_latent_phase.png"))
     plt.show()
-    print("Fig 59 — Latent phase-space KDE (x1,x2). PSID rows (top) = behav.-rel. x1,x2; "
-          "DPAD rows (bottom) = PC1,PC2 of behav.-rel. latent. "
-          "Blue = DBS-OFF density, red = DBS-ON density; filled = low/high percentile bands.")
+    print(
+        "Fig 59 — Latent phase-space KDE (x1,x2). PSID rows (top) = behav.-rel. x1,x2; "
+        "DPAD rows (bottom) = PC1,PC2 of behav.-rel. latent. "
+        "Blue = DBS-OFF density, red = DBS-ON density; filled = low/high percentile bands."
+    )
 
 # %% [markdown]
 # ## Fig 60: Classification vs dimensionality heatmap (grid search ablation)
@@ -299,6 +414,7 @@ for lp_spec in THESIS_LATENT_PHASE:
 # %%
 import re
 import importlib as _importlib
+
 _serial = _importlib.import_module("pic" + "kle")  # nosec
 
 import polars as pl
@@ -334,8 +450,30 @@ def _load_classification_scores() -> pl.DataFrame:
                 score = res.get("best_cv_score", float("nan"))
             except Exception:
                 continue
-            rows.append({"participant_id": pid, "session": sess, "nx": nx, "n1": n1, "feature": feat, "score": score})
-    return pl.DataFrame(rows) if rows else pl.DataFrame({"participant_id": [], "session": [], "nx": [], "n1": [], "feature": [], "score": []})
+            rows.append(
+                {
+                    "participant_id": pid,
+                    "session": sess,
+                    "nx": nx,
+                    "n1": n1,
+                    "feature": feat,
+                    "score": score,
+                }
+            )
+    return (
+        pl.DataFrame(rows)
+        if rows
+        else pl.DataFrame(
+            {
+                "participant_id": [],
+                "session": [],
+                "nx": [],
+                "n1": [],
+                "feature": [],
+                "score": [],
+            }
+        )
+    )
 
 
 _CLASSIFICATION_SESSIONS = [
@@ -350,8 +488,16 @@ features = ["Xp", "Xp_1", "Xp_2"]
 sessions = _CLASSIFICATION_SESSIONS
 nrows, ncols = len(sessions), len(features)
 
-all_nx = sorted(df["nx"].unique().to_list()) if not df.is_empty() else [1, 2, 5, 60, 65, 70, 75, 80]
-all_n1 = sorted(df["n1"].unique().to_list()) if not df.is_empty() else [1, 2, 5, 6, 8, 10, 12]
+all_nx = (
+    sorted(df["nx"].unique().to_list())
+    if not df.is_empty()
+    else [1, 2, 5, 60, 65, 70, 75, 80]
+)
+all_n1 = (
+    sorted(df["n1"].unique().to_list())
+    if not df.is_empty()
+    else [1, 2, 5, 6, 8, 10, 12]
+)
 
 global_min, global_max = 0.45, 0.70
 if not df.is_empty():
@@ -378,7 +524,9 @@ for ri, (pid, sess, label) in enumerate(sessions):
             & (pl.col("feature") == feat)
         )
         if not sub.is_empty():
-            sub = sub.sort("score", descending=True).unique(subset=["nx", "n1"], keep="first")
+            sub = sub.sort("score", descending=True).unique(
+                subset=["nx", "n1"], keep="first"
+            )
 
         mat = np.full((len(all_n1), len(all_nx)), np.nan)
         for n1i, n1v in enumerate(all_n1):
@@ -389,8 +537,14 @@ for ri, (pid, sess, label) in enumerate(sessions):
                 if not match.is_empty():
                     mat[n1i, xi] = float(match["score"][0])
 
-        im = ax.imshow(mat, cmap="Blues", vmin=global_min, vmax=global_max,
-                       origin="lower", aspect="auto")
+        im = ax.imshow(
+            mat,
+            cmap="Blues",
+            vmin=global_min,
+            vmax=global_max,
+            origin="lower",
+            aspect="auto",
+        )
 
         for n1i in range(len(all_n1)):
             for xi in range(len(all_nx)):
@@ -398,8 +552,15 @@ for ri, (pid, sess, label) in enumerate(sessions):
                 if np.isfinite(val):
                     norm = (val - global_min) / max(1e-9, (global_max - global_min))
                     text_color = "white" if norm > 0.55 else "black"
-                    ax.text(xi, n1i, f"{val:.2f}", ha="center", va="center",
-                            fontsize=7, color=text_color)
+                    ax.text(
+                        xi,
+                        n1i,
+                        f"{val:.2f}",
+                        ha="center",
+                        va="center",
+                        fontsize=7,
+                        color=text_color,
+                    )
 
         ax.set_xticks(np.arange(len(all_nx)))
         ax.set_xticklabels([str(v) for v in all_nx])
@@ -417,8 +578,16 @@ for ri, (pid, sess, label) in enumerate(sessions):
             if nx_pick in all_nx and n1_pick in all_n1:
                 bx = all_nx.index(nx_pick)
                 by = all_n1.index(n1_pick)
-                ax.add_patch(plt.Rectangle((bx - 0.5, by - 0.5), 1.0, 1.0,
-                                            fill=False, edgecolor=COLOR_CHANCE, linewidth=2.0))
+                ax.add_patch(
+                    plt.Rectangle(
+                        (bx - 0.5, by - 0.5),
+                        1.0,
+                        1.0,
+                        fill=False,
+                        edgecolor=COLOR_CHANCE,
+                        linewidth=2.0,
+                    )
+                )
 
         panel_label(ax, panel_letters[letter_idx], f"{label} - {feat}")
         letter_idx += 1
@@ -426,7 +595,7 @@ for ri, (pid, sess, label) in enumerate(sessions):
 if im is not None:
     fig.colorbar(im, ax=axes.ravel().tolist(), shrink=0.7, label="Bal. acc.")
 
-fig.savefig(str(OUT / 'fig_060_classification_dimensionality.png'))
+fig.savefig(str(OUT / "fig_060_classification_dimensionality.png"))
 plt.show()
 print(
     "Fig 60 — PSID classification vs dimensionality ablation heatmap. "
@@ -469,14 +638,28 @@ for cy_spec in THESIS_PSID_CY_IMPORTANCE:
             panel = row_spec.panels[ci]
             try:
                 z, _n1, _ch, _layout = compute_cy_signed_heatmap(
-                    results_root, panel.psid_variant, panel.psid_run_ts, cy_spec.split,
+                    results_root,
+                    panel.psid_variant,
+                    panel.psid_run_ts,
+                    cy_spec.split,
                 )
             except Exception as e:
                 logger.warning("Cy panel failed: %s: %s", panel, e)
-                ax.text(0.5, 0.5, f"Error:\n{e}", ha="center", va="center",
-                        transform=ax.transAxes, fontsize=6, color=COLOR_NS)
-                panel_label(ax, panel_letters[letter_idx],
-                            f"{row_spec.participant_label} {panel.session_label}")
+                ax.text(
+                    0.5,
+                    0.5,
+                    f"Error:\n{e}",
+                    ha="center",
+                    va="center",
+                    transform=ax.transAxes,
+                    fontsize=6,
+                    color=COLOR_NS,
+                )
+                panel_label(
+                    ax,
+                    panel_letters[letter_idx],
+                    f"{row_spec.participant_label} {panel.session_label}",
+                )
                 letter_idx += 1
                 continue
 
@@ -490,8 +673,9 @@ for cy_spec in THESIS_PSID_CY_IMPORTANCE:
             else:
                 y_labels = [f"dim {i}" for i in range(z.shape[0])]
 
-            im = ax.imshow(z, cmap="RdBu_r", vmin=-1.0, vmax=1.0,
-                           origin="lower", aspect="auto")
+            im = ax.imshow(
+                z, cmap="RdBu_r", vmin=-1.0, vmax=1.0, origin="lower", aspect="auto"
+            )
 
             ax.set_xticks(_X_IDX)
             ax.set_xticklabels(_X_LABELS, rotation=30, ha="right")
@@ -499,14 +683,17 @@ for cy_spec in THESIS_PSID_CY_IMPORTANCE:
             ax.set_yticklabels(y_labels)
             if ci == 0:
                 ax.set_ylabel("Behav. rel. dim")
-            panel_label(ax, panel_letters[letter_idx],
-                        f"{row_spec.participant_label} {panel.session_label}")
+            panel_label(
+                ax,
+                panel_letters[letter_idx],
+                f"{row_spec.participant_label} {panel.session_label}",
+            )
             letter_idx += 1
 
     if im is not None:
         fig.colorbar(im, ax=axes.ravel().tolist(), shrink=0.7, label="Norm. |Cy|")
 
-    fig.savefig(str(OUT / 'fig_061_cy_importance.png'))
+    fig.savefig(str(OUT / "fig_061_cy_importance.png"))
     plt.show()
     print(
         "Fig 61 — PSID Cy channel-importance heatmap. Rows (per panel) = top-8 behav.-rel. latent dims, "
@@ -538,8 +725,10 @@ def _load_output_channel_names(
         if res is not None:
             raw = res.get("output_channels")
             if raw is not None:
-                names = [str(x).replace("_", " ")
-                         for x in (list(raw) if not isinstance(raw, list) else raw)]
+                names = [
+                    str(x).replace("_", " ")
+                    for x in (list(raw) if not isinstance(raw, list) else raw)
+                ]
                 if names:
                     return names[:n_fallback] if len(names) >= n_fallback else names
     except Exception:
@@ -571,15 +760,28 @@ for cz_spec in THESIS_PSID_CZ_HEATMAP:
                 continue
             panel = row_spec.panels[ci]
             try:
-                model_path = resolve_model_path(results_root, panel.psid_variant, panel.psid_run_ts)
+                model_path = resolve_model_path(
+                    results_root, panel.psid_variant, panel.psid_run_ts
+                )
                 id_sys = load_psid_id_sys(model_path)
                 cz_norm, n1, _ = compute_cz_heatmap(id_sys)
             except Exception as e:
                 logger.warning("Cz panel failed: %s: %s", panel, e)
-                ax.text(0.5, 0.5, f"Error:\n{e}", ha="center", va="center",
-                        transform=ax.transAxes, fontsize=6, color=COLOR_NS)
-                panel_label(ax, panel_letters[letter_idx],
-                            f"{row_spec.participant_label} {panel.session_label}")
+                ax.text(
+                    0.5,
+                    0.5,
+                    f"Error:\n{e}",
+                    ha="center",
+                    va="center",
+                    transform=ax.transAxes,
+                    fontsize=6,
+                    color=COLOR_NS,
+                )
+                panel_label(
+                    ax,
+                    panel_letters[letter_idx],
+                    f"{row_spec.participant_label} {panel.session_label}",
+                )
                 letter_idx += 1
                 continue
 
@@ -597,8 +799,14 @@ for cz_spec in THESIS_PSID_CZ_HEATMAP:
             else:
                 x_labels = [f"dim {k}" for k in range(n1)]
 
-            im = ax.imshow(cz_norm, cmap="RdBu_r", vmin=-1.0, vmax=1.0,
-                           origin="lower", aspect="auto")
+            im = ax.imshow(
+                cz_norm,
+                cmap="RdBu_r",
+                vmin=-1.0,
+                vmax=1.0,
+                origin="lower",
+                aspect="auto",
+            )
 
             ax.set_xticks(range(n1))
             ax.set_xticklabels(x_labels, rotation=45, ha="right")
@@ -606,14 +814,17 @@ for cz_spec in THESIS_PSID_CZ_HEATMAP:
             ax.set_yticklabels(y_labels)
             if ri == nrows - 1:
                 ax.set_xlabel("Behav. rel. dim")
-            panel_label(ax, panel_letters[letter_idx],
-                        f"{row_spec.participant_label} {panel.session_label}")
+            panel_label(
+                ax,
+                panel_letters[letter_idx],
+                f"{row_spec.participant_label} {panel.session_label}",
+            )
             letter_idx += 1
 
     if im is not None:
         fig.colorbar(im, ax=axes.ravel().tolist(), shrink=0.7, label="Norm. Cz")
 
-    fig.savefig(str(OUT / 'fig_062_cz_readout.png'))
+    fig.savefig(str(OUT / "fig_062_cz_readout.png"))
     plt.show()
     print(
         "Fig 62 — PSID Cz readout matrix. Cols = top-8 behav.-rel. latent dims (by norm), "
@@ -656,8 +867,12 @@ def _load_hungriness_data(
             continue
         data = sorted(data, key=lambda d: d["n_train_trials"])
         n_arr = np.array([d["n_train_trials"] for d in data], dtype=float)
-        rmse_arr = np.array([d.get("rmse_neural_mean", float("nan")) for d in data], dtype=float)
-        se_arr = np.array([d.get("rmse_neural_se_mean", float("nan")) for d in data], dtype=float)
+        rmse_arr = np.array(
+            [d.get("rmse_neural_mean", float("nan")) for d in data], dtype=float
+        )
+        se_arr = np.array(
+            [d.get("rmse_neural_se_mean", float("nan")) for d in data], dtype=float
+        )
         results.append((pid, sess_label, n_arr, rmse_arr, se_arr))
     return results
 
@@ -668,14 +883,24 @@ session_data = _load_hungriness_data(hungriness_root)
 fig, ax = plt.subplots(figsize=(6.5, 3.6))
 
 if not session_data:
-    ax.text(0.5, 0.5, "No data_hungriness results found.",
-            ha="center", va="center", transform=ax.transAxes,
-            style="italic", color=COLOR_NS)
-    ax.set_xticks([]); ax.set_yticks([])
+    ax.text(
+        0.5,
+        0.5,
+        "No data_hungriness results found.",
+        ha="center",
+        va="center",
+        transform=ax.transAxes,
+        style="italic",
+        color=COLOR_NS,
+    )
+    ax.set_xticks([])
+    ax.set_yticks([])
 else:
     _extra_colors: Dict[str, str] = {
-        "PDI1": "#185FA5", "PDI2": "#4CAF82",
-        "PDI3": "#0F6E56", "PDI4": "#2D9659",
+        "PDI1": "#185FA5",
+        "PDI2": "#4CAF82",
+        "PDI3": "#0F6E56",
+        "PDI4": "#2D9659",
     }
     seen_pids: set[str] = set()
     for pid, sess_label, n_arr, rmse_arr, se_arr in session_data:
@@ -688,14 +913,20 @@ else:
             lower = np.clip(rmse_arr - se_arr, 0, None)
             ax.fill_between(n_arr, lower, upper, color=color, alpha=0.12, linewidth=0)
 
-        ax.plot(n_arr, rmse_arr, color=color, linewidth=1.4,
-                marker="o", markersize=3,
-                label=pid if show_leg else None)
+        ax.plot(
+            n_arr,
+            rmse_arr,
+            color=color,
+            linewidth=1.4,
+            marker="o",
+            markersize=3,
+            label=pid if show_leg else None,
+        )
     ax.set_xlabel("Training trials (n)")
     ax.set_ylabel("RMSE(z) — neural")
     ax.legend()
 
-fig.savefig(str(OUT / 'fig_063_data_efficiency.png'))
+fig.savefig(str(OUT / "fig_063_data_efficiency.png"))
 plt.show()
 print(
     "Fig 63 — Data efficiency: PSID neural-RMSE vs training trials (n). "
@@ -720,7 +951,9 @@ _DPAD_SESSION_GLOBS = [
 _SESSION_LABELS = ["PDI1 S2", "PDI1 S4", "PDI4 S2", "PDI4 S3"]
 
 
-def _load_training_history(results_root_path: Path, dir_name: str) -> Optional[Dict[str, Any]]:
+def _load_training_history(
+    results_root_path: Path, dir_name: str
+) -> Optional[Dict[str, Any]]:
     path = results_root_path / dir_name / "training_history.json"
     if not path.is_file():
         return None
@@ -737,11 +970,20 @@ for idx, (dir_name, sess_label) in enumerate(zip(_DPAD_SESSION_GLOBS, _SESSION_L
 
     hist = _load_training_history(results_root, dir_name)
     if hist is None:
-        ax.text(0.5, 0.5, f"No training_history.json\nin {dir_name}",
-                ha="center", va="center", transform=ax.transAxes,
-                fontsize=7, style="italic", color=COLOR_NS)
+        ax.text(
+            0.5,
+            0.5,
+            f"No training_history.json\nin {dir_name}",
+            ha="center",
+            va="center",
+            transform=ax.transAxes,
+            fontsize=7,
+            style="italic",
+            color=COLOR_NS,
+        )
         panel_label(ax, panel_letters[idx], sess_label)
-        ax.set_xticks([]); ax.set_yticks([])
+        ax.set_xticks([])
+        ax.set_yticks([])
         continue
 
     cumulative_offset = 0
@@ -773,21 +1015,39 @@ for idx, (dir_name, sess_label) in enumerate(zip(_DPAD_SESSION_GLOBS, _SESSION_L
         stage_boundaries.append(cumulative_offset)
 
     if not all_epochs:
-        ax.text(0.5, 0.5, "no training data",
-                ha="center", va="center", transform=ax.transAxes,
-                style="italic", color=COLOR_NS)
+        ax.text(
+            0.5,
+            0.5,
+            "no training data",
+            ha="center",
+            va="center",
+            transform=ax.transAxes,
+            style="italic",
+            color=COLOR_NS,
+        )
         panel_label(ax, panel_letters[idx], sess_label)
         continue
 
-    show_leg = (idx == 0)
+    show_leg = idx == 0
     for bx in stage_boundaries[:-1]:
         ax.axvline(bx, color=_STAGE_RULE_COLOR, linewidth=0.8, linestyle="--")
 
-    ax.plot(all_epochs, all_loss, color=COLOR_DPAD, linewidth=1.5,
-            label="Train loss" if show_leg else None)
+    ax.plot(
+        all_epochs,
+        all_loss,
+        color=COLOR_DPAD,
+        linewidth=1.5,
+        label="Train loss" if show_leg else None,
+    )
     if any(np.isfinite(v) for v in all_val_loss):
-        ax.plot(all_epochs, all_val_loss, color=COLOR_PSID, linewidth=1.2,
-                linestyle=":", label="Val loss" if show_leg else None)
+        ax.plot(
+            all_epochs,
+            all_val_loss,
+            color=COLOR_PSID,
+            linewidth=1.2,
+            linestyle=":",
+            label="Val loss" if show_leg else None,
+        )
 
     if r == 1:
         ax.set_xlabel("Epoch")
@@ -796,7 +1056,7 @@ for idx, (dir_name, sess_label) in enumerate(zip(_DPAD_SESSION_GLOBS, _SESSION_L
     panel_label(ax, panel_letters[idx], sess_label)
 
 fig.legend()
-fig.savefig(str(OUT / 'fig_064_dpad_training.png'))
+fig.savefig(str(OUT / "fig_064_dpad_training.png"))
 plt.show()
 print(
     "Fig 64 — DPAD 4-stage training curves (train = DPAD-red, val = PSID-blue dotted) "
@@ -806,5 +1066,5 @@ print(
 )
 
 # %%
-n = len(list(OUT.glob('*.png')))
-print(f'Section 6 total: {n} figures')
+n = len(list(OUT.glob("*.png")))
+print(f"Section 6 total: {n} figures")

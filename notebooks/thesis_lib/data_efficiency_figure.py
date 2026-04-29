@@ -75,8 +75,12 @@ def _load_hungriness_data(
         # Sort by n_train_trials
         data = sorted(data, key=lambda d: d["n_train_trials"])
         n_arr = np.array([d["n_train_trials"] for d in data], dtype=float)
-        rmse_arr = np.array([d.get("rmse_neural_mean", float("nan")) for d in data], dtype=float)
-        se_arr = np.array([d.get("rmse_neural_se_mean", float("nan")) for d in data], dtype=float)
+        rmse_arr = np.array(
+            [d.get("rmse_neural_mean", float("nan")) for d in data], dtype=float
+        )
+        se_arr = np.array(
+            [d.get("rmse_neural_se_mean", float("nan")) for d in data], dtype=float
+        )
         results.append((pid, sess_label, n_arr, rmse_arr, se_arr))
 
     return results
@@ -102,8 +106,10 @@ def build_data_efficiency_figure(
         fig = go.Figure()
         fig.add_annotation(
             text="No data_hungriness results found.",
-            x=0.5, y=0.5,
-            xref="paper", yref="paper",
+            x=0.5,
+            y=0.5,
+            xref="paper",
+            yref="paper",
             showarrow=False,
             font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY),
         )
@@ -133,7 +139,11 @@ def build_data_efficiency_figure(
             upper = rmse_arr + se_arr
             lower = np.clip(rmse_arr - se_arr, 0, None)
             fill_color = color.lstrip("#")
-            r, g, b = int(fill_color[0:2], 16), int(fill_color[2:4], 16), int(fill_color[4:6], 16)
+            r, g, b = (
+                int(fill_color[0:2], 16),
+                int(fill_color[2:4], 16),
+                int(fill_color[4:6], 16),
+            )
             rgba_fill = f"rgba({r},{g},{b},0.12)"
             fig.add_trace(
                 go.Scatter(

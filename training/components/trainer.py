@@ -85,6 +85,7 @@ class Trainer:
                 break
             if probe_path is not None:
                 import re as _re
+
                 probe_all = pl.read_parquet(probe_path, n_rows=1)
                 _ecog_rx = _re.compile(r"^ECOG_[1-4]_.*_raw$")
                 _lap_rx = _re.compile(r"^LAPLACIAN_14-16_LFP_.*_raw$")
@@ -92,14 +93,19 @@ class Trainer:
                     r"^tracing_(velocity_[xy]|acceleration_magnitude|velocity_magnitude)$"
                 )
                 universal = [
-                    c for c in probe_all.columns
+                    c
+                    for c in probe_all.columns
                     if _ecog_rx.match(c) or _lap_rx.match(c) or _beh_rx.match(c)
                 ]
                 base_cols = list(set(base_cols) | set(universal))
             combined_cols = []
             for col in base_cols:
                 combined_cols.append(pl.col(col))
-                is_neural = col.startswith("LFP") or col.startswith("ECOG") or col.startswith("LAPLACIAN")
+                is_neural = (
+                    col.startswith("LFP")
+                    or col.startswith("ECOG")
+                    or col.startswith("LAPLACIAN")
+                )
                 is_input = col in self.data_params.channels.neural_input
                 output_type = getattr(
                     self.data_params.channels, "output_type", "behavioral"
@@ -198,8 +204,7 @@ class Trainer:
             )
 
             cols_to_keep = [
-                c for c in trial.columns
-                if c == "n_epochs" or not c.endswith("_epochs")
+                c for c in trial.columns if c == "n_epochs" or not c.endswith("_epochs")
             ]
             trial = trial.select(cols_to_keep)
 
@@ -513,7 +518,7 @@ class Trainer:
             self._write_minimal_metadata()
             return {}
 
-        Zp_val, Yp_val, Xp_val = self.framework._predict(Y_val)
+        Zp_val, Yp_val, Xp_val = self.framework._predict(Y_val, Z_val)
 
         from utils.stats import pearson_r_per_channel
 
@@ -522,7 +527,7 @@ class Trainer:
         input_channels = meta_val[0].get("input_channels", []) if meta_val else []
         output_channels = meta_val[0].get("output_channels", []) if meta_val else []
 
-        Zp_train, Yp_train, Xp_train = self.framework._predict(Y_train)
+        Zp_train, Yp_train, Xp_train = self.framework._predict(Y_train, Z_train)
         r_list_train, r_mean_train = pearson_r_per_channel(Y_train, Yp_train)
 
         train_results = {
@@ -554,8 +559,6 @@ class Trainer:
             Y_train,
             Z_list=Z_train,
             margin=chunk_margin_train,
-            Yp_val=Yp_train,
-            Zp_val=Zp_train,
         )
         train_results.update(train_forecast)
 
@@ -583,7 +586,7 @@ class Trainer:
 
         chunk_margin_val = meta_val[0].get("chunk_margin") if meta_val else 0
         val_forecast = self.framework._evaluate_forecast(
-            Y_val, Z_list=Z_val, margin=chunk_margin_val, Yp_val=Yp_val, Zp_val=Zp_val
+            Y_val, Z_list=Z_val, margin=chunk_margin_val
         )
         val_results.update(val_forecast)
 

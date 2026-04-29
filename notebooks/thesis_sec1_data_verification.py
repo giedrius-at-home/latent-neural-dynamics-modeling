@@ -59,7 +59,9 @@ results_root = Path("results").resolve()
 # PSD cells read the raw pre-split parquets — current per-session PSID variants
 # only keep a selected subset of neural bands, so the split parquets no longer
 # contain all 4 ECoG channels or the Laplacian contacts used by the PSD cells.
-raw_data_root = Path("resampled_recordings/participants_at_200Hz_scaled_1e6_narrow_band")
+raw_data_root = Path(
+    "resampled_recordings/participants_at_200Hz_scaled_1e6_narrow_band"
+)
 ECOG_CHANNELS = ["ECOG_1", "ECOG_2", "ECOG_3", "ECOG_4"]
 
 # %%
@@ -75,12 +77,17 @@ SessionSpec = namedtuple(
     "SessionSpec", ["label", "participant", "session", "psid_variant", "psid_run_ts"]
 )
 
+
 def _session_spec_from_triplet(tri) -> SessionSpec:
     pid, sess = tri.label.split("_S")
     return SessionSpec(
-        label=tri.label, participant=pid, session=int(sess),
-        psid_variant=tri.psid_variant, psid_run_ts=tri.psid_run_ts,
+        label=tri.label,
+        participant=pid,
+        session=int(sess),
+        psid_variant=tri.psid_variant,
+        psid_run_ts=tri.psid_run_ts,
     )
+
 
 SESSIONS = [_session_spec_from_triplet(t) for t in ALL_TRIPLETS]
 
@@ -130,7 +137,9 @@ def _p2_block_info(pid, ses):
             continue
         df = pl.read_parquet(pf[0])
         trials_val = df["trials"][0]
-        trials_list = trials_val.to_list() if hasattr(trials_val, "to_list") else list(trials_val)
+        trials_list = (
+            trials_val.to_list() if hasattr(trials_val, "to_list") else list(trials_val)
+        )
         frag = bool(df["is_fragmented"][0]) if "is_fragmented" in df.columns else False
         stim = str(df["stim"][0]) if "stim" in df.columns else "?"
         info[bnum] = {"trials": trials_list, "frag": frag, "stim": stim}
@@ -191,12 +200,20 @@ for s in SESSIONS:
         if info["frag"]:
             frag_blocks.append(b)
             n_frag += len(p2_trials)
-            print(f"  Block {b:2d} ({dbs}): FRAGMENTED — all {len(p2_trials)} trials dropped")
+            print(
+                f"  Block {b:2d} ({dbs}): FRAGMENTED — all {len(p2_trials)} trials dropped"
+            )
             for t in sorted(p2_trials):
-                all_removal_details.append({
-                    "participant": s.participant, "session": s.session,
-                    "block": b, "trial": t, "dbs": dbs, "reason": "fragmented",
-                })
+                all_removal_details.append(
+                    {
+                        "participant": s.participant,
+                        "session": s.session,
+                        "block": b,
+                        "trial": t,
+                        "dbs": dbs,
+                        "reason": "fragmented",
+                    }
+                )
             continue
 
         expected_full = set(range(1, 13))
@@ -204,19 +221,31 @@ for s in SESSIONS:
         if protocol_removed:
             n_protocol += len(protocol_removed)
             for t in protocol_removed:
-                all_removal_details.append({
-                    "participant": s.participant, "session": s.session,
-                    "block": b, "trial": t, "dbs": dbs, "reason": "protocol/events",
-                })
+                all_removal_details.append(
+                    {
+                        "participant": s.participant,
+                        "session": s.session,
+                        "block": b,
+                        "trial": t,
+                        "dbs": dbs,
+                        "reason": "protocol/events",
+                    }
+                )
 
         plateau_removed = sorted(p2_trials - s_trials)
         if plateau_removed:
             n_plateau += len(plateau_removed)
             for t in plateau_removed:
-                all_removal_details.append({
-                    "participant": s.participant, "session": s.session,
-                    "block": b, "trial": t, "dbs": dbs, "reason": "plateau (>2.0s)",
-                })
+                all_removal_details.append(
+                    {
+                        "participant": s.participant,
+                        "session": s.session,
+                        "block": b,
+                        "trial": t,
+                        "dbs": dbs,
+                        "reason": "plateau (>2.0s)",
+                    }
+                )
 
         parts = []
         if protocol_removed:
@@ -224,33 +253,39 @@ for s in SESSIONS:
         if plateau_removed:
             parts.append(f"plateau={plateau_removed}")
         status = "; ".join(parts) if parts else "ok"
-        print(f"  Block {b:2d} ({dbs}): p2={len(p2_trials)}, splits={len(s_trials)}  [{status}]")
+        print(
+            f"  Block {b:2d} ({dbs}): p2={len(p2_trials)}, splits={len(s_trials)}  [{status}]"
+        )
 
     p2_total_all = sum(len(p2[b]["trials"]) for b in p2)
     p2_total_nonfrag = sum(len(p2[b]["trials"]) for b in p2 if not p2[b]["frag"])
     split_total = sum(len(splits[b]) for b in splits)
-    summary_rows.append({
-        "Session": s.label,
-        "Blocks (p2)": len(p2),
-        "Fragmented": len(frag_blocks),
-        "Blocks (splits)": len(splits),
-        "p2 trials": p2_total_all,
-        "Split trials": split_total,
-        "Protocol removed": n_protocol,
-        "Plateau removed": n_plateau,
-        "Fragmented removed": n_frag,
-    })
-    dbs_dist_rows.append({
-        "Session": s.label,
-        "p2 OFF": p2_off,
-        "p2 ON": p2_on,
-        "p2 total": p2_off + p2_on,
-        "split OFF": split_off,
-        "split ON": split_on,
-        "split total": split_total,
-        "removed OFF": p2_off - split_off,
-        "removed ON": p2_on - split_on,
-    })
+    summary_rows.append(
+        {
+            "Session": s.label,
+            "Blocks (p2)": len(p2),
+            "Fragmented": len(frag_blocks),
+            "Blocks (splits)": len(splits),
+            "p2 trials": p2_total_all,
+            "Split trials": split_total,
+            "Protocol removed": n_protocol,
+            "Plateau removed": n_plateau,
+            "Fragmented removed": n_frag,
+        }
+    )
+    dbs_dist_rows.append(
+        {
+            "Session": s.label,
+            "p2 OFF": p2_off,
+            "p2 ON": p2_on,
+            "p2 total": p2_off + p2_on,
+            "split OFF": split_off,
+            "split ON": split_on,
+            "split total": split_total,
+            "removed OFF": p2_off - split_off,
+            "removed ON": p2_on - split_on,
+        }
+    )
     frag_total += n_frag
     plateau_total += n_plateau
     protocol_total += n_protocol
@@ -296,19 +331,21 @@ for s in SESSIONS:
                 total += len(p2["trials"])
         return total
 
-    manifest_rows.append({
-        "session": s.label,
-        "strategy": alloc.get("strategy", "balanced_block_chronological"),
-        "train_blocks": "|".join(str(b) for b in alloc["train_blocks"]),
-        "val_blocks": "|".join(str(b) for b in alloc["val_blocks"]),
-        "test_blocks": "|".join(str(b) for b in alloc["test_blocks"]),
-        "train_off": alloc["summary"]["train"]["n_trials_off"],
-        "train_on": alloc["summary"]["train"]["n_trials_on"],
-        "val_off": alloc["summary"]["val"]["n_trials_off"],
-        "val_on": alloc["summary"]["val"]["n_trials_on"],
-        "test_off": alloc["summary"]["test"]["n_trials_off"],
-        "test_on": alloc["summary"]["test"]["n_trials_on"],
-    })
+    manifest_rows.append(
+        {
+            "session": s.label,
+            "strategy": alloc.get("strategy", "balanced_block_chronological"),
+            "train_blocks": "|".join(str(b) for b in alloc["train_blocks"]),
+            "val_blocks": "|".join(str(b) for b in alloc["val_blocks"]),
+            "test_blocks": "|".join(str(b) for b in alloc["test_blocks"]),
+            "train_off": alloc["summary"]["train"]["n_trials_off"],
+            "train_on": alloc["summary"]["train"]["n_trials_on"],
+            "val_off": alloc["summary"]["val"]["n_trials_off"],
+            "val_on": alloc["summary"]["val"]["n_trials_on"],
+            "test_off": alloc["summary"]["test"]["n_trials_off"],
+            "test_on": alloc["summary"]["test"]["n_trials_on"],
+        }
+    )
 if manifest_rows:
     manifest_df = pl.DataFrame(manifest_rows)
     manifest_csv = OUT / "split_manifest.csv"
@@ -324,14 +361,18 @@ if all_removal_details:
     print("  REMOVALS BY REASON AND DBS CONDITION")
     print(f"{'='*60}")
     grand = (
-        removal_df.group_by("reason", "dbs").len()
-        .sort("reason", "dbs").rename({"len": "count"})
+        removal_df.group_by("reason", "dbs")
+        .len()
+        .sort("reason", "dbs")
+        .rename({"len": "count"})
     )
     print(grand)
 
     per_session = (
-        removal_df.group_by("participant", "session", "dbs", "reason").len()
-        .sort("participant", "session", "dbs", "reason").rename({"len": "count"})
+        removal_df.group_by("participant", "session", "dbs", "reason")
+        .len()
+        .sort("participant", "session", "dbs", "reason")
+        .rename({"len": "count"})
     )
     print(f"\n  Per session:")
     print(per_session)
@@ -372,10 +413,15 @@ for s in SESSIONS:
                     n_off += 1
                 else:
                     n_on += 1
-        split_dbs_rows.append({
-            "session": s.label, "split": split_name,
-            "OFF": n_off, "ON": n_on, "total": n_off + n_on,
-        })
+        split_dbs_rows.append(
+            {
+                "session": s.label,
+                "split": split_name,
+                "OFF": n_off,
+                "ON": n_on,
+                "total": n_off + n_on,
+            }
+        )
 split_dbs_df = pl.DataFrame(split_dbs_rows)
 sessions = [s.label for s in SESSIONS]
 
@@ -393,7 +439,7 @@ BAR_W = 0.5
 import numpy as np
 
 reason_meta = [
-    ("fragmented",      "#E24B4A"),
+    ("fragmented", "#E24B4A"),
     ("protocol/events", "#888780"),
     ("plateau (>2.0s)", COLOR_DBS_OFF),
 ]
@@ -402,8 +448,7 @@ reason_meta = [
 def _split_dbs_values(sp, dbs, as_fraction):
     out = []
     for sl in sessions:
-        r = split_dbs_df.filter(
-            (pl.col("session") == sl) & (pl.col("split") == sp))
+        r = split_dbs_df.filter((pl.col("session") == sl) & (pl.col("split") == sp))
         c = r[dbs][0] if r.height else 0
         if as_fraction:
             out.append(c / session_totals[sl] if session_totals[sl] else 0)
@@ -416,11 +461,20 @@ def _split_dbs_values(sp, dbs, as_fraction):
 fig_a, ax_a = plt.subplots(figsize=(6.5, 3.2))
 bottoms = np.zeros(len(sessions))
 for reason, color in reason_meta:
-    counts = np.array([sum(1 for d in all_removal_details
-                           if d["label"] == sl and d["reason"] == reason)
-                       for sl in sessions], dtype=float)
-    bars = ax_a.bar(sessions, counts, bottom=bottoms, color=color,
-                    width=0.55, label=reason)
+    counts = np.array(
+        [
+            sum(
+                1
+                for d in all_removal_details
+                if d["label"] == sl and d["reason"] == reason
+            )
+            for sl in sessions
+        ],
+        dtype=float,
+    )
+    bars = ax_a.bar(
+        sessions, counts, bottom=bottoms, color=color, width=0.55, label=reason
+    )
     stack_bar_label(ax_a, bars, fmt="{:.0f}", min_value=1)
     bottoms += counts
 ax_a.set_ylabel("Trials")
@@ -441,11 +495,15 @@ for sp in split_order:
     for dbs, _ in DBS_SERIES:
         vals_frac = _split_dbs_values(sp, dbs, as_fraction=True)
         vals_abs = _split_dbs_values(sp, dbs, as_fraction=False)
-        bars = ax_b.bar(sessions, vals_frac, bottom=bottoms,
-                        color=hex_to_rgba(SPLIT_COLOR[sp], DBS_ALPHA[dbs]),
-                        width=0.55, label=f"{sp} DBS-{dbs}")
-        stack_bar_label(ax_b, bars, values=vals_abs, fmt="{:.0f}",
-                        min_value=0.02)
+        bars = ax_b.bar(
+            sessions,
+            vals_frac,
+            bottom=bottoms,
+            color=hex_to_rgba(SPLIT_COLOR[sp], DBS_ALPHA[dbs]),
+            width=0.55,
+            label=f"{sp} DBS-{dbs}",
+        )
+        stack_bar_label(ax_b, bars, values=vals_abs, fmt="{:.0f}", min_value=0.02)
         bottoms += vals_frac
 ax_b.set_ylabel("Split ratio")
 ax_b.set_ylim(0, 1.05)
@@ -460,9 +518,14 @@ bottoms = np.zeros(len(sessions))
 for sp in split_order:
     for dbs, _ in DBS_SERIES:
         vals = _split_dbs_values(sp, dbs, as_fraction=False)
-        bars = ax_c.bar(sessions, vals, bottom=bottoms,
-                        color=hex_to_rgba(SPLIT_COLOR[sp], DBS_ALPHA[dbs]),
-                        width=0.55, label=f"{sp} DBS-{dbs}")
+        bars = ax_c.bar(
+            sessions,
+            vals,
+            bottom=bottoms,
+            color=hex_to_rgba(SPLIT_COLOR[sp], DBS_ALPHA[dbs]),
+            width=0.55,
+            label=f"{sp} DBS-{dbs}",
+        )
         stack_bar_label(ax_c, bars, fmt="{:.0f}", min_value=1)
         bottoms += vals
 ax_c.set_ylabel("Trials")
@@ -485,17 +548,24 @@ MARGIN_S = 2
 MARGIN_SAMP = MARGIN_S * FS_SPLIT
 FREQ_CUTOFF = 85
 
+
 def _session_raw_files(participant, session):
     return sorted(
-        (raw_data_root / f"participant_id={participant}" / f"session={session}").glob("*/*.parquet")
+        (raw_data_root / f"participant_id={participant}" / f"session={session}").glob(
+            "*/*.parquet"
+        )
     )
 
 
 _sample_paths = _session_raw_files(SESSIONS[0].participant, SESSIONS[0].session)
 _sample_df = pl.read_parquet(_sample_paths[0], n_rows=1)
-ECOG1_COLS = sorted([c for c in _sample_df.columns if c.startswith("ECOG_1") and c.endswith("_raw")])
-print(f"ECOG_1 bands ({len(ECOG1_COLS)}): "
-      f"{[c.replace('ECOG_1_','').replace('_raw','') for c in ECOG1_COLS]}")
+ECOG1_COLS = sorted(
+    [c for c in _sample_df.columns if c.startswith("ECOG_1") and c.endswith("_raw")]
+)
+print(
+    f"ECOG_1 bands ({len(ECOG1_COLS)}): "
+    f"{[c.replace('ECOG_1_','').replace('_raw','') for c in ECOG1_COLS]}"
+)
 
 session_psds_ecog1 = {}
 freqs_ref = None
@@ -544,8 +614,9 @@ def _draw_psd_cell(ax, freqs, psds_dict, conds, alpha=0.18):
         if not psds_dict[cond_key]:
             continue
         mean, sem = _psd_mean_sem(psds_dict[cond_key])
-        ax.fill_between(freqs, mean - sem, mean + sem,
-                        color=col_c, alpha=alpha, linewidth=0)
+        ax.fill_between(
+            freqs, mean - sem, mean + sem, color=col_c, alpha=alpha, linewidth=0
+        )
         ax.plot(freqs, mean, color=col_c, label=cond_label)
 
 
@@ -564,7 +635,7 @@ for ax in axes[:, 0]:
     ax.set_ylabel(f"PSD (dB/Hz) \u2014 {channel}")
 
 handles, labels = axes.flat[0].get_legend_handles_labels()
-fig.legend(handles, labels,frameon=False)
+fig.legend(handles, labels, frameon=False)
 fig.savefig(str(OUT / "fig_002_psd_ecog1.png"))
 plt.show()
 
@@ -583,7 +654,13 @@ ECOG_CHANNELS = [1, 2, 3, 4]
 
 # Collect narrow-band column sets per channel.
 _psd_cols_by_ecog = {
-    ch: sorted([c for c in _sample_df.columns if c.startswith(f"ECOG_{ch}_") and c.endswith("_raw")])
+    ch: sorted(
+        [
+            c
+            for c in _sample_df.columns
+            if c.startswith(f"ECOG_{ch}_") and c.endswith("_raw")
+        ]
+    )
     for ch in ECOG_CHANNELS
 }
 
@@ -616,7 +693,9 @@ for ch in ECOG_CHANNELS:
 for ch in ECOG_CHANNELS:
     for sl in psds_by_channel[ch]:
         for ck in ("off", "on"):
-            psds_by_channel[ch][sl][ck] = [p[freq_mask] for p in psds_by_channel[ch][sl][ck]]
+            psds_by_channel[ch][sl][ck] = [
+                p[freq_mask] for p in psds_by_channel[ch][sl][ck]
+            ]
 
 # One 2x2 figure per session — four output files.
 _SESSION_FIG_IDX = {"PDI1_S2": 2, "PDI1_S4": 3, "PDI4_S2": 4, "PDI4_S3": 5}
@@ -637,9 +716,15 @@ for s in SESSIONS:
         ax.set_ylabel(f"PSD (dB/Hz) \u2014 {s.label}")
 
     handles, labels = axes.flat[0].get_legend_handles_labels()
-    fig.legend(handles, labels, loc="upper center",
-               bbox_to_anchor=(0.5, 1.01), ncol=2, frameon=False)
-    
+    fig.legend(
+        handles,
+        labels,
+        loc="upper center",
+        bbox_to_anchor=(0.5, 1.01),
+        ncol=2,
+        frameon=False,
+    )
+
     fig_num = _SESSION_FIG_IDX[s.label]
     out_name = f"fig_{fig_num:03d}_psd_{s.label}.png"
     fig.savefig(str(OUT / out_name))
@@ -654,7 +739,13 @@ for s in SESSIONS:
 # Laplacian D14 PSD — no significance shading
 
 _lap_sample = pl.read_parquet(_sample_paths[0], n_rows=1)
-LAP_COLS = sorted([c for c in _lap_sample.columns if c.startswith("LAPLACIAN_14-16") and c.endswith("_raw")])
+LAP_COLS = sorted(
+    [
+        c
+        for c in _lap_sample.columns
+        if c.startswith("LAPLACIAN_14-16") and c.endswith("_raw")
+    ]
+)
 print(f"Laplacian D14 bands ({len(LAP_COLS)})")
 
 lap_channel = "D14 (LFP 14\u201316)"
@@ -704,8 +795,14 @@ for ax in axes[:, 0]:
     ax.set_ylabel(f"PSD (dB/Hz) \u2014 {lap_channel}")
 
 handles, labels = axes.flat[0].get_legend_handles_labels()
-fig.legend(handles, labels, loc="upper center",
-           bbox_to_anchor=(0.5, 1.01), ncol=2, frameon=False)
+fig.legend(
+    handles,
+    labels,
+    loc="upper center",
+    bbox_to_anchor=(0.5, 1.01),
+    ncol=2,
+    frameon=False,
+)
 
 fig.savefig(str(OUT / "fig_003_psd_laplacian_d14.png"))
 plt.show()
@@ -723,10 +820,12 @@ N_SAMP = TRIAL_SEC * FS_BEH
 SMOOTH_WIN = 41
 beh_vars = ["tracing_velocity_x", "tracing_acceleration_magnitude"]
 
+
 def _smooth(arr, win):
     kernel = np.ones(win) / win
     padded = np.pad(arr, win // 2, mode="edge")
-    return np.convolve(padded, kernel, mode="valid")[:len(arr)]
+    return np.convolve(padded, kernel, mode="valid")[: len(arr)]
+
 
 for var_name in beh_vars:
     traces_by_session = {}
@@ -756,16 +855,19 @@ for var_name in beh_vars:
     for s_idx, s in enumerate(SESSIONS):
         ax = axes.flat[s_idx]
         traces = traces_by_session[s.label]
-        for cond_key, col_c, cond_label in [("off", COLOR_DBS_OFF, "DBS-OFF"),
-                                             ("on", COLOR_DBS_ON, "DBS-ON")]:
+        for cond_key, col_c, cond_label in [
+            ("off", COLOR_DBS_OFF, "DBS-OFF"),
+            ("on", COLOR_DBS_ON, "DBS-ON"),
+        ]:
             cond_traces = traces[cond_key]
             if not cond_traces:
                 continue
             mat = np.vstack(cond_traces)
             mean = _smooth(mat.mean(axis=0), SMOOTH_WIN)
             sem = _smooth(mat.std(axis=0) / np.sqrt(len(mat)), SMOOTH_WIN)
-            ax.fill_between(t_axis, mean - sem, mean + sem,
-                            color=col_c, alpha=0.20, linewidth=0)
+            ax.fill_between(
+                t_axis, mean - sem, mean + sem, color=col_c, alpha=0.20, linewidth=0
+            )
             ax.plot(t_axis, mean, color=col_c, label=cond_label)
         ax.set_xlim(0, TRIAL_SEC)
         ax.set_xticks(range(0, TRIAL_SEC + 1))
@@ -777,9 +879,15 @@ for var_name in beh_vars:
         ax.set_ylabel(f"z-score \u2014 {var_name}")
 
     handles, labels = axes.flat[0].get_legend_handles_labels()
-    fig.legend(handles, labels, loc="upper center",
-               bbox_to_anchor=(0.5, 1.01), ncol=2, frameon=False)
-    
+    fig.legend(
+        handles,
+        labels,
+        loc="upper center",
+        bbox_to_anchor=(0.5, 1.01),
+        ncol=2,
+        frameon=False,
+    )
+
     safe_name = var_name.replace(" ", "_")
     fig.savefig(str(OUT / f"fig_beh_{safe_name}.png"))
     plt.show()
@@ -796,24 +904,25 @@ for var_name in beh_vars:
 from scipy.stats import mannwhitneyu
 
 BAND_ORDER = [
-    ("theta_4_8",     4,  8),
-    ("alpha_8_12",    8, 12),
-    ("beta_12_17",   12, 17),
-    ("beta_17_22",   17, 22),
-    ("beta_22_27",   22, 27),
-    ("beta_27_30",   27, 30),
-    ("gamma_30_35",  30, 35),
-    ("gamma_35_40",  35, 40),
-    ("gamma_40_45",  40, 45),
-    ("gamma_45_50",  45, 50),
-    ("gamma_50_55",  50, 55),
-    ("gamma_55_60",  55, 60),
-    ("gamma_60_65",  60, 65),
-    ("gamma_70_75",  70, 75),
-    ("gamma_75_80",  75, 80),
+    ("theta_4_8", 4, 8),
+    ("alpha_8_12", 8, 12),
+    ("beta_12_17", 12, 17),
+    ("beta_17_22", 17, 22),
+    ("beta_22_27", 22, 27),
+    ("beta_27_30", 27, 30),
+    ("gamma_30_35", 30, 35),
+    ("gamma_35_40", 35, 40),
+    ("gamma_40_45", 40, 45),
+    ("gamma_45_50", 45, 50),
+    ("gamma_50_55", 50, 55),
+    ("gamma_55_60", 55, 60),
+    ("gamma_60_65", 60, 65),
+    ("gamma_70_75", 70, 75),
+    ("gamma_75_80", 75, 80),
 ]
 
 BAND_GROUPS = [("theta", 4, 8), ("alpha", 8, 12), ("beta", 12, 30), ("gamma", 30, 80)]
+
 
 def _compute_band_pvals(channel_prefix):
     n_bands = len(BAND_ORDER)
@@ -829,7 +938,7 @@ def _compute_band_pvals(channel_prefix):
                 for bn, _, _ in BAND_ORDER:
                     arr = np.array(row[f"{channel_prefix}{bn}_raw"], dtype=float)
                     arr = arr[MARGIN_SAMP:-MARGIN_SAMP]
-                    powers.append(np.nanmean(arr ** 2))
+                    powers.append(np.nanmean(arr**2))
                 (off_powers if cond == "off" else on_powers).append(powers)
         if len(off_powers) < 2 or len(on_powers) < 2:
             continue
@@ -841,6 +950,7 @@ def _compute_band_pvals(channel_prefix):
             except ValueError:
                 pass
     return pmat
+
 
 channels_all = [
     ("ECOG_1", "ECOG_1_"),
@@ -860,8 +970,10 @@ x_mids = np.array([(lo + hi) / 2 for _, lo, hi in BAND_ORDER])
 band_centers = [f"{int((lo + hi) / 2)}" for _, lo, hi in BAND_ORDER]
 
 panel_map = [
-    ("ECOG_1", 0, 0), ("ECOG_2", 0, 1),
-    ("ECOG_3", 1, 0), ("ECOG_4", 1, 1),
+    ("ECOG_1", 0, 0),
+    ("ECOG_2", 0, 1),
+    ("ECOG_3", 1, 0),
+    ("ECOG_4", 1, 1),
     ("Laplacian D14", 2, 0),
 ]
 letters = ["A", "B", "C", "D", "E"]
@@ -875,8 +987,14 @@ for idx, (ch_name, r, c) in enumerate(panel_map):
     pm = pmats[ch_name]
     pm_display = np.where(np.isfinite(pm), pm, 0)
 
-    im = ax.imshow(pm_display, aspect="auto", cmap="Greens",
-                   vmin=0, vmax=global_zmax, interpolation="nearest")
+    im = ax.imshow(
+        pm_display,
+        aspect="auto",
+        cmap="Greens",
+        vmin=0,
+        vmax=global_zmax,
+        interpolation="nearest",
+    )
     ax.set_xticks(range(len(BAND_ORDER)))
     ax.set_xticklabels(band_centers)
     ax.set_yticks(range(len(sess_labels)))
@@ -888,10 +1006,14 @@ for idx, (ch_name, r, c) in enumerate(panel_map):
             val = pm[si, bi]
             if not np.isfinite(val):
                 continue
-            if val > 3:   txt, clr = "***", "white"
-            elif val > 2: txt, clr = "**",  "white"
-            elif val > -np.log10(0.05): txt, clr = "*", "#333"
-            else: continue
+            if val > 3:
+                txt, clr = "***", "white"
+            elif val > 2:
+                txt, clr = "**", "white"
+            elif val > -np.log10(0.05):
+                txt, clr = "*", "#333"
+            else:
+                continue
             ax.text(bi, si, txt, ha="center", va="center", color=clr)
 
     is_bottom = (r == 1 and c == 1) or (r == 2)
@@ -918,18 +1040,23 @@ for ch_name in [c[0] for c in channels_all]:
         vals = []
         for bi in range(len(BAND_ORDER)):
             v = pm[si, bi]
-            if not np.isfinite(v): vals.append("n/a")
-            elif v > 3: vals.append("***")
-            elif v > 2: vals.append("**")
-            elif v > -np.log10(0.05): vals.append("*")
-            else: vals.append("ns")
+            if not np.isfinite(v):
+                vals.append("n/a")
+            elif v > 3:
+                vals.append("***")
+            elif v > 2:
+                vals.append("**")
+            elif v > -np.log10(0.05):
+                vals.append("*")
+            else:
+                vals.append("ns")
         print(f"    {sl}: {' '.join(f'{v:>4}' for v in vals)}")
 
 # %% [markdown]
 # ## Grid alignment — behavioral resampling to 200 Hz neural grid
 #
-# **A** Interpolation on the common time grid (100 ms window).  
-# **B** x position density: raw vs aligned (KDE, pooled across sessions).  
+# **A** Interpolation on the common time grid (100 ms window).
+# **B** x position density: raw vs aligned (KDE, pooled across sessions).
 # **C** Sample tracing trajectory (single trial).
 
 # %%
@@ -938,18 +1065,25 @@ for ch_name in [c[0] for c in channels_all]:
 from scipy.stats import gaussian_kde
 from thesis_lib.fig_grid_alignment import _load_trial_row, _raw_and_interp_signal
 
-GRID_DATA_ROOT = Path("resampled_recordings/participants_at_200Hz_scaled_1e6_narrow_band")
+GRID_DATA_ROOT = Path(
+    "resampled_recordings/participants_at_200Hz_scaled_1e6_narrow_band"
+)
 MARGIN_SAMP = 400
 # Raw behavioural = DPAD-warm, aligned = PSID-blue. Neural dot uses a brighter red
 # to distinguish it from the DBS-ON red elsewhere.
 RAW_COLOR, ALIGNED_COLOR, NEURAL_COLOR = COLOR_DPAD, COLOR_PSID, "#C43A31"
 
 EX_P, EX_S, EX_T = "PDI1", "2", 30
-row = _load_trial_row(participant=EX_P, session=EX_S,
-                      data_root=GRID_DATA_ROOT, trial_index=EX_T)
-print(f"Example: {EX_P} session {EX_S}, block {row.get('block')}, trial {row.get('trial')} (idx {EX_T})")
+row = _load_trial_row(
+    participant=EX_P, session=EX_S, data_root=GRID_DATA_ROOT, trial_index=EX_T
+)
+print(
+    f"Example: {EX_P} session {EX_S}, block {row.get('block')}, trial {row.get('trial')} (idx {EX_T})"
+)
 
-t_raw_beh, vel_raw, t_grid_full, vel_grid = _raw_and_interp_signal(row, "tracing_velocity_x")
+t_raw_beh, vel_raw, t_grid_full, vel_grid = _raw_and_interp_signal(
+    row, "tracing_velocity_x"
+)
 valid_grid = ~np.isnan(t_grid_full)
 t_grid = t_grid_full[valid_grid]
 
@@ -960,9 +1094,13 @@ order = np.argsort(t_motion)
 x_raw, y_raw, t_motion = x_raw[order], y_raw[order], t_motion[order]
 
 print(f"  ECOG_1_alpha: {len(t_grid)} pts (200 Hz)")
-print(f"  tracing_velocity_x (raw): {len(t_raw_beh)} pts (~{1.0/np.median(np.diff(np.sort(t_raw_beh))):.0f} Hz)")
+print(
+    f"  tracing_velocity_x (raw): {len(t_raw_beh)} pts (~{1.0/np.median(np.diff(np.sort(t_raw_beh))):.0f} Hz)"
+)
 print(f"  tracing_velocity_x (aligned): {len(t_grid)} pts (200 Hz)")
-print(f"  Tracing path: x [{np.nanmin(x_raw):.0f}, {np.nanmax(x_raw):.0f}], y [{np.nanmin(y_raw):.0f}, {np.nanmax(y_raw):.0f}]")
+print(
+    f"  Tracing path: x [{np.nanmin(x_raw):.0f}, {np.nanmax(x_raw):.0f}], y [{np.nanmin(y_raw):.0f}, {np.nanmax(y_raw):.0f}]"
+)
 
 mid = 0.5 * (t_grid.min() + t_grid.max())
 WIN_S = 0.100
@@ -976,39 +1114,69 @@ print(f"  Window: {WIN_S*1000:.0f} ms \u2014 {len(tg_w)} grid, {len(tr_w)} raw")
 # Pooled distributions
 all_x_raw, all_x_interp = [], []
 for s in SESSIONS:
-    gp = str(GRID_DATA_ROOT / f"participant_id={s.participant}" / f"session={s.session}" / "*" / "*.parquet")
+    gp = str(
+        GRID_DATA_ROOT
+        / f"participant_id={s.participant}"
+        / f"session={s.session}"
+        / "*"
+        / "*.parquet"
+    )
     df = pl.read_parquet(gp, columns=["motion_time", "x", "time_original"])
     for idx in range(df.height):
         r = df.row(idx, named=True)
         t_r = np.asarray(r["motion_time"], dtype=float)
         x_r = np.asarray(r["x"], dtype=float)
         t_g = np.asarray(r["time_original"], dtype=float)
-        o = np.argsort(t_r); t_r, x_r = t_r[o], x_r[o]
+        o = np.argsort(t_r)
+        t_r, x_r = t_r[o], x_r[o]
         m = ~np.isnan(x_r) & ~np.isnan(t_r)
-        if m.sum() < 10: continue
+        if m.sum() < 10:
+            continue
         t_r, x_r = t_r[m], x_r[m]
-        vg = ~np.isnan(t_g); t_g = t_g[vg]
+        vg = ~np.isnan(t_g)
+        t_g = t_g[vg]
         all_x_raw.append(x_r)
         all_x_interp.append(np.interp(t_g, t_r, x_r))
 all_x_raw = np.concatenate(all_x_raw)
 all_x_interp = np.concatenate(all_x_interp)
-print(f"Pooled: {len(all_x_raw)} raw, {len(all_x_interp)} interp ({', '.join(s.label for s in SESSIONS)})")
+print(
+    f"Pooled: {len(all_x_raw)} raw, {len(all_x_interp)} interp ({', '.join(s.label for s in SESSIONS)})"
+)
 
 # ── A: Interpolation on the common time grid ──
 fig_a, ax_a = plt.subplots(figsize=(9, 3.2))
 for t_tick in tg_w:
-    ax_a.axvline(t_tick, color=(0.627, 0.627, 0.608), alpha=0.30,
-                 linewidth=0.9, zorder=1)
-ax_a.scatter(tg_w, np.full(len(tg_w), 2.0), color=NEURAL_COLOR, s=40,
-             label="ECOG_1_alpha (200 Hz)", zorder=3)
-ax_a.scatter(tr_w, np.full(len(tr_w), 1.0), color=RAW_COLOR, s=40,
-             label="tracing_velocity_x raw (~119 Hz)", zorder=3)
-ax_a.scatter(tg_w, np.full(len(tg_w), 0.0), color=ALIGNED_COLOR, s=40,
-             label="tracing_velocity_x aligned (200 Hz)", zorder=3)
+    ax_a.axvline(
+        t_tick, color=(0.627, 0.627, 0.608), alpha=0.30, linewidth=0.9, zorder=1
+    )
+ax_a.scatter(
+    tg_w,
+    np.full(len(tg_w), 2.0),
+    color=NEURAL_COLOR,
+    s=40,
+    label="ECOG_1_alpha (200 Hz)",
+    zorder=3,
+)
+ax_a.scatter(
+    tr_w,
+    np.full(len(tr_w), 1.0),
+    color=RAW_COLOR,
+    s=40,
+    label="tracing_velocity_x raw (~119 Hz)",
+    zorder=3,
+)
+ax_a.scatter(
+    tg_w,
+    np.full(len(tg_w), 0.0),
+    color=ALIGNED_COLOR,
+    s=40,
+    label="tracing_velocity_x aligned (200 Hz)",
+    zorder=3,
+)
 ax_a.set_yticks([0, 1, 2])
-ax_a.set_yticklabels(["tracing_velocity_x\n(aligned)",
-                      "tracing_velocity_x\n(raw)",
-                      "ECOG_1_alpha"])
+ax_a.set_yticklabels(
+    ["tracing_velocity_x\n(aligned)", "tracing_velocity_x\n(raw)", "ECOG_1_alpha"]
+)
 ax_a.set_ylim(-0.5, 2.5)
 ax_a.set_xlim(tg_w.min() - 1, tg_w.max() + 1)
 ax_a.set_xlabel("Time (ms)")
@@ -1029,10 +1197,15 @@ kde_int = gaussian_kde(interp_clip, bw_method=0.06)
 raw_y = kde_raw(kde_x_pts)
 int_y = kde_int(kde_x_pts)
 ax_b.fill_between(kde_x_pts, 0, raw_y, color=RAW_COLOR, alpha=0.12)
-ax_b.plot(kde_x_pts, raw_y, color=RAW_COLOR, linewidth=2.0,
-          label="x position (raw)")
-ax_b.plot(kde_x_pts, int_y, color=ALIGNED_COLOR, linewidth=2.0,
-          linestyle="--", label="x position (interpolated)")
+ax_b.plot(kde_x_pts, raw_y, color=RAW_COLOR, linewidth=2.0, label="x position (raw)")
+ax_b.plot(
+    kde_x_pts,
+    int_y,
+    color=ALIGNED_COLOR,
+    linewidth=2.0,
+    linestyle="--",
+    label="x position (interpolated)",
+)
 ax_b.set_xlabel("x position (px)")
 ax_b.set_ylabel("Density")
 ax_b.legend(frameon=False)

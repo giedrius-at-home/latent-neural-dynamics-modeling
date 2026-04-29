@@ -211,7 +211,16 @@ def build_forecast_rmse_figure(
             showlegend=False,
         )
         _add_model_line(
-            fig, x, mean_p, COLOR_PSID, "y_hat_PSID", None, "circle", row, col, showlegend=(col == 1)
+            fig,
+            x,
+            mean_p,
+            COLOR_PSID,
+            "y_hat_PSID",
+            None,
+            "circle",
+            row,
+            col,
+            showlegend=(col == 1),
         )
         _add_model_line(
             fig,
@@ -343,13 +352,17 @@ def build_forecast_rmse_figure(
         title_text=y_title,
         title_font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY),
         **_ykw,
-        row=1, col=1,
+        row=1,
+        col=1,
     )
     fig.update_yaxes(showticklabels=True, **_ykw, row=1, col=2)
 
     from dashboard.thesis.constants import apply_thesis_style
+
     apply_thesis_style(
-        fig, theme, height=FIGURE_HEIGHT,
+        fig,
+        theme,
+        height=FIGURE_HEIGHT,
         margin=dict(l=70, r=40, t=56 if column_name else 36, b=80),
         legend_y=-0.16,
     )
@@ -383,7 +396,9 @@ def build_forecast_rmse_figure_or_empty(
         )
         fig.update_layout(paper_bgcolor=paper_bg, plot_bgcolor=plot_bg)
         return fig
-    return build_forecast_rmse_figure(data, theme, y_axis_title=y_axis_title, column_name=column_name)
+    return build_forecast_rmse_figure(
+        data, theme, y_axis_title=y_axis_title, column_name=column_name
+    )
 
 
 def build_forecast_global_rmse_figure(
@@ -397,7 +412,10 @@ def build_forecast_global_rmse_figure(
     paper_bg, plot_bg = paper_colors(theme)
     grid = grid_color(theme)
     fg = true_line_color(theme)
-    y_title = y_axis_title or f"{rmse_axis_label()} at ~{data.global_horizon_ms:.0f} ms horizon"
+    y_title = (
+        y_axis_title
+        or f"{rmse_axis_label()} at ~{data.global_horizon_ms:.0f} ms horizon"
+    )
 
     cells = [
         ("PSID\nOFF", data.trial_rmse_psid_off, COLOR_PSID, 0.85),
@@ -408,10 +426,12 @@ def build_forecast_global_rmse_figure(
     x_pos = np.arange(len(cells), dtype=float)
 
     means = np.array([np.mean(c[1]) if c[1] else np.nan for c in cells])
-    sems = np.array([
-        (np.std(c[1], ddof=1) / np.sqrt(len(c[1]))) if len(c[1]) > 1 else 0.0
-        for c in cells
-    ])
+    sems = np.array(
+        [
+            (np.std(c[1], ddof=1) / np.sqrt(len(c[1]))) if len(c[1]) > 1 else 0.0
+            for c in cells
+        ]
+    )
 
     def _rgba(hex_c: str, a: float) -> str:
         h = hex_c.lstrip("#")
@@ -425,7 +445,9 @@ def build_forecast_global_rmse_figure(
         go.Bar(
             x=x_pos,
             y=means,
-            error_y=dict(type="data", array=sems, visible=True, thickness=1.5, color=fg),
+            error_y=dict(
+                type="data", array=sems, visible=True, thickness=1.5, color=fg
+            ),
             marker=dict(color=bar_colors, line=dict(width=0)),
             width=0.52,
             name="Mean",
@@ -442,7 +464,9 @@ def build_forecast_global_rmse_figure(
                 x=x_pos[xi] + jt,
                 y=vals,
                 mode="markers",
-                marker=dict(size=5, color=_rgba(color, alpha * 0.9), line=dict(width=0)),
+                marker=dict(
+                    size=5, color=_rgba(color, alpha * 0.9), line=dict(width=0)
+                ),
                 name="Test trials" if xi == 0 else None,
                 showlegend=(xi == 0),
                 legendgroup="dots",
@@ -457,27 +481,44 @@ def build_forecast_global_rmse_figure(
     y_max = max(ymax_data * 1.1, 0.5)
 
     fig.add_shape(
-        type="line", xref="x", yref="y",
-        x0=1.5, x1=1.5, y0=0, y1=y_max,
-        line=dict(color=COLOR_SEPARATOR, width=0.7, dash="dash"), opacity=0.5,
+        type="line",
+        xref="x",
+        yref="y",
+        x0=1.5,
+        x1=1.5,
+        y0=0,
+        y1=y_max,
+        line=dict(color=COLOR_SEPARATOR, width=0.7, dash="dash"),
+        opacity=0.5,
     )
 
     from dashboard.thesis.constants import apply_thesis_style
+
     apply_thesis_style(
-        fig, theme, height=FIGURE_HEIGHT,
+        fig,
+        theme,
+        height=FIGURE_HEIGHT,
         margin=dict(l=72, r=32, t=36, b=140),
-        legend_y=-0.12, hovermode="closest",
+        legend_y=-0.12,
+        hovermode="closest",
     )
     fig.update_layout(
         xaxis=dict(
             tickmode="array",
             tickvals=list(x_pos),
             ticktext=[c[0] for c in cells],
-            title=dict(text="Model × DBS condition", font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY), standoff=14),
-            showgrid=False, zeroline=False,
+            title=dict(
+                text="Model × DBS condition",
+                font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY),
+                standoff=14,
+            ),
+            showgrid=False,
+            zeroline=False,
         ),
         yaxis=dict(
-            title=dict(text=y_title, font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY)),
+            title=dict(
+                text=y_title, font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY)
+            ),
             range=[0, y_max * 1.02],
         ),
     )

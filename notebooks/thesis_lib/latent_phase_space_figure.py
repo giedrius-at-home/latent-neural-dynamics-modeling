@@ -22,14 +22,19 @@ from dashboard.thesis.constants import (
     paper_colors,
     true_line_color,
 )
-from dashboard.thesis.latent_phase_space_data import kde_on_fixed_grid, load_panel_latent_data
+from dashboard.thesis.latent_phase_space_data import (
+    kde_on_fixed_grid,
+    load_panel_latent_data,
+)
 from dashboard.thesis.specs import ThesisLatentPhaseSpec
 
 logger = logging.getLogger(__name__)
 
+
 def _hex_to_rgb(h: str) -> tuple[int, int, int]:
     h = h.lstrip("#")
     return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+
 
 _OFF_RGB = _hex_to_rgb(COLOR_DBS_OFF)
 _ON_RGB = _hex_to_rgb(COLOR_DBS_ON)
@@ -158,20 +163,42 @@ def _add_dual_kde_heatmaps(
     if len(x_off) >= 2:
         zo = kde_on_fixed_grid(x_off, y_off, xi, yi)
         _add_kde_heatmap(
-            fig, row, col, xi, yi, zo, p_lo, p_hi, _OFF_RGB,
-            False, "DBS-OFF (density)", 0.40,
+            fig,
+            row,
+            col,
+            xi,
+            yi,
+            zo,
+            p_lo,
+            p_hi,
+            _OFF_RGB,
+            False,
+            "DBS-OFF (density)",
+            0.40,
         )
     if len(x_on) >= 2:
         zn = kde_on_fixed_grid(x_on, y_on, xi, yi)
         _add_kde_heatmap(
-            fig, row, col, xi, yi, zn, p_lo, p_hi, _ON_RGB,
-            False, "DBS-ON (density)", 0.45,
+            fig,
+            row,
+            col,
+            xi,
+            yi,
+            zn,
+            p_lo,
+            p_hi,
+            _ON_RGB,
+            False,
+            "DBS-ON (density)",
+            0.45,
         )
 
 
 def _empty_cell(fig: Figure, row: int, col: int) -> None:
     fig.add_trace(
-        go.Scatter(x=[None], y=[None], mode="markers", marker=dict(opacity=0), showlegend=False),
+        go.Scatter(
+            x=[None], y=[None], mode="markers", marker=dict(opacity=0), showlegend=False
+        ),
         row=row,
         col=col,
     )
@@ -324,7 +351,9 @@ def build_latent_phase_space_figure(
                         xanchor="right",
                         yanchor="bottom",
                         showarrow=False,
-                        font=dict(size=FONT_SIZE_ANNOTATION - 1, color=fg, family=FONT_FAMILY),
+                        font=dict(
+                            size=FONT_SIZE_ANNOTATION - 1, color=fg, family=FONT_FAMILY
+                        ),
                         row=ri,
                         col=ci,
                     )
@@ -341,7 +370,9 @@ def build_latent_phase_space_figure(
                 showticklabels=(ri == n_p or ri == n_rows),
                 gridcolor=grid,
                 zeroline=False,
-                showline=True, linecolor=fg, linewidth=1,
+                showline=True,
+                linecolor=fg,
+                linewidth=1,
                 tickfont=dict(size=FONT_SIZE_TICK),
                 row=ri,
                 col=ci,
@@ -350,15 +381,19 @@ def build_latent_phase_space_figure(
                 showticklabels=(ci == 1),
                 gridcolor=grid,
                 zeroline=False,
-                showline=True, linecolor=fg, linewidth=1,
+                showline=True,
+                linecolor=fg,
+                linewidth=1,
                 tickfont=dict(size=FONT_SIZE_TICK),
                 row=ri,
                 col=ci,
             )
 
     from dashboard.thesis.constants import apply_thesis_style
+
     apply_thesis_style(
-        fig, theme,
+        fig,
+        theme,
         height=max(240 * n_rows + 80, 600),
         margin=dict(l=132, r=48, t=56, b=64),
         show_legend=False,

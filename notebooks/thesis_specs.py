@@ -16,8 +16,10 @@ class ThesisTheme(str, Enum):
     The matplotlib-based thesis_style is theme-agnostic (paper style only);
     this enum survives as a typed field value until sec2 specs drop it.
     """
+
     LIGHT = "light"
     DARK = "dark"
+
 
 # ---------------------------------------------------------------------------
 # Type aliases
@@ -38,6 +40,7 @@ class ThesisDataError(FileNotFoundError):
 # ---------------------------------------------------------------------------
 # Core triplet dataclass
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True)
 class AlignedTriplet:
@@ -71,6 +74,7 @@ class StripPanelEntry:
 # ---------------------------------------------------------------------------
 # Figure spec dataclasses
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True)
 class ThesisStripPanelsSpec:
@@ -195,6 +199,7 @@ class ThesisC2ForecastSpec:
 # ---------------------------------------------------------------------------
 # Variant string helpers
 # ---------------------------------------------------------------------------
+
 
 def _variant_off(variant: str) -> str:
     return variant.replace("dbs_on", "dbs_off").replace("dbs_both", "dbs_off")

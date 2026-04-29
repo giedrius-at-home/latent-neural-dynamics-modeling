@@ -53,16 +53,16 @@ logger = logging.getLogger(__name__)
 
 # ── feature-group colours (match classification_f1_figure.py) ────────────────
 _FEAT_COLORS: dict[str, str] = {
-    "xp":         "#185FA5",
-    "xp_1":       "#0F6E56",
-    "xp_2":       "#993C1D",
-    "xp_with_dbs":"#854F0B",
+    "xp": "#185FA5",
+    "xp_1": "#0F6E56",
+    "xp_2": "#993C1D",
+    "xp_with_dbs": "#854F0B",
 }
 _FEAT_SHORT: dict[str, str] = {
-    "xp":         "Xp",
-    "xp_1":       "Xp\u2081",
-    "xp_2":       "Xp\u2082",
-    "xp_with_dbs":"Xp+DBS",
+    "xp": "Xp",
+    "xp_1": "Xp\u2081",
+    "xp_2": "Xp\u2082",
+    "xp_with_dbs": "Xp+DBS",
 }
 
 # ── Panel A layout constants ──────────────────────────────────────────────────
@@ -87,6 +87,7 @@ def _yref(col: int) -> str:
 
 # ── Panel A: within/cross RMSE strip ─────────────────────────────────────────
 
+
 def _add_within_cross_col(
     fig: go.Figure,
     cells: list,
@@ -107,7 +108,7 @@ def _add_within_cross_col(
 
         for vals, x, is_cross, dot_alpha in [
             (within_vals, x_within, False, 0.40),
-            (cross_vals,  x_cross,  True,  0.30),
+            (cross_vals, x_cross, True, 0.30),
         ]:
             if not vals:
                 continue
@@ -135,20 +136,24 @@ def _add_within_cross_col(
                     showlegend=show_legend,
                     legendgroup=lname,
                 ),
-                row=1, col=col,
+                row=1,
+                col=col,
             )
             # Small Gaussian-jittered dots (Pearson-r plot style)
             jitter = rng.normal(0.0, 0.055, size=len(arr))
             fig.add_trace(
                 go.Scatter(
-                    x=np.clip(np.array([x] * len(arr)) + jitter, x - _BW * 0.5, x + _BW * 0.5),
+                    x=np.clip(
+                        np.array([x] * len(arr)) + jitter, x - _BW * 0.5, x + _BW * 0.5
+                    ),
                     y=arr,
                     mode="markers",
                     marker=dict(size=4, color=c, opacity=dot_alpha, line=dict(width=0)),
                     showlegend=False,
                     hoverinfo="skip",
                 ),
-                row=1, col=col,
+                row=1,
+                col=col,
             )
 
         tick_positions.append(x_within + (_BW + _GAP) / 2)
@@ -158,7 +163,8 @@ def _add_within_cross_col(
         tickvals=tick_positions,
         ticktext=models,
         tickfont=dict(size=FONT_SIZE_TICK),
-        row=1, col=col,
+        row=1,
+        col=col,
     )
     return y_max
 
@@ -184,13 +190,15 @@ def _add_roc_col(
     # Reference diagonal
     fig.add_trace(
         go.Scatter(
-            x=[0, 1], y=[0, 1],
+            x=[0, 1],
+            y=[0, 1],
             mode="lines",
             line=dict(color="rgba(160,160,160,0.6)", width=1.0, dash="dot"),
             showlegend=False,
             hoverinfo="skip",
         ),
-        row=1, col=col,
+        row=1,
+        col=col,
     )
 
     for g in GROUP_ORDER:
@@ -212,9 +220,9 @@ def _add_roc_col(
         if not tpr_interp:
             continue
 
-        mat = np.stack(tpr_interp, axis=0)   # (n_sessions, 200)
+        mat = np.stack(tpr_interp, axis=0)  # (n_sessions, 200)
         mean_tpr = np.mean(mat, axis=0)
-        std_tpr  = np.std(mat, axis=0)
+        std_tpr = np.std(mat, axis=0)
         mean_auc = float(np.mean(aucs)) if aucs else float("nan")
 
         # SEM band (±1 std)
@@ -224,7 +232,8 @@ def _add_roc_col(
         yb = np.concatenate([upper, lower[::-1]])
         fig.add_trace(
             go.Scatter(
-                x=xb, y=yb,
+                x=xb,
+                y=yb,
                 fill="toself",
                 fillcolor=_hex_to_rgba(color, 0.15),
                 mode="lines",
@@ -233,13 +242,15 @@ def _add_roc_col(
                 hoverinfo="skip",
                 legendgroup=g,
             ),
-            row=1, col=col,
+            row=1,
+            col=col,
         )
 
         auc_str = f"{mean_auc:.2f}" if np.isfinite(mean_auc) else "—"
         fig.add_trace(
             go.Scatter(
-                x=_FPR_GRID, y=mean_tpr,
+                x=_FPR_GRID,
+                y=mean_tpr,
                 mode="lines",
                 name=f"{_FEAT_SHORT[g]}  (AUC {auc_str})",
                 line=dict(color=color, width=1.8),
@@ -247,7 +258,8 @@ def _add_roc_col(
                 legendgroup=g,
                 hovertemplate=f"{_FEAT_SHORT[g]}<br>FPR=%{{x:.2f}}<br>TPR=%{{y:.2f}}<extra></extra>",
             ),
-            row=1, col=col,
+            row=1,
+            col=col,
         )
 
     fig.update_xaxes(
@@ -259,7 +271,8 @@ def _add_roc_col(
         showline=True,
         zeroline=False,
         tickfont=dict(size=FONT_SIZE_TICK),
-        row=1, col=col,
+        row=1,
+        col=col,
     )
     fig.update_yaxes(
         range=[0, 1.05],
@@ -270,11 +283,13 @@ def _add_roc_col(
         showline=True,
         zeroline=False,
         tickfont=dict(size=FONT_SIZE_TICK),
-        row=1, col=col,
+        row=1,
+        col=col,
     )
 
 
 # ── Panel C: forecast horizon RMSE ───────────────────────────────────────────
+
 
 def _add_forecast_col(
     fig: go.Figure,
@@ -292,10 +307,28 @@ def _add_forecast_col(
     _COLOR_PSID_ON = COLOR_DBS_ON
 
     traces = [
-        (horizon.mean_psid_off,  horizon.sem_psid_off,  COLOR_PSID,      None,   "PSID DBS-OFF"),
-        (horizon.mean_psid_on,   horizon.sem_psid_on,   _COLOR_PSID_ON,  "dash", "PSID DBS-ON"),
-        (horizon.mean_varma_off, horizon.sem_varma_off, COLOR_VARMA,     None,   "VARMA DBS-OFF"),
-        (horizon.mean_varma_on,  horizon.sem_varma_on,  COLOR_VARMA,     "dash", "VARMA DBS-ON"),
+        (horizon.mean_psid_off, horizon.sem_psid_off, COLOR_PSID, None, "PSID DBS-OFF"),
+        (
+            horizon.mean_psid_on,
+            horizon.sem_psid_on,
+            _COLOR_PSID_ON,
+            "dash",
+            "PSID DBS-ON",
+        ),
+        (
+            horizon.mean_varma_off,
+            horizon.sem_varma_off,
+            COLOR_VARMA,
+            None,
+            "VARMA DBS-OFF",
+        ),
+        (
+            horizon.mean_varma_on,
+            horizon.sem_varma_on,
+            COLOR_VARMA,
+            "dash",
+            "VARMA DBS-ON",
+        ),
     ]
 
     y_max = 0.0
@@ -308,7 +341,8 @@ def _add_forecast_col(
         yb = np.concatenate([upper, lower[::-1]])
         fig.add_trace(
             go.Scatter(
-                x=xb, y=yb,
+                x=xb,
+                y=yb,
                 fill="toself",
                 fillcolor=_hex_to_rgba(color, 0.12),
                 mode="lines",
@@ -317,11 +351,13 @@ def _add_forecast_col(
                 hoverinfo="skip",
                 legendgroup=name,
             ),
-            row=1, col=col,
+            row=1,
+            col=col,
         )
         fig.add_trace(
             go.Scatter(
-                x=x, y=mean,
+                x=x,
+                y=mean,
                 mode="lines",
                 name=name,
                 line=dict(color=color, width=1.8, dash=dash or "solid"),
@@ -329,7 +365,8 @@ def _add_forecast_col(
                 legendgroup=name,
                 hovertemplate=f"{name}: %{{y:.3f}}<extra></extra>",
             ),
-            row=1, col=col,
+            row=1,
+            col=col,
         )
         finite_u = upper[np.isfinite(upper)]
         if finite_u.size:
@@ -348,12 +385,14 @@ def _add_forecast_col(
         linewidth=1,
         zeroline=False,
         tickfont=dict(size=FONT_SIZE_TICK),
-        row=1, col=col,
+        row=1,
+        col=col,
     )
     return max(y_max, 0.5)
 
 
 # ── Main figure builder ───────────────────────────────────────────────────────
+
 
 def build_session_grouped_figure(
     within_cross: WithinCrossRmseData,
@@ -403,15 +442,20 @@ def build_session_grouped_figure(
     )
 
     # ── Panel A ──────────────────────────────────────────────────────────────
-    ymax_off = _add_within_cross_col(fig, off_cells, models, colors, col=1, rng=rng, show_legend=True)
-    ymax_on  = _add_within_cross_col(fig, on_cells,  models, colors, col=2, rng=rng, show_legend=False)
-    ymax_ab  = max(ymax_off, ymax_on, 0.85) * 1.08
+    ymax_off = _add_within_cross_col(
+        fig, off_cells, models, colors, col=1, rng=rng, show_legend=True
+    )
+    ymax_on = _add_within_cross_col(
+        fig, on_cells, models, colors, col=2, rng=rng, show_legend=False
+    )
+    ymax_ab = max(ymax_off, ymax_on, 0.85) * 1.08
 
     # DBS condition badges
     for badge_col, badge_label in [(1, "DBS-OFF"), (2, "DBS-ON")]:
         bfg, bbg = dbs_badge_style(badge_label)
         fig.add_annotation(
-            x=0.04, y=0.97,
+            x=0.04,
+            y=0.97,
             xref=f"{_xref(badge_col)} domain",
             yref=f"{_yref(badge_col)} domain",
             text=f"<b>{badge_label}</b>",
@@ -444,13 +488,15 @@ def build_session_grouped_figure(
         title_text=rmse_axis_label(),
         title_font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY),
         **_ykw_rmse,
-        row=1, col=1,
+        row=1,
+        col=1,
     )
     fig.update_yaxes(
         range=[0, ymax_ab],
         showticklabels=False,
         **_ykw_rmse,
-        row=1, col=2,
+        row=1,
+        col=2,
     )
     fig.update_yaxes(
         range=[0, ymax_fc * 1.05],
@@ -463,7 +509,8 @@ def build_session_grouped_figure(
         linewidth=1,
         zeroline=False,
         tickfont=dict(size=FONT_SIZE_TICK),
-        row=1, col=4,
+        row=1,
+        col=4,
     )
 
     for c in (1, 2):
@@ -473,7 +520,8 @@ def build_session_grouped_figure(
             linecolor=fg,
             linewidth=1,
             zeroline=False,
-            row=1, col=c,
+            row=1,
+            col=c,
         )
 
     # ── Layout ───────────────────────────────────────────────────────────────
