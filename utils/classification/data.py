@@ -672,6 +672,7 @@ def _load_framework_for_forecast(
 
     if config is None:
         import re
+
         setup_paths = []
         for setup_dir in ("training/setups", "classification/setups"):
             base = project_root / setup_dir

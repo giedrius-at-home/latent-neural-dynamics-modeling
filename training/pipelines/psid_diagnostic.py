@@ -53,8 +53,6 @@ from utils.logger import get_logger, setup_logger
 from utils.stats import pearson_r_per_channel
 
 
-
-
 # ----------------------------- data loading -----------------------------
 
 
@@ -107,7 +105,13 @@ def _mrmr_fold_vote(src_agg, src_names, dbs_target, k, tag, method, trial_blocks
     splits = chrono.split(src_agg, dbs_target, trial_blocks)
     n_actual = len(splits)
     log = get_logger()
-    log.info("[%s] ChronoGroupsSplit %d folds | pool=%d | k=%d", tag, n_actual, len(src_names), k)
+    log.info(
+        "[%s] ChronoGroupsSplit %d folds | pool=%d | k=%d",
+        tag,
+        n_actual,
+        len(src_names),
+        k,
+    )
     counts: dict[str, int] = {}
     rank_sum: dict[str, int] = {}
     mi_fold_sum = np.zeros(len(src_names))
@@ -136,9 +140,15 @@ def _mrmr_fold_vote(src_agg, src_names, dbs_target, k, tag, method, trial_blocks
     for c in chosen:
         log.info(
             "  %-48s %3d/%-2d %6.1f %8.4f",
-            c, counts[c], n_actual, rank_sum[c] / counts[c], mi_by_name.get(c, float("nan"))
+            c,
+            counts[c],
+            n_actual,
+            rank_sum[c] / counts[c],
+            mi_by_name.get(c, float("nan")),
         )
-    log.info("  [debug] %d/%d candidates picked in >=1 fold", len(counts), len(src_names))
+    log.info(
+        "  [debug] %d/%d candidates picked in >=1 fold", len(counts), len(src_names)
+    )
     stats = {
         "counts": counts,
         "rank_sum": rank_sum,
@@ -308,7 +318,9 @@ def _select_by_parsimony(grid, mean_arr, sem_arr):
 # --------------------------- nx / n1 CV sweeps ---------------------------
 
 
-def cv_select_nx(cv_trials, sel_y_idx, nx_grid: list[int], i_horizon: int, max_eig: float):
+def cv_select_nx(
+    cv_trials, sel_y_idx, nx_grid: list[int], i_horizon: int, max_eig: float
+):
     """Inner-CV nx sweep over ``nx_grid``. PSID n1=0 (SID).
 
     Per fold + per nx: fit SID, score one-step Y reconstruction CC on fold-val.
@@ -319,7 +331,9 @@ def cv_select_nx(cv_trials, sel_y_idx, nx_grid: list[int], i_horizon: int, max_e
     log = get_logger()
     splits = _make_cv_splits(cv_trials)
     n_folds = len(splits)
-    log.info("nx CV sweep (%d folds, n1=0 SID, reconstruction Y CC; 1-SE rule)", n_folds)
+    log.info(
+        "nx CV sweep (%d folds, n1=0 SID, reconstruction Y CC; 1-SE rule)", n_folds
+    )
 
     grid = sorted(nx_grid)
     val_fold_curves: list[dict[int, float]] = []
@@ -350,12 +364,15 @@ def cv_select_nx(cv_trials, sel_y_idx, nx_grid: list[int], i_horizon: int, max_e
         dt = time.time() - t0
         log.info(
             "  fold %d/%d val | %s | %.1fs",
-            fold_i + 1, n_folds,
-            " ".join(f"{k}:{val_per[k]:.3f}" for k in grid), dt,
+            fold_i + 1,
+            n_folds,
+            " ".join(f"{k}:{val_per[k]:.3f}" for k in grid),
+            dt,
         )
         log.info(
             "  fold %d/%d tr  | %s",
-            fold_i + 1, n_folds,
+            fold_i + 1,
+            n_folds,
             " ".join(f"{k}:{train_per[k]:.3f}" for k in grid),
         )
         val_fold_curves.append(val_per)
@@ -380,7 +397,10 @@ def cv_select_nx(cv_trials, sel_y_idx, nx_grid: list[int], i_horizon: int, max_e
     log.info("  train mean : %s", dict(zip(grid, [round(x, 4) for x in train_mean])))
     log.info(
         "  best val mean = %.4f at nx=%d; 1-SE threshold = %.4f; chosen nx = %d",
-        val_mean[best_i], grid[best_i], thr, nx_chosen,
+        val_mean[best_i],
+        grid[best_i],
+        thr,
+        nx_chosen,
     )
     return (
         nx_chosen,
@@ -392,7 +412,16 @@ def cv_select_nx(cv_trials, sel_y_idx, nx_grid: list[int], i_horizon: int, max_e
     )
 
 
-def cv_select_n1(cv_trials, sel_y_idx, sel_z_idx, NX, sfreq, n1_grid: list[int], i_horizon: int, max_eig: float):
+def cv_select_n1(
+    cv_trials,
+    sel_y_idx,
+    sel_z_idx,
+    NX,
+    sfreq,
+    n1_grid: list[int],
+    i_horizon: int,
+    max_eig: float,
+):
     """Inner-CV n1 sweep at fixed ``NX``. Full PSID(NX, n1>0).
 
     Per fold + per n1: fit PSID, score one-step Z reconstruction CC on fold-val.
@@ -403,7 +432,9 @@ def cv_select_n1(cv_trials, sel_y_idx, sel_z_idx, NX, sfreq, n1_grid: list[int],
     grid = sorted(n1_grid)
     splits = _make_cv_splits(cv_trials)
     n_folds = len(splits)
-    log.info("n1 CV sweep (%d folds, nx=%d, reconstruction Z CC; 1-SE rule)", n_folds, NX)
+    log.info(
+        "n1 CV sweep (%d folds, nx=%d, reconstruction Z CC; 1-SE rule)", n_folds, NX
+    )
 
     fold_z_curves: list[dict[int, float]] = []
     for fold_i, (tr, va) in enumerate(splits):
@@ -433,8 +464,10 @@ def cv_select_n1(cv_trials, sel_y_idx, sel_z_idx, NX, sfreq, n1_grid: list[int],
         dt = time.time() - t0
         log.info(
             "  fold %d/%d Zr | %s | %.1fs",
-            fold_i + 1, n_folds,
-            " ".join(f"{k}:{z_per_fold[k]:.3f}" for k in grid), dt,
+            fold_i + 1,
+            n_folds,
+            " ".join(f"{k}:{z_per_fold[k]:.3f}" for k in grid),
+            dt,
         )
         fold_z_curves.append(z_per_fold)
         del ws_psid
@@ -450,7 +483,10 @@ def cv_select_n1(cv_trials, sel_y_idx, sel_z_idx, NX, sfreq, n1_grid: list[int],
     log.info("  Z recon CC sem  : %s", dict(zip(grid, [round(x, 4) for x in z_sem])))
     log.info(
         "  best mean = %.4f at n1=%d; 1-SE threshold = %.4f; chosen n1 = %d",
-        z_mean[best_i], grid[best_i], thr, n1_chosen,
+        z_mean[best_i],
+        grid[best_i],
+        thr,
+        n1_chosen,
     )
     return (
         n1_chosen,
@@ -521,8 +557,16 @@ def _epoch_log_std(trials, key, ep_samples):
 
 
 def run_mrmr_selection(
-    train_trials, y_candidates, z_candidates, mode, k_y: int, k_z: int, sfreq: int,
-    stratify: bool, method: str, mrmr_epoch_len_s: float,
+    train_trials,
+    y_candidates,
+    z_candidates,
+    mode,
+    k_y: int,
+    k_z: int,
+    sfreq: int,
+    stratify: bool,
+    method: str,
+    mrmr_epoch_len_s: float,
 ):
     ep_samples = int(mrmr_epoch_len_s * sfreq)
     Y_train_agg, trial_labels, train_blocks_arr = _epoch_log_std(
@@ -532,7 +576,10 @@ def run_mrmr_selection(
     log = get_logger()
     log.info(
         "epoch-aggregate shape: Y=%s Z=%s labels=%s ep_samples=%d",
-        Y_train_agg.shape, Z_train_agg.shape, trial_labels.shape, ep_samples,
+        Y_train_agg.shape,
+        Z_train_agg.shape,
+        trial_labels.shape,
+        ep_samples,
     )
 
     selected_y, stats_y = select_mrmr_features(
@@ -617,8 +664,17 @@ def amend_run_config(
 
 
 def fit_final_and_evaluate(
-    Y_train, Z_train, Y_test, Z_test, NX, N1, sfreq: int,
-    i_horizon: int, max_eig: float, history_s: float, forecast_s: float,
+    Y_train,
+    Z_train,
+    Y_test,
+    Z_test,
+    NX,
+    N1,
+    sfreq: int,
+    i_horizon: int,
+    max_eig: float,
+    history_s: float,
+    forecast_s: float,
 ):
     """Final PSID fit at chosen (NX, N1) on full train. Eval once on TEST.
 
@@ -643,7 +699,8 @@ def fit_final_and_evaluate(
     }
     log.info(
         "  test_y_forecast_r = %s  test_z_forecast_r = %s",
-        metrics["test_y_forecast_r"], metrics["test_z_forecast_r"],
+        metrics["test_y_forecast_r"],
+        metrics["test_z_forecast_r"],
     )
     return model, metrics
 
@@ -741,7 +798,7 @@ class PsidDiagnosticPipeline:
     """Wraps the PSID diagnostic sweep; invoked by ``training.pipeline`` when
     ``framework.name == "psid_diagnostic"``."""
 
-    def __init__(self, config, log, phases=None):
+    def __init__(self, config, log, phases=None, dbs=None):
         self.config = config
         self.log = log
         self.project_root = Path(config.results.project_root)
@@ -783,12 +840,27 @@ class PsidDiagnosticPipeline:
             train_trials, sel_y_idx, sel_z_idx
         )
         model, final_metrics, runs_yaml = self._run_final_fit(
-            train_trials, test_trials, sel_y_idx, sel_z_idx,
-            selected_y, selected_z, NX, N1,
+            train_trials,
+            test_trials,
+            sel_y_idx,
+            sel_z_idx,
+            selected_y,
+            selected_z,
+            NX,
+            N1,
         )
         self._save_results(
-            selected_y, selected_z, stats_y, stats_z,
-            NX, N1, nx_data, n1_data, final_metrics, model, runs_yaml,
+            selected_y,
+            selected_z,
+            stats_y,
+            stats_z,
+            NX,
+            N1,
+            nx_data,
+            n1_data,
+            final_metrics,
+            model,
+            runs_yaml,
         )
 
     # ---------- phases ----------
@@ -820,15 +892,20 @@ class PsidDiagnosticPipeline:
         )
         train_blocks = set(
             pl.read_parquet(splits_dir / "train.parquet")
-            .filter(pid_filter)["block"].unique().to_list()
+            .filter(pid_filter)["block"]
+            .unique()
+            .to_list()
         )
         test_blocks = set(
             pl.read_parquet(splits_dir / "test.parquet")
-            .filter(pid_filter)["block"].unique().to_list()
+            .filter(pid_filter)["block"]
+            .unique()
+            .to_list()
         )
         self.log.info(
             "split blocks  train=%s  test=%s  (val unused - inner CV on train pool)",
-            sorted(train_blocks), sorted(test_blocks),
+            sorted(train_blocks),
+            sorted(test_blocks),
         )
 
         y_cands, z_cands = build_feature_candidates(
@@ -836,7 +913,9 @@ class PsidDiagnosticPipeline:
         )
         self.log.info(
             "Y candidates: %d    Z candidates (%s): %d",
-            len(y_cands), self.exp_type, len(z_cands),
+            len(y_cands),
+            self.exp_type,
+            len(z_cands),
         )
 
         trials = load_session_trials(
@@ -846,16 +925,24 @@ class PsidDiagnosticPipeline:
         test_trials = [t for t in trials if t["block"] in test_blocks]
         self.log.info(
             "loaded %d trials  train=%d test=%d (val ignored - inner CV on train pool)",
-            len(trials), len(train_trials), len(test_trials),
+            len(trials),
+            len(train_trials),
+            len(test_trials),
         )
         return train_trials, test_trials, y_cands, z_cands
 
     def _run_mrmr(self, train_trials, y_cands, z_cands):
         """CV-stabilized mRMR on Y and (optionally) Z. Returns (selected_y, selected_z, stats_y, stats_z)."""
         return run_mrmr_selection(
-            train_trials, y_cands, z_cands, self.exp_type,
-            k_y=self.k_y, k_z=self.k_z, sfreq=self.sfreq,
-            stratify=self.stratify, method=self.mrmr_method,
+            train_trials,
+            y_cands,
+            z_cands,
+            self.exp_type,
+            k_y=self.k_y,
+            k_z=self.k_z,
+            sfreq=self.sfreq,
+            stratify=self.stratify,
+            method=self.mrmr_method,
             mrmr_epoch_len_s=self.mrmr_epoch_len_s,
         )
 
@@ -881,7 +968,8 @@ class PsidDiagnosticPipeline:
                     "y_n_folds": stats_y.get("n_folds", 0) if stats_y else 0,
                     "z_n_folds": stats_z.get("n_folds", 0) if stats_z else 0,
                 },
-                fh, indent=2,
+                fh,
+                indent=2,
             )
         self.log.info("[diagnostic] wrote %s", path)
 
@@ -889,26 +977,47 @@ class PsidDiagnosticPipeline:
         """nx then n1 inner-CV sweeps. Returns (NX, N1, nx_data, n1_data)."""
         NX, nx_val_mean, nx_val_sem, nx_train_mean, nx_val_folds, nx_train_folds = (
             cv_select_nx(
-                train_trials, sel_y_idx,
-                nx_grid=self.nx_grid, i_horizon=self.i_horizon, max_eig=self.max_eig,
+                train_trials,
+                sel_y_idx,
+                nx_grid=self.nx_grid,
+                i_horizon=self.i_horizon,
+                max_eig=self.max_eig,
             )
         )
         N1, n1_z_mean, n1_z_sem, n1_z_folds = cv_select_n1(
-            train_trials, sel_y_idx, sel_z_idx, NX, self.sfreq,
-            n1_grid=self.n1_grid, i_horizon=self.i_horizon, max_eig=self.max_eig,
+            train_trials,
+            sel_y_idx,
+            sel_z_idx,
+            NX,
+            self.sfreq,
+            n1_grid=self.n1_grid,
+            i_horizon=self.i_horizon,
+            max_eig=self.max_eig,
         )
         nx_data = {
-            "val_mean": nx_val_mean, "val_sem": nx_val_sem, "train_mean": nx_train_mean,
-            "val_fold_curves": nx_val_folds, "train_fold_curves": nx_train_folds,
+            "val_mean": nx_val_mean,
+            "val_sem": nx_val_sem,
+            "train_mean": nx_train_mean,
+            "val_fold_curves": nx_val_folds,
+            "train_fold_curves": nx_train_folds,
         }
         n1_data = {
-            "z_cc_mean": n1_z_mean, "z_cc_sem": n1_z_sem, "z_cc_fold_curves": n1_z_folds,
+            "z_cc_mean": n1_z_mean,
+            "z_cc_sem": n1_z_sem,
+            "z_cc_fold_curves": n1_z_folds,
         }
         return NX, N1, nx_data, n1_data
 
     def _run_final_fit(
-        self, train_trials, test_trials, sel_y_idx, sel_z_idx,
-        selected_y, selected_z, NX, N1,
+        self,
+        train_trials,
+        test_trials,
+        sel_y_idx,
+        sel_z_idx,
+        selected_y,
+        selected_z,
+        NX,
+        N1,
     ):
         """Final PSID fit + amend run YAML. Returns (model, final_metrics, runs_yaml_path)."""
         Y_train = [t["Y"][:, sel_y_idx] for t in train_trials]
@@ -916,40 +1025,67 @@ class PsidDiagnosticPipeline:
         Y_test = [t["Y"][:, sel_y_idx] for t in test_trials]
         Z_test = [t["Z"][:, sel_z_idx] for t in test_trials]
         model, final_metrics = fit_final_and_evaluate(
-            Y_train, Z_train, Y_test, Z_test, NX, N1, self.sfreq,
-            i_horizon=self.i_horizon, max_eig=self.max_eig,
-            history_s=self.history_s, forecast_s=self.forecast_s,
+            Y_train,
+            Z_train,
+            Y_test,
+            Z_test,
+            NX,
+            N1,
+            self.sfreq,
+            i_horizon=self.i_horizon,
+            max_eig=self.max_eig,
+            history_s=self.history_s,
+            forecast_s=self.forecast_s,
         )
         out_path = (
             self.project_root
-            / "training" / "setups"
+            / "training"
+            / "setups"
             / f"psid_{self.participant}_S{self.session}_{self.exp_type}.yaml"
         )
         amend_run_config(
-            self.participant, self.session, NX, N1, self.i_train,
-            list(selected_y), list(selected_z), out_path,
+            self.participant,
+            self.session,
+            NX,
+            N1,
+            self.i_train,
+            list(selected_y),
+            list(selected_z),
+            out_path,
         )
         self.log.info("[diagnostic] amended %s", out_path)
         return model, final_metrics, out_path
 
     def _save_results(
-        self, selected_y, selected_z, stats_y, stats_z,
-        NX, N1, nx_data, n1_data, final_metrics, model, runs_yaml,
+        self,
+        selected_y,
+        selected_z,
+        stats_y,
+        stats_z,
+        NX,
+        N1,
+        nx_data,
+        n1_data,
+        final_metrics,
+        model,
+        runs_yaml,
     ) -> None:
         """Build metrics payload and persist model + parquet + mrmr_stats.json."""
 
         def _clean(d):
-            return {
-                int(k): (None if np.isnan(v) else float(v)) for k, v in d.items()
-            }
+            return {int(k): (None if np.isnan(v) else float(v)) for k, v in d.items()}
 
         def _clean_folds(folds):
-            return [{int(k): (None if np.isnan(v) else float(v)) for k, v in fc.items()}
-                    for fc in folds]
+            return [
+                {int(k): (None if np.isnan(v) else float(v)) for k, v in fc.items()}
+                for fc in folds
+            ]
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         artifacts_dir = (
-            self.project_root / "results" / "psid_diagnostic"
+            self.project_root
+            / "results"
+            / "psid_diagnostic"
             / f"{self.participant}_S{self.session}_{self.exp_type}"
             / timestamp
         )
@@ -959,11 +1095,16 @@ class PsidDiagnosticPipeline:
             "mode": self.exp_type,
             "timestamp": timestamp,
             "knobs": {
-                "K_Y": self.k_y, "K_Z": self.k_z,
-                "stratify_raw_env": self.stratify, "mrmr_method": self.mrmr_method,
-                "nx_grid": self.nx_grid, "n1_grid": self.n1_grid,
-                "i_horizon": self.i_horizon, "max_eig": self.max_eig,
-                "history_s": self.history_s, "forecast_s": self.forecast_s,
+                "K_Y": self.k_y,
+                "K_Z": self.k_z,
+                "stratify_raw_env": self.stratify,
+                "mrmr_method": self.mrmr_method,
+                "nx_grid": self.nx_grid,
+                "n1_grid": self.n1_grid,
+                "i_horizon": self.i_horizon,
+                "max_eig": self.max_eig,
+                "history_s": self.history_s,
+                "forecast_s": self.forecast_s,
             },
             "selected_y": list(selected_y),
             "selected_z": list(selected_z),
@@ -1001,7 +1142,9 @@ class PsidDiagnosticPipeline:
 
 def main():
     parser = argparse.ArgumentParser(description="PSID per-cell diagnostic")
-    parser.add_argument("--config", required=True, help="Path to psid_diagnostic_run.yaml")
+    parser.add_argument(
+        "--config", required=True, help="Path to psid_diagnostic_run.yaml"
+    )
     parser.add_argument(
         "--mrmr-only",
         action="store_true",

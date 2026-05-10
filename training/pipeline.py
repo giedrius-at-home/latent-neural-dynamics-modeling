@@ -49,7 +49,9 @@ PIPELINES = {
 }
 
 
-def run(config_path: str | Path, phases: str | None = None, dbs: str | None = None) -> None:
+def run(
+    config_path: str | Path, phases: str | None = None, dbs: str | None = None
+) -> None:
     """Run the pipeline declared in ``config_path``.
 
     Args:

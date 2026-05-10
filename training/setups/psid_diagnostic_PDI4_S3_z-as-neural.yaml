@@ -1,0 +1,36 @@
+framework:
+  name: psid_diagnostic
+  params:
+    nx_grid: [4, 8, 16, 32, 64]
+    n1_grid: [1, 2, 4, 8, 16, 32]
+    K_Y: 12
+    K_Z: 12
+    stratify_raw_env: true
+    mrmr_method: MIQ
+    mrmr_epoch_len_s: 2.0
+    i_horizon: 50
+    i_train: 100
+    max_eig: 0.999
+    history_s: 5.0
+    forecast_s: 2.0
+
+data:
+  root: resampled_recordings/participants_at_200Hz_scaled_1e6_raw_envelope
+  participant: PDI4
+  session: 3
+  sampling_frequency: 200
+
+experiment:
+  name: psid_diagnostic_PDI4_S3_z-as-neural
+  type: z-as-neural
+  Y_label:
+    - "^ECOG_.*_raw$"
+    - "^ECOG_.*_env$"
+  Z_label:
+    - "^LAPLACIAN_.*_LFP_.*_raw$"
+    - "^LAPLACIAN_.*_LFP_.*_env$"
+
+results:
+  project_root: "."
+  save_dir: training/setups/psid_diagnostic
+  log_dir: logs/psid_diagnostic

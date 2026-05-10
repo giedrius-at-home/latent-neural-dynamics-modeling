@@ -348,12 +348,16 @@ def run_forecast_sweep(
             raise FileNotFoundError(f"no inference parquets under {inf_dir}")
         pool_full = [splits[k] for k in ("train", "val") if k in splits]
 
-        framework = _load_framework_for_forecast(variant_dir, run_ts, project_root, config)
+        framework = _load_framework_for_forecast(
+            variant_dir, run_ts, project_root, config
+        )
         flip_models: Dict[str, Any] = {}
         if flipped:
             for side in ("on", "off", "both"):
                 v_dir = project_root / "results" / pipeline / variants[side]
-                fw = _load_framework_for_forecast(v_dir, timestamps[side], project_root, config)
+                fw = _load_framework_for_forecast(
+                    v_dir, timestamps[side], project_root, config
+                )
                 flip_models[side] = fw.model.idSys
 
         for sub in feature_sources:
