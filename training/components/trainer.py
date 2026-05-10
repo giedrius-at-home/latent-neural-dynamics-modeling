@@ -1,62 +1,68 @@
-import pickle
 import json
+import re
+import pickle
 import numpy as np
-from datetime import datetime
-from utils.config import Config
 import polars as pl
+from datetime import datetime
 from pathlib import Path
-from utils.split import create_splits
-from training.components.data import create_dataloaders
+
+from utils.config import Config
 from utils.logger import get_logger
 from utils.miscellaneous import length
+from utils.split import create_splits
+from utils.stats import pearson_r_per_channel
+from training.components.data import create_dataloaders
+from utils.frameworks import PSIDFramework, DPADFramework, VARMAOLSFramework
 
 
 class Trainer:
 
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, model_dbs: str):
         self.config = config
-        self.model_params = config.model
+        self.model_params = config.framework.params
         self.data_params = config.data
-        self.results_config = config.results
+        self.model_dbs = model_dbs
         self.logger = get_logger()
+
+        self.variant_name = f"{config.experiment.name}_dbs_{model_dbs}"
+        self.save_dir = Path(f"results/{config.framework.name}/{self.variant_name}")
+        self.split_dir = self.save_dir / "split"
+        self.framework_type = config.framework.name
 
         self.train_loader = None
         self.val_loader = None
         self.test_loader = None
         self.run_timestamp = None
+        self.framework = None
 
     def split_data(self, reuse_splits: bool = False):
         self.logger.info("Starting data split...")
         self.logger.info(
             f"Data params: participant={self.data_params.participant}, session={self.data_params.session}, "
-            f"neural_input={self.data_params.channels.neural_input}, output={self.data_params.channels.output}, "
-            f"behavioral_input={getattr(self.data_params.channels, 'behavioral_input', None)}, "
-            f"output_type={getattr(self.data_params.channels, 'output_type', 'behavioral')}"
+            f"Y={self.data_params.Y}, Z={self.data_params.Z}"
         )
 
-        split_dir = Path(self.results_config.save_dir) / "split"
         existing_splits = (
-            (split_dir / "train.parquet").exists()
-            and (split_dir / "val.parquet").exists()
-            and (split_dir / "test.parquet").exists()
+            (self.split_dir / "train.parquet").exists()
+            and (self.split_dir / "val.parquet").exists()
+            and (self.split_dir / "test.parquet").exists()
         )
 
         if reuse_splits and existing_splits:
-            self.logger.info(f"Reusing existing splits from {split_dir}")
-            dbs_condition = self.data_params.dbs_condition
-            if dbs_condition != "both":
+            self.logger.info(f"Reusing existing splits from {self.split_dir}")
+            if self.model_dbs != "both":
                 for split_name in ("train", "val", "test"):
-                    split_path = split_dir / f"{split_name}.parquet"
+                    split_path = self.split_dir / f"{split_name}.parquet"
                     df_split = pl.read_parquet(split_path)
                     if "stim" in df_split.columns:
                         before = len(df_split)
-                        df_split = df_split.filter(pl.col("stim") == dbs_condition)
+                        df_split = df_split.filter(pl.col("stim") == self.model_dbs)
                         after = len(df_split)
                         if after < before:
                             df_split.write_parquet(split_path)
                             self.logger.info(
-                                f"Filtered {split_name} split to dbs_condition={dbs_condition}: "
-                                f"{before} → {after} trials"
+                                f"Filtered {split_name} split to dbs={self.model_dbs}: "
+                                f"{before} -> {after} trials"
                             )
         else:
             session_path = (
@@ -64,68 +70,27 @@ class Trainer:
                 / f"participant_id={self.data_params.participant}"
                 / f"session={self.data_params.session}"
             )
-            base_cols = list(
-                set(self.data_params.channels.neural_input)
-                | set(self.data_params.channels.output)
-            )
-            behavioral_input = getattr(
-                self.data_params.channels, "behavioral_input", None
-            )
-            if behavioral_input:
-                base_cols = list(set(base_cols) | set(behavioral_input))
+            base_cols = list(set(self.data_params.Y) | set(self.data_params.Z))
 
-            # Split parquets carry a superset of columns so downstream pipelines
-            # (VARMA, DPAD) that copy PSID's splits can read LFP + tracing
-            # targets even when the originating PSID run didn't use them as
-            # outputs. Peek at one block to enumerate candidates, then include
-            # any matching ECoG/LAPLACIAN/tracing columns present.
             probe_path = None
             for bf in sorted(session_path.glob("block=*/0.parquet")):
                 probe_path = bf
                 break
             if probe_path is not None:
-                import re as _re
-
                 probe_all = pl.read_parquet(probe_path, n_rows=1)
-                _ecog_rx = _re.compile(r"^ECOG_[1-4]_.*_raw$")
-                _lap_rx = _re.compile(r"^LAPLACIAN_14-16_LFP_.*_raw$")
-                _beh_rx = _re.compile(
+                ecog_rx = re.compile(r"^ECOG_[1-4]_.*_raw$")
+                lap_rx = re.compile(r"^LAPLACIAN_14-16_LFP_.*_raw$")
+                beh_rx = re.compile(
                     r"^tracing_(velocity_[xy]|acceleration_magnitude|velocity_magnitude)$"
                 )
                 universal = [
                     c
                     for c in probe_all.columns
-                    if _ecog_rx.match(c) or _lap_rx.match(c) or _beh_rx.match(c)
+                    if ecog_rx.match(c) or lap_rx.match(c) or beh_rx.match(c)
                 ]
                 base_cols = list(set(base_cols) | set(universal))
-            combined_cols = []
-            for col in base_cols:
-                combined_cols.append(pl.col(col))
-                is_neural = (
-                    col.startswith("LFP")
-                    or col.startswith("ECOG")
-                    or col.startswith("LAPLACIAN")
-                )
-                is_input = col in self.data_params.channels.neural_input
-                output_type = getattr(
-                    self.data_params.channels, "output_type", "behavioral"
-                )
-                is_neural_output = output_type == "neural"
-                if is_neural and (is_input or is_neural_output):
-                    combined_cols.append(pl.col(f"{col}_epochs"))
+            combined_cols = [pl.col(col) for col in base_cols]
 
-            epoch_samp = f"{self.data_params.channels.neural_input[0]}_epochs"
-            required_cols = [
-                "participant_id",
-                "session",
-                "block",
-                "trial",
-                "time",
-                "chunk_margin",
-                "margined_duration",
-                "stim",
-                "onset",
-            ]
             block_files = sorted(list(session_path.glob("block=*/0.parquet")))
             lazy_frames = []
 
@@ -138,16 +103,14 @@ class Trainer:
                     ):
                         continue
 
-                    probe = pl.read_parquet(
-                        bf, columns=self.data_params.channels.neural_input, n_rows=1
-                    )
+                    probe = pl.read_parquet(bf, columns=self.data_params.Y, n_rows=1)
                     if any(
                         probe[c].dtype == pl.Null
                         or (
                             isinstance(probe[c].dtype, pl.List)
                             and probe[c].list.get(0).dtype == pl.Null
                         )
-                        for c in self.data_params.channels.neural_input
+                        for c in self.data_params.Y
                         if c in probe.columns
                     ):
                         self.logger.warning(f"Skipping empty block {block_num}")
@@ -190,7 +153,6 @@ class Trainer:
                     pl.col("onset").alias("offset"),
                 )
                 .collect()
-                .with_columns(pl.col(epoch_samp).list.len().alias("n_epochs"))
             )
 
             trial = trial.sort(
@@ -203,23 +165,17 @@ class Trainer:
                 maintain_order=True,
             )
 
-            cols_to_keep = [
-                c for c in trial.columns if c == "n_epochs" or not c.endswith("_epochs")
-            ]
-            trial = trial.select(cols_to_keep)
-
             if self.data_params.blocks != "all":
                 trial = trial.filter(pl.col("block").is_in(self.data_params.blocks))
 
-            dbs_condition = self.data_params.dbs_condition
-            if dbs_condition != "both":
-                trial = trial.filter(pl.col("stim") == dbs_condition)
-                self.logger.info(f"Filtered to {dbs_condition} DBS condition")
+            if self.model_dbs != "both":
+                trial = trial.filter(pl.col("stim") == self.model_dbs)
+                self.logger.info(f"Filtered to {self.model_dbs} DBS condition")
 
-            create_splits(trial, self.data_params.split, self.results_config)
+            create_splits(trial, self.split_dir, self.data_params.root)
 
         self.train_loader, self.val_loader, self.test_loader = create_dataloaders(
-            self.data_params, self.results_config
+            self.data_params, self.split_dir
         )
 
     def _slice_data(self, Y_list_margined, Z_list_margined, meta_list):
@@ -277,8 +233,7 @@ class Trainer:
 
     def load_model(self, model_timestamp: str):
 
-        out_dir = Path(self.results_config.save_dir)
-        model_path = out_dir / f"model_{model_timestamp}.pkl"
+        model_path = self.save_dir / f"model_{model_timestamp}.pkl"
 
         if not model_path.exists():
             raise FileNotFoundError(f"Model file not found: {model_path}")
@@ -286,7 +241,7 @@ class Trainer:
         self.logger.info(f"Loading pre-trained model from {model_path}")
 
         if self.framework_type == "dpad":
-            metadata_path = out_dir / f"model_{model_timestamp}_metadata.json"
+            metadata_path = self.save_dir / f"model_{model_timestamp}_metadata.json"
             if metadata_path.exists():
                 with open(metadata_path, "r") as f:
                     metadata = json.load(f)
@@ -309,20 +264,13 @@ class Trainer:
         self.logger.info("Model loaded successfully")
 
     def _init_framework(self):
-        self.framework_type = self.model_params.name.split("_")[0]
         self.logger.info(f"Selected framework: {self.framework_type}")
 
         if self.framework_type == "psid":
-            from utils.frameworks import PSIDFramework
-
             self.framework = PSIDFramework(self.config)
         elif self.framework_type == "dpad":
-            from utils.frameworks import DPADFramework
-
             self.framework = DPADFramework(self.config)
         elif self.framework_type == "varma":
-            from utils.frameworks import VARMAOLSFramework
-
             self.framework = VARMAOLSFramework(self.config)
         else:
             raise ValueError(f"Unknown framework type: {self.framework_type}")
@@ -339,8 +287,6 @@ class Trainer:
         return Y_train, Z_train, meta_train, Y_val, Z_val, meta_val
 
     def _compute_z_correlation(self, Z, Zp):
-        from utils.stats import pearson_r_per_channel
-
         if Z is not None and Zp is not None:
             Z_filtered = [z for z in Z if z is not None]
             Zp_filtered = [zp for zp in Zp if zp is not None]
@@ -355,26 +301,23 @@ class Trainer:
         r_mean_Z_val,
         r_per_channel_Y=None,
         r_per_channel_Z=None,
-        input_channels=None,
-        output_channels=None,
+        Y_features=None,
+        Z_features=None,
     ):
         ts = self.run_timestamp
-        out_dir = Path(self.results_config.save_dir)
-        out_dir.mkdir(parents=True, exist_ok=True)
+        self.save_dir.mkdir(parents=True, exist_ok=True)
 
         metadata = {
             "framework_type": self.framework_type,
             "nx": getattr(self.model_params, "nx", None),
             "n1": getattr(self.model_params, "n1", None),
             "i": getattr(self.model_params, "i", None),
-            "rescale_states": getattr(self.model_params, "rescale_states", True),
-            "max_eigenvalue": getattr(self.model_params, "max_eigenvalue", 0.995),
             "r_mean_Y": float(r_mean_val) if r_mean_val is not None else None,
             "r_mean_Z": float(r_mean_Z_val) if r_mean_Z_val is not None else None,
         }
-        if r_per_channel_Y is not None and input_channels is not None:
+        if r_per_channel_Y is not None and Y_features is not None:
             if len(r_per_channel_Y) > 0 and isinstance(r_per_channel_Y[0], list):
-                n_channels = len(input_channels)
+                n_channels = len(Y_features)
                 channel_stats = {}
                 for ch_idx in range(n_channels):
                     ch_vals = [
@@ -385,7 +328,7 @@ class Trainer:
                         and not np.isnan(trial[ch_idx])
                     ]
                     if ch_vals:
-                        channel_stats[input_channels[ch_idx]] = {
+                        channel_stats[Y_features[ch_idx]] = {
                             "mean": float(np.mean(ch_vals)),
                             "std": float(np.std(ch_vals)),
                             "min": float(np.min(ch_vals)),
@@ -396,14 +339,14 @@ class Trainer:
             else:
                 metadata["r_per_channel_Y"] = {
                     ch: {"mean": float(r)}
-                    for ch, r in zip(input_channels, r_per_channel_Y)
+                    for ch, r in zip(Y_features, r_per_channel_Y)
                     if r is not None and not np.isnan(r)
                 }
-            metadata["input_channels"] = input_channels
+            metadata["Y_features"] = Y_features
 
-        if r_per_channel_Z is not None and output_channels is not None:
+        if r_per_channel_Z is not None and Z_features is not None:
             if len(r_per_channel_Z) > 0 and isinstance(r_per_channel_Z[0], list):
-                n_channels = len(output_channels)
+                n_channels = len(Z_features)
                 channel_stats = {}
                 for ch_idx in range(n_channels):
                     ch_vals = [
@@ -414,7 +357,7 @@ class Trainer:
                         and not np.isnan(trial[ch_idx])
                     ]
                     if ch_vals:
-                        channel_stats[output_channels[ch_idx]] = {
+                        channel_stats[Z_features[ch_idx]] = {
                             "mean": float(np.mean(ch_vals)),
                             "std": float(np.std(ch_vals)),
                             "min": float(np.min(ch_vals)),
@@ -425,12 +368,12 @@ class Trainer:
             else:
                 metadata["r_per_channel_Z"] = {
                     ch: {"mean": float(r)}
-                    for ch, r in zip(output_channels, r_per_channel_Z)
+                    for ch, r in zip(Z_features, r_per_channel_Z)
                     if r is not None and not np.isnan(r)
                 }
-            metadata["output_channels"] = output_channels
+            metadata["Z_features"] = Z_features
 
-        metadata_path = out_dir / f"model_{ts}_metadata.json"
+        metadata_path = self.save_dir / f"model_{ts}_metadata.json"
         with open(metadata_path, "w") as f:
             json.dump(metadata, f, indent=2)
 
@@ -439,32 +382,31 @@ class Trainer:
         self.logger.info(f"Pearson R Y={r_mean_val:.4f}, Pearson R Z={r_z_str}")
 
     def _write_minimal_metadata(self):
-        out_dir = Path(self.results_config.save_dir)
-        out_dir.mkdir(parents=True, exist_ok=True)
-        metadata_path = out_dir / f"model_{self.run_timestamp}_metadata.json"
+        self.save_dir.mkdir(parents=True, exist_ok=True)
+        metadata_path = self.save_dir / f"model_{self.run_timestamp}_metadata.json"
 
         if self.framework_type == "dpad":
             metadata = {
                 "framework_type": "dpad",
-                "nx": getattr(self.model_params, "nx", None),
-                "n1": getattr(self.model_params, "n1", None),
-                "method_code": getattr(self.model_params, "method_code", None),
-                "epochs": getattr(self.model_params, "epochs", None),
+                "nx": self.model_params.nx,
+                "n1": self.model_params.n1,
+                "method_code": self.model_params.method_code,
+                "epochs": self.model_params.epochs,
             }
         elif self.framework_type == "varma":
             metadata = {
                 "framework_type": "varma",
-                "p": getattr(self.model_params, "p", 20),
-                "q": getattr(self.model_params, "q", 1),
-                "long_ar_lags": getattr(self.model_params, "long_ar_lags", 30),
+                "p": self.model_params.p,
+                "q": self.model_params.q,
+                "long_ar_lags": self.model_params.long_ar_lags,
             }
         else:
             metadata = {
                 "framework_type": "psid",
-                "nx": getattr(self.model_params, "nx", None),
-                "n1": getattr(self.model_params, "n1", None),
-                "i": getattr(self.model_params, "i", None),
-                "max_eigenvalue": getattr(self.model_params, "max_eigenvalue", 0.9999),
+                "nx": self.model_params.nx,
+                "n1": self.model_params.n1,
+                "i": self.model_params.i,
+                "A_eigen_constrain": self.model_params.A_eigen_constrain,
             }
 
         with open(metadata_path, "w") as f:
@@ -489,9 +431,8 @@ class Trainer:
             self.framework._train(Y_train, Z_train)
 
         try:
-            out_dir = Path(self.results_config.save_dir)
-            out_dir.mkdir(parents=True, exist_ok=True)
-            model_path = out_dir / f"model_{self.run_timestamp}.pkl"
+            self.save_dir.mkdir(parents=True, exist_ok=True)
+            model_path = self.save_dir / f"model_{self.run_timestamp}.pkl"
 
             if self.framework_type == "dpad":
                 try:
@@ -520,15 +461,17 @@ class Trainer:
 
         Zp_val, Yp_val, Xp_val = self.framework._predict(Y_val, Z_val)
 
-        from utils.stats import pearson_r_per_channel
-
         r_list_val, r_mean_val = pearson_r_per_channel(Y_val, Yp_val)
         r_list_Z_val, r_mean_Z_val = self._compute_z_correlation(Z_val, Zp_val)
-        input_channels = meta_val[0].get("input_channels", []) if meta_val else []
-        output_channels = meta_val[0].get("output_channels", []) if meta_val else []
+        Y_features = meta_val[0].get("Y_features", []) if meta_val else []
+        Z_features = meta_val[0].get("Z_features", []) if meta_val else []
 
         Zp_train, Yp_train, Xp_train = self.framework._predict(Y_train, Z_train)
         r_list_train, r_mean_train = pearson_r_per_channel(Y_train, Yp_train)
+
+        fc = self.config.experiment.forecasts
+        m_seconds = fc.default_m
+        history_seconds = fc.h_grid[-1]
 
         train_results = {
             "Y": Y_train,
@@ -538,15 +481,8 @@ class Trainer:
             "Xp": Xp_train,
             "pearson_r_per_channel": r_list_train,
             "pearson_r_mean": r_mean_train,
-            "input_channels": (
-                meta_train[0].get("input_channels", []) if meta_train else []
-            ),
-            "behavioral_input_channels": (
-                meta_train[0].get("behavioral_input_channels", []) if meta_train else []
-            ),
-            "output_channels": (
-                meta_train[0].get("output_channels", []) if meta_train else []
-            ),
+            "Y_features": (meta_train[0].get("Y_features", []) if meta_train else []),
+            "Z_features": (meta_train[0].get("Z_features", []) if meta_train else []),
         }
 
         r_list_Z_train, r_mean_Z_train = self._compute_z_correlation(Z_train, Zp_train)
@@ -559,6 +495,8 @@ class Trainer:
             Y_train,
             Z_list=Z_train,
             margin=chunk_margin_train,
+            m_seconds=m_seconds,
+            history_seconds=history_seconds,
         )
         train_results.update(train_forecast)
 
@@ -577,8 +515,8 @@ class Trainer:
             "Xp": Xp_val,
             "pearson_r_per_channel": r_list_val,
             "pearson_r_mean": r_mean_val,
-            "input_channels": input_channels,
-            "output_channels": output_channels,
+            "Y_features": Y_features,
+            "Z_features": Z_features,
         }
         if r_list_Z_val is not None:
             val_results["pearson_r_per_channel_Z"] = r_list_Z_val
@@ -586,7 +524,11 @@ class Trainer:
 
         chunk_margin_val = meta_val[0].get("chunk_margin") if meta_val else 0
         val_forecast = self.framework._evaluate_forecast(
-            Y_val, Z_list=Z_val, margin=chunk_margin_val
+            Y_val,
+            Z_list=Z_val,
+            margin=chunk_margin_val,
+            m_seconds=m_seconds,
+            history_seconds=history_seconds,
         )
         val_results.update(val_forecast)
 
@@ -679,29 +621,16 @@ class Trainer:
                     pl.Series(name=key, values=[safe_tolist(x) for x in results[key]])
                 )
 
-        if "input_channels" in results:
+        if "Y_features" in results:
             n_rows = len(input_df)
             new_cols.append(
-                pl.Series(
-                    name="input_channels", values=[results["input_channels"]] * n_rows
-                )
+                pl.Series(name="Y_features", values=[results["Y_features"]] * n_rows)
             )
 
-        if "behavioral_input_channels" in results:
+        if "Z_features" in results:
             n_rows = len(input_df)
             new_cols.append(
-                pl.Series(
-                    name="behavioral_input_channels",
-                    values=[results["behavioral_input_channels"]] * n_rows,
-                )
-            )
-
-        if "output_channels" in results:
-            n_rows = len(input_df)
-            new_cols.append(
-                pl.Series(
-                    name="output_channels", values=[results["output_channels"]] * n_rows
-                )
+                pl.Series(name="Z_features", values=[results["Z_features"]] * n_rows)
             )
 
         metrics_df = input_df.with_columns(new_cols)
@@ -716,9 +645,7 @@ class Trainer:
                         pass
 
         ts = self.run_timestamp
-        out_dir = Path(self.results_config.save_dir)
-        out_dir.mkdir(parents=True, exist_ok=True)
-        out_path = out_dir / type / f"test_results_{ts}.parquet"
+        out_path = self.save_dir / type / f"test_results_{ts}.parquet"
         out_path.parent.mkdir(parents=True, exist_ok=True)
         metrics_df.write_parquet(
             out_path, partition_by=["participant_id", "session", "block", "trial"]
@@ -726,16 +653,14 @@ class Trainer:
         self.logger.info(f"Detailed {type} results saved to {out_path}")
 
         try:
-            model_path = out_dir / f"model_{ts}"
+            model_path = self.save_dir / f"model_{ts}"
 
             if self.framework_type == "dpad":
                 try:
                     self.framework.model.idSys.discardModels()
-
                     model_path_pkl = f"{model_path}.pkl"
                     with open(model_path_pkl, "wb") as f:
                         pickle.dump(self.framework.model.idSys, f)
-
                     self.logger.info(f"Saved DPAD model to {model_path_pkl}")
                 finally:
                     self.framework.model.idSys.restoreModels()
@@ -747,7 +672,7 @@ class Trainer:
                     "method_code": self.model_params.method_code,
                     "epochs": self.model_params.epochs,
                 }
-                with open(out_dir / f"model_{ts}_metadata.json", "w") as f:
+                with open(self.save_dir / f"model_{ts}_metadata.json", "w") as f:
                     json.dump(metadata, f)
 
             elif self.framework_type == "varma":
@@ -757,9 +682,9 @@ class Trainer:
 
                 metadata = {
                     "framework_type": "varma",
-                    "p": getattr(self.model_params, "p", 20),
-                    "q": getattr(self.model_params, "q", 1),
-                    "long_ar_lags": getattr(self.model_params, "long_ar_lags", 30),
+                    "p": self.model_params.p,
+                    "q": self.model_params.q,
+                    "long_ar_lags": self.model_params.long_ar_lags,
                     "K": self.framework.model.K,
                     "n_channels_Y": self.framework.model.n_channels_Y,
                     "n_channels_Z": self.framework.model.n_channels_Z,
@@ -769,7 +694,7 @@ class Trainer:
                         else None
                     ),
                 }
-                with open(out_dir / f"model_{ts}_metadata.json", "w") as f:
+                with open(self.save_dir / f"model_{ts}_metadata.json", "w") as f:
                     json.dump(metadata, f)
 
             else:
@@ -782,11 +707,9 @@ class Trainer:
                     "nx": self.model_params.nx,
                     "n1": self.model_params.n1,
                     "i": getattr(self.model_params, "i", None),
-                    "max_eigenvalue": getattr(
-                        self.model_params, "max_eigenvalue", 0.9999
-                    ),
+                    "A_eigen_constrain": self.model_params.A_eigen_constrain,
                 }
-                with open(out_dir / f"model_{ts}_metadata.json", "w") as f:
+                with open(self.save_dir / f"model_{ts}_metadata.json", "w") as f:
                     json.dump(metadata, f)
 
         except Exception as e:

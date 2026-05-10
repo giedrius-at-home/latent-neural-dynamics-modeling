@@ -35,10 +35,11 @@ class DPADWrapper(BaseWrapper):
     def train(self, Y: TrialList, Z: TrialList):
         from DPAD import DPADModel
 
-        nx: int = self.config.model.nx
-        n1: int = self.config.model.n1
-        method_code: str = self.config.model.method_code
-        epochs: int = self.config.model.epochs
+        params = self.config.framework.params
+        nx: int = params.nx
+        n1: int = params.n1
+        method_code: str = params.method_code
+        epochs: int = params.epochs
 
         self.logger.info(
             f"Training DPAD with nx={nx}, n1={n1}, method_code={method_code}, epochs={epochs}"

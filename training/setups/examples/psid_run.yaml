@@ -1,0 +1,64 @@
+framework:
+  name: psid
+  params:
+    nx: 64
+    n1: 1
+    i: 60
+    A_eigen_constrain: 0.9999
+    time_first: true
+    fast: false
+    reuse_splits: false
+
+data:
+  root: resampled_recordings/participants_at_200Hz_scaled_1e6_raw_envelope
+  participant: PDI1
+  session: 2
+  Y:
+    - ECOG_1_theta_4_8_raw
+    - ECOG_1_theta_4_8_env
+    - ECOG_2_gamma_83_88_raw
+    - ECOG_3_gamma_88_93_raw
+    - ECOG_3_gamma_73_78_raw
+    - ECOG_4_beta_28_32_raw
+    - ECOG_3_gamma_88_93_env
+    - ECOG_3_gamma_73_78_env
+  Z:
+    - tracing_velocity_x
+    - tracing_acceleration_magnitude
+  sampling_frequency: 200
+
+experiment:
+  name: "{framework.name}_{experiment.type}_{data.participant}_S{data.session}_nx_{framework.params.nx}_n1_{framework.params.n1}"
+  type: z-as-behavior              # z-as-behavior | z-as-neural
+  train:
+    model_dbs_state: [both, on, off]
+  predictions:
+    splits: [train, val, test]
+  forecasts:
+    default_h: 5.0
+    default_m: 2.0
+    h_grid: [0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 5.0]
+    m_test_grid: [0.5, 1.0, 1.5, 2.0]
+  classification:
+    epoch_length: 0.5
+    epoch_overlap: 0.25
+    n_splits: 5
+    t_cut_grid: [0.5, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+    perm_ba_gate: 0.5
+    n_permutations: 100
+    prediction_significance_window: 0.5
+    forecast_insignificance_window: 0.1
+    param_grid:
+      LDA:
+        classifier__solver: [lsqr]
+        classifier__shrinkage: [auto]
+    feature_sources_pred: [Xp, Xp_1, Xp_2, Xp_with_dbs]
+    feature_sources_forecast: [Xf, Xf_1, Xf_2, Xf_with_dbs]
+
+results:
+  project_root: "."
+  save_dir: "results/{framework.name}/{experiment.name}"
+  model_dir: "results/{framework.name}/{experiment.name}"
+  log_dir: "logs/{framework.name}"
+  checkpoint_dir: checkpoints/{framework.name}
+  setups_dir: training/setups/{framework.name}

@@ -225,7 +225,8 @@ def prepare_epoched_data(
         observations = trial_set.get("Y", [])
 
         # Forecast-mode requires a framework to produce latent trajectories live.
-        if mode == "forecast" and history_horizon is not None:
+        # Exception: flipped pass supplies model_on/model_off instead; fall through to else.
+        if mode == "forecast" and history_horizon is not None and model_on is None:
             if framework is None:
                 raise ValueError(
                     f"Framework is required for forecast mode with "
@@ -254,7 +255,11 @@ def prepare_epoched_data(
                     )
                     latent_states.append(None)
         else:
-            data_key = "X_future_pred" if mode == "forecast" else "Xp"
+            # Flipped forecast uses Xp as placeholder; _generate_flipped_latents overwrites per-trial.
+            if mode == "forecast" and model_on is None:
+                data_key = "X_future_pred"
+            else:
+                data_key = "Xp"
             latent_states = trial_set[data_key]
 
         for trial_idx, trial_latents in enumerate(latent_states):
@@ -637,9 +642,14 @@ def load_all_splits(
 
 
 def _load_framework_for_forecast(
-    variant_dir: Path, run_ts: str, project_root: Path
+    variant_dir: Path, run_ts: str, project_root: Path, config: Optional[Any] = None
 ) -> Any:
-    """Rebuild framework + load trained model for on-the-fly forecast generation."""
+    """Rebuild framework + load trained model for on-the-fly forecast generation.
+
+    ``config`` may be passed directly (e.g. from the pipeline) to skip the
+    YAML search. When omitted the function falls back to searching
+    ``training/setups`` and ``classification/setups`` for a matching YAML.
+    """
     from utils.frameworks import DPADFramework, PSIDFramework
     from utils.logger import get_logger
 
@@ -660,20 +670,23 @@ def _load_framework_for_forecast(
             metadata = json.load(f)
         framework_type = metadata.get("framework_type", "psid")
 
-    setup_paths = []
-    for setup_dir in ("training/setups", "classification/setups"):
-        base = project_root / setup_dir
-        if base.exists():
-            setup_paths.extend(base.rglob(f"{variant_dir.name}.yaml"))
-
-    if not setup_paths:
-        raise FileNotFoundError(
-            f"Could not find setup file for variant: {variant_dir.name}. "
-            f"Searched under training/setups and classification/setups."
-        )
-
-    config = get_config(str(setup_paths[0]))
-    logger.info(f"Using config file: {setup_paths[0]}")
+    if config is None:
+        import re
+        setup_paths = []
+        for setup_dir in ("training/setups", "classification/setups"):
+            base = project_root / setup_dir
+            if base.exists():
+                setup_paths.extend(base.rglob(f"{variant_dir.name}.yaml"))
+                if not setup_paths:
+                    exp_name = re.sub(r"_dbs_(both|on|off)$", "", variant_dir.name)
+                    setup_paths.extend(base.rglob(f"{exp_name}.yaml"))
+        if not setup_paths:
+            raise FileNotFoundError(
+                f"Could not find setup file for variant: {variant_dir.name}. "
+                f"Searched under training/setups and classification/setups."
+            )
+        config = get_config(str(setup_paths[0]))
+        logger.info(f"Using config file: {setup_paths[0]}")
 
     if framework_type == "psid":
         framework = PSIDFramework(config)

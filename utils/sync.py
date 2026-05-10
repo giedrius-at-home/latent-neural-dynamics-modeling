@@ -16,8 +16,20 @@ def generate_master_grid(start_time, end_time, target_sfreq=80.0):
 
 
 def interpolate_to_grid(signal, original_time, master_time):
+    """Linear interp of ``signal`` (defined at ``original_time``) onto
+    ``master_time``. Out-of-bounds master samples → edge-fill with
+    ``signal[0]`` / ``signal[-1]``. Edge-fill (vs ``np.nan``) keeps the
+    output finite even when ``master_time`` overruns ``original_time`` by a
+    sample or two due to rounding in the resample grid construction.
+    """
+    if len(signal) == 0 or len(original_time) == 0:
+        return np.full(len(master_time), np.nan, dtype=np.float64)
     interpolator = interp1d(
-        original_time, signal, kind="linear", bounds_error=False, fill_value=np.nan
+        original_time,
+        signal,
+        kind="linear",
+        bounds_error=False,
+        fill_value=(float(signal[0]), float(signal[-1])),
     )
     return interpolator(master_time)
 

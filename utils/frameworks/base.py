@@ -37,6 +37,8 @@ class BaseFramework:
         Y_list: TrialList,
         Z_list: TrialList,
         margin: float,
+        m_seconds: Optional[float] = None,
+        history_seconds: Optional[float] = None,
     ) -> Dict[str, Any]:
         """Unified multi-step forecast eval loop for all frameworks.
 
@@ -44,12 +46,20 @@ class BaseFramework:
         future, call ``self.model.forecast(m, Y_past, Z_past)``, compare forecast
         ``(Yf, Zf)`` against true future. Returns per-trial lists of arrays
         plus aggregate Pearson means.
+
+        Args:
+            m_seconds: forecast horizon in seconds. If None, skip forecast eval.
+            history_seconds: history window in seconds. If None, use ``margin``.
         """
+        if m_seconds is None:
+            self.logger.info("No forecast horizon provided; skipping forecast eval.")
+            return {}
         self.logger.info("Starting forecast validation...")
-        m_seconds = self.config.model.forecast.m
         sampling_freq = self.config.data.sampling_frequency
         m = int(m_seconds * sampling_freq)
-        history_end = int(margin * sampling_freq)
+        if history_seconds is None:
+            history_seconds = margin
+        history_end = int(history_seconds * sampling_freq)
 
         results: Dict[str, Any] = {
             "m": m,

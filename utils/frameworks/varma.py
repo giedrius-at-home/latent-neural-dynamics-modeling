@@ -31,17 +31,15 @@ class VARMAOLSWrapper(BaseWrapper):
     def __init__(self, config: Config):
         super().__init__(config)
 
-        # VARMA orders: p = AR lags, q = MA lags; long_ar_lags = order of Long-VAR used for residual proxy
-        self.p = getattr(config.model, "p", 20)
-        self.q = getattr(config.model, "q", 1)
-        self.long_ar_lags = getattr(config.model, "long_ar_lags", 30)
-
-        # Forecast horizon (seconds) and history length (samples) for validate_forecast
-        self.forecast_m = getattr(config.model.forecast, "m", 2.0)
-        self.forecast_history = getattr(config.model.forecast, "history", 5.0)
-        self.sampling_freq = getattr(config.data, "sampling_frequency", 80)
-        # Trial edge taper (seconds) at boundaries when concatenating; 0 = no taper
-        self.trial_edge_taper_sec = getattr(config.model, "trial_edge_taper_sec", 0.0)
+        params = config.framework.params
+        fc = config.experiment.forecasts
+        self.p = params.p
+        self.q = params.q
+        self.long_ar_lags = params.long_ar_lags
+        self.forecast_m = fc.default_m
+        self.forecast_history = fc.h_grid[-1]
+        self.sampling_freq = config.data.sampling_frequency
+        self.trial_edge_taper_sec = params.trial_edge_taper_sec
 
         # Fitted state: beta maps regressors -> K outputs; K = n_channels_Y + n_channels_Z
         self.beta = None
@@ -285,7 +283,7 @@ class VARMAOLSWrapper(BaseWrapper):
         # stabilization (gamma << 1) and crippled all but the first channel.
         # Ridge keeps the fit stable; intercept (column 0 of X_full) is not
         # penalised. alpha defaults to 1.0; configurable via config.model.
-        ridge_alpha = float(getattr(self.config.model, "ridge_alpha", 1.0))
+        ridge_alpha = self.config.framework.params.ridge_alpha
         n_features = X_full.shape[1]
         penalty = ridge_alpha * np.eye(n_features)
         penalty[0, 0] = 0.0  # do not penalise intercept
@@ -313,7 +311,7 @@ class VARMAOLSWrapper(BaseWrapper):
             sigma_e = sigma_e + (1e-8 - min_eig) * np.eye(self.K)
         self.sigma_e = sigma_e
 
-        max_root = float(getattr(self.config.model, "max_root", 0.999))
+        max_root = self.config.framework.params.max_root
         if self.p > 0:
             self._stabilize_ar_roots(max_root)
 

@@ -1,6 +1,5 @@
 import polars as pl
 import numpy as np
-import pandas as pd
 from pathlib import Path
 from typing import List, Optional, Tuple
 from utils.config import Config
@@ -19,14 +18,8 @@ class TrialDataset(Dataset):
         self.data_params = data_params
         self.split = split
 
-        self.neural_input = self.data_params.channels.neural_input
-        self.behavioral_input = getattr(
-            self.data_params.channels, "behavioral_input", None
-        )
-        self.output_channels = self.data_params.channels.output
-        self.output_type = getattr(
-            self.data_params.channels, "output_type", "behavioral"
-        )
+        self.Y_features = list(data_params.Y)
+        self.Z_features = list(data_params.Z)
 
         meta_cols = [
             "participant_id",
@@ -39,22 +32,18 @@ class TrialDataset(Dataset):
             "stim",
             "offset",
         ]
-        needed_cols = list(meta_cols)
-        needed_cols.extend(self.neural_input)
-        needed_cols.extend(self.output_channels)
-        if self.behavioral_input:
-            needed_cols.extend(self.behavioral_input)
+        needed_cols = list(meta_cols) + self.Y_features + self.Z_features
 
         try:
             self.df = pl.read_parquet(self.parquet_path, columns=needed_cols)
         except Exception:
             self.df = pl.read_parquet(self.parquet_path)
+        self.df = self.df.sort(["block", "trial"])
 
         logger = get_logger()
         logger.info(
             f"Loaded split='{self.split}' dataset from {self.parquet_path} with {len(self.df)} trials; "
-            f"neural_input={self.neural_input}, behavioral_input={self.behavioral_input}, "
-            f"output={self.output_channels}, output_type={self.output_type}"
+            f"neural_input={self.Y_features}, output={self.Z_features}"
         )
 
     def __len__(self) -> int:
@@ -62,9 +51,9 @@ class TrialDataset(Dataset):
 
     def __getitem__(self, idx: int) -> Tuple[np.ndarray, Optional[np.ndarray], dict]:
         row = self.df[idx]
-        Y = self._extract_channels(row, self.neural_input)
+        Y = self._extract_channels(row, self.Y_features)
 
-        Z = self._extract_channels(row, self.output_channels)
+        Z = self._extract_channels(row, self.Z_features)
 
         time_vec = row["time"][0]
         chunk_margin = row["chunk_margin"][0]
@@ -87,9 +76,8 @@ class TrialDataset(Dataset):
             "chunk_margin": chunk_margin,
             "margined_duration": margined_duration,
             "stim": stim,
-            "input_channels": self.neural_input,
-            "behavioral_input_channels": self.behavioral_input,
-            "output_channels": self.output_channels,
+            "Y_features": self.Y_features,
+            "Z_features": self.Z_features,
             "sampling_frequency": self.data_params.sampling_frequency,
             "chunk_margin_ts": chunk_margin_ts,
         }
@@ -118,12 +106,6 @@ class TrialDataset(Dataset):
         else:
             result = np.column_stack(channel_data)
 
-        if np.any(np.isnan(result)):
-            df = pd.DataFrame(result)
-            df = df.interpolate(method="linear", limit_direction="both", axis=0)
-            df = df.ffill().bfill()
-            result = df.values
-
         return result
 
     def get_all_data(self) -> Tuple[List[np.ndarray], Optional[List[np.ndarray]]]:
@@ -145,21 +127,15 @@ class TrialDataLoader:
         self,
         dataset: TrialDataset,
         batch_size: int = 1,
-        shuffle: bool = False,
     ):
-
         self.dataset = dataset
         self.batch_size = batch_size
-        self.shuffle = shuffle
         self.indices = np.arange(len(self.dataset))
 
     def __len__(self) -> int:
         return (len(self.dataset) + self.batch_size - 1) // self.batch_size
 
     def __iter__(self):
-        if self.shuffle:
-            np.random.shuffle(self.indices)
-
         for i in range(0, len(self.dataset), self.batch_size):
             batch_indices = self.indices[i : i + self.batch_size]
             batch = [self.dataset[idx] for idx in batch_indices]
@@ -176,10 +152,10 @@ class TrialDataLoader:
 
 def create_dataloaders(
     data_params: Config,
-    results_config: Config,
+    split_dir: Path,
 ) -> Tuple[TrialDataLoader, TrialDataLoader, TrialDataLoader]:
 
-    split_dir = Path(results_config.save_dir) / "split"
+    split_dir = Path(split_dir)
     logger = get_logger()
     logger.info(f"Creating dataloaders from split directory: {split_dir}")
 
@@ -195,23 +171,9 @@ def create_dataloaders(
         f"Loaded datasets: train={len(train_dataset)} trials, val={len(val_dataset)} trials, test={len(test_dataset)} trials"
     )
 
-    train_loader = TrialDataLoader(
-        train_dataset,
-        batch_size=data_params.batch_size,
-        shuffle=True,
-    )
-
-    val_loader = TrialDataLoader(
-        val_dataset,
-        batch_size=data_params.batch_size,
-        shuffle=False,
-    )
-
-    test_loader = TrialDataLoader(
-        test_dataset,
-        batch_size=data_params.batch_size,
-        shuffle=False,
-    )
+    train_loader = TrialDataLoader(train_dataset, batch_size=data_params.batch_size)
+    val_loader = TrialDataLoader(val_dataset, batch_size=data_params.batch_size)
+    test_loader = TrialDataLoader(test_dataset, batch_size=data_params.batch_size)
 
     logger.info(
         f"Constructed dataloaders with batch_size={data_params.batch_size}. "

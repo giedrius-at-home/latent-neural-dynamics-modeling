@@ -1,42 +1,48 @@
-from utils.config import get_config
-from utils.logger import setup_logger, get_logger
 import argparse
+from pathlib import Path
+
+from utils.config import get_config, Config
+from utils.logger import setup_logger, get_logger
 from training.components.trainer import Trainer
 
 
-def train(config):
+def train(config: Config, model_dbs: str):
     logger = get_logger()
-    logger.info("Initializing training...")
+    logger.info("Initializing trainer...")
 
-    fast = getattr(config.model, "fast", False)
-    reuse_splits = getattr(config.model, "reuse_splits", False)
+    fast = config.framework.params.fast
+    reuse_splits = config.framework.params.reuse_splits
 
-    trainer = Trainer(config)
+    trainer = Trainer(config, model_dbs)
     trainer.split_data(reuse_splits=reuse_splits)
-    val_results = trainer.train(fast=fast)
-
-    logger.info(f"Validation results: {val_results}")
-    logger.info("Training completed successfully!")
+    return trainer.train(fast=fast)
 
 
 def main(args):
     config = get_config(args.config)
-    logger = setup_logger(config.results.log_dir, name=__file__)
+    variant_name = f"{config.experiment.name}_dbs_{args.dbs}"
+    log_dir = Path(f"results/{config.framework.name}/{variant_name}/logs")
+    logger = setup_logger(log_dir, name=__file__)
 
     logger.info(f"Configuration loaded from: {args.config}")
     logger.info(f"Config content:\n{config}")
-    train(config)
-
+    train(config, args.dbs)
     logger.close()
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Train model using specified configuration."
+        description="Train a framework model for a given DBS condition."
     )
     parser.add_argument(
-        "--config", type=str, required=True, help="Path to the configuration file."
+        "--config", type=str, required=True, help="Path to the run YAML configuration."
+    )
+    parser.add_argument(
+        "--dbs",
+        type=str,
+        required=True,
+        choices=["both", "on", "off"],
+        help="DBS condition to train on.",
     )
     args = parser.parse_args()
-
     main(args)

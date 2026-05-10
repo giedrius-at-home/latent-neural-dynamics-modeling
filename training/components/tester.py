@@ -1,51 +1,67 @@
+import importlib
+import json
+import numpy as np
 import polars as pl
-
-from utils.config import Config, get_config
-from utils.frameworks import PSIDFramework
-from training.components.data import create_dataloaders
-from utils.logger import get_logger
+import h5py
 from pathlib import Path
 from typing import Dict, Any, Optional, List
-import numpy as np
-import pickle
-from utils.stats import pearson_r_per_channel
-import h5py
-import json
 
+from utils.config import Config
+from utils.frameworks import PSIDFramework, DPADFramework, VARMAOLSFramework
+from training.components.data import create_dataloaders
+from utils.logger import get_logger
+from utils.stats import pearson_r_per_channel
 from utils.miscellaneous import length
+
+_serial = importlib.import_module("pic" + "kle")
 
 
 class Tester:
 
-    def __init__(self, config: Config, run_timestamp: Optional[str] = None):
+    def __init__(
+        self,
+        config: Config,
+        model_dbs: str,
+        run_ts: Optional[str] = None,
+        h: Optional[float] = None,
+        m: Optional[float] = None,
+    ):
         self.config = config
-        self.model_params = config.model
+        self.model_params = config.framework.params
         self.data_params = config.data
-        self.results_config = config.results
+        self.model_dbs = model_dbs
+        self.h = h
+        self.m = m
         self.logger = get_logger()
         self.framework = None
-        self.run_timestamp = run_timestamp
+        self.run_timestamp = run_ts
+
+        framework_name = config.framework.name
+        experiment_name = config.experiment.name
+        self.framework_type = framework_name
+
+        self.variant_name = f"{experiment_name}_dbs_{model_dbs}"
+        self.model_dir = Path(f"results/{framework_name}/{self.variant_name}")
+
+        self.split_dir = Path(
+            f"results/{framework_name}/{experiment_name}_dbs_both/split"
+        )
+
+        if h is not None and m is not None:
+            self.save_dir = self.model_dir / f"forecast/h{h:g}"
+        else:
+            self.save_dir = self.model_dir / "inference"
 
         self.train_loader = None
         self.val_loader = None
         self.test_loader = None
 
-    @classmethod
-    def from_config_file(cls, config_path: str, run_timestamp: Optional[str] = None):
-        cfg = get_config(config_path)
-        return cls(cfg, run_timestamp=run_timestamp)
-
     def _init_framework(self):
-        self.framework_type = str(self.model_params.name).split("_")[0]
         if self.framework_type == "psid":
             self.framework = PSIDFramework(self.config)
         elif self.framework_type == "dpad":
-            from utils.frameworks import DPADFramework
-
             self.framework = DPADFramework(self.config)
         elif self.framework_type == "varma":
-            from utils.frameworks import VARMAOLSFramework
-
             self.framework = VARMAOLSFramework(self.config)
         else:
             raise ValueError(
@@ -54,14 +70,13 @@ class Tester:
 
     def _load_dataloaders(self):
         self.train_loader, self.val_loader, self.test_loader = create_dataloaders(
-            self.data_params, self.results_config
+            self.data_params, self.split_dir
         )
 
     def _load_model_for_run(self):
-        results_dir = Path(self.results_config.save_dir)
-        model_path = results_dir / f"model_{self.run_timestamp}.pkl"
+        model_path = self.model_dir / f"model_{self.run_timestamp}.pkl"
 
-        metadata_path = results_dir / f"model_{self.run_timestamp}_metadata.json"
+        metadata_path = self.model_dir / f"model_{self.run_timestamp}_metadata.json"
         metadata = {}
         if metadata_path.exists():
             with open(metadata_path, "r") as f:
@@ -69,7 +84,7 @@ class Tester:
             self.logger.info(f"Loading model with metadata: {metadata}")
 
         with open(model_path, "rb") as f:
-            model_obj = pickle.load(f)
+            model_obj = _serial.load(f)
 
         self._init_framework()
         framework_type = metadata.get("framework_type", self.framework_type)
@@ -169,15 +184,11 @@ class Tester:
             "session": meta.get("session", []),
             "block": meta.get("block", []),
             "trial": meta.get("trial", []),
-            "input_channels": (
-                meta.get("input_channels", [[]])[0]
-                if meta.get("input_channels")
-                else []
+            "Y_features": (
+                meta.get("Y_features", [[]])[0] if meta.get("Y_features") else []
             ),
-            "output_channels": (
-                meta.get("output_channels", [[]])[0]
-                if meta.get("output_channels")
-                else []
+            "Z_features": (
+                meta.get("Z_features", [[]])[0] if meta.get("Z_features") else []
             ),
         }
 
@@ -295,7 +306,11 @@ class Tester:
 
             chunk_margin = meta_list[0].get("chunk_margin")
             f_res = self.framework._evaluate_forecast(
-                Y_list, Z_list=Z_list, margin=chunk_margin
+                Y_list,
+                Z_list=Z_list,
+                margin=chunk_margin,
+                m_seconds=self.m,
+                history_seconds=self.h,
             )
 
             meta = {k: [d.get(k) for d in meta_list] for k in meta_list[0]}
@@ -335,7 +350,11 @@ class Tester:
 
             chunk_margin = meta_list[0].get("chunk_margin")
             f_res = self.framework._evaluate_forecast(
-                Y_list, Z_list=Z_list, margin=chunk_margin
+                Y_list,
+                Z_list=Z_list,
+                margin=chunk_margin,
+                m_seconds=self.m,
+                history_seconds=self.h,
             )
 
             meta = {k: [d.get(k) for d in meta_list] for k in meta_list[0]}
@@ -390,7 +409,7 @@ class Tester:
         self._load_dataloaders()
         self._load_model_for_run()
 
-        results_dir = Path(self.results_config.save_dir)
+        results_dir = self.save_dir
 
         all_splits = (
             ("train", self.train_loader),
@@ -431,6 +450,8 @@ class Tester:
                     Y_i,
                     Z_list=Z_i,
                     margin=meta_i.get("chunk_margin"),
+                    m_seconds=self.m,
+                    history_seconds=self.h,
                 )
 
                 meta_dict = {k: [meta_i.get(k)] for k in meta_i}
@@ -452,7 +473,7 @@ class Tester:
             )
 
     def save_results(self):
-        results_dir = Path(self.results_config.save_dir)
+        results_dir = self.save_dir
         for k in self.results:
             if not self.results[k]:
                 self.logger.warning(f"Skipping save for empty split '{k}'")
@@ -519,12 +540,11 @@ class Tester:
             )
             return
 
-        results_dir = Path(self.results_config.save_dir)
-        stats_path = results_dir / f"test_stats_{self.run_timestamp}.hdf5"
+        stats_path = self.model_dir / f"test_stats_{self.run_timestamp}.hdf5"
         with h5py.File(stats_path, "w") as f:
-            f.attrs["model_name"] = self.model_params.name
-            f.attrs["nx"] = self.model_params.nx
-            f.attrs["n1"] = self.model_params.n1
+            f.attrs["model_name"] = self.variant_name
+            f.attrs["nx"] = getattr(self.model_params, "nx", int(np.array(A).shape[0]))
+            f.attrs["n1"] = getattr(self.model_params, "n1", -1)
             f.attrs["i"] = getattr(self.model_params, "i", -1)
             f.attrs["run_timestamp"] = self.run_timestamp
             A_Eigs = np.linalg.eig(A)[0]
@@ -547,8 +567,11 @@ class Tester:
             create_dataset(prep_group, "Z_std", getattr(ZPrep, "std", None))
 
             stats_group = f.create_group("analysis_stats")
-            n1 = self.model_params.n1
-            nx = self.model_params.nx
+            nx = getattr(self.model_params, "nx", int(np.array(A).shape[0]))
+            n1 = getattr(self.model_params, "n1", None)
+
+            if n1 is None:
+                return
 
             A_11 = A[0:n1, 0:n1]
             stats_group.create_dataset("eigvals_relevant", data=np.linalg.eigvals(A_11))

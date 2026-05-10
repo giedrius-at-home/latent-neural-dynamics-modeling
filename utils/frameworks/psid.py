@@ -30,7 +30,6 @@ class PSIDWrapper(BaseWrapper):
             self.idSys = _pkl.load(f)
         self.logger.info("PSID model loaded successfully")
 
-        # scipy-1.16 DARE workaround (no-op on clean models).
         PSIDWrapper._refit_dare_if_needed(self.idSys)
 
         if (
@@ -44,60 +43,85 @@ class PSIDWrapper(BaseWrapper):
             )
         return self.idSys
 
-    def train(self, Y: TrialList, Z: TrialList):
-        """PSID identification + A-eigenvalue clip.
+    @classmethod
+    def fit_ws(
+        cls,
+        Y: TrialList,
+        Z: Optional[TrialList],
+        nx: int,
+        n1: int,
+        i: int,
+        A_eigen_constrain: float = 0.9999,
+        ws: Optional[dict] = None,
+    ) -> tuple["PSIDWrapper", dict]:
+        """Fit PSID + eigen-clip + DARE refit + Cz refit + A-power cache.
 
-        Calls upstream ``PSID.PSID()`` then post-processes with
-        ``_clip_A_eigenvalues`` (the only addition over the stock package).
-        DARE is re-solved after the clip so steady-state Kalman quantities
-        stay consistent with the modified A.
+        Returns ``(wrapper, ws_out)``. Pass ``ws_out`` back as ``ws`` for the
+        next nx in the same fold to reuse the Hankel SVD and skip its cost.
         """
-        cfg = self.config.model
-        nx: int = cfg.nx
-        n1: int = cfg.n1
-        i: int = cfg.i
-        time_first: bool = getattr(cfg, "time_first", True)
+        from PSID.PSID import fitCzViaKFRegression
 
-        max_eigenvalue = getattr(cfg, "max_eigenvalue", 0.9999)
-
-        zscore_Z = getattr(cfg, "zscore_Z", True)
-        remove_mean_Z = getattr(cfg, "remove_mean_Z", True)
-
-        self.logger.info(
-            f"Calling upstream PSID.PSID: nx={nx}, n1={n1}, i={i}, "
-            f"time_first={time_first}, max_eigenvalue={max_eigenvalue}"
-        )
-
-        self.idSys, ws = PSID.PSID(
+        idSys, ws_out = PSID.PSID(
             Y,
-            Z,
+            Z if n1 > 0 else None,
             nx=nx,
             n1=n1,
             i=i,
             zscore_Y=True,
-            zscore_Z=zscore_Z,
+            zscore_Z=True,
             remove_mean_Y=True,
-            remove_mean_Z=remove_mean_Z,
-            time_first=time_first,
-            fit_Cz_via_KF=True,
+            remove_mean_Z=True,
+            time_first=True,
+            fit_Cz_via_KF=False,
+            WS=ws if ws is not None else {},
             return_WS=True,
         )
-        # Stash subspace-identification singular spectra on the LSSM so they
-        # survive serialization. ZHat_S = stage-1 (behavior-relevant), YHat_S =
-        # stage-2 (residual Y dynamics). Used for (nx, n1) elbow selection.
+
+        if A_eigen_constrain < 1.0 and getattr(idSys, "A", None) is not None:
+            idSys.A = cls._clip_A_eigenvalues(np.asarray(idSys.A), A_eigen_constrain)
+            cls._refit_dare_if_needed(idSys, force=True)
+
+        if (
+            n1 > 0
+            and Z is not None
+            and getattr(idSys, "K", None) is not None
+            and not np.any(np.isnan(np.asarray(idSys.K)))
+        ):
+            idSys.Cz = fitCzViaKFRegression(idSys, Y, Z, time_first=True)
+
+        if getattr(idSys, "A", None) is not None:
+            cls._cache_A_powers(idSys)
+
+        return cls.from_idsys(idSys), ws_out
+
+    def train(self, Y: TrialList, Z: TrialList):
+        """PSID identification + A-eigenvalue clip + post-clip Cz refit.
+
+        Delegates to ``fit_ws`` for the core fit, then stashes the Hankel SVD
+        singular spectra (ZHat_S, YHat_S) on the LSSM for (nx, n1) elbow
+        selection.
+        """
+        cfg = self.config.framework.params
+        nx: int = cfg.nx
+        n1: int = cfg.n1
+        i: int = cfg.i
+        A_eigen_constrain = cfg.A_eigen_constrain
+
+        self.logger.info(
+            f"Calling upstream PSID.PSID: nx={nx}, n1={n1}, i={i}, "
+            f"A_eigen_constrain={A_eigen_constrain}"
+        )
+
+        wrapper, ws = PSIDWrapper.fit_ws(Y, Z, nx, n1, i, A_eigen_constrain)
+        self.idSys = wrapper.idSys
+
+        # Stash subspace-identification singular spectra so they survive
+        # serialization. Used for (nx, n1) elbow selection.
         self.idSys.ZHat_S = ws.get("ZHat_S")
         self.idSys.YHat_S = ws.get("YHat_S")
 
-        # Eigenvalue clip on A — the only modification over upstream PSID.
-        if max_eigenvalue < 1.0 and getattr(self.idSys, "A", None) is not None:
-            self.idSys.A = PSIDWrapper._clip_A_eigenvalues(
-                np.asarray(self.idSys.A), max_eigenvalue
-            )
-            PSIDWrapper._refit_dare_if_needed(self.idSys, force=True)
-
-        if getattr(self.idSys, "A", None) is not None:
-            PSIDWrapper._cache_A_powers(self.idSys)
-            self.logger.info("Precomputed A matrix powers up to m=200")
+        self.logger.info("Refit Cz via KF regression against post-clip A")
+        self.logger.info("Precomputed A matrix powers up to m=200")
         return self.idSys
 
     @staticmethod

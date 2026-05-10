@@ -1,0 +1,41 @@
+{
+  "pipeline": "varma",
+  "variant": "varma_behavioral_PDI1_2_p30_q1_dbs_both",
+  "phases": [
+    "train",
+    "inference",
+    "forecast"
+  ],
+  "started_at": "2026-05-07T18:33:00.402382",
+  "finished_at": "2026-05-07T19:21:14.136880",
+  "state": {
+    "timestamps": {
+      "both": "20260507_183305",
+      "on": "20260507_183420",
+      "off": "20260507_183438"
+    }
+  },
+  "mode": "behavioral",
+  "participant": "PDI1",
+  "session": 2,
+  "p": 30,
+  "q": 1,
+  "long_ar_lags": 30,
+  "nx": 64,
+  "n1": 1,
+  "i": 60,
+  "channels": [
+    "ECOG_1_theta_4_8_raw",
+    "ECOG_3_gamma_88_93_raw",
+    "ECOG_4_gamma_88_93_raw",
+    "ECOG_4_beta_28_32_raw",
+    "ECOG_3_gamma_73_78_raw",
+    "ECOG_2_gamma_83_88_raw",
+    "ECOG_3_gamma_88_93_env",
+    "ECOG_3_gamma_73_78_env",
+    "ECOG_3_theta_4_8_env",
+    "ECOG_1_gamma_53_58_env",
+    "ECOG_4_gamma_58_63_env",
+    "ECOG_2_gamma_42_47_env"
+  ]
+}

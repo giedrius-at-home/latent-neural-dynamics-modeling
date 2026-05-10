@@ -240,7 +240,7 @@ def _mrmr_select(
     corr_df, candidate_features, behavior_names, K, *, label=None, family=None
 ):
     """Pull the cached MI-mRMR top-K picks written by
-    ``scripts/_pipeline_common.py:mrmr_top_k_from_diagnostic`` (MIQ variant:
+    ``training/_pipeline_common.py:mrmr_top_k_from_diagnostic`` (MIQ variant:
     MI relevance averaged across targets, Pearson redundancy).
 
     ``corr_df``/``candidate_features``/``behavior_names`` are kept for API

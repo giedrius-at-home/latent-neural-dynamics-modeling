@@ -1,0 +1,51 @@
+name: "package_recordings"
+root_directory: "/home/bobby/repos/latent-neural-dynamics-modeling"
+data_directory: "{root_directory}/data"
+save_directory: "{root_directory}/resampled_recordings"
+logger_directory: "{root_directory}/logs"
+participants_table_name: "participants.tsv"
+participants_intermediate_table_name: "participants_2"
+output_participants_table_name: "participants_at_80Hz_scaled_1e6_morlet_log"
+ieeg_process:
+  resampled_dir: "{save_directory}/resampled_mat_recordings"
+  chunk_margin: 2
+  resampled_freq: 80
+  notch_freqs: []
+  scale_factor: 1e6
+  apply_car: true
+
+  # Morlet wavelet log-power dB.
+  # Constant-Q family: n_cycles = max(n_cycles_min, freq * n_cycles_factor).
+  # n_cycles_factor=0.5 → Q=2 (2 cycles per freq → adaptive time window:
+  # 333 ms at 6 Hz, 100 ms at 30 Hz, 13 ms at 150 Hz). n_cycles_min=3
+  # floors low-freq windows at 3 cycles to keep statistics meaningful.
+  # freqs_per_band=3 — sample band edges + center, mean power across.
+  morlet_n_cycles_factor: 0.5
+  morlet_n_cycles_min: 3.0
+  morlet_freqs_per_band: 3
+
+  morlet_log_power_bands:
+    theta:        [4,   8]
+    alpha:        [8,   12]
+    beta_1:       [13,  18]
+    beta_2:       [18,  23]
+    beta_3:       [23,  28]
+    beta_4:       [28,  32]
+    lowgamma_1:   [32,  37]
+    lowgamma_2:   [37,  42]
+    lowgamma_3:   [42,  47]
+    lowgamma_4:   [47,  52]
+    highgamma1_1: [65,  70]
+    highgamma1_2: [70,  75]
+    highgamma1_3: [75,  80]
+    highgamma1_4: [80,  85]
+    highgamma1_5: [85,  90]
+    highgamma1_6: [90,  95]
+    highgamma2_1: [130, 135]
+    highgamma2_2: [135, 140]
+    highgamma2_3: [140, 145]
+    highgamma2_4: [145, 150]
+    highgamma2_5: [150, 155]
+    highgamma2_6: [155, 160]
+    highgamma2_7: [160, 165]
+    highgamma2_8: [165, 170]

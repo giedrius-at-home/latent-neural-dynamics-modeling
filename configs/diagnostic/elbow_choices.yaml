@@ -37,7 +37,7 @@ sessions:
       nx: 55
 common:
   i: 35
-  max_eigenvalue: null
+  A_eigen_constrain: null
   backward_kalman: false
   dbs_conditions:
   - both

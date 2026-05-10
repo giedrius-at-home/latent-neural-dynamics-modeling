@@ -1,0 +1,52 @@
+name: "package_recordings"
+root_directory: "/home/bobby/repos/latent-neural-dynamics-modeling"
+data_directory: "{root_directory}/data"
+save_directory: "{root_directory}/resampled_recordings"
+logger_directory: "{root_directory}/logs"
+participants_table_name: "participants.tsv"
+participants_intermediate_table_name: "participants_2"
+output_participants_table_name: "participants_at_80Hz_scaled_1e6_raw_envelope"
+ieeg_process:
+  resampled_dir: "{save_directory}/resampled_mat_recordings"
+  chunk_margin: 2
+  resampled_freq: 80
+  notch_freqs: [50, 100, 150, 200]
+  scale_factor: 1e6
+  apply_car: true
+
+  # 80 Hz hybrid: raw narrow-band waveforms below Nyquist (40 Hz) for clean
+  # phase-track forecasts; Hilbert envelopes above for DBS amplitude
+  # classification. Splits the 35 Hz / 200 Hz tradeoff:
+  #   - 30 Hz beta has 2.7 samples/cycle at 80 Hz → enough for PSID's A
+  #     to extrapolate ~2-3 cycles (matches image-6 quality territory).
+  #   - Gamma 42–93 Hz envelopes carry slow amplitude modulation that
+  #     LDA on Xp picks up for DBS on/off separation.
+  # Gap [47, 53] around 50 Hz mains. Envelope path internally bandpasses at
+  # 1 kHz then resamples to 80 — Nyquist of source band irrelevant.
+
+  raw_bands:
+    theta_4_8_raw:    [4,  8]
+    alpha_8_12_raw:   [8,  12]
+    beta_13_18_raw:   [13, 18]
+    beta_18_23_raw:   [18, 23]
+    beta_23_28_raw:   [23, 28]
+    beta_28_32_raw:   [28, 32]
+    gamma_32_37_raw:  [32, 37]
+
+  envelope_bands:
+    theta_4_8_env:    [4,  8]
+    alpha_8_12_env:   [8,  12]
+    beta_13_18_env:   [13, 18]
+    beta_18_23_env:   [18, 23]
+    beta_23_28_env:   [23, 28]
+    beta_28_32_env:   [28, 32]
+    gamma_32_37_env:  [32, 37]
+    gamma_42_47_env:  [42, 47]
+    gamma_53_58_env:  [53, 58]
+    gamma_58_63_env:  [58, 63]
+    gamma_63_68_env:  [63, 68]
+    gamma_68_73_env:  [68, 73]
+    gamma_73_78_env:  [73, 78]
+    gamma_78_83_env:  [78, 83]
+    gamma_83_88_env:  [83, 88]
+    gamma_88_93_env:  [88, 93]

@@ -36,7 +36,7 @@ psid:
   n1: 2                         # = dim(Z); the spectrum shows whether this is enough
   i: 35                         # Hankel horizon (block rows), matches existing setup
   time_first: true
-  max_eigenvalue: null          # VANILLA — no A-matrix eigenvalue damping
+  A_eigen_constrain: null          # VANILLA — no A-matrix eigenvalue damping
   backward_kalman: false        # VANILLA — no RTS smoother Cz re-fit
   zscore_Y: true
   zscore_Z: true
