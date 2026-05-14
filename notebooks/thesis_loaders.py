@@ -2,6 +2,7 @@
 
 No dashboard dependencies — imports only from utils.* and standard library.
 """
+
 from __future__ import annotations
 
 import logging
@@ -25,6 +26,7 @@ InputMode = Literal["neural", "behavioral"]
 # Exception
 # ---------------------------------------------------------------------------
 
+
 class ThesisDataError(FileNotFoundError):
     """Missing or incomplete thesis results (strict loading; no silent fallbacks)."""
 
@@ -32,6 +34,7 @@ class ThesisDataError(FileNotFoundError):
 # ---------------------------------------------------------------------------
 # Inlined low-level array helpers (originally in dashboard/subtabs/helpers.py)
 # ---------------------------------------------------------------------------
+
 
 def get_trial_time_axis(
     split_res: Dict[str, Any], trial_idx: int, n_samples: int, t_offset: float = 0.0
@@ -69,6 +72,7 @@ def get_channel(data: np.ndarray, channel_idx: int, t_abs: np.ndarray) -> np.nda
 # ---------------------------------------------------------------------------
 # Inlined transform helpers (originally in thesis_lib/transforms.py)
 # ---------------------------------------------------------------------------
+
 
 def reshape_future_z_time_first(z: np.ndarray) -> np.ndarray:
     """Normalize Z_future / Y_future arrays to shape (n_time_steps, n_channels)."""
@@ -124,6 +128,7 @@ def rmse_z(z_true: np.ndarray, z_pred: np.ndarray) -> float:
 # Result loading
 # ---------------------------------------------------------------------------
 
+
 def load_split_results(
     results_root: Path,
     variant: str,
@@ -170,6 +175,7 @@ def load_split_results_required(
 # ---------------------------------------------------------------------------
 # Channel metadata helpers
 # ---------------------------------------------------------------------------
+
 
 def channels_as_str_list(raw: Any) -> list[str]:
     """Normalize output_channels / input_channels metadata to a list of strings."""
@@ -267,13 +273,16 @@ def resolve_neural_y_channel_idx_from_candidates(
             if str(n).lower().replace(" ", "_") == key:
                 return i
     n_nonempty = sum(
-        1 for c in candidates
+        1
+        for c in candidates
         if c is not None and channels_as_str_list(c.get("input_channels"))
     )
     logger.warning(
         "resolve_neural_y_channel_idx_from_candidates: name %r not in input_channels "
         "from any of %d nonempty candidate(s); using fallback %d",
-        raw, n_nonempty, fallback_channel_idx,
+        raw,
+        n_nonempty,
+        fallback_channel_idx,
     )
     return int(fallback_channel_idx)
 
@@ -314,6 +323,7 @@ _yaml_output_cache: Dict[str, tuple[str, ...]] = {}
 def _read_yaml_channels(variant: str, key: str) -> tuple[str, ...]:
     """Read data.channels.<key> from the training YAML. Empty tuple if unavailable."""
     import yaml as _yaml
+
     path = _training_yaml_path(variant)
     if not path.exists():
         return ()
@@ -334,7 +344,13 @@ def _latest_test_parquet_channels(variant: str) -> tuple[str, ...]:
         return _parquet_channel_cache[variant]
     import glob
     import pyarrow.parquet as pq
-    paths = sorted(glob.glob(f"results/{variant}/test/test_results_*.parquet/**/0.parquet", recursive=True))
+
+    paths = sorted(
+        glob.glob(
+            f"results/{variant}/test/test_results_*.parquet/**/0.parquet",
+            recursive=True,
+        )
+    )
     if not paths:
         _parquet_channel_cache[variant] = ()
         return ()
@@ -358,6 +374,7 @@ def _train_log_neural_input(variant: str) -> tuple[str, ...]:
     logs/train_<ts>.md but lacks parquet input_channels column)."""
     import re
     import glob
+
     if variant in _train_log_channel_cache:
         return _train_log_channel_cache[variant]
     logs = sorted(glob.glob(f"results/{variant}/logs/train_*.md"))
@@ -373,7 +390,11 @@ def _train_log_neural_input(variant: str) -> tuple[str, ...]:
             return ()
         body = m.group(1)
         # tokens may be separated by whitespace or commas
-        toks = [t.strip().strip(",").strip("'\"") for t in re.split(r"[\s,]+", body) if t.strip()]
+        toks = [
+            t.strip().strip(",").strip("'\"")
+            for t in re.split(r"[\s,]+", body)
+            if t.strip()
+        ]
         chs = tuple(t for t in toks if t)
     except Exception:
         chs = ()
@@ -437,7 +458,8 @@ def neural_y_feature_label(
     yaml_nm = (neural_y_feature_name or "").strip()
     ch = (
         resolve_neural_y_channel_idx(split_res, yaml_nm, channel_idx)
-        if yaml_nm else int(channel_idx)
+        if yaml_nm
+        else int(channel_idx)
     )
     inn = channels_as_str_list(split_res.get("input_channels"))
     if 0 <= ch < len(inn):
@@ -454,6 +476,7 @@ def neural_y_feature_label(
 # ---------------------------------------------------------------------------
 # Private trial-extraction helpers
 # ---------------------------------------------------------------------------
+
 
 def _prepare_z_array(
     z_trial: np.ndarray, split_res: Dict[str, Any], trial_idx: int
@@ -500,12 +523,14 @@ def _model_has_trial_y(res: Optional[Dict[str, Any]], idx: int) -> bool:
 # Trial series extraction
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class TrialZSeries:
     """Z_true and model Zp predictions for one trial and one output channel.
 
     Any model trace may be all-NaN when that model lacks the requested trial.
     """
+
     t_abs: np.ndarray
     z_true_raw: np.ndarray
     z_psid: np.ndarray
@@ -528,23 +553,34 @@ def extract_trial_z_series(
             f"PSID: missing Z/Zp for trial_idx={trial_idx} (n_trials={_n_z_trials(split_res_psid)}). "
             "PSID is the reference model; its trial must exist."
         )
-    z_true_arr, t_abs = _prepare_z_array(split_res_psid["Z"][trial_idx], split_res_psid, trial_idx)
+    z_true_arr, t_abs = _prepare_z_array(
+        split_res_psid["Z"][trial_idx], split_res_psid, trial_idx
+    )
     true_c = get_channel(z_true_arr, channel_idx, t_abs)
     n = len(t_abs)
 
-    def _zp_chan_or_nan(label: str, res: Optional[Dict[str, Any]], idx: int) -> np.ndarray:
+    def _zp_chan_or_nan(
+        label: str, res: Optional[Dict[str, Any]], idx: int
+    ) -> np.ndarray:
         if not _model_has_trial(res, idx):
             nt = _n_z_trials(res)
             key = f"{label}:{nt}"
             if key not in _oof_trial_warned:
                 _oof_trial_warned.add(key)
                 logger.warning(
-                    "%s: trial index out of range (n_trials=%d) — traces set to NaN.", label, nt,
+                    "%s: trial index out of range (n_trials=%d) — traces set to NaN.",
+                    label,
+                    nt,
                 )
             return np.full(n, np.nan)
         arr, t2 = _prepare_z_array(res["Zp"][idx], res, idx)
         if len(t2) != n:
-            logger.warning("%s: time-axis length mismatch (%d vs %d) — trace set to NaN", label, len(t2), n)
+            logger.warning(
+                "%s: time-axis length mismatch (%d vs %d) — trace set to NaN",
+                label,
+                len(t2),
+                n,
+            )
             return np.full(n, np.nan)
         return get_channel(arr, channel_idx, t_abs)
 
@@ -573,23 +609,34 @@ def extract_trial_y_series(
             f"(n_trials={len(split_res_psid.get('Y') or [])}). "
             "Neural exemplars require saved Y and Yp on the test split."
         )
-    y_true_arr, t_abs = _prepare_z_array(split_res_psid["Y"][trial_idx], split_res_psid, trial_idx)
+    y_true_arr, t_abs = _prepare_z_array(
+        split_res_psid["Y"][trial_idx], split_res_psid, trial_idx
+    )
     true_c = get_channel(y_true_arr, y_channel_idx, t_abs)
     n = len(t_abs)
 
-    def _yp_chan_or_nan(label: str, res: Optional[Dict[str, Any]], idx: int) -> np.ndarray:
+    def _yp_chan_or_nan(
+        label: str, res: Optional[Dict[str, Any]], idx: int
+    ) -> np.ndarray:
         if not _model_has_trial_y(res, idx):
             ny = len((res or {}).get("Y") or [])
             key = f"{label}:y:{ny}"
             if key not in _oof_trial_warned:
                 _oof_trial_warned.add(key)
                 logger.warning(
-                    "%s: Y/Yp trial index out of range (n_trials=%d) — traces set to NaN.", label, ny,
+                    "%s: Y/Yp trial index out of range (n_trials=%d) — traces set to NaN.",
+                    label,
+                    ny,
                 )
             return np.full(n, np.nan)
         arr, t2 = _prepare_z_array(res["Yp"][idx], res, idx)
         if len(t2) != n:
-            logger.warning("%s: time-axis length mismatch (%d vs %d) — trace set to NaN", label, len(t2), n)
+            logger.warning(
+                "%s: time-axis length mismatch (%d vs %d) — trace set to NaN",
+                label,
+                len(t2),
+                n,
+            )
             return np.full(n, np.nan)
         return get_channel(arr, y_channel_idx, t_abs)
 
@@ -606,17 +653,28 @@ def extract_trial_y_series(
 # Single-model scoring helpers
 # ---------------------------------------------------------------------------
 
+
 def trial_rmse_z_for_model(
     split_res: Dict[str, Any],
     trial_idx: int,
     channel_idx: int,
 ) -> float:
     """RMSE on z-scored behavioral output for one trial."""
-    if split_res.get("Z") is None or trial_idx >= len(split_res["Z"]) or split_res["Z"][trial_idx] is None:
+    if (
+        split_res.get("Z") is None
+        or trial_idx >= len(split_res["Z"])
+        or split_res["Z"][trial_idx] is None
+    ):
         raise ValueError(f"missing Z for trial_idx={trial_idx}")
-    if split_res.get("Zp") is None or trial_idx >= len(split_res["Zp"]) or split_res["Zp"][trial_idx] is None:
+    if (
+        split_res.get("Zp") is None
+        or trial_idx >= len(split_res["Zp"])
+        or split_res["Zp"][trial_idx] is None
+    ):
         raise ValueError(f"missing Zp for trial_idx={trial_idx}")
-    z_true_arr, t_abs = _prepare_z_array(split_res["Z"][trial_idx], split_res, trial_idx)
+    z_true_arr, t_abs = _prepare_z_array(
+        split_res["Z"][trial_idx], split_res, trial_idx
+    )
     true_c = get_channel(z_true_arr, channel_idx, t_abs)
     zp_arr, t2 = _prepare_z_array(split_res["Zp"][trial_idx], split_res, trial_idx)
     if len(t2) != len(t_abs):
@@ -633,11 +691,21 @@ def trial_rmse_y_for_model(
     y_channel_idx: int,
 ) -> float:
     """RMSE on z-scored neural Y for one trial."""
-    if split_res.get("Y") is None or trial_idx >= len(split_res["Y"]) or split_res["Y"][trial_idx] is None:
+    if (
+        split_res.get("Y") is None
+        or trial_idx >= len(split_res["Y"])
+        or split_res["Y"][trial_idx] is None
+    ):
         raise ValueError(f"missing Y for trial_idx={trial_idx}")
-    if split_res.get("Yp") is None or trial_idx >= len(split_res["Yp"]) or split_res["Yp"][trial_idx] is None:
+    if (
+        split_res.get("Yp") is None
+        or trial_idx >= len(split_res["Yp"])
+        or split_res["Yp"][trial_idx] is None
+    ):
         raise ValueError(f"missing Yp for trial_idx={trial_idx}")
-    y_true_arr, t_abs = _prepare_z_array(split_res["Y"][trial_idx], split_res, trial_idx)
+    y_true_arr, t_abs = _prepare_z_array(
+        split_res["Y"][trial_idx], split_res, trial_idx
+    )
     true_c = get_channel(y_true_arr, y_channel_idx, t_abs)
     yp_arr, t2 = _prepare_z_array(split_res["Yp"][trial_idx], split_res, trial_idx)
     if len(t2) != len(t_abs):

@@ -69,7 +69,10 @@ def _load_output_channel_names(
         if res is not None:
             raw = res.get("output_channels")
             if raw is not None:
-                names = [str(x).replace("_", " ") for x in (list(raw) if not isinstance(raw, list) else raw)]
+                names = [
+                    str(x).replace("_", " ")
+                    for x in (list(raw) if not isinstance(raw, list) else raw)
+                ]
                 if names:
                     return names[:n_fallback] if len(names) >= n_fallback else names
     except Exception:
@@ -123,7 +126,9 @@ def build_psid_cz_figure(
 
             panel = row_spec.panels[ci - 1]
             try:
-                model_path = resolve_model_path(results_root, panel.psid_variant, panel.psid_run_ts)
+                model_path = resolve_model_path(
+                    results_root, panel.psid_variant, panel.psid_run_ts
+                )
                 id_sys = load_psid_id_sys(model_path)
                 cz_norm, n1, _ = compute_cz_heatmap(id_sys)
             except Exception as e:
@@ -171,7 +176,11 @@ def build_psid_cz_figure(
             )
             if not showscale_done:
                 hm_kw["colorbar"] = dict(
-                    title=dict(text="Norm. Cz", side="right", font=dict(size=FONT_SIZE_TICK, family=FONT_FAMILY)),
+                    title=dict(
+                        text="Norm. Cz",
+                        side="right",
+                        font=dict(size=FONT_SIZE_TICK, family=FONT_FAMILY),
+                    ),
                     len=0.55,
                     thickness=14,
                     tickfont=dict(size=FONT_SIZE_TICK, family=FONT_FAMILY),

@@ -36,10 +36,22 @@ logger = logging.getLogger(__name__)
 
 # Standard classification sessions (same as specs.py THESIS_CLASSIFICATION_F1 entries)
 _STANDARD_SESSIONS: dict[str, tuple[str, str]] = {
-    "PDI1_S2": ("psid_behavioral_PDI1_2_nx_80_n12_i40_dbs_both_narrow_band", "20260315_200324"),
-    "PDI1_S4": ("psid_behavioral_PDI1_4_nx_80_n6_i40_dbs_both_narrow_band", "20260315_142838"),
-    "PDI4_S2": ("psid_behavioral_PDI4_2_nx_80_n10_i40_dbs_both_narrow_band", "20260315_144054"),
-    "PDI4_S3": ("psid_behavioral_PDI4_3_nx65_n10_i40_dbs_both_narrow_band", "20260315_200805"),
+    "PDI1_S2": (
+        "psid_behavioral_PDI1_2_nx_80_n12_i40_dbs_both_narrow_band",
+        "20260315_200324",
+    ),
+    "PDI1_S4": (
+        "psid_behavioral_PDI1_4_nx_80_n6_i40_dbs_both_narrow_band",
+        "20260315_142838",
+    ),
+    "PDI4_S2": (
+        "psid_behavioral_PDI4_2_nx_80_n10_i40_dbs_both_narrow_band",
+        "20260315_144054",
+    ),
+    "PDI4_S3": (
+        "psid_behavioral_PDI4_3_nx65_n10_i40_dbs_both_narrow_band",
+        "20260315_200805",
+    ),
 }
 
 _STANDARD_PKL_NAMES: dict[str, str] = {
@@ -77,7 +89,8 @@ def build_roc_curve_figure(
     cls_root = Path(results_root) / "classification"
 
     fig = make_subplots(
-        rows=1, cols=2,
+        rows=1,
+        cols=2,
         subplot_titles=["Standard classification", "Flipped classification"],
         horizontal_spacing=0.12,
     )
@@ -99,17 +112,23 @@ def build_roc_curve_figure(
         if all_fpr:
             # Interpolate to common FPR grid and average
             common_fpr = np.linspace(0, 1, 200)
-            interp_tpr = np.array([np.interp(common_fpr, f, t) for f, t in zip(all_fpr, all_tpr)])
+            interp_tpr = np.array(
+                [np.interp(common_fpr, f, t) for f, t in zip(all_fpr, all_tpr)]
+            )
             mean_tpr = interp_tpr.mean(axis=0)
             color = _FEAT_COLORS.get(feat, "#888888")
             fig.add_trace(
                 go.Scatter(
-                    x=common_fpr, y=mean_tpr, mode="lines",
+                    x=common_fpr,
+                    y=mean_tpr,
+                    mode="lines",
                     name=_FEAT_SHORT.get(feat, feat),
                     line=dict(color=color, width=2.0),
-                    legendgroup=feat, showlegend=True,
+                    legendgroup=feat,
+                    showlegend=True,
                 ),
-                row=1, col=1,
+                row=1,
+                col=1,
             )
 
     # --- Flipped ROC (right panel) ---
@@ -138,28 +157,38 @@ def build_roc_curve_figure(
 
         if all_fpr:
             common_fpr = np.linspace(0, 1, 200)
-            interp_tpr = np.array([np.interp(common_fpr, f, t) for f, t in zip(all_fpr, all_tpr)])
+            interp_tpr = np.array(
+                [np.interp(common_fpr, f, t) for f, t in zip(all_fpr, all_tpr)]
+            )
             mean_tpr = interp_tpr.mean(axis=0)
             color = _FEAT_COLORS.get(feat, "#888888")
             fig.add_trace(
                 go.Scatter(
-                    x=common_fpr, y=mean_tpr, mode="lines",
+                    x=common_fpr,
+                    y=mean_tpr,
+                    mode="lines",
                     name=_FEAT_SHORT.get(feat, feat),
                     line=dict(color=color, width=2.0),
-                    legendgroup=feat, showlegend=False,
+                    legendgroup=feat,
+                    showlegend=False,
                 ),
-                row=1, col=2,
+                row=1,
+                col=2,
             )
 
     # Diagonal chance line on both panels
     for col in (1, 2):
         fig.add_trace(
             go.Scatter(
-                x=[0, 1], y=[0, 1], mode="lines",
+                x=[0, 1],
+                y=[0, 1],
+                mode="lines",
                 line=dict(color=COLOR_CHANCE, width=1.0, dash="dash"),
-                showlegend=False, hoverinfo="skip",
+                showlegend=False,
+                hoverinfo="skip",
             ),
-            row=1, col=col,
+            row=1,
+            col=col,
         )
 
     apply_thesis_style(fig, theme, height=480, margin=dict(l=60, r=40, t=56, b=80))
@@ -168,12 +197,16 @@ def build_roc_curve_figure(
         fig.update_xaxes(
             title_text="False Positive Rate",
             title_font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY),
-            range=[0, 1], row=1, col=col,
+            range=[0, 1],
+            row=1,
+            col=col,
         )
         fig.update_yaxes(
             title_text="True Positive Rate" if col == 1 else "",
             title_font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY),
-            range=[0, 1.05], row=1, col=col,
+            range=[0, 1.05],
+            row=1,
+            col=col,
         )
 
     return fig

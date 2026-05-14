@@ -59,11 +59,7 @@ _LAPLACIAN_LFP_PREFIXES: Tuple[str, ...] = (
 
 
 def _session_dir(data_root: Path, participant: str, session: str) -> Path:
-    return (
-        data_root
-        / f"participant_id={participant}"
-        / f"session={session}"
-    )
+    return data_root / f"participant_id={participant}" / f"session={session}"
 
 
 def _first_block_parquet(session_dir: Path) -> Path:
@@ -73,16 +69,18 @@ def _first_block_parquet(session_dir: Path) -> Path:
             "Check participant/session and resampled_recordings root."
         )
     block_dirs = sorted(
-        (d for d in session_dir.iterdir() if d.is_dir() and d.name.startswith("block=")),
+        (
+            d
+            for d in session_dir.iterdir()
+            if d.is_dir() and d.name.startswith("block=")
+        ),
         key=lambda p: int(p.name.split("=", 1)[1]),
     )
     for block_dir in block_dirs:
         pqs = sorted(block_dir.glob("*.parquet"))
         if pqs:
             return pqs[0]
-    raise FileNotFoundError(
-        f"No parquet files under any block in {session_dir}."
-    )
+    raise FileNotFoundError(f"No parquet files under any block in {session_dir}.")
 
 
 def _laplacian_pair_for(
@@ -196,7 +194,9 @@ def build_raw_vs_laplacian_figure(
 
     n_rows = len(raw_columns)
     block_val = parquet_path.parent.name.split("=", 1)[1]
-    trial_label = int(df["trial"].iloc[trial_index]) if "trial" in df.columns else trial_index
+    trial_label = (
+        int(df["trial"].iloc[trial_index]) if "trial" in df.columns else trial_index
+    )
 
     t_full = _extract_trial_series(df, "time", trial_index)
     t_full = t_full - float(t_full[0]) if len(t_full) else t_full
@@ -218,7 +218,9 @@ def build_raw_vs_laplacian_figure(
     raw_color = COLOR_TRUE_LIGHT if theme == ThesisTheme.LIGHT else "#D3D1C7"
     lap_color = COLOR_PSID
 
-    for row_i, (raw_col, lap_col) in enumerate(zip(raw_columns, laplacian_columns), start=1):
+    for row_i, (raw_col, lap_col) in enumerate(
+        zip(raw_columns, laplacian_columns), start=1
+    ):
         show_legend = row_i == 1
 
         raw_y = _extract_trial_series(df, raw_col, trial_index)[sl]

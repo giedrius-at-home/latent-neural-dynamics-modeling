@@ -75,7 +75,10 @@ def _fingerprint_model_metadata(
     root = project_root.resolve()
     p = root / "results" / variant / f"model_{run_ts}_metadata.json"
     if not p.is_file():
-        return {"path": str(root / "results" / variant / f"model_{run_ts}_metadata.json"), "missing": True}
+        return {
+            "path": str(root / "results" / variant / f"model_{run_ts}_metadata.json"),
+            "missing": True,
+        }
     st = p.stat()
     try:
         rel = str(p.resolve().relative_to(root))
@@ -127,8 +130,12 @@ def build_flipped_epoched_key(
         "dbs_on": f"{run.dbs_on.variant}:{run.dbs_on.run_ts}",
         "dbs_off": f"{run.dbs_off.variant}:{run.dbs_off.run_ts}",
         "dbs_both": f"{run.dbs_both.variant}:{run.dbs_both.run_ts}",
-        "model_on": _fingerprint_model_ckpt(root, run.dbs_on.variant, run.dbs_on.run_ts),
-        "model_off": _fingerprint_model_ckpt(root, run.dbs_off.variant, run.dbs_off.run_ts),
+        "model_on": _fingerprint_model_ckpt(
+            root, run.dbs_on.variant, run.dbs_on.run_ts
+        ),
+        "model_off": _fingerprint_model_ckpt(
+            root, run.dbs_off.variant, run.dbs_off.run_ts
+        ),
         "model_both": _fingerprint_model_ckpt(
             root, run.dbs_both.variant, run.dbs_both.run_ts
         ),
@@ -154,7 +161,16 @@ def flipped_epoched_paths(project_root: Path, kh: str) -> Tuple[Path, Path]:
 
 def try_load_flipped_epoched(
     project_root: Path, key: Dict[str, Any], kh: str
-) -> Optional[Tuple[np.ndarray, np.ndarray, np.ndarray, Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray]]]:
+) -> Optional[
+    Tuple[
+        np.ndarray,
+        np.ndarray,
+        np.ndarray,
+        Optional[np.ndarray],
+        Optional[np.ndarray],
+        Optional[np.ndarray],
+    ]
+]:
     if not disk_cache_enabled():
         return None
     npz_path, json_path = flipped_epoched_paths(project_root, kh)
@@ -171,7 +187,14 @@ def try_load_flipped_epoched(
         data = np.load(npz_path, allow_pickle=True)
         no_test = int(data.get("_no_test", np.array([0]))[0])
         if no_test:
-            return data["X_train"], data["y_train"], data["groups_train"], None, None, None
+            return (
+                data["X_train"],
+                data["y_train"],
+                data["groups_train"],
+                None,
+                None,
+                None,
+            )
         return (
             data["X_train"],
             data["y_train"],
@@ -270,7 +293,16 @@ def standard_epoched_paths(project_root: Path, kh: str) -> Tuple[Path, Path]:
 
 def try_load_standard_epoched(
     project_root: Path, key: Dict[str, Any], kh: str
-) -> Optional[Tuple[np.ndarray, np.ndarray, np.ndarray, Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray]]]:
+) -> Optional[
+    Tuple[
+        np.ndarray,
+        np.ndarray,
+        np.ndarray,
+        Optional[np.ndarray],
+        Optional[np.ndarray],
+        Optional[np.ndarray],
+    ]
+]:
     if not disk_cache_enabled():
         return None
     npz_path, json_path = standard_epoched_paths(project_root, kh)
@@ -287,7 +319,14 @@ def try_load_standard_epoched(
         data = np.load(npz_path, allow_pickle=True)
         no_test = int(data.get("_no_test", np.array([0]))[0])
         if no_test:
-            return data["X_train"], data["y_train"], data["groups_train"], None, None, None
+            return (
+                data["X_train"],
+                data["y_train"],
+                data["groups_train"],
+                None,
+                None,
+                None,
+            )
         return (
             data["X_train"],
             data["y_train"],

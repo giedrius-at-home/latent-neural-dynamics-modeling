@@ -94,7 +94,9 @@ def paper_colors(theme: ThesisTheme) -> Tuple[str, str]:
 
 
 def grid_color(theme: ThesisTheme) -> str:
-    return "rgba(0,0,0,0.15)" if theme == ThesisTheme.LIGHT else "rgba(255,255,255,0.20)"
+    return (
+        "rgba(0,0,0,0.15)" if theme == ThesisTheme.LIGHT else "rgba(255,255,255,0.20)"
+    )
 
 
 def legend_bgcolor() -> str:

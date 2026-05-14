@@ -47,17 +47,23 @@ from sklearn.model_selection import cross_val_score, StratifiedKFold
 
 # In-repo trusted model outputs are serialized; load via dynamic import.
 import importlib as _importlib
+
 _serial = _importlib.import_module("pic" + "kle")  # nosec — trusted in-repo outputs
 
 from thesis_style import (
-    COLOR_DBS_ON, COLOR_DBS_OFF, COLOR_PSID, COLOR_DPAD,
-    COLOR_CHANCE, COLOR_NS,
-    apply_thesis_style, panel_label,
+    COLOR_DBS_ON,
+    COLOR_DBS_OFF,
+    COLOR_PSID,
+    COLOR_DPAD,
+    COLOR_CHANCE,
+    COLOR_NS,
+    apply_thesis_style,
+    panel_label,
 )
 
 apply_thesis_style()
 
-OUT = Path('thesis_figures/sec7')
+OUT = Path("thesis_figures/sec7")
 OUT.mkdir(parents=True, exist_ok=True)
 
 # Subspace mapping: Xp_1 (behavioral) -> PSID blue, Xp_2 (non-behavioral) -> DPAD orange
@@ -90,8 +96,8 @@ RUNS = [
         "variant": "psid_behavioral_PDI1_2_nx_55_n15_i100_dbs_both_200Hz_narrow_band",
         "config_yaml": "training/setups/psid/narrow_band_200Hz/both/psid_behavioral_PDI1_2_nx_55_n15_i100_dbs_both_200Hz_narrow_band.yaml",
         "model_both": "results/psid_behavioral_PDI1_2_nx_55_n15_i100_dbs_both_200Hz_narrow_band/model_20260421_222439.pkl",
-        "model_on":   "results/psid_behavioral_PDI1_2_nx_55_n15_i100_dbs_on_200Hz_narrow_band/model_20260422_004246.pkl",
-        "model_off":  "results/psid_behavioral_PDI1_2_nx_55_n15_i100_dbs_off_200Hz_narrow_band/model_20260422_010140.pkl",
+        "model_on": "results/psid_behavioral_PDI1_2_nx_55_n15_i100_dbs_on_200Hz_narrow_band/model_20260422_004246.pkl",
+        "model_off": "results/psid_behavioral_PDI1_2_nx_55_n15_i100_dbs_off_200Hz_narrow_band/model_20260422_010140.pkl",
     },
     {
         "label": "PDI1 S4 (200Hz)",
@@ -104,8 +110,8 @@ RUNS = [
         "variant": "psid_behavioral_PDI1_4_nx_50_n10_i100_dbs_both_200Hz_narrow_band",
         "config_yaml": "training/setups/psid/narrow_band_200Hz/both/psid_behavioral_PDI1_4_nx_50_n10_i100_dbs_both_200Hz_narrow_band.yaml",
         "model_both": "results/psid_behavioral_PDI1_4_nx_50_n10_i100_dbs_both_200Hz_narrow_band/model_20260422_000702.pkl",
-        "model_on":   "results/psid_behavioral_PDI1_4_nx_50_n10_i100_dbs_on_200Hz_narrow_band/model_20260422_004723.pkl",
-        "model_off":  "results/psid_behavioral_PDI1_4_nx_50_n10_i100_dbs_off_200Hz_narrow_band/model_20260422_010614.pkl",
+        "model_on": "results/psid_behavioral_PDI1_4_nx_50_n10_i100_dbs_on_200Hz_narrow_band/model_20260422_004723.pkl",
+        "model_off": "results/psid_behavioral_PDI1_4_nx_50_n10_i100_dbs_off_200Hz_narrow_band/model_20260422_010614.pkl",
     },
     {
         "label": "PDI4 S2 (200Hz)",
@@ -118,8 +124,8 @@ RUNS = [
         "variant": "psid_behavioral_PDI4_2_nx_50_n10_i100_dbs_both_200Hz_narrow_band",
         "config_yaml": "training/setups/psid/narrow_band_200Hz/both/psid_behavioral_PDI4_2_nx_50_n10_i100_dbs_both_200Hz_narrow_band.yaml",
         "model_both": "results/psid_behavioral_PDI4_2_nx_50_n10_i100_dbs_both_200Hz_narrow_band/model_20260421_202056.pkl",
-        "model_on":   "results/psid_behavioral_PDI4_2_nx_50_n10_i100_dbs_on_200Hz_narrow_band/model_20260421_205424.pkl",
-        "model_off":  "results/psid_behavioral_PDI4_2_nx_50_n10_i100_dbs_off_200Hz_narrow_band/model_20260421_210809.pkl",
+        "model_on": "results/psid_behavioral_PDI4_2_nx_50_n10_i100_dbs_on_200Hz_narrow_band/model_20260421_205424.pkl",
+        "model_off": "results/psid_behavioral_PDI4_2_nx_50_n10_i100_dbs_off_200Hz_narrow_band/model_20260421_210809.pkl",
     },
     {
         "label": "PDI4 S3 (200Hz)",
@@ -132,8 +138,8 @@ RUNS = [
         "variant": "psid_behavioral_PDI4_3_nx_50_n10_i100_dbs_both_200Hz_narrow_band",
         "config_yaml": "training/setups/psid/narrow_band_200Hz/both/psid_behavioral_PDI4_3_nx_50_n10_i100_dbs_both_200Hz_narrow_band.yaml",
         "model_both": "results/psid_behavioral_PDI4_3_nx_50_n10_i100_dbs_both_200Hz_narrow_band/model_20260421_202721.pkl",
-        "model_on":   "results/psid_behavioral_PDI4_3_nx_50_n10_i100_dbs_on_200Hz_narrow_band/model_20260421_205640.pkl",
-        "model_off":  "results/psid_behavioral_PDI4_3_nx_50_n10_i100_dbs_off_200Hz_narrow_band/model_20260421_211024.pkl",
+        "model_on": "results/psid_behavioral_PDI4_3_nx_50_n10_i100_dbs_on_200Hz_narrow_band/model_20260421_205640.pkl",
+        "model_off": "results/psid_behavioral_PDI4_3_nx_50_n10_i100_dbs_off_200Hz_narrow_band/model_20260421_211024.pkl",
     },
     # To add DPAD runs later, set "model_type": "dpad" — PSID-only sections auto-skip.
 ]
@@ -215,6 +221,7 @@ def predict_model(model, Y_trials, model_type="psid"):
         all_Xp.append(Xp[:T] if Xp is not None else None)
     return all_Zp, all_Yp, all_Xp
 
+
 # %%
 # ── Analysis functions ──────────────────────────────────────────────────────
 
@@ -232,7 +239,7 @@ FREQ_BANDS = [
 
 def cohens_d(a, b):
     """Standardized mean difference (pooled SD)."""
-    ps = np.sqrt((np.std(a)**2 + np.std(b)**2) / 2)
+    ps = np.sqrt((np.std(a) ** 2 + np.std(b) ** 2) / 2)
     return (np.mean(a) - np.mean(b)) / ps if ps > 0 else 0.0
 
 
@@ -242,14 +249,31 @@ def behavioral_dbs_effect(df):
     for col in BEHAV_COLS:
         if col not in df.columns:
             continue
-        on_means = np.array([np.nanmean(np.abs(np.array(df[col][i].to_list(), dtype=float)))
-                             for i in range(len(df)) if df["stim"][i] == "on"])
-        off_means = np.array([np.nanmean(np.abs(np.array(df[col][i].to_list(), dtype=float)))
-                              for i in range(len(df)) if df["stim"][i] == "off"])
+        on_means = np.array(
+            [
+                np.nanmean(np.abs(np.array(df[col][i].to_list(), dtype=float)))
+                for i in range(len(df))
+                if df["stim"][i] == "on"
+            ]
+        )
+        off_means = np.array(
+            [
+                np.nanmean(np.abs(np.array(df[col][i].to_list(), dtype=float)))
+                for i in range(len(df))
+                if df["stim"][i] == "off"
+            ]
+        )
         d = cohens_d(on_means, off_means)
         _, p = stats.ttest_ind(on_means, off_means)
-        rows.append({"feature": col.replace("tracing_", ""), "on_mean": np.mean(on_means),
-                      "off_mean": np.mean(off_means), "d": d, "p": p})
+        rows.append(
+            {
+                "feature": col.replace("tracing_", ""),
+                "on_mean": np.mean(on_means),
+                "off_mean": np.mean(off_means),
+                "d": d,
+                "p": p,
+            }
+        )
     return rows
 
 
@@ -282,7 +306,9 @@ def avg_psd(trials, dim_slice, fs):
 
 def psd_band_power(f, psd):
     """Mean power per frequency band."""
-    return {name: float(np.mean(psd[(f >= lo) & (f < hi)])) for lo, hi, name in FREQ_BANDS}
+    return {
+        name: float(np.mean(psd[(f >= lo) & (f < hi)])) for lo, hi, name in FREQ_BANDS
+    }
 
 
 def eigenvalue_modes(A, fs):
@@ -297,8 +323,14 @@ def eigenvalue_modes(A, fs):
         mag = np.abs(e)
         freq = np.abs(np.angle(e)) * fs / (2 * np.pi)
         decay_ms = -1000.0 / (fs * np.log(mag)) if 0 < mag < 1 else float("inf")
-        modes.append({"freq": freq, "mag": mag, "decay_ms": decay_ms,
-                       "is_complex": abs(np.imag(e)) > 1e-10})
+        modes.append(
+            {
+                "freq": freq,
+                "mag": mag,
+                "decay_ms": decay_ms,
+                "is_complex": abs(np.imag(e)) > 1e-10,
+            }
+        )
     return sorted(modes, key=lambda m: -m["mag"])
 
 
@@ -330,7 +362,11 @@ def a_matrix_analysis(model_both, model_on, model_off, n1, nx, fs):
         sub_modes[f"{label}_xp1"] = eigenvalue_modes(Am[:n1, :n1], fs)
         sub_modes[f"{label}_xp2"] = eigenvalue_modes(Am[n1:, n1:], fs)
 
-    return {"block_norms": block_norms, "diff_norms": diff_norms, "sub_modes": sub_modes}
+    return {
+        "block_norms": block_norms,
+        "diff_norms": diff_norms,
+        "sub_modes": sub_modes,
+    }
 
 
 def c_matrix_analysis(model, n1, neural_channels):
@@ -357,7 +393,12 @@ def c_matrix_analysis(model, n1, neural_channels):
         }
 
     # Group by frequency band keyword
-    band_keywords = {"theta": "theta", "alpha": "alpha", "beta": "beta", "gamma": "gamma"}
+    band_keywords = {
+        "theta": "theta",
+        "alpha": "alpha",
+        "beta": "beta",
+        "gamma": "gamma",
+    }
     by_band = {}
     for bname, kw in band_keywords.items():
         mask = [i for i, ch in enumerate(neural_channels) if kw in ch]
@@ -370,8 +411,13 @@ def c_matrix_analysis(model, n1, neural_channels):
     cz_xp1_norm = float(np.linalg.norm(Cz[:, :n1]))
     cz_xp2_norm = float(np.linalg.norm(Cz[:, n1:]))
 
-    return {"by_electrode": by_electrode, "by_band": by_band,
-            "cz_xp1": cz_xp1_norm, "cz_xp2": cz_xp2_norm, "Cz": Cz}
+    return {
+        "by_electrode": by_electrode,
+        "by_band": by_band,
+        "cz_xp1": cz_xp1_norm,
+        "cz_xp2": cz_xp2_norm,
+        "Cz": Cz,
+    }
 
 
 def classifier_comparison(Xp_list, labels, n1, nx, df):
@@ -383,8 +429,12 @@ def classifier_comparison(Xp_list, labels, n1, nx, df):
     Xp1 = [x[:, :n1] for x in Xp_list]
     Xp2 = [x[:, n1:nx] for x in Xp_list]
 
-    def trial_means(trials): return np.array([x.mean(axis=0) for x in trials])
-    def trial_stds(trials): return np.array([x.std(axis=0) for x in trials])
+    def trial_means(trials):
+        return np.array([x.mean(axis=0) for x in trials])
+
+    def trial_stds(trials):
+        return np.array([x.std(axis=0) for x in trials])
+
     def trial_cov(trials):
         feats = []
         for x in trials:
@@ -396,7 +446,11 @@ def classifier_comparison(Xp_list, labels, n1, nx, df):
     clf = LogisticRegression(max_iter=1000, C=1.0)
     results = {}
 
-    for feat_name, extractor in [("mean", trial_means), ("std", trial_stds), ("cov", trial_cov)]:
+    for feat_name, extractor in [
+        ("mean", trial_means),
+        ("std", trial_stds),
+        ("cov", trial_cov),
+    ]:
         f1, f2 = extractor(Xp1), extractor(Xp2)
         s1 = cross_val_score(clf, f1, labels, cv=cv, scoring="balanced_accuracy")
         s2 = cross_val_score(clf, f2, labels, cv=cv, scoring="balanced_accuracy")
@@ -421,10 +475,13 @@ def classifier_comparison(Xp_list, labels, n1, nx, df):
         raw_feats.append(feats)
     raw_feats = np.array(raw_feats)
     if raw_feats.shape[1] > 0:
-        s_raw = cross_val_score(clf, raw_feats, labels, cv=cv, scoring="balanced_accuracy")
+        s_raw = cross_val_score(
+            clf, raw_feats, labels, cv=cv, scoring="balanced_accuracy"
+        )
         results["raw_behavioral"] = {"value": float(np.mean(s_raw))}
 
     return results
+
 
 # %% [markdown]
 # ## 2. Load data and models (test set only)
@@ -454,13 +511,25 @@ for run in RUNS:
     Xp_off = [Xp_all[i] for i in range(len(labels)) if labels[i] == 0]
 
     data[label] = {
-        "run": run, "n1": n1, "nx": nx, "fs": fs, "model_type": mtype,
-        "neural_channels": neural_channels, "df": df, "labels": labels,
-        "model_both": model_both, "model_on": model_on, "model_off": model_off,
-        "Xp_all": Xp_all, "Xp_on": Xp_on, "Xp_off": Xp_off,
+        "run": run,
+        "n1": n1,
+        "nx": nx,
+        "fs": fs,
+        "model_type": mtype,
+        "neural_channels": neural_channels,
+        "df": df,
+        "labels": labels,
+        "model_both": model_both,
+        "model_on": model_on,
+        "model_off": model_off,
+        "Xp_all": Xp_all,
+        "Xp_on": Xp_on,
+        "Xp_off": Xp_off,
     }
-    print(f"  {label}: {sum(labels==1)} ON, {sum(labels==0)} OFF trials, "
-          f"{len(neural_channels)} ch, Xp shape {Xp_all[0].shape}")
+    print(
+        f"  {label}: {sum(labels==1)} ON, {sum(labels==0)} OFF trials, "
+        f"{len(neural_channels)} ch, Xp shape {Xp_all[0].shape}"
+    )
 
 # %% [markdown]
 # ## 3. Behavioral DBS effect (raw kinematics, test set)
@@ -476,8 +545,16 @@ for label, d in data.items():
     behav = behavioral_dbs_effect(d["df"])
     d["behavioral"] = behav
     for r in behav:
-        behav_rows.append([label, r["feature"], f'{r["on_mean"]:.2f}', f'{r["off_mean"]:.2f}',
-                           f'{r["d"]:+.3f}', f'{r["p"]:.4f}'])
+        behav_rows.append(
+            [
+                label,
+                r["feature"],
+                f'{r["on_mean"]:.2f}',
+                f'{r["off_mean"]:.2f}',
+                f'{r["d"]:+.3f}',
+                f'{r["p"]:.4f}',
+            ]
+        )
 
 fig, ax = plt.subplots(figsize=(8.5, 0.35 * (len(behav_rows) + 1) + 0.4))
 ax.axis("off")
@@ -487,7 +564,7 @@ tbl.auto_set_font_size(False)
 tbl.set_fontsize(8)
 tbl.scale(1, 1.3)
 panel_label(ax, "A", "Behavioural DBS effect (raw kinematics, test set)")
-fig.savefig(str(OUT / 'behavioral_dbs_effect_table.png'))
+fig.savefig(str(OUT / "behavioral_dbs_effect_table.png"))
 plt.show()
 print(
     f"Behavioural DBS effect on raw kinematics (test trials only). For each session and "
@@ -506,8 +583,9 @@ print(
 # %%
 # 2×N grid: rows = (Xp_1 all dims, top-5 Xp_2 dims), cols = sessions.
 n_sessions = len(data)
-fig, axes = plt.subplots(2, n_sessions, figsize=(3.0 * n_sessions + 1.0, 4.8),
-                         sharey="row")
+fig, axes = plt.subplots(
+    2, n_sessions, figsize=(3.0 * n_sessions + 1.0, 4.8), sharey="row"
+)
 if n_sessions == 1:
     axes = axes.reshape(2, 1)
 
@@ -540,7 +618,7 @@ for col_idx, (label, d) in enumerate(data.items()):
     if col_idx == 0:
         ax_bot.set_ylabel("Cohen's d (top-5 Xp_2 dims)")
 
-fig.savefig(str(OUT / 'latent_cohens_d_all_sessions.png'))
+fig.savefig(str(OUT / "latent_cohens_d_all_sessions.png"))
 plt.show()
 print(
     f"Latent state DBS effect: per-dimension Cohen's d on trial means (test set), "
@@ -559,8 +637,9 @@ print(
 # %%
 # 4×2 PSD grid: rows = sessions, cols = (Xp_1, Xp_2).
 n_sessions = len(data)
-fig, axes = plt.subplots(n_sessions, 2, figsize=(8.0, 2.4 * n_sessions),
-                         sharex=False, sharey=False)
+fig, axes = plt.subplots(
+    n_sessions, 2, figsize=(8.0, 2.4 * n_sessions), sharex=False, sharey=False
+)
 if n_sessions == 1:
     axes = axes.reshape(1, 2)
 
@@ -570,18 +649,35 @@ for r_idx, (label, d) in enumerate(data.items()):
     _, psd_xp1_off = avg_psd(d["Xp_off"], slice(0, n1), fs)
     _, psd_xp2_on = avg_psd(d["Xp_on"], slice(n1, nx), fs)
     _, psd_xp2_off = avg_psd(d["Xp_off"], slice(n1, nx), fs)
-    d["psd"] = {"f": f_psd, "xp1_on": psd_xp1_on, "xp1_off": psd_xp1_off,
-                "xp2_on": psd_xp2_on, "xp2_off": psd_xp2_off}
+    d["psd"] = {
+        "f": f_psd,
+        "xp1_on": psd_xp1_on,
+        "xp1_off": psd_xp1_off,
+        "xp2_on": psd_xp2_on,
+        "xp2_off": psd_xp2_off,
+    }
 
-    for col, (psd_on, psd_off, sub_name) in enumerate([
-        (psd_xp1_on, psd_xp1_off, "Xp_1 (behavioural)"),
-        (psd_xp2_on, psd_xp2_off, "Xp_2 (non-behavioural)"),
-    ]):
+    for col, (psd_on, psd_off, sub_name) in enumerate(
+        [
+            (psd_xp1_on, psd_xp1_off, "Xp_1 (behavioural)"),
+            (psd_xp2_on, psd_xp2_off, "Xp_2 (non-behavioural)"),
+        ]
+    ):
         ax = axes[r_idx, col]
-        ax.plot(f_psd, psd_on, color=COLOR_DBS_ON, linewidth=1.5,
-                label="DBS ON" if (r_idx == 0 and col == 0) else None)
-        ax.plot(f_psd, psd_off, color=COLOR_DBS_OFF, linewidth=1.5,
-                label="DBS OFF" if (r_idx == 0 and col == 0) else None)
+        ax.plot(
+            f_psd,
+            psd_on,
+            color=COLOR_DBS_ON,
+            linewidth=1.5,
+            label="DBS ON" if (r_idx == 0 and col == 0) else None,
+        )
+        ax.plot(
+            f_psd,
+            psd_off,
+            color=COLOR_DBS_OFF,
+            linewidth=1.5,
+            label="DBS OFF" if (r_idx == 0 and col == 0) else None,
+        )
         ax.set_xlim(0, fs / 2)
         ax.set_yscale("log")
         if r_idx == n_sessions - 1:
@@ -592,7 +688,7 @@ for r_idx, (label, d) in enumerate(data.items()):
         panel_label(ax, letter, f"{label} — {sub_name}")
 
 fig.legend()
-fig.savefig(str(OUT / 'psd_all_sessions.png'))
+fig.savefig(str(OUT / "psd_all_sessions.png"))
 plt.show()
 print(
     f"PSD of PSID latent states (Welch, test trials only). Left column: Xp_1 (behavioural "
@@ -612,28 +708,40 @@ print(
 
 # %%
 for label, d in data.items():
-    a_info = a_matrix_analysis(d["model_both"], d["model_on"], d["model_off"],
-                                d["n1"], d["nx"], d["fs"])
+    a_info = a_matrix_analysis(
+        d["model_both"], d["model_on"], d["model_off"], d["n1"], d["nx"], d["fs"]
+    )
     d["a_matrix"] = a_info
 
     # Brief block structure summary
     coupling = a_info["block_norms"]["A12 (Xp2->Xp1)"]
-    print(f"{label}: A12={coupling:.6f} ({'decoupled' if coupling < 0.01 else 'coupled'}), "
-          f"ON-OFF diff: A11={a_info['diff_norms']['A11 diff']:.4f}, "
-          f"A22={a_info['diff_norms']['A22 diff']:.4f}")
+    print(
+        f"{label}: A12={coupling:.6f} ({'decoupled' if coupling < 0.01 else 'coupled'}), "
+        f"ON-OFF diff: A11={a_info['diff_norms']['A11 diff']:.4f}, "
+        f"A22={a_info['diff_norms']['A22 diff']:.4f}"
+    )
 
     # Eigenvalue scatter: one panel per subspace.
     fig, axes = plt.subplots(1, 2, figsize=(8.5, 3.6))
     for col, sub in enumerate(["xp1", "xp2"]):
         ax = axes[col]
-        for cond, color, marker in [("on", COLOR_DBS_ON, "o"),
-                                     ("off", COLOR_DBS_OFF, "D")]:
+        for cond, color, marker in [
+            ("on", COLOR_DBS_ON, "o"),
+            ("off", COLOR_DBS_OFF, "D"),
+        ]:
             modes = a_info["sub_modes"][f"{cond}_{sub}"]
             freqs = [m["freq"] for m in modes if m["is_complex"]]
             mags = [m["mag"] for m in modes if m["is_complex"]]
-            ax.scatter(freqs, mags, color=color, marker=marker, s=45,
-                       alpha=0.85, edgecolors="none",
-                       label=f"DBS {cond.upper()}" if col == 0 else None)
+            ax.scatter(
+                freqs,
+                mags,
+                color=color,
+                marker=marker,
+                s=45,
+                alpha=0.85,
+                edgecolors="none",
+                label=f"DBS {cond.upper()}" if col == 0 else None,
+            )
         sub_label = "Xp_1 (behavioural)" if sub == "xp1" else "Xp_2 (non-behavioural)"
         ax.set_xlabel("oscillation frequency (Hz)")
         ax.set_ylabel(r"$|\lambda|$ (eigenvalue magnitude)")
@@ -664,8 +772,12 @@ for label, d in data.items():
     c_info = c_matrix_analysis(d["model_both"], d["n1"], d["neural_channels"])
     d["c_matrix"] = c_info
 
-    ratio = c_info["cz_xp1"] / c_info["cz_xp2"] if c_info["cz_xp2"] > 0 else float("inf")
-    print(f"{label}: Cz norms Xp_1={c_info['cz_xp1']:.4f}, Xp_2={c_info['cz_xp2']:.4f} ({ratio:.1f}x)")
+    ratio = (
+        c_info["cz_xp1"] / c_info["cz_xp2"] if c_info["cz_xp2"] > 0 else float("inf")
+    )
+    print(
+        f"{label}: Cz norms Xp_1={c_info['cz_xp1']:.4f}, Xp_2={c_info['cz_xp2']:.4f} ({ratio:.1f}x)"
+    )
 
     # Grouped bar chart: C loadings by electrode (panel A) and frequency band (panel B).
     fig, axes = plt.subplots(1, 2, figsize=(8.5, 3.6))
@@ -673,7 +785,8 @@ for label, d in data.items():
     electrodes = list(c_info["by_electrode"].keys())
     xp1_vals = np.array([c_info["by_electrode"][e]["xp1"] for e in electrodes])
     xp2_vals = np.array([c_info["by_electrode"][e]["xp2"] for e in electrodes])
-    _x = np.arange(len(electrodes)); _w = 0.38
+    _x = np.arange(len(electrodes))
+    _w = 0.38
     ax = axes[0]
     ax.bar(_x - _w / 2, xp1_vals, _w, color=COLOR_XP1, label="Xp_1 (behavioural)")
     ax.bar(_x + _w / 2, xp2_vals, _w, color=COLOR_XP2, label="Xp_2 (non-behavioural)")
@@ -715,13 +828,12 @@ for label, d in data.items():
 #   neural channel through latent states to behavioral output.
 
 # %%
-from scripts.extract_psid_channel_importance import (
-    get_top_behavioral_and_neural
-)
+from scripts.extract_psid_channel_importance import get_top_behavioral_and_neural
 
 for label, d in data.items():
-    result = get_top_behavioral_and_neural(d["run"]["model_both"], d["n1"],
-                                           d["neural_channels"], top_n=5)
+    result = get_top_behavioral_and_neural(
+        d["run"]["model_both"], d["n1"], d["neural_channels"], top_n=5
+    )
     d["channel_importance"] = result
     imp = result["importance"]
     br = result["behavioral_relevance"]
@@ -729,36 +841,51 @@ for label, d in data.items():
     # Cz structure: how much each behavioral output loads on x1 vs x2
     Cz = imp["Cz"]
     n1 = d["n1"]
-    print(f"{label}: Cz structure — "
-          + ", ".join(f"{name}: x1={np.linalg.norm(Cz[zi, :n1]):.4f} / x2={np.linalg.norm(Cz[zi, n1:]):.4f}"
-                      for zi, name in enumerate(["vel_x", "accel_mag"])))
+    print(
+        f"{label}: Cz structure — "
+        + ", ".join(
+            f"{name}: x1={np.linalg.norm(Cz[zi, :n1]):.4f} / x2={np.linalg.norm(Cz[zi, n1:]):.4f}"
+            for zi, name in enumerate(["vel_x", "accel_mag"])
+        )
+    )
 
-    short_labels = [ch.replace('ECOG_', 'E').replace('_raw', '').replace('_env', '')
-                    for ch in d["neural_channels"]]
-    colors = [ELECTRODE_COLORS.get(ch.split('_')[1], COLOR_NS)
-              for ch in d["neural_channels"]]
+    short_labels = [
+        ch.replace("ECOG_", "E").replace("_raw", "").replace("_env", "")
+        for ch in d["neural_channels"]
+    ]
+    colors = [
+        ELECTRODE_COLORS.get(ch.split("_")[1], COLOR_NS) for ch in d["neural_channels"]
+    ]
 
     fig, axes = plt.subplots(1, 2, figsize=(10.0, 5.2))
 
     # ── Panel A: scatter of behavioural relevance vs neural importance ──
     ax = axes[0]
-    ax.scatter(imp['weighted_importance'], br['behavioral_relevance'],
-               c=colors, s=40, alpha=0.80,
-               edgecolors="black", linewidths=0.4)
+    ax.scatter(
+        imp["weighted_importance"],
+        br["behavioral_relevance"],
+        c=colors,
+        s=40,
+        alpha=0.80,
+        edgecolors="black",
+        linewidths=0.4,
+    )
     ax.set_xlabel(r"neural importance: eig-weighted $\|C_y\|$")
     ax.set_ylabel(r"behavioural relevance: $\|C_z \cdot C_y\|$")
     panel_label(ax, "A", f"{label} — behavioural vs neural relevance per channel")
 
     # ── Panel B: horizontal bars — top-5 behavioural + top-5 neural ──
     ax = axes[1]
-    beh_scores = np.array(result['top_behavioral_scores'], dtype=float)
+    beh_scores = np.array(result["top_behavioral_scores"], dtype=float)
     beh_norm = beh_scores / beh_scores.max() if beh_scores.max() > 0 else beh_scores
-    neur_scores = np.array(result['top_neural_scores'], dtype=float)
-    neur_norm = neur_scores / neur_scores.max() if neur_scores.max() > 0 else neur_scores
+    neur_scores = np.array(result["top_neural_scores"], dtype=float)
+    neur_norm = (
+        neur_scores / neur_scores.max() if neur_scores.max() > 0 else neur_scores
+    )
 
-    all_labels = list(result['top_behavioral']) + [''] + list(result['top_neural'])
+    all_labels = list(result["top_behavioral"]) + [""] + list(result["top_neural"])
     all_scores = list(beh_norm) + [0.0] + list(neur_norm)
-    bar_colors = [COLOR_XP1] * len(beh_norm) + ['none'] + [COLOR_XP2] * len(neur_norm)
+    bar_colors = [COLOR_XP1] * len(beh_norm) + ["none"] + [COLOR_XP2] * len(neur_norm)
 
     y_pos = np.arange(len(all_labels))
     ax.barh(y_pos, all_scores, color=bar_colors)
@@ -794,8 +921,9 @@ for label, d in data.items():
 # %%
 # 1×N grid: one classifier-comparison panel per session.
 n_sessions = len(data)
-fig, axes = plt.subplots(1, n_sessions, figsize=(3.2 * n_sessions + 0.8, 3.8),
-                         sharey=True)
+fig, axes = plt.subplots(
+    1, n_sessions, figsize=(3.2 * n_sessions + 0.8, 3.8), sharey=True
+)
 if n_sessions == 1:
     axes = np.array([axes])
 
@@ -808,19 +936,42 @@ for col_idx, (label, d) in enumerate(data.items()):
     xp1_vals = np.array([cls[k]["xp1"] for k in feat_names])
     xp2_vals = np.array([cls[k]["xp2"] for k in feat_names])
 
-    _x = np.arange(len(feat_names)); _w = 0.38
-    ax.bar(_x - _w / 2, xp1_vals, _w, color=COLOR_XP1,
-           label="Xp_1 (behavioural)" if col_idx == 0 else None)
-    ax.bar(_x + _w / 2, xp2_vals, _w, color=COLOR_XP2,
-           label="Xp_2 (non-behavioural)" if col_idx == 0 else None)
+    _x = np.arange(len(feat_names))
+    _w = 0.38
+    ax.bar(
+        _x - _w / 2,
+        xp1_vals,
+        _w,
+        color=COLOR_XP1,
+        label="Xp_1 (behavioural)" if col_idx == 0 else None,
+    )
+    ax.bar(
+        _x + _w / 2,
+        xp2_vals,
+        _w,
+        color=COLOR_XP2,
+        label="Xp_2 (non-behavioural)" if col_idx == 0 else None,
+    )
 
     if "raw_behavioral" in cls:
         raw_val = cls["raw_behavioral"]["value"]
-        ax.axhline(raw_val, color=COLOR_NS, linestyle="--", linewidth=1.0,
-                   label="raw behavioural" if col_idx == 0 else None)
-        ax.text(0.96, 0.95, f"raw behav = {raw_val:.2f}",
-                transform=ax.transAxes, ha="right", va="top",
-                fontsize=7, color=COLOR_NS)
+        ax.axhline(
+            raw_val,
+            color=COLOR_NS,
+            linestyle="--",
+            linewidth=1.0,
+            label="raw behavioural" if col_idx == 0 else None,
+        )
+        ax.text(
+            0.96,
+            0.95,
+            f"raw behav = {raw_val:.2f}",
+            transform=ax.transAxes,
+            ha="right",
+            va="top",
+            fontsize=7,
+            color=COLOR_NS,
+        )
 
     ax.axhline(0.5, color=COLOR_CHANCE, linestyle=":", linewidth=0.8)
     ax.set_ylim(0.3, 1.0)
@@ -832,7 +983,7 @@ for col_idx, (label, d) in enumerate(data.items()):
     panel_label(ax, chr(65 + col_idx), label)
 
 fig.legend()
-fig.savefig(str(OUT / 'classifier_all_sessions.png'))
+fig.savefig(str(OUT / "classifier_all_sessions.png"))
 plt.show()
 print(
     "Per-session DBS classification (5-fold CV balanced accuracy) using PSID latent features. "
@@ -851,27 +1002,52 @@ print(
 # Render summary as a matplotlib table figure.
 summary_rows = []
 for label, d in data.items():
-    vel_d = next((r["d"] for r in d.get("behavioral", []) if "velocity_x" in r["feature"]), float("nan"))
+    vel_d = next(
+        (r["d"] for r in d.get("behavioral", []) if "velocity_x" in r["feature"]),
+        float("nan"),
+    )
     a12 = d["a_matrix"]["block_norms"]["A12 (Xp2->Xp1)"]
-    cz_ratio = d["c_matrix"]["cz_xp1"] / d["c_matrix"]["cz_xp2"] if d["c_matrix"]["cz_xp2"] > 0 else float("inf")
+    cz_ratio = (
+        d["c_matrix"]["cz_xp1"] / d["c_matrix"]["cz_xp2"]
+        if d["c_matrix"]["cz_xp2"] > 0
+        else float("inf")
+    )
     cls = d["classifiers"]
     mean_str = f'{cls["mean"]["xp1"]:.2f} / {cls["mean"]["xp2"]:.2f}'
     cov_str = f'{cls["cov"]["xp1"]:.2f} / {cls["cov"]["xp2"]:.2f}'
-    raw_str = f'{cls["raw_behavioral"]["value"]:.2f}' if "raw_behavioral" in cls else "-"
+    raw_str = (
+        f'{cls["raw_behavioral"]["value"]:.2f}' if "raw_behavioral" in cls else "-"
+    )
 
-    summary_rows.append([label, f'{vel_d:+.3f}', f'{a12:.4f}', f'{cz_ratio:.1f}x',
-                          mean_str, cov_str, raw_str])
+    summary_rows.append(
+        [
+            label,
+            f"{vel_d:+.3f}",
+            f"{a12:.4f}",
+            f"{cz_ratio:.1f}x",
+            mean_str,
+            cov_str,
+            raw_str,
+        ]
+    )
 
 fig, ax = plt.subplots(figsize=(9.0, 0.4 * (len(summary_rows) + 1) + 0.5))
 ax.axis("off")
-_hdrs = ["Session", "Behav d (vel_x)", "A12 norm", "Cz ratio (Xp1/Xp2)",
-         "Cls mean (Xp1/Xp2)", "Cls cov (Xp1/Xp2)", "Raw behav"]
+_hdrs = [
+    "Session",
+    "Behav d (vel_x)",
+    "A12 norm",
+    "Cz ratio (Xp1/Xp2)",
+    "Cls mean (Xp1/Xp2)",
+    "Cls cov (Xp1/Xp2)",
+    "Raw behav",
+]
 tbl = ax.table(cellText=summary_rows, colLabels=_hdrs, loc="center", cellLoc="left")
 tbl.auto_set_font_size(False)
 tbl.set_fontsize(8)
 tbl.scale(1, 1.4)
 panel_label(ax, "A", "Cross-run summary")
-fig.savefig(str(OUT / 'cross_run_summary.png'))
+fig.savefig(str(OUT / "cross_run_summary.png"))
 plt.show()
 print(
     "Cross-run summary table. Columns: behavioural Cohen's d on velocity_x (raw movement "
@@ -883,8 +1059,8 @@ print(
 )
 
 # %%
-n = len(list(OUT.glob('*.png')))
-print(f'Section 7 total: {n} figures saved')
+n = len(list(OUT.glob("*.png")))
+print(f"Section 7 total: {n} figures saved")
 
 # %% [markdown]
 # ## Interpretation guide

@@ -4,7 +4,6 @@
 balanced class coverage in test while preserving chronological grouping in
 train. Consumed by ``run_grid_search_cv`` and ``run_permutation_test``.
 """
-from typing import Any, Optional
 
 import numpy as np
 
@@ -22,7 +21,7 @@ class ChronoGroupsSplit:
     def split(self, X, y, groups):
         y = np.asarray(y)
         groups = np.asarray(groups)
-        Xidcs = np.arange(X.shape[0])
+        Xidcs = np.arange(len(y))
 
         if self.allow_mixed_label_groups:
             unique_groups = sorted(set(groups))

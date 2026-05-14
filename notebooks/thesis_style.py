@@ -18,21 +18,27 @@ import scienceplots  # noqa: F401 — registers the 'science' mpl style
 from matplotlib.colors import to_rgba
 
 # ── Colors ───────────────────────────────────────────────────────────────────
-COLOR_DBS_OFF = "#3B82BD"   # medium blue
-COLOR_DBS_ON  = "#E34A33"   # warm red-coral
-COLOR_NS      = "#9E9E9E"
-COLOR_CHANCE  = "#BDBDBD"
-COLOR_AXIS    = "#1A1A1A"
-COLOR_TEXT    = "#1A1A1A"
-COLOR_PSID    = "#185FA5"
-COLOR_DPAD    = "#993C1D"
-COLOR_VARMA   = "#5B8C5A"
-COLOR_TRUE    = "#1A1A1A"
+COLOR_DBS_OFF = "#3B82BD"  # medium blue
+COLOR_DBS_ON = "#E34A33"  # warm red-coral
+COLOR_NS = "#9E9E9E"
+COLOR_CHANCE = "#BDBDBD"
+COLOR_AXIS = "#1A1A1A"
+COLOR_TEXT = "#1A1A1A"
+COLOR_PSID = "#185FA5"
+COLOR_DPAD = "#993C1D"
+COLOR_VARMA = "#5B8C5A"
+COLOR_TRUE = "#1A1A1A"
 
 # Participant palette (F1 dot plots, per-subject colors across figures)
 PARTICIPANT_COLORS: dict[str, str] = {
-    "P01": "#185FA5", "P02": "#639922", "P03": "#993C1D", "P04": "#854F0B",
-    "PDI1": "#185FA5", "PDI4": "#639922", "PDI2": "#993C1D", "PDI3": "#854F0B",
+    "P01": "#185FA5",
+    "P02": "#639922",
+    "P03": "#993C1D",
+    "P04": "#854F0B",
+    "PDI1": "#185FA5",
+    "PDI4": "#639922",
+    "PDI2": "#993C1D",
+    "PDI3": "#854F0B",
 }
 
 
@@ -44,32 +50,30 @@ def apply_thesis_style() -> None:
     "does the legend fit?" tuning Plotly needed.
     """
     plt.style.use(["science", "ieee"])
-    plt.rcParams.update({
-        # Disable LaTeX — no TeX install, panel_label uses mathtext instead.
-        "text.usetex":                   False,
-
-        # Auto-layout prevents per-cell legend/margin tuning.
-        "figure.constrained_layout.use": True,
-
-        # Times isn't installed; fall back to Nimbus Roman (ghostscript) and
-        # DejaVu Serif so the IEEE-style serif actually renders.
-        "font.serif":      ["Nimbus Roman", "DejaVu Serif", "Times"],
-
-        # Axis labels a little bigger than the IEEE default (which shrinks
-        # everything for column width); titles slightly smaller so the panel
-        # subtitle never dominates the data.
-        "axes.labelsize":   7,
-        "xtick.labelsize":  7,
-        "ytick.labelsize":  7,
-        "axes.titlesize":   9,
-        "axes.titleweight": "regular",
-        "axes.titlepad":    8,
-
-        # Legend breathing room around its border and between items.
-        "legend.fontsize":     8,
-        "legend.borderpad":    0.8,
-        "legend.labelspacing": 0.5,
-    })
+    plt.rcParams.update(
+        {
+            # Disable LaTeX — no TeX install, panel_label uses mathtext instead.
+            "text.usetex": False,
+            # Auto-layout prevents per-cell legend/margin tuning.
+            "figure.constrained_layout.use": True,
+            # Times isn't installed; fall back to Nimbus Roman (ghostscript) and
+            # DejaVu Serif so the IEEE-style serif actually renders.
+            "font.serif": ["Nimbus Roman", "DejaVu Serif", "Times"],
+            # Axis labels a little bigger than the IEEE default (which shrinks
+            # everything for column width); titles slightly smaller so the panel
+            # subtitle never dominates the data.
+            "axes.labelsize": 7,
+            "xtick.labelsize": 7,
+            "ytick.labelsize": 7,
+            "axes.titlesize": 9,
+            "axes.titleweight": "regular",
+            "axes.titlepad": 8,
+            # Legend breathing room around its border and between items.
+            "legend.fontsize": 8,
+            "legend.borderpad": 0.8,
+            "legend.labelspacing": 0.5,
+        }
+    )
 
 
 def panel_label(ax, letter: str, text: str = "") -> None:
@@ -89,8 +93,15 @@ def hex_to_rgba(hex_color: str, alpha: float) -> tuple[float, float, float, floa
     return (r, g, b, alpha)
 
 
-def stack_bar_label(ax, container, *, values=None, fmt: str = "{:g}",
-                    min_value: float = 0.5, fontsize: int = 7) -> None:
+def stack_bar_label(
+    ax,
+    container,
+    *,
+    values=None,
+    fmt: str = "{:g}",
+    min_value: float = 0.5,
+    fontsize: int = 7,
+) -> None:
     """Label stacked-bar segments in the center with auto-contrast text.
 
     ``container`` is the ``BarContainer`` returned by ``ax.bar(...)``. Segments
@@ -130,8 +141,13 @@ def stack_bar_label(ax, container, *, values=None, fmt: str = "{:g}",
         colors.append("white" if luma < 0.55 else "black")
     for want_color in ("black", "white"):
         subset = [lab if c == want_color else "" for lab, c in zip(labels, colors)]
-        ax.bar_label(container, labels=subset, label_type="center",
-                     fontsize=fontsize, color=want_color)
+        ax.bar_label(
+            container,
+            labels=subset,
+            label_type="center",
+            fontsize=fontsize,
+            color=want_color,
+        )
 
 
 def dbs_color(condition: str) -> str:

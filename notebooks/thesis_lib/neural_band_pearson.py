@@ -168,7 +168,9 @@ def collect_neural_band_pearson(
     Align trials on `(participant_id, session, block, trial)` using `Y` lists
     (same as RMSE alignment, but keyed on Y instead of Z).
     """
-    order = list(band_row_order) if band_row_order else ["Delta", "Theta", "Alpha", "Beta"]
+    order = (
+        list(band_row_order) if band_row_order else ["Delta", "Theta", "Alpha", "Beta"]
+    )
 
     off_buckets: Dict[Tuple[str, str], List[float]] = {}
     on_buckets: Dict[Tuple[str, str], List[float]] = {}
@@ -177,13 +179,21 @@ def collect_neural_band_pearson(
     n_on = 0
 
     for tri in triplet_specs:
-        res_p = load_split_results(results_root, tri.psid_variant, tri.psid_run_ts, split)
-        res_d = load_split_results(results_root, tri.dpad_variant, tri.dpad_run_ts, split)
-        res_v = load_split_results(results_root, tri.varma_variant, tri.varma_run_ts, split)
+        res_p = load_split_results(
+            results_root, tri.psid_variant, tri.psid_run_ts, split
+        )
+        res_d = load_split_results(
+            results_root, tri.dpad_variant, tri.dpad_run_ts, split
+        )
+        res_v = load_split_results(
+            results_root, tri.varma_variant, tri.varma_run_ts, split
+        )
         if res_p is None or res_d is None:
             logger.warning(
                 "Skipping triplet %s: missing PSID or DPAD results (psid=%s, dpad=%s)",
-                getattr(tri, "label", ""), res_p is not None, res_d is not None,
+                getattr(tri, "label", ""),
+                res_p is not None,
+                res_d is not None,
             )
             continue
 
@@ -217,7 +227,9 @@ def collect_neural_band_pearson(
             continue
 
         n_triplets_used += 1
-        for k in sorted(common_pd, key=lambda x: (str(x[0]), str(x[1]), str(x[2]), str(x[3]))):
+        for k in sorted(
+            common_pd, key=lambda x: (str(x[0]), str(x[1]), str(x[2]), str(x[3]))
+        ):
             i_p, i_d = mp[k], md[k]
             i_v = mv.get(k)
             stim = normalize_stim(res_p["stim"][i_p])
@@ -237,7 +249,9 @@ def collect_neural_band_pearson(
                 triple.append(("varma", res_v, i_v))
             for model_key, res, tidx in triple:
                 try:
-                    yt, yp = _prepare_y_trial(res, tidx, res["Y"][tidx], res["Yp"][tidx])
+                    yt, yp = _prepare_y_trial(
+                        res, tidx, res["Y"][tidx], res["Yp"][tidx]
+                    )
                     r_list = _pearson_list_2d(yt, yp)
                 except Exception as e:
                     logger.debug("Skip trial %s model %s: %s", k, model_key, e)
@@ -251,7 +265,7 @@ def collect_neural_band_pearson(
 
     bands_present: set[str] = set()
     for d in (off_buckets, on_buckets):
-        for (b, _) in d.keys():
+        for b, _ in d.keys():
             bands_present.add(b)
     row_labels = [b for b in order if b in bands_present]
 

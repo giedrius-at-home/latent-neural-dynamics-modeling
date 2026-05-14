@@ -111,6 +111,7 @@ def load_split_results_with_fallback(
     alt: Optional[str] = None
     try:
         from utils.miscellaneous import get_latest_timestamp
+
         alt = get_latest_timestamp(str(variant_dir))
     except (ValueError, StopIteration):
         pass
@@ -223,7 +224,9 @@ def resolve_output_channel_display(
     )
 
 
-def require_input_channels_list(split_res: Dict[str, Any], *, context: str) -> list[str]:
+def require_input_channels_list(
+    split_res: Dict[str, Any], *, context: str
+) -> list[str]:
     """Neural / covariate input names from saved metadata; raises if absent or empty."""
     names = channels_as_str_list(split_res.get("input_channels"))
     if not names:
@@ -248,7 +251,10 @@ def describe_saved_io_plaintext(
     lines: list[str] = []
     meta_out = channels_as_str_list(split_res.get("output_channels"))
     if meta_out:
-        lines.append("Behavioral outputs (from saved metadata): " + format_channels_for_caption(meta_out))
+        lines.append(
+            "Behavioral outputs (from saved metadata): "
+            + format_channels_for_caption(meta_out)
+        )
     elif declared_outputs:
         lines.append(
             "Behavioral outputs (thesis default — parquet lacked output_channels): "
@@ -283,7 +289,9 @@ def short_io_caption(
     inn = channels_as_str_list(split_res.get("input_channels"))
     parts = []
     if meta_out:
-        parts.append(f"Outputs: {format_channels_for_caption(meta_out, max_items=max_outputs)}")
+        parts.append(
+            f"Outputs: {format_channels_for_caption(meta_out, max_items=max_outputs)}"
+        )
     elif declared_outputs:
         parts.append(
             "Outputs (thesis default): "
@@ -292,13 +300,17 @@ def short_io_caption(
     else:
         parts.append("Outputs: not specified.")
     if inn:
-        parts.append(f"Inputs: {format_channels_for_caption(inn, max_items=max_inputs)}")
+        parts.append(
+            f"Inputs: {format_channels_for_caption(inn, max_items=max_inputs)}"
+        )
     else:
         parts.append("Inputs: not listed in saved metadata.")
     return " ".join(parts)
 
 
-def _prepare_z_array(z_trial: np.ndarray, split_res: Dict[str, Any], trial_idx: int) -> tuple[np.ndarray, np.ndarray]:
+def _prepare_z_array(
+    z_trial: np.ndarray, split_res: Dict[str, Any], trial_idx: int
+) -> tuple[np.ndarray, np.ndarray]:
     z_arr = np.asarray(z_trial)
     n_samples = int(z_arr.shape[0]) if z_arr.ndim == 2 else len(z_arr)
     t_abs = get_trial_time_axis(split_res, trial_idx, n_samples)
@@ -476,7 +488,9 @@ def thesis_exemplar_tagline(
     participant_label: str = "",
 ) -> str:
     """One-line PDI/session/block/trial (with row indices) + feature label for thesis captions."""
-    pid = (participant_label or "").strip() or _trial_field_str(split_res, i_off, "participant_id")
+    pid = (participant_label or "").strip() or _trial_field_str(
+        split_res, i_off, "participant_id"
+    )
     sess = _trial_field_str(split_res, i_off, "session")
 
     def arm(i: int, lbl: str) -> str:
@@ -519,7 +533,9 @@ def extract_trial_z_series(
     true_c = get_channel(z_true_arr, channel_idx, t_abs)
     n = len(t_abs)
 
-    def _zp_chan_or_nan(label: str, res: Optional[Dict[str, Any]], idx: int) -> np.ndarray:
+    def _zp_chan_or_nan(
+        label: str, res: Optional[Dict[str, Any]], idx: int
+    ) -> np.ndarray:
         if not _model_has_trial(res, idx):
             nt = _n_z_trials(res)
             key = f"{label}:{nt}"
@@ -536,7 +552,9 @@ def extract_trial_z_series(
         if len(t2) != n:
             logger.warning(
                 "%s: time-axis length mismatch (%d vs %d) — trace set to NaN",
-                label, len(t2), n,
+                label,
+                len(t2),
+                n,
             )
             return np.full(n, np.nan)
         return get_channel(arr, channel_idx, t_abs)
@@ -590,7 +608,9 @@ def extract_trial_y_series(
     true_c = get_channel(y_true_arr, y_channel_idx, t_abs)
     n = len(t_abs)
 
-    def _yp_chan_or_nan(label: str, res: Optional[Dict[str, Any]], idx: int) -> np.ndarray:
+    def _yp_chan_or_nan(
+        label: str, res: Optional[Dict[str, Any]], idx: int
+    ) -> np.ndarray:
         if not _model_has_trial_y(res, idx):
             ny = len((res or {}).get("Y") or [])
             key = f"{label}:y:{ny}"
@@ -631,12 +651,22 @@ def trial_rmse_z_for_model(
     channel_idx: int,
 ) -> float:
     """Single-model RMSE on z-scored output: sqrt(mean((z_true - z_pred)^2)) for one trial."""
-    if split_res.get("Z") is None or trial_idx >= len(split_res["Z"]) or split_res["Z"][trial_idx] is None:
+    if (
+        split_res.get("Z") is None
+        or trial_idx >= len(split_res["Z"])
+        or split_res["Z"][trial_idx] is None
+    ):
         raise ValueError(f"missing Z for trial_idx={trial_idx}")
-    if split_res.get("Zp") is None or trial_idx >= len(split_res["Zp"]) or split_res["Zp"][trial_idx] is None:
+    if (
+        split_res.get("Zp") is None
+        or trial_idx >= len(split_res["Zp"])
+        or split_res["Zp"][trial_idx] is None
+    ):
         raise ValueError(f"missing Zp for trial_idx={trial_idx}")
 
-    z_true_arr, t_abs = _prepare_z_array(split_res["Z"][trial_idx], split_res, trial_idx)
+    z_true_arr, t_abs = _prepare_z_array(
+        split_res["Z"][trial_idx], split_res, trial_idx
+    )
     true_c = get_channel(z_true_arr, channel_idx, t_abs)
     zp_arr, t2 = _prepare_z_array(split_res["Zp"][trial_idx], split_res, trial_idx)
     if len(t2) != len(t_abs):
@@ -653,12 +683,22 @@ def trial_rmse_y_for_model(
     y_channel_idx: int,
 ) -> float:
     """Single-model RMSE on z-scored neural Y: same z-scoring rule as behavioral Z."""
-    if split_res.get("Y") is None or trial_idx >= len(split_res["Y"]) or split_res["Y"][trial_idx] is None:
+    if (
+        split_res.get("Y") is None
+        or trial_idx >= len(split_res["Y"])
+        or split_res["Y"][trial_idx] is None
+    ):
         raise ValueError(f"missing Y for trial_idx={trial_idx}")
-    if split_res.get("Yp") is None or trial_idx >= len(split_res["Yp"]) or split_res["Yp"][trial_idx] is None:
+    if (
+        split_res.get("Yp") is None
+        or trial_idx >= len(split_res["Yp"])
+        or split_res["Yp"][trial_idx] is None
+    ):
         raise ValueError(f"missing Yp for trial_idx={trial_idx}")
 
-    y_true_arr, t_abs = _prepare_z_array(split_res["Y"][trial_idx], split_res, trial_idx)
+    y_true_arr, t_abs = _prepare_z_array(
+        split_res["Y"][trial_idx], split_res, trial_idx
+    )
     true_c = get_channel(y_true_arr, y_channel_idx, t_abs)
     yp_arr, t2 = _prepare_z_array(split_res["Yp"][trial_idx], split_res, trial_idx)
     if len(t2) != len(t_abs):

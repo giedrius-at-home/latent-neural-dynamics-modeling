@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import yaml
 from .classes import DotDict
 
@@ -71,4 +73,5 @@ def get_config(config_path: str) -> Config:
 
     config_ = Config(raw_config)
     config_._substitute_values()
+    object.__setattr__(config_, "_source_path", Path(config_path))
     return config_

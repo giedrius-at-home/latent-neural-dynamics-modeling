@@ -19,6 +19,7 @@ Loaders (from disk):
 - ``_load_framework_for_forecast``: rebuild full framework + model for
   on-the-fly forecast generation during classification.
 """
+
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 import json
@@ -35,6 +36,7 @@ from utils.polars import convert_series_to_list, get_scalar_value
 # ─────────────────────────────────────────────────────────────────────────────
 # Per-trial windowing helpers
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def epoch_trial(
     trial_data: np.ndarray, epoch_length: int, overlap: float = 0.5
@@ -83,9 +85,7 @@ def _ensure_dpad_forecast_setup(id_sys: Any, m: int) -> None:
         _DPAD_FORECAST_SETUP_CACHE[key] = m
 
 
-def _dpad_idsys_forecast_latents(
-    id_sys: Any, m: int, y_past: np.ndarray
-) -> np.ndarray:
+def _dpad_idsys_forecast_latents(id_sys: Any, m: int, y_past: np.ndarray) -> np.ndarray:
     """Multi-step latent forecast for DPAD checkpoints (DPADModel has no .forecast)."""
     block_samples = id_sys.block_samples
     ny = y_past.shape[1]
@@ -109,13 +109,13 @@ def _dpad_idsys_forecast_latents(
     preds = id_sys.predict(_pad_to_block(y_past))
     xf = _stack_last(preds[2 * m : 3 * m])
     if xf is None:
-        raise ValueError("DPAD predict returned no latent trajectory for forecast window")
+        raise ValueError(
+            "DPAD predict returned no latent trajectory for forecast window"
+        )
     return xf
 
 
-def _forecast_latent_trajectory(
-    model: Any, m: int, y_past: np.ndarray
-) -> np.ndarray:
+def _forecast_latent_trajectory(model: Any, m: int, y_past: np.ndarray) -> np.ndarray:
     """Framework-agnostic forecast dispatch.
 
     DPAD checkpoints carry a ``block_samples`` attribute; PSID LSSMs don't. For
@@ -125,9 +125,12 @@ def _forecast_latent_trajectory(
     if hasattr(model, "block_samples"):
         return _dpad_idsys_forecast_latents(model, m, y_past)
     from utils.frameworks import PSIDWrapper
+
     _zf, _yf, xf = PSIDWrapper.from_idsys(model).forecast(m, y_past)
     if xf is None:
-        raise ValueError("PSIDWrapper.forecast returned no latent trajectory (Xf is None)")
+        raise ValueError(
+            "PSIDWrapper.forecast returned no latent trajectory (Xf is None)"
+        )
     return np.asarray(xf)
 
 
@@ -183,6 +186,7 @@ def _generate_flipped_latents(
 # Epoched-data builders (public)
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def prepare_epoched_data(
     trials: List[Dict[str, Any]],
     feature_source: str = "Xp",
@@ -199,8 +203,12 @@ def prepare_epoched_data(
     n1: Optional[int] = None,
     nx: Optional[int] = None,
     framework: Optional[Any] = None,
-) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray],
-           Optional[List[Dict[str, Any]]]]:
+) -> Tuple[
+    Optional[np.ndarray],
+    Optional[np.ndarray],
+    Optional[np.ndarray],
+    Optional[List[Dict[str, Any]]],
+]:
 
     epoch_len = int(epoch_length_sec * fs)
     forecast_samples = int(forecast_horizon * fs) if forecast_horizon is not None else 0
@@ -217,7 +225,8 @@ def prepare_epoched_data(
         observations = trial_set.get("Y", [])
 
         # Forecast-mode requires a framework to produce latent trajectories live.
-        if mode == "forecast" and history_horizon is not None:
+        # Exception: flipped pass supplies model_on/model_off instead; fall through to else.
+        if mode == "forecast" and history_horizon is not None and model_on is None:
             if framework is None:
                 raise ValueError(
                     f"Framework is required for forecast mode with "
@@ -246,7 +255,11 @@ def prepare_epoched_data(
                     )
                     latent_states.append(None)
         else:
-            data_key = "X_future_pred" if mode == "forecast" else "Xp"
+            # Flipped forecast uses Xp as placeholder; _generate_flipped_latents overwrites per-trial.
+            if mode == "forecast" and model_on is None:
+                data_key = "X_future_pred"
+            else:
+                data_key = "Xp"
             latent_states = trial_set[data_key]
 
         for trial_idx, trial_latents in enumerate(latent_states):
@@ -429,6 +442,7 @@ def prepare_ground_truth_eval_data(
 # On-disk loaders
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def load_precomputed_results(
     variant_dir: Path, run_ts: str, split: str
 ) -> Optional[Dict[str, Any]]:
@@ -481,11 +495,13 @@ def load_precomputed_results(
             "Z": convert_series_to_list(df["Z"].to_list()) if "Z" in cols else None,
             "Zp": (
                 convert_series_to_list(df["Zp"].to_list())
-                if "Zp" in cols else [None] * n_trials
+                if "Zp" in cols
+                else [None] * n_trials
             ),
             "Xp": (
                 convert_series_to_list(df["Xp"].to_list())
-                if "Xp" in cols else [None] * n_trials
+                if "Xp" in cols
+                else [None] * n_trials
             ),
             "pearson_per_channel": (
                 convert_series_to_list(df["pearson_per_channel"].to_list())
@@ -527,26 +543,31 @@ def load_precomputed_results(
             "pearson_overall_mean_Z": pearson_overall_z,
             "time": (
                 convert_series_to_list(df["time"].to_list())
-                if "time" in cols else [None] * n_trials
+                if "time" in cols
+                else [None] * n_trials
             ),
             "time_abs": (
                 convert_series_to_list(df["time_abs"].to_list())
-                if "time_abs" in cols else [None] * n_trials
+                if "time_abs" in cols
+                else [None] * n_trials
             ),
             "time_margined": (
                 convert_series_to_list(df["time_margined"].to_list())
-                if "time_margined" in cols else [None] * n_trials
+                if "time_margined" in cols
+                else [None] * n_trials
             ),
             "offset": (
                 df["offset"].to_list() if "offset" in cols else [None] * n_trials
             ),
             "chunk_margin": (
                 df["chunk_margin"].to_list()
-                if "chunk_margin" in cols else [None] * n_trials
+                if "chunk_margin" in cols
+                else [None] * n_trials
             ),
             "margined_duration": (
                 df["margined_duration"].to_list()
-                if "margined_duration" in cols else [None] * n_trials
+                if "margined_duration" in cols
+                else [None] * n_trials
             ),
             "stim": df["stim"].to_list() if "stim" in cols else [None] * n_trials,
             "participant_id": df["participant_id"].to_list(),
@@ -556,8 +577,12 @@ def load_precomputed_results(
         }
 
         forecast_cols = [
-            "Y_future_true", "Y_future_pred", "Y_concat_for_plot",
-            "Z_future_true", "Z_future_pred", "Z_concat_for_plot",
+            "Y_future_true",
+            "Y_future_pred",
+            "Y_concat_for_plot",
+            "Z_future_true",
+            "Z_future_pred",
+            "Z_concat_for_plot",
             "X_future_pred",
         ]
         for fc in forecast_cols:
@@ -572,7 +597,8 @@ def load_precomputed_results(
         else:
             input_channels = sorted(
                 {
-                    col for col in cols
+                    col
+                    for col in cols
                     if col.startswith(("ECOG_", "LFP_"))
                     and "_epochs" not in col
                     and "_psd" not in col
@@ -587,9 +613,16 @@ def load_precomputed_results(
                 output_channels = output_channels.to_list()
         else:
             output_channels = [
-                col for col in cols
-                if col in ("tracing_velocity", "tracing_velocity_x",
-                           "tracing_velocity_y", "x", "y")
+                col
+                for col in cols
+                if col
+                in (
+                    "tracing_velocity",
+                    "tracing_velocity_x",
+                    "tracing_velocity_y",
+                    "x",
+                    "y",
+                )
             ]
         results["output_channels"] = output_channels if output_channels else []
 
@@ -609,9 +642,14 @@ def load_all_splits(
 
 
 def _load_framework_for_forecast(
-    variant_dir: Path, run_ts: str, project_root: Path
+    variant_dir: Path, run_ts: str, project_root: Path, config: Optional[Any] = None
 ) -> Any:
-    """Rebuild framework + load trained model for on-the-fly forecast generation."""
+    """Rebuild framework + load trained model for on-the-fly forecast generation.
+
+    ``config`` may be passed directly (e.g. from the pipeline) to skip the
+    YAML search. When omitted the function falls back to searching
+    ``training/setups`` and ``classification/setups`` for a matching YAML.
+    """
     from utils.frameworks import DPADFramework, PSIDFramework
     from utils.logger import get_logger
 
@@ -632,20 +670,24 @@ def _load_framework_for_forecast(
             metadata = json.load(f)
         framework_type = metadata.get("framework_type", "psid")
 
-    setup_paths = []
-    for setup_dir in ("training/setups", "classification/setups"):
-        base = project_root / setup_dir
-        if base.exists():
-            setup_paths.extend(base.rglob(f"{variant_dir.name}.yaml"))
+    if config is None:
+        import re
 
-    if not setup_paths:
-        raise FileNotFoundError(
-            f"Could not find setup file for variant: {variant_dir.name}. "
-            f"Searched under training/setups and classification/setups."
-        )
-
-    config = get_config(str(setup_paths[0]))
-    logger.info(f"Using config file: {setup_paths[0]}")
+        setup_paths = []
+        for setup_dir in ("training/setups", "classification/setups"):
+            base = project_root / setup_dir
+            if base.exists():
+                setup_paths.extend(base.rglob(f"{variant_dir.name}.yaml"))
+                if not setup_paths:
+                    exp_name = re.sub(r"_dbs_(both|on|off)$", "", variant_dir.name)
+                    setup_paths.extend(base.rglob(f"{exp_name}.yaml"))
+        if not setup_paths:
+            raise FileNotFoundError(
+                f"Could not find setup file for variant: {variant_dir.name}. "
+                f"Searched under training/setups and classification/setups."
+            )
+        config = get_config(str(setup_paths[0]))
+        logger.info(f"Using config file: {setup_paths[0]}")
 
     if framework_type == "psid":
         framework = PSIDFramework(config)

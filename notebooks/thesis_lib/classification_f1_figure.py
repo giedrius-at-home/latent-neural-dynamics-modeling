@@ -255,7 +255,9 @@ def build_classification_grouped_bar_figure(
     grid = grid_color(theme)
     fg = true_line_color(theme)
 
-    active_groups = [g for g in GROUP_ORDER if not (exclude_groups and g in exclude_groups)]
+    active_groups = [
+        g for g in GROUP_ORDER if not (exclude_groups and g in exclude_groups)
+    ]
 
     # Build session order from points
     seen: dict[str, None] = {}
@@ -414,9 +416,7 @@ def build_standard_heatmap_figure(
         if ri >= 0 and ci >= 0:
             grid[ri, ci] = pt.balanced_accuracy
 
-    text_vals = [
-        [f"{v:.2f}" if np.isfinite(v) else "" for v in row] for row in grid
-    ]
+    text_vals = [[f"{v:.2f}" if np.isfinite(v) else "" for v in row] for row in grid]
 
     fig = go.Figure()
     fig.add_trace(
@@ -453,30 +453,42 @@ def build_standard_heatmap_figure(
 
 # Mapping from session label to flipped variant base + per-feature run timestamps
 _FLIPPED_SESSIONS: dict[str, tuple[str, dict[str, str]]] = {
-    "PDI1_S2": ("psid_behavioral_PDI1_2_nx_80_n12_i40_dbs_both_narrow_band_flipped", {
-        "xp": "20260315_210934",
-        "xp_1": "20260315_212227",
-        "xp_2": "20260315_212605",
-        "xp_with_dbs": "20260315_213629",
-    }),
-    "PDI1_S4": ("psid_behavioral_PDI1_4_nx_80_n6_i40_dbs_both_narrow_band_flipped", {
-        "xp": "20260315_215824",
-        "xp_1": "20260315_220623",
-        "xp_2": "20260315_220842",
-        "xp_with_dbs": "20260315_221545",
-    }),
-    "PDI4_S2": ("psid_behavioral_PDI4_2_nx_80_n10_i40_dbs_both_narrow_band_flipped", {
-        "xp": "20260315_223343",
-        "xp_1": "20260315_224234",
-        "xp_2": "20260315_224519",
-        "xp_with_dbs": "20260315_225241",
-    }),
-    "PDI4_S3": ("psid_behavioral_PDI4_3_nx65_n10_i40_dbs_both_narrow_band_flipped", {
-        "xp": "20260315_202707",
-        "xp_1": "20260315_203632",
-        "xp_2": "20260315_203936",
-        "xp_with_dbs": "20260315_204723",
-    }),
+    "PDI1_S2": (
+        "psid_behavioral_PDI1_2_nx_80_n12_i40_dbs_both_narrow_band_flipped",
+        {
+            "xp": "20260315_210934",
+            "xp_1": "20260315_212227",
+            "xp_2": "20260315_212605",
+            "xp_with_dbs": "20260315_213629",
+        },
+    ),
+    "PDI1_S4": (
+        "psid_behavioral_PDI1_4_nx_80_n6_i40_dbs_both_narrow_band_flipped",
+        {
+            "xp": "20260315_215824",
+            "xp_1": "20260315_220623",
+            "xp_2": "20260315_220842",
+            "xp_with_dbs": "20260315_221545",
+        },
+    ),
+    "PDI4_S2": (
+        "psid_behavioral_PDI4_2_nx_80_n10_i40_dbs_both_narrow_band_flipped",
+        {
+            "xp": "20260315_223343",
+            "xp_1": "20260315_224234",
+            "xp_2": "20260315_224519",
+            "xp_with_dbs": "20260315_225241",
+        },
+    ),
+    "PDI4_S3": (
+        "psid_behavioral_PDI4_3_nx65_n10_i40_dbs_both_narrow_band_flipped",
+        {
+            "xp": "20260315_202707",
+            "xp_1": "20260315_203632",
+            "xp_2": "20260315_203936",
+            "xp_with_dbs": "20260315_204723",
+        },
+    ),
 }
 
 _FLIPPED_FEAT_SUFFIX: dict[str, tuple[str, str]] = {
@@ -514,7 +526,9 @@ def _load_flipped_heatmap_data(
                 with open(pkl, "rb") as f:
                     res = pickle.load(f)
                 tr = res.get("test_results", {})
-                ba = tr.get("balanced_accuracy", res.get("balanced_accuracy", float("nan")))
+                ba = tr.get(
+                    "balanced_accuracy", res.get("balanced_accuracy", float("nan"))
+                )
                 grid[hi, mi] = float(ba)
     return grid
 
@@ -562,8 +576,7 @@ def build_flipped_heatmap_figure(
             )
             is_last = (ri == n_rows - 1) and (ci == n_cols - 1)
             text_vals = [
-                [f"{v:.2f}" if np.isfinite(v) else "" for v in row]
-                for row in grid
+                [f"{v:.2f}" if np.isfinite(v) else "" for v in row] for row in grid
             ]
             fig.add_trace(
                 go.Heatmap(
@@ -578,15 +591,19 @@ def build_flipped_heatmap_figure(
                     texttemplate="%{text}",
                     textfont=dict(size=FONT_SIZE_ANNOTATION - 2),
                     showscale=is_last,
-                    colorbar=dict(
-                        title=dict(text="BA", side="right"),
-                        len=0.35,
-                        x=1.01,
-                        thickness=12,
-                        tickfont=dict(size=FONT_SIZE_TICK),
-                        tickvals=[0.3, 0.4, 0.5, 0.6, 0.7],
-                        ticktext=["0.3", "0.4", "0.5", "0.6", "0.7"],
-                    ) if is_last else None,
+                    colorbar=(
+                        dict(
+                            title=dict(text="BA", side="right"),
+                            len=0.35,
+                            x=1.01,
+                            thickness=12,
+                            tickfont=dict(size=FONT_SIZE_TICK),
+                            tickvals=[0.3, 0.4, 0.5, 0.6, 0.7],
+                            ticktext=["0.3", "0.4", "0.5", "0.6", "0.7"],
+                        )
+                        if is_last
+                        else None
+                    ),
                     hovertemplate=(
                         f"{sess_label} — {_FEAT_SHORT[feat]}<br>"
                         "h=%{y} s,  m=%{x} s<br>BA=%{z:.3f}<extra></extra>"
@@ -634,8 +651,10 @@ def build_flipped_heatmap_figure(
 
     # Shared axis labels as paper-space annotations
     fig.add_annotation(
-        x=-0.02, y=0.5,
-        xref="paper", yref="paper",
+        x=-0.02,
+        y=0.5,
+        xref="paper",
+        yref="paper",
         text="h — history (s)",
         showarrow=False,
         textangle=-90,
@@ -644,8 +663,10 @@ def build_flipped_heatmap_figure(
         yanchor="middle",
     )
     fig.add_annotation(
-        x=0.46, y=-0.05,
-        xref="paper", yref="paper",
+        x=0.46,
+        y=-0.05,
+        xref="paper",
+        yref="paper",
         text="m — forecast horizon (s)",
         showarrow=False,
         font=dict(size=FONT_SIZE_LABEL - 1, family=FONT_FAMILY, color=fg),

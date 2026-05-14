@@ -18,7 +18,10 @@ from plotly.subplots import make_subplots
 
 from thesis_lib._helpers import get_channel
 from thesis_lib.aggregate_rmse import _key_index_map, _trial_key, normalize_stim
-from thesis_lib.compose import _session_mean_rmse_y_triplet, _session_mean_rmse_z_triplet
+from thesis_lib.compose import (
+    _session_mean_rmse_y_triplet,
+    _session_mean_rmse_z_triplet,
+)
 from thesis_lib.exemplar_trials import resolve_off_on_indices_from_spec
 from thesis_lib.figure import ThesisPanelData, _slice_trial_center
 from thesis_lib.loaders import (
@@ -147,7 +150,13 @@ def _add_self_prediction_stack_row(
         leg: str,
         show: bool,
     ) -> None:
-        if half is None or not np.isfinite(half) or half <= 0 or _all_nan_series(y_hat) or len(t) != len(y_hat):
+        if (
+            half is None
+            or not np.isfinite(half)
+            or half <= 0
+            or _all_nan_series(y_hat)
+            or len(t) != len(y_hat)
+        ):
             return
         u = y_hat + half
         lo_b = y_hat - half
@@ -233,7 +242,9 @@ def _add_self_prediction_stack_row(
                 mode="lines",
                 name="PSID Ŷ" if _pd else "PSID",
                 legendgroup="sp_psid_l",
-                line=dict(color=COLOR_PSID, width=WIDTH_PSID, dash=_pd if _pd else None),
+                line=dict(
+                    color=COLOR_PSID, width=WIDTH_PSID, dash=_pd if _pd else None
+                ),
                 showlegend=show_legend,
                 connectgaps=False,
             ),
@@ -248,7 +259,9 @@ def _add_self_prediction_stack_row(
                 mode="lines",
                 name="DPAD Ŷ" if _pd else "DPAD",
                 legendgroup="sp_dpad_l",
-                line=dict(color=COLOR_DPAD, width=WIDTH_DPAD, dash=_pd if _pd else None),
+                line=dict(
+                    color=COLOR_DPAD, width=WIDTH_DPAD, dash=_pd if _pd else None
+                ),
                 showlegend=show_legend,
                 connectgaps=False,
             ),
@@ -263,7 +276,9 @@ def _add_self_prediction_stack_row(
                 mode="lines",
                 name="VARMA Ŷ" if _pd else "VARMA",
                 legendgroup="sp_varma_l",
-                line=dict(color=COLOR_VARMA, width=WIDTH_VARMA, dash="8 2" if _pd else "dash"),
+                line=dict(
+                    color=COLOR_VARMA, width=WIDTH_VARMA, dash="8 2" if _pd else "dash"
+                ),
                 showlegend=show_legend,
                 connectgaps=False,
             ),
@@ -343,13 +358,19 @@ def _neural_channel_label(res: Dict[str, Any], channel_idx: int) -> str:
     return f"neural Y column {channel_idx}"
 
 
-def _resolve_c2_neural_channel_idx(res: Dict[str, Any], spec: ThesisC2ForecastSpec) -> int:
+def _resolve_c2_neural_channel_idx(
+    res: Dict[str, Any], spec: ThesisC2ForecastSpec
+) -> int:
     if spec.forecast_target != "Y":
         return spec.channel_idx
-    return resolve_neural_y_channel_idx(res, spec.neural_y_feature_name, spec.channel_idx)
+    return resolve_neural_y_channel_idx(
+        res, spec.neural_y_feature_name, spec.channel_idx
+    )
 
 
-def _fc_channel(z_true: Any, z_pred: Any, channel_idx: int) -> Tuple[np.ndarray, np.ndarray]:
+def _fc_channel(
+    z_true: Any, z_pred: Any, channel_idx: int
+) -> Tuple[np.ndarray, np.ndarray]:
     if z_true is None or z_pred is None:
         raise ValueError("Missing future_true or future_pred slice")
     T = reshape_future_z_time_first(np.asarray(z_true, dtype=float))
@@ -592,7 +613,9 @@ def _build_one_panel(
             )
             return a, b
         except Exception as e:
-            logger.warning("C2 %s: _fc_channel failed (%s) — trace set to NaN", label, e)
+            logger.warning(
+                "C2 %s: _fc_channel failed (%s) — trace set to NaN", label, e
+            )
             return None, None
 
     zd_fc_raw, zdp_fc_raw = _try_fc("DPAD", res_d, trial_idx)
@@ -630,7 +653,9 @@ def _build_one_panel(
         hist_end = int(h_infer)
     else:
         n_hist_want = n_hist_cap
-        th = _history_trace(res_p, trial_idx, channel_idx, n_hist_want, hist_key=hist_key)
+        th = _history_trace(
+            res_p, trial_idx, channel_idx, n_hist_want, hist_key=hist_key
+        )
         hist_end = len(th)
     n_hist = len(th)
 
@@ -679,7 +704,9 @@ def _build_one_panel(
     upper = np.full_like(z_true_plot, np.nan)
     lower = np.full_like(z_true_plot, np.nan)
     if sigma_z is not None and sigma_z > 0.0 and not np.all(np.isnan(zp_fc)):
-        z_psid_fc_z = zscore_using_true_stats(true_concat, np.concatenate([th, zp_fc]))[n_hist:]
+        z_psid_fc_z = zscore_using_true_stats(true_concat, np.concatenate([th, zp_fc]))[
+            n_hist:
+        ]
         m_idx = np.arange(1, m_fc + 1, dtype=float)
         w = sigma_z * np.sqrt(m_idx)
         upper[n_hist:] = z_psid_fc_z + w
@@ -1015,7 +1042,9 @@ def build_c2_forecast_figure(
         row: int,
         rowdata: Tuple,
         badge: str,
-        row_bands: Optional[Tuple[Optional[float], Optional[float], Optional[float]]] = None,
+        row_bands: Optional[
+            Tuple[Optional[float], Optional[float], Optional[float]]
+        ] = None,
     ) -> None:
         _ysuf = "" if row == 1 else str(row)
         yref_d = f"y{_ysuf} domain"
@@ -1038,10 +1067,18 @@ def build_c2_forecast_figure(
         n_hist = int(n_hist)
         # Break line traces at history|forecast boundary (true was continuous; preds already NaN in history).
         t_plot = _insert_hist_forecast_gap(t_full, n_hist)
-        z_true_p = _insert_hist_forecast_gap(np.asarray(z_true, dtype=float).ravel(), n_hist)
-        z_psid_p = _insert_hist_forecast_gap(np.asarray(z_psid, dtype=float).ravel(), n_hist)
-        z_dpad_p = _insert_hist_forecast_gap(np.asarray(z_dpad, dtype=float).ravel(), n_hist)
-        z_varma_p = _insert_hist_forecast_gap(np.asarray(z_varma, dtype=float).ravel(), n_hist)
+        z_true_p = _insert_hist_forecast_gap(
+            np.asarray(z_true, dtype=float).ravel(), n_hist
+        )
+        z_psid_p = _insert_hist_forecast_gap(
+            np.asarray(z_psid, dtype=float).ravel(), n_hist
+        )
+        z_dpad_p = _insert_hist_forecast_gap(
+            np.asarray(z_dpad, dtype=float).ravel(), n_hist
+        )
+        z_varma_p = _insert_hist_forecast_gap(
+            np.asarray(z_varma, dtype=float).ravel(), n_hist
+        )
         upper_p = np.asarray(upper, dtype=float).ravel()
         lower_p = np.asarray(lower, dtype=float).ravel()
 
@@ -1241,6 +1278,7 @@ def build_c2_forecast_figure(
             xanchor="left",
             yanchor="top",
         )
+
     _add_panel(1, off, "DBS-OFF", bands_off)
     _add_panel(2, on, "DBS-ON", bands_on)
 
@@ -1278,7 +1316,6 @@ def build_c2_forecast_figure(
             mirror=False,
             tickfont=dict(size=FONT_SIZE_TICK, color=fg),
         )
-
 
     tv_off, abs_off, rel_off, _ = _abs_and_rel_ticks(off[0], off[10])
     tv_on, abs_on, rel_on, _ = _abs_and_rel_ticks(on[0], on[10])

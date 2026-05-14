@@ -4,6 +4,7 @@ Data collectors (pure-numpy) are always importable; the legacy Plotly figure
 builders below are dead code kept only for grep-able reference. Sec2 notebooks
 now draw their own matplotlib boxplots via helpers in ``thesis_sec2_common``.
 """
+
 from __future__ import annotations
 
 import logging
@@ -73,6 +74,7 @@ def paper_colors(*a, **kw):
 def true_line_color(*a, **kw):
     return "#1A1A1A"
 
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -107,7 +109,11 @@ def metric_y_range(metric: MetricKind, values: np.ndarray) -> tuple[float, float
         lo = -0.2 if finite.size == 0 else min(-0.2, float(np.min(finite)) - 0.05)
         return (lo, 1.05)
     if metric == "vaf":
-        lo = -0.5 if finite.size == 0 else min(-0.5, float(np.percentile(finite, 1)) - 0.05)
+        lo = (
+            -0.5
+            if finite.size == 0
+            else min(-0.5, float(np.percentile(finite, 1)) - 0.05)
+        )
         return (max(lo, -2.0), 1.05)
     # rmse: IQR-focused window — boxes open up, outliers handled by strip dots
     if finite.size == 0:
@@ -156,8 +162,12 @@ def score_channel(true_c: np.ndarray, pred_c: np.ndarray, metric: MetricKind) ->
 
 
 def _trial_metric_from_keys(
-    split_res: Dict[str, Any], trial_idx: int, channel_idx: int,
-    true_key: str, pred_key: str, metric: MetricKind,
+    split_res: Dict[str, Any],
+    trial_idx: int,
+    channel_idx: int,
+    true_key: str,
+    pred_key: str,
+    metric: MetricKind,
 ) -> float:
     t = split_res.get(true_key)
     p = split_res.get(pred_key)
@@ -175,22 +185,34 @@ def _trial_metric_from_keys(
 
 
 def trial_metric_z_for_model(
-    split_res: Dict[str, Any], trial_idx: int, channel_idx: int, metric: MetricKind,
+    split_res: Dict[str, Any],
+    trial_idx: int,
+    channel_idx: int,
+    metric: MetricKind,
 ) -> float:
     """Behavioral channel (Z/Zp)."""
     return _trial_metric_from_keys(split_res, trial_idx, channel_idx, "Z", "Zp", metric)
 
 
 def trial_metric_y_for_model(
-    split_res: Dict[str, Any], trial_idx: int, y_channel_idx: int, metric: MetricKind,
+    split_res: Dict[str, Any],
+    trial_idx: int,
+    y_channel_idx: int,
+    metric: MetricKind,
 ) -> float:
     """Neural channel (Y/Yp)."""
-    return _trial_metric_from_keys(split_res, trial_idx, y_channel_idx, "Y", "Yp", metric)
+    return _trial_metric_from_keys(
+        split_res, trial_idx, y_channel_idx, "Y", "Yp", metric
+    )
 
 
 def trial_metric_forecast_for_model(
-    split_res: Dict[str, Any], trial_idx: int, channel_idx: int, metric: MetricKind,
-    *, forecast_target: str = "Y",
+    split_res: Dict[str, Any],
+    trial_idx: int,
+    channel_idx: int,
+    metric: MetricKind,
+    *,
+    forecast_target: str = "Y",
 ) -> float:
     """Multi-step forecast: reduces (m, ch) horizon window to one scalar."""
     k_true = "Y_future_true" if forecast_target == "Y" else "Z_future_true"
@@ -220,7 +242,7 @@ def trial_metric_forecast_for_model(
         mu = float(np.mean(t_vec))
         sigma = float(np.std(t_vec)) or 1.0
         err = np.abs((t_vec - mu) / sigma - (p_vec - mu) / sigma)
-        return float(np.sqrt(np.mean(err ** 2)))
+        return float(np.sqrt(np.mean(err**2)))
     if metric == "pearson":
         return _score_pearson(t_vec, p_vec)
     if metric == "vaf":
@@ -254,6 +276,7 @@ def _trial_key(split_res: Dict[str, Any], trial_idx: int) -> TrialKey:
         if isinstance(x, (list, tuple, np.ndarray)) and len(x) > 0:
             x = x[0]
         return str(x)
+
     pid = split_res["participant_id"][trial_idx]
     sess = split_res["session"][trial_idx]
     blk = split_res["block"][trial_idx]
@@ -286,6 +309,7 @@ def _sem(a: np.ndarray) -> float:
 def _wilcoxon_paired(x: np.ndarray, y: np.ndarray) -> Optional[float]:
     """Paired Wilcoxon signed-rank; returns p-value or None if test cannot run."""
     from scipy import stats
+
     x = np.asarray(x, dtype=float).ravel()
     y = np.asarray(y, dtype=float).ravel()
     m = min(x.size, y.size)
@@ -332,14 +356,20 @@ class WilcoxonResults:
 @dataclass
 class AggregateRmseData:
     """Six cells in order: PSID off, PSID on, DPAD off, DPAD on, VARMA off, VARMA on."""
+
     labels: Tuple[str, ...] = (
-        "PSID DBS-OFF", "PSID DBS-ON",
-        "DPAD DBS-OFF", "DPAD DBS-ON",
-        "VARMA DBS-OFF", "VARMA DBS-ON",
+        "PSID DBS-OFF",
+        "PSID DBS-ON",
+        "DPAD DBS-OFF",
+        "DPAD DBS-ON",
+        "VARMA DBS-OFF",
+        "VARMA DBS-ON",
     )
     means: Tuple[float, ...] = (0.0,) * 6
     sems: Tuple[float, ...] = (0.0,) * 6
-    trial_rmse: Tuple[List[float], ...] = field(default_factory=lambda: tuple([] for _ in range(6)))
+    trial_rmse: Tuple[List[float], ...] = field(
+        default_factory=lambda: tuple([] for _ in range(6))
+    )
     trial_rmse_with_participant: Tuple[List[Tuple[float, str]], ...] = field(
         default_factory=lambda: tuple([] for _ in range(6))
     )
@@ -363,7 +393,8 @@ def collect_pooled_rmse(
     ``metric``: 'rmse' (default), 'pearson', or 'vaf'.
     """
     score_fn = (
-        trial_rmse_z_for_model if metric == "rmse"
+        trial_rmse_z_for_model
+        if metric == "rmse"
         else (lambda res, i, ch: trial_metric_z_for_model(res, i, ch, metric))
     )
     if include_dpad is None:
@@ -388,10 +419,18 @@ def collect_pooled_rmse(
 
     n_ok = 0
     for tri in triplet_specs:
-        res_p = load_split_results_required(results_root, tri.psid_variant, tri.psid_run_ts, split)
-        res_v = load_split_results_required(results_root, tri.varma_variant, tri.varma_run_ts, split)
+        res_p = load_split_results_required(
+            results_root, tri.psid_variant, tri.psid_run_ts, split
+        )
+        res_v = load_split_results_required(
+            results_root, tri.varma_variant, tri.varma_run_ts, split
+        )
         has_dpad = show_dpad and bool(tri.dpad_run_ts)
-        res_d = load_split_results(results_root, tri.dpad_variant, tri.dpad_run_ts, split) if has_dpad else None
+        res_d = (
+            load_split_results(results_root, tri.dpad_variant, tri.dpad_run_ts, split)
+            if has_dpad
+            else None
+        )
 
         mp = _key_index_map(res_p)
         mv = _key_index_map(res_v)
@@ -405,14 +444,20 @@ def collect_pooled_rmse(
             )
 
         n_ok += 1
-        for k in sorted(common_pd, key=lambda x: (str(x[0]), str(x[1]), str(x[2]), str(x[3]))):
+        for k in sorted(
+            common_pd, key=lambda x: (str(x[0]), str(x[1]), str(x[2]), str(x[3]))
+        ):
             i_p, i_v = mp[k], mv[k]
             stim = normalize_stim(res_p["stim"][i_p])
             if stim is None:
                 continue
             try:
                 r_p = score_fn(res_p, i_p, channel_idx)
-                r_d = score_fn(res_d, md[k], channel_idx) if res_d and k in md else float("nan")
+                r_d = (
+                    score_fn(res_d, md[k], channel_idx)
+                    if res_d and k in md
+                    else float("nan")
+                )
                 r_v = score_fn(res_v, i_v, channel_idx)
             except Exception as e:
                 logger.debug("Skip trial %s: %s", k, e)
@@ -421,19 +466,25 @@ def collect_pooled_rmse(
             pid = str(k[0]) if k else "?"
             d_ok = show_dpad and np.isfinite(r_d)
             if stim == "off":
-                cells[0].append(r_p); cells_with_pid[0].append((r_p, pid))
-                cells[4].append(r_v); cells_with_pid[4].append((r_v, pid))
+                cells[0].append(r_p)
+                cells_with_pid[0].append((r_p, pid))
+                cells[4].append(r_v)
+                cells_with_pid[4].append((r_v, pid))
                 paired_off_psid_varma.append((r_p, r_v))
                 if d_ok:
-                    cells[2].append(r_d); cells_with_pid[2].append((r_d, pid))
+                    cells[2].append(r_d)
+                    cells_with_pid[2].append((r_d, pid))
                     paired_off_dpad_varma.append((r_d, r_v))
                     paired_off_psid_dpad.append((r_p, r_d))
             else:
-                cells[1].append(r_p); cells_with_pid[1].append((r_p, pid))
-                cells[5].append(r_v); cells_with_pid[5].append((r_v, pid))
+                cells[1].append(r_p)
+                cells_with_pid[1].append((r_p, pid))
+                cells[5].append(r_v)
+                cells_with_pid[5].append((r_v, pid))
                 paired_on_psid_varma.append((r_p, r_v))
                 if d_ok:
-                    cells[3].append(r_d); cells_with_pid[3].append((r_d, pid))
+                    cells[3].append(r_d)
+                    cells_with_pid[3].append((r_d, pid))
                     paired_on_dpad_varma.append((r_d, r_v))
                     paired_on_psid_dpad.append((r_p, r_d))
 
@@ -464,16 +515,20 @@ def collect_pooled_rmse(
                 setattr(w, attr, _wilcoxon_paired(np.array(x_arr), np.array(y_arr)))
 
     return AggregateRmseData(
-        means=means, sems=sems,
+        means=means,
+        sems=sems,
         trial_rmse=tuple(cells),
         trial_rmse_with_participant=tuple(cells_with_pid),
-        wilcoxon=w, n_triplets_used=n_ok, show_dpad=show_dpad,
+        wilcoxon=w,
+        n_triplets_used=n_ok,
+        show_dpad=show_dpad,
     )
 
 
 # ---------------------------------------------------------------------------
 # Boxplot figure builder
 # ---------------------------------------------------------------------------
+
 
 def _hex_to_rgba(hex_color: str, alpha: float) -> str:
     h = hex_color.lstrip("#")
@@ -512,7 +567,8 @@ def build_rmse_boxplot_figure(
     n_models = len(models)
 
     fig = make_subplots(
-        rows=1, cols=2,
+        rows=1,
+        cols=2,
         subplot_titles=["DBS-OFF", "DBS-ON"],
         shared_yaxes=True,
         horizontal_spacing=0.06,
@@ -524,8 +580,12 @@ def build_rmse_boxplot_figure(
         and any(len(data.trial_rmse_with_participant[i]) > 0 for i in range(6))
     )
     cells_with_pid = (
-        data.trial_rmse_with_participant if has_pid
-        else tuple([(float(v), "?") for v in data.trial_rmse[i] if np.isfinite(v)] for i in range(6))
+        data.trial_rmse_with_participant
+        if has_pid
+        else tuple(
+            [(float(v), "?") for v in data.trial_rmse[i] if np.isfinite(v)]
+            for i in range(6)
+        )
     )
 
     def _get_vals(cell_idx: int) -> tuple[list[float], list[str]]:
@@ -541,7 +601,9 @@ def build_rmse_boxplot_figure(
             all_vals.extend(v)
     y_min, y_max = metric_y_range(metric, np.asarray(all_vals, dtype=float))
 
-    for col_idx, (_, cell_ids) in enumerate([("DBS-OFF", off_cells), ("DBS-ON", on_cells)]):
+    for col_idx, (_, cell_ids) in enumerate(
+        [("DBS-OFF", off_cells), ("DBS-ON", on_cells)]
+    ):
         for mi, (model, col) in enumerate(zip(models, model_colors)):
             cell_idx = cell_ids[mi]
             vals, pids = _get_vals(cell_idx)
@@ -550,7 +612,8 @@ def build_rmse_boxplot_figure(
 
             fig.add_trace(
                 go.Box(
-                    y=vals, x=[mi] * len(vals),
+                    y=vals,
+                    x=[mi] * len(vals),
                     name=model,
                     marker_color=col,
                     line=dict(color=col, width=1.8),
@@ -560,7 +623,8 @@ def build_rmse_boxplot_figure(
                     showlegend=(col_idx == 0),
                     legendgroup=model,
                 ),
-                row=1, col=col_idx + 1,
+                row=1,
+                col=col_idx + 1,
             )
 
             jt = rng.uniform(-jitter, jitter, size=len(vals))
@@ -570,12 +634,15 @@ def build_rmse_boxplot_figure(
                     x=[mi + jt[i] for i in range(len(vals))],
                     y=vals,
                     mode="markers",
-                    marker=dict(size=5, color=colors, line=dict(width=0), symbol="circle"),
+                    marker=dict(
+                        size=5, color=colors, line=dict(width=0), symbol="circle"
+                    ),
                     showlegend=False,
                     legendgroup="trials",
                     hovertext=[f"{p}<br>{v:.3f}" for p, v in zip(pids, vals)],
                 ),
-                row=1, col=col_idx + 1,
+                row=1,
+                col=col_idx + 1,
             )
 
     # Participant colour legend entries
@@ -588,15 +655,20 @@ def build_rmse_boxplot_figure(
         col = PARTICIPANT_COLORS.get(pid, "#888888")
         fig.add_trace(
             go.Scatter(
-                x=[None], y=[None], mode="markers",
+                x=[None],
+                y=[None],
+                mode="markers",
                 marker=dict(size=11, color=col, line=dict(width=0)),
-                name=pid, showlegend=True,
+                name=pid,
+                showlegend=True,
             ),
-            row=1, col=1,
+            row=1,
+            col=1,
         )
 
     apply_thesis_style(
-        fig, theme,
+        fig,
+        theme,
         height=420,
         margin=dict(l=72, r=28, t=36, b=90),
         hovermode="closest",
@@ -605,9 +677,12 @@ def build_rmse_boxplot_figure(
     fig.update_layout(title=None)
 
     x_kw = dict(
-        ticktext=models, tickvals=list(range(n_models)),
-        showgrid=False, zeroline=False,
-        showline=True, linecolor=fg,
+        ticktext=models,
+        tickvals=list(range(n_models)),
+        showgrid=False,
+        zeroline=False,
+        showline=True,
+        linecolor=fg,
         tickfont=dict(size=FONT_SIZE_TICK),
     )
     fig.update_xaxes(**x_kw, row=1, col=1)
@@ -615,15 +690,20 @@ def build_rmse_boxplot_figure(
 
     y_kw = dict(
         range=[y_min, y_max],
-        showgrid=True, gridcolor=grid,
-        zeroline=True, zerolinecolor=grid,
-        showline=True, linecolor=fg,
+        showgrid=True,
+        gridcolor=grid,
+        zeroline=True,
+        zerolinecolor=grid,
+        showline=True,
+        linecolor=fg,
         tickfont=dict(size=FONT_SIZE_TICK),
     )
     fig.update_yaxes(
         title_text=metric_axis_label(metric),
         title_font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY),
-        **y_kw, row=1, col=1,
+        **y_kw,
+        row=1,
+        col=1,
     )
     fig.update_yaxes(**y_kw, row=1, col=2)
 
@@ -640,7 +720,11 @@ def build_rmse_boxplot_figure(
 # DPAD/VARMA only 6.
 
 _BAND_DISPLAY = {
-    "delta": "Delta", "theta": "Theta", "alpha": "Alpha", "beta": "Beta", "gamma": "Gamma",
+    "delta": "Delta",
+    "theta": "Theta",
+    "alpha": "Alpha",
+    "beta": "Beta",
+    "gamma": "Gamma",
 }
 _ALLOWED_BANDS = frozenset(_BAND_DISPLAY.keys())
 
@@ -669,6 +753,7 @@ class NeuralBandMetricData:
     Each cell: per trial, take the metric for each of that model's own channels
     in the band; mean within the trial; then mean across trials and sessions.
     """
+
     z_off: np.ndarray
     z_on: np.ndarray
     band_labels: List[str]
@@ -713,7 +798,11 @@ def collect_neural_band_metric(
     ``models``: tuple of {'psid', 'dpad', 'varma'} to include as columns.
     Laplacian callers pass ``('psid', 'varma')`` since DPAD has no laplacian variant.
     """
-    order = list(band_row_order) if band_row_order else ["Delta", "Theta", "Alpha", "Beta", "Gamma"]
+    order = (
+        list(band_row_order)
+        if band_row_order
+        else ["Delta", "Theta", "Alpha", "Beta", "Gamma"]
+    )
     model_keys = tuple(models)
     display_map = {"psid": "PSID", "dpad": "DPAD", "varma": "VARMA"}
     column_labels = tuple(display_map[m] for m in model_keys)
@@ -733,8 +822,12 @@ def collect_neural_band_metric(
     n_trials = {"off": 0, "on": 0}
 
     for tri in triplet_specs:
-        res = {m: load_split_results(results_root, variant_for(tri, m), runts_for(tri, m), split)
-               for m in model_keys}
+        res = {
+            m: load_split_results(
+                results_root, variant_for(tri, m), runts_for(tri, m), split
+            )
+            for m in model_keys
+        }
         channels = {m: resolve_fn(res[m], variant_for(tri, m)) for m in model_keys}
         band_idx = {m: _band_indices(channels[m], order) for m in model_keys}
 
@@ -772,11 +865,17 @@ def collect_neural_band_metric(
                     ch_vals.append(v)
                 for band in order:
                     ch_idxs = band_idx[m].get(band, [])
-                    vals = [ch_vals[i] for i in ch_idxs if i < len(ch_vals) and np.isfinite(ch_vals[i])]
+                    vals = [
+                        ch_vals[i]
+                        for i in ch_idxs
+                        if i < len(ch_vals) and np.isfinite(ch_vals[i])
+                    ]
                     if vals:
                         buckets[stim][(band, m)].append(float(np.mean(vals)))
 
-    bands_present = {b for cond in buckets for (b, _m), lst in buckets[cond].items() if lst}
+    bands_present = {
+        b for cond in buckets for (b, _m), lst in buckets[cond].items() if lst
+    }
     row_labels = [b for b in order if b in bands_present]
 
     def _zmat(cond: str) -> np.ndarray:
@@ -789,11 +888,15 @@ def collect_neural_band_metric(
         return z
 
     return NeuralBandMetricData(
-        z_off=_zmat("off"), z_on=_zmat("on"),
-        band_labels=row_labels, column_labels=column_labels,
-        metric=metric, target=target,
+        z_off=_zmat("off"),
+        z_on=_zmat("on"),
+        band_labels=row_labels,
+        column_labels=column_labels,
+        metric=metric,
+        target=target,
         n_triplets_used=n_triplets_used,
-        n_trials_off=n_trials["off"], n_trials_on=n_trials["on"],
+        n_trials_off=n_trials["off"],
+        n_trials_on=n_trials["on"],
     )
 
 
@@ -820,10 +923,7 @@ def pick_best_feature_for_psid(
     """
     if not candidate_indices:
         raise ValueError("pick_best_feature_for_psid: candidate_indices is empty")
-    score_fn = (
-        trial_metric_z_for_model if target == "Z"
-        else trial_metric_y_for_model
-    )
+    score_fn = trial_metric_z_for_model if target == "Z" else trial_metric_y_for_model
     n_trials = len(split_res.get(target, []) or [])
     best_idx = candidate_indices[0]
     best_val: Optional[float] = None
@@ -859,6 +959,7 @@ class SessionGroupedData:
 
     ``scores[condition][model][session_label]`` is a list of per-trial scores.
     """
+
     session_labels: Tuple[str, ...]
     models: Tuple[str, ...]
     scores: Dict[str, Dict[str, Dict[str, List[float]]]]
@@ -900,15 +1001,24 @@ def collect_session_grouped(
     participants: Dict[str, str] = {}
 
     score_fn = (
-        trial_rmse_z_for_model if metric == "rmse"
+        trial_rmse_z_for_model
+        if metric == "rmse"
         else (lambda res, i, ch: trial_metric_z_for_model(res, i, ch, metric))
     )
 
     for tri in triplet_specs:
-        res_p = load_split_results_required(results_root, tri.psid_variant, tri.psid_run_ts, split)
-        res_v = load_split_results_required(results_root, tri.varma_variant, tri.varma_run_ts, split)
+        res_p = load_split_results_required(
+            results_root, tri.psid_variant, tri.psid_run_ts, split
+        )
+        res_v = load_split_results_required(
+            results_root, tri.varma_variant, tri.varma_run_ts, split
+        )
         has_dpad = show_dpad and bool(tri.dpad_run_ts)
-        res_d = load_split_results(results_root, tri.dpad_variant, tri.dpad_run_ts, split) if has_dpad else None
+        res_d = (
+            load_split_results(results_root, tri.dpad_variant, tri.dpad_run_ts, split)
+            if has_dpad
+            else None
+        )
 
         mp = _key_index_map(res_p)
         mv = _key_index_map(res_v)
@@ -921,7 +1031,9 @@ def collect_session_grouped(
                 f"collect_session_grouped: triplet {tri.label!r} has no common trial keys."
             )
 
-        for k in sorted(common, key=lambda x: (str(x[0]), str(x[1]), str(x[2]), str(x[3]))):
+        for k in sorted(
+            common, key=lambda x: (str(x[0]), str(x[1]), str(x[2]), str(x[3]))
+        ):
             i_p, i_v = mp[k], mv[k]
             stim = normalize_stim(res_p["stim"][i_p])
             if stim is None:
@@ -929,7 +1041,11 @@ def collect_session_grouped(
             try:
                 r_p = score_fn(res_p, i_p, channel_idx)
                 r_v = score_fn(res_v, i_v, channel_idx)
-                r_d = score_fn(res_d, md[k], channel_idx) if res_d and k in md else float("nan")
+                r_d = (
+                    score_fn(res_d, md[k], channel_idx)
+                    if res_d and k in md
+                    else float("nan")
+                )
             except Exception as e:
                 logger.debug("Skip trial %s: %s", k, e)
                 continue
@@ -984,7 +1100,8 @@ def build_session_grouped_boxplot(
     }
 
     fig = make_subplots(
-        rows=1, cols=2,
+        rows=1,
+        cols=2,
         shared_yaxes=True,
         horizontal_spacing=0.07,
     )
@@ -993,9 +1110,7 @@ def build_session_grouped_boxplot(
     for cond in ("off", "on"):
         for m in models:
             for s in sessions:
-                all_vals.extend(
-                    v for v in data.scores[cond][m][s] if np.isfinite(v)
-                )
+                all_vals.extend(v for v in data.scores[cond][m][s] if np.isfinite(v))
     y_min, y_max = metric_y_range(metric, np.asarray(all_vals, dtype=float))
 
     for col_idx, cond in enumerate(("off", "on")):
@@ -1007,7 +1122,8 @@ def build_session_grouped_boxplot(
                 xp = xpos[(m, s)]
                 fig.add_trace(
                     go.Box(
-                        y=vals, x=[xp] * len(vals),
+                        y=vals,
+                        x=[xp] * len(vals),
                         name=m if (col_idx == 0 and si == 0) else None,
                         marker_color=colour,
                         line=dict(color=colour, width=1.4),
@@ -1018,7 +1134,8 @@ def build_session_grouped_boxplot(
                         legendgroup=m,
                         width=0.7,
                     ),
-                    row=1, col=col_idx + 1,
+                    row=1,
+                    col=col_idx + 1,
                 )
                 jt = rng.uniform(-jitter, jitter, size=len(vals))
                 pid = data.participants.get(s, "?")
@@ -1035,7 +1152,8 @@ def build_session_grouped_boxplot(
                         legendgroup="trials",
                         hovertext=[f"{s} ({pid})<br>{v:.3f}" for v in vals],
                     ),
-                    row=1, col=col_idx + 1,
+                    row=1,
+                    col=col_idx + 1,
                 )
 
     # Build shared x tick layout: one tick per session per model group.
@@ -1044,7 +1162,8 @@ def build_session_grouped_boxplot(
     ticktext = [s for m in models for s in sessions]
 
     apply_thesis_style(
-        fig, theme,
+        fig,
+        theme,
         height=460,
         margin=dict(l=76, r=28, t=62, b=104),
         hovermode="closest",
@@ -1054,25 +1173,31 @@ def build_session_grouped_boxplot(
 
     # Panel labels for the two DBS conditions (G2 convention).
     panel_label(fig, "A", "DBS-OFF", row=1, col=1, y_offset=0.10)
-    panel_label(fig, "B", "DBS-ON",  row=1, col=2, y_offset=0.10)
+    panel_label(fig, "B", "DBS-ON", row=1, col=2, y_offset=0.10)
 
     # Legend entry for the per-trial dots — gray placeholder, note in caption
     # explains dots take the model colour of the box they sit in.
     fig.add_trace(
         go.Scatter(
-            x=[None], y=[None], mode="markers",
+            x=[None],
+            y=[None],
+            mode="markers",
             marker=dict(size=5, color="rgba(100,100,100,0.6)", line=dict(width=0)),
             name="per-trial (model colour)",
             showlegend=True,
             hoverinfo="skip",
         ),
-        row=1, col=1,
+        row=1,
+        col=1,
     )
 
     x_kw = dict(
-        tickvals=tickvals, ticktext=ticktext,
-        showgrid=False, zeroline=False,
-        showline=True, linecolor=fg,
+        tickvals=tickvals,
+        ticktext=ticktext,
+        showgrid=False,
+        zeroline=False,
+        showline=True,
+        linecolor=fg,
         tickangle=-45,
         tickfont=dict(size=FONT_SIZE_TICK - 1),
     )
@@ -1081,15 +1206,20 @@ def build_session_grouped_boxplot(
 
     y_kw = dict(
         range=[y_min, y_max],
-        showgrid=True, gridcolor=grid,
-        zeroline=True, zerolinecolor=grid,
-        showline=True, linecolor=fg,
+        showgrid=True,
+        gridcolor=grid,
+        zeroline=True,
+        zerolinecolor=grid,
+        showline=True,
+        linecolor=fg,
         tickfont=dict(size=FONT_SIZE_TICK),
     )
     fig.update_yaxes(
         title_text=metric_axis_label(metric),
         title_font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY),
-        **y_kw, row=1, col=1,
+        **y_kw,
+        row=1,
+        col=1,
     )
     fig.update_yaxes(**y_kw, row=1, col=2)
 
@@ -1230,6 +1360,8 @@ def pick_best_feature_per_metric(
     three models.
     """
     return {
-        m: pick_best_feature_for_psid(psid_split_res, candidate_indices, m, target=target)
+        m: pick_best_feature_for_psid(
+            psid_split_res, candidate_indices, m, target=target
+        )
         for m in metrics
     }

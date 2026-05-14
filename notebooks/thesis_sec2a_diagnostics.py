@@ -22,9 +22,10 @@
 
 # %%
 import sys, os
-os.chdir('/home/bobby/repos/latent-neural-dynamics-modeling')
-sys.path.insert(0, '.')
-sys.path.insert(0, 'notebooks')
+
+os.chdir("/home/bobby/repos/latent-neural-dynamics-modeling")
+sys.path.insert(0, ".")
+sys.path.insert(0, "notebooks")
 
 import re
 import json
@@ -37,8 +38,13 @@ from matplotlib.colors import to_rgba
 from matplotlib.lines import Line2D
 
 from thesis_style import (
-    COLOR_DBS_OFF, COLOR_DBS_ON, COLOR_DPAD, COLOR_NS, COLOR_PSID,
-    apply_thesis_style, panel_label,
+    COLOR_DBS_OFF,
+    COLOR_DBS_ON,
+    COLOR_DPAD,
+    COLOR_NS,
+    COLOR_PSID,
+    apply_thesis_style,
+    panel_label,
 )
 from thesis_sec2_common import *
 
@@ -55,7 +61,7 @@ apply_thesis_style()
 # `psid_variant` strings in `thesis_triplets.csv`.
 
 # %%
-_VARIANT_NXN1 = re.compile(r'nx_(\d+)_n(\d+)')
+_VARIANT_NXN1 = re.compile(r"nx_(\d+)_n(\d+)")
 
 
 def _parse_nx_n1(variant: str) -> tuple[int, int]:
@@ -75,9 +81,7 @@ def _load_spectra(label: str, mode: str):
     """Return (index, ZHat_S, YHat_S) arrays for one session × mode."""
     p = f"{_session_spectra_dir(label)}/psid/{mode}/spectra.parquet"
     df = pl.read_parquet(p)
-    return (df["index"].to_numpy(),
-            df["ZHat_S"].to_numpy(),
-            df["YHat_S"].to_numpy())
+    return (df["index"].to_numpy(), df["ZHat_S"].to_numpy(), df["YHat_S"].to_numpy())
 
 
 # Elbows are recomputed from the fresh spectra at plot time — no stale YAML
@@ -87,8 +91,10 @@ _ELBOW_CFG = yaml.safe_load(open("configs/diagnostic/elbow_choices.yaml"))
 _THR_N1 = float(_ELBOW_CFG.get("thresholds", {}).get("n1_relative_to_peak", 0.10))
 _THR_NX = float(_ELBOW_CFG.get("thresholds", {}).get("nx_cumulative_energy", 0.90))
 _TARGET_K = {
-    label: {fam: int(_ELBOW_CFG["sessions"][label][fam].get("target_K", 8))
-            for fam in ("ecog", "laplacian")}
+    label: {
+        fam: int(_ELBOW_CFG["sessions"][label][fam].get("target_K", 8))
+        for fam in ("ecog", "laplacian")
+    }
     for label in _ELBOW_CFG.get("sessions", {})
 }
 
@@ -106,6 +112,7 @@ def _resolve_elbows(label: str, fam: str, z=None, y=None):
             f"pick elbows by eye, add n1 and nx to the yaml."
         )
     return int(sess["n1"]), int(sess["nx"])
+
 
 from thesis_loaders import resolve_input_channels
 
@@ -128,26 +135,28 @@ def _plot_session_scree(label: str, fig_letter: str):
     fig, axes = plt.subplots(2, 2, figsize=(7.0, 4.2))
 
     rows = [
-        ("ECOG & Tracing Kinematics",      axes[0], idx_e, z_e, y_e, ecog_n1, ecog_nx),
-        ("ECOG & Laplacian LFP",           axes[1], idx_l, z_l, y_l, lap_n1, lap_nx),
+        ("ECOG & Tracing Kinematics", axes[0], idx_e, z_e, y_e, ecog_n1, ecog_nx),
+        ("ECOG & Laplacian LFP", axes[1], idx_l, z_l, y_l, lap_n1, lap_nx),
     ]
     for row_i, (mode, (ax1, ax2), idx, z_s, y_s, n1, nx) in enumerate(rows):
         n2 = nx - n1
 
         ax1.plot(idx, z_s, color=COLOR_PSID, marker="o", markersize=2.0, linewidth=0.8)
-        ax1.axvline(n1, color=COLOR_PSID, linestyle="--", linewidth=1.2,
-                    label=f"$n_1$ = {n1}")
+        ax1.axvline(
+            n1, color=COLOR_PSID, linestyle="--", linewidth=1.2, label=f"$n_1$ = {n1}"
+        )
         ax1.set_ylabel(r"singular value $\sigma_i$")
         ax1.legend()
-        panel_label(ax1, chr(ord("A") + row_i * 2),
-                    f"{mode}, behaviour-relevant stage")
+        panel_label(ax1, chr(ord("A") + row_i * 2), f"{mode}, behaviour-relevant stage")
 
         ax2.plot(idx, y_s, color=COLOR_PSID, marker="o", markersize=1.4, linewidth=0.7)
-        ax2.axvline(n2, color=COLOR_DBS_OFF, linestyle="-", linewidth=1.2,
-                    label=f"$n_2$ = {n2}")
+        ax2.axvline(
+            n2, color=COLOR_DBS_OFF, linestyle="-", linewidth=1.2, label=f"$n_2$ = {n2}"
+        )
         ax2.legend()
-        panel_label(ax2, chr(ord("A") + row_i * 2 + 1),
-                    f"{mode}, residual-dynamics stage")
+        panel_label(
+            ax2, chr(ord("A") + row_i * 2 + 1), f"{mode}, residual-dynamics stage"
+        )
 
         if row_i == 1:
             ax1.set_xlabel(r"index $i$")
@@ -224,15 +233,14 @@ for letter, tri in zip("abcd", ALL_TRIPLETS):
 # %%
 
 
-
-_MRMR_PICKS = yaml.safe_load(
-    open("configs/diagnostic/mrmr_picks.yaml")
-)["sessions"]
+_MRMR_PICKS = yaml.safe_load(open("configs/diagnostic/mrmr_picks.yaml"))["sessions"]
 
 
-def _mrmr_select(corr_df, candidate_features, behavior_names, K, *, label=None, family=None):
+def _mrmr_select(
+    corr_df, candidate_features, behavior_names, K, *, label=None, family=None
+):
     """Pull the cached MI-mRMR top-K picks written by
-    ``scripts/_pipeline_common.py:mrmr_top_k_from_diagnostic`` (MIQ variant:
+    ``training/_pipeline_common.py:mrmr_top_k_from_diagnostic`` (MIQ variant:
     MI relevance averaged across targets, Pearson redundancy).
 
     ``corr_df``/``candidate_features``/``behavior_names`` are kept for API
@@ -264,19 +272,38 @@ def _mrmr_select(corr_df, candidate_features, behavior_names, K, *, label=None, 
 _ECOG_RX = re.compile(r"^ECOG_(\d)_(\w+)_raw$")
 _LAP_RX = re.compile(r"^LAPLACIAN_14-16_LFP_(\w+)_raw$")
 _BAND_ORDER = [
-    "theta_4_8", "alpha_8_12",
-    "beta_12_17", "beta_17_22", "beta_22_27", "beta_27_30",
-    "gamma_30_35", "gamma_35_40", "gamma_40_45", "gamma_45_50",
-    "gamma_50_55", "gamma_55_60", "gamma_60_65", "gamma_70_75", "gamma_75_80",
+    "theta_4_8",
+    "alpha_8_12",
+    "beta_12_17",
+    "beta_17_22",
+    "beta_22_27",
+    "beta_27_30",
+    "gamma_30_35",
+    "gamma_35_40",
+    "gamma_40_45",
+    "gamma_45_50",
+    "gamma_50_55",
+    "gamma_55_60",
+    "gamma_60_65",
+    "gamma_70_75",
+    "gamma_75_80",
 ]
 _BAND_SHORT = {
-    "theta_4_8": "4-8",   "alpha_8_12": "8-12",
-    "beta_12_17": "12-17", "beta_17_22": "17-22",
-    "beta_22_27": "22-27", "beta_27_30": "27-30",
-    "gamma_30_35": "30-35", "gamma_35_40": "35-40",
-    "gamma_40_45": "40-45", "gamma_45_50": "45-50",
-    "gamma_50_55": "50-55", "gamma_55_60": "55-60",
-    "gamma_60_65": "60-65", "gamma_70_75": "70-75", "gamma_75_80": "75-80",
+    "theta_4_8": "4-8",
+    "alpha_8_12": "8-12",
+    "beta_12_17": "12-17",
+    "beta_17_22": "17-22",
+    "beta_22_27": "22-27",
+    "beta_27_30": "27-30",
+    "gamma_30_35": "30-35",
+    "gamma_35_40": "35-40",
+    "gamma_40_45": "40-45",
+    "gamma_45_50": "45-50",
+    "gamma_50_55": "50-55",
+    "gamma_55_60": "55-60",
+    "gamma_60_65": "60-65",
+    "gamma_70_75": "70-75",
+    "gamma_75_80": "75-80",
 }
 _BEHAVIOR = ["tracing_velocity_x", "tracing_acceleration_magnitude"]
 _K = 8
@@ -329,14 +356,29 @@ def _plot_cells(ax, mat, rank, ylabels, cmap="Blues"):
     ax.set_yticks(range(len(ylabels)))
     ax.set_yticklabels(ylabels)
     for (ri, ci), n in rank.items():
-        ax.add_patch(plt.Rectangle((ci - 0.5, ri - 0.5), 1.0, 1.0,
-                                    fill=False, edgecolor="black", linewidth=1.5))
+        ax.add_patch(
+            plt.Rectangle(
+                (ci - 0.5, ri - 0.5),
+                1.0,
+                1.0,
+                fill=False,
+                edgecolor="black",
+                linewidth=1.5,
+            )
+        )
         # Selection order number, auto-contrast text color
         v = mat[ri, ci]
         norm = v / max(vmax, 1e-9)
-        ax.text(ci, ri, str(n), ha="center", va="center",
-                color="white" if norm > 0.55 else "black",
-                fontsize=8, fontweight="bold")
+        ax.text(
+            ci,
+            ri,
+            str(n),
+            ha="center",
+            va="center",
+            color="white" if norm > 0.55 else "black",
+            fontsize=8,
+            fontweight="bold",
+        )
     return im
 
 
@@ -353,7 +395,9 @@ def _mi_relevance_from_parquet(label: str, family: str) -> dict:
     if (label, family) in _MI_REL_CACHE:
         return _MI_REL_CACHE[(label, family)]
     pid, sess = label.split("_S")
-    p = Path(f"results/diagnostic/{pid}_{sess}_psid_spectra/mi_relevance/{family}.parquet")
+    p = Path(
+        f"results/diagnostic/{pid}_{sess}_psid_spectra/mi_relevance/{family}.parquet"
+    )
     if not p.exists():
         _MI_REL_CACHE[(label, family)] = {}
         return {}
@@ -380,9 +424,7 @@ def _compute_ecog_lap_cross(participant: str, session: str, max_trials: int = 30
     from pathlib import Path
     import yaml as _yaml
 
-    split_cfg = _yaml.safe_load(
-        open(f"configs/splits/{participant}_S{session}.yaml")
-    )
+    split_cfg = _yaml.safe_load(open(f"configs/splits/{participant}_S{session}.yaml"))
     train_blocks = set(split_cfg["train_blocks"])
     sess_dir = Path(
         f"resampled_recordings/participants_at_200Hz_scaled_1e6_narrow_band/"
@@ -398,14 +440,21 @@ def _compute_ecog_lap_cross(participant: str, session: str, max_trials: int = 30
         if not pq:
             continue
         df = pl.read_parquet(pq[0])
-        ecog_cols = [c for c in df.columns if c.startswith("ECOG_") and c.endswith("_raw")]
-        lap_cols = [c for c in df.columns
-                    if c.startswith("LAPLACIAN_14-16_LFP") and c.endswith("_raw")]
+        ecog_cols = [
+            c for c in df.columns if c.startswith("ECOG_") and c.endswith("_raw")
+        ]
+        lap_cols = [
+            c
+            for c in df.columns
+            if c.startswith("LAPLACIAN_14-16_LFP") and c.endswith("_raw")
+        ]
         for row in df.iter_rows(named=True):
             if n_trials_seen >= max_trials:
                 break
             min_len = min(len(row[c]) for c in ecog_cols + lap_cols)
-            E = np.column_stack([np.asarray(row[c][:min_len], float) for c in ecog_cols])
+            E = np.column_stack(
+                [np.asarray(row[c][:min_len], float) for c in ecog_cols]
+            )
             L = np.column_stack([np.asarray(row[c][:min_len], float) for c in lap_cols])
             mask = np.all(np.isfinite(E), axis=1) & np.all(np.isfinite(L), axis=1)
             E, L = E[mask], L[mask]
@@ -449,20 +498,26 @@ def _plot_session_mrmr(tri, fig_letter: str):
     corr_e = pd.read_parquet(f"{base}/correlation/ecog.parquet").set_index("index")
     corr_l = pd.read_parquet(f"{base}/correlation/laplacian.parquet").set_index("index")
     ecog_feats = [c for c in corr_e.columns if _ECOG_RX.match(c)]
-    lap_targets = [c for c in corr_l.columns if re.match(r"^LAPLACIAN_14-16_LFP_.*_raw$", c)]
+    lap_targets = [
+        c for c in corr_l.columns if re.match(r"^LAPLACIAN_14-16_LFP_.*_raw$", c)
+    ]
 
     # Panel A — ECoG-Y picks for behavioural mode.
-    sel_behav_y = _mrmr_select(corr_e, ecog_feats, _BEHAVIOR, _K,
-                               label=tri.label, family="ecog")
+    sel_behav_y = _mrmr_select(
+        corr_e, ecog_feats, _BEHAVIOR, _K, label=tri.label, family="ecog"
+    )
     # Panel B — ECoG-Y picks for laplacian mode (target = LFP bands).
-    sel_lap_y = _mrmr_select(corr_l, ecog_feats, lap_targets, _K,
-                             label=tri.label, family="laplacian")
+    sel_lap_y = _mrmr_select(
+        corr_l, ecog_feats, lap_targets, _K, label=tri.label, family="laplacian"
+    )
     # Panel C — LFP-Z picks via Mazzanti MIQ predictability (LFP_15 → ECoG_60
     # vote-rank). Cache: configs/diagnostic/mrmr_picks.yaml family
     # `lfp_z_predictability`, written by
     # scripts/precompute_lfp_z_predictability_picks.py.
     sel_lap_z = list(
-        _MRMR_PICKS.get(tri.label, {}).get("lfp_z_predictability", {}).get("selected", [])
+        _MRMR_PICKS.get(tri.label, {})
+        .get("lfp_z_predictability", {})
+        .get("selected", [])
     )[:_K]
 
     # Heatmap gradients from precomputed MI parquets.
@@ -513,20 +568,23 @@ def _plot_session_mrmr(tri, fig_letter: str):
     rank_lap_z = _lfp_rank_map(sel_lap_z)
 
     fig, axes = plt.subplots(
-        3, 1, figsize=(5.4, 5.4),
+        3,
+        1,
+        figsize=(5.4, 5.4),
         gridspec_kw=dict(height_ratios=[4, 4, 1.5]),
     )
 
-    im_a = _plot_cells(axes[0], mat_behav, rank_behav,
-                       ylabels=[f"ECoG {i}" for i in range(1, 5)])
+    im_a = _plot_cells(
+        axes[0], mat_behav, rank_behav, ylabels=[f"ECoG {i}" for i in range(1, 5)]
+    )
     panel_label(axes[0], "A", "Behavioural — ECoG (Y) → kinematics (Z)")
 
-    im_b = _plot_cells(axes[1], mat_lap_y, rank_lap_y,
-                       ylabels=[f"ECoG {i}" for i in range(1, 5)])
+    im_b = _plot_cells(
+        axes[1], mat_lap_y, rank_lap_y, ylabels=[f"ECoG {i}" for i in range(1, 5)]
+    )
     panel_label(axes[1], "B", "Laplacian — ECoG (Y) picks vs LFP targets")
 
-    im_c = _plot_cells(axes[2], mat_lap_z, rank_lap_z,
-                       ylabels=["LAP 14-16"])
+    im_c = _plot_cells(axes[2], mat_lap_z, rank_lap_z, ylabels=["LAP 14-16"])
     panel_label(axes[2], "C", "Laplacian — LFP (Z) picks vs ECoG predictability")
     axes[2].set_xlabel("narrow band (Hz)")
 
@@ -556,6 +614,7 @@ for letter, tri in zip("abcd", ALL_TRIPLETS):
 # orthogonal); the bright anti-diagonal stripes in the off-diagonal blocks are
 # volume-conduction redundancy (same-band signals on different electrodes pick
 # up nearly identical cortical sources).
+
 
 # %%
 def _plot_correlation_matrix(tri, fig_letter: str):
@@ -592,6 +651,7 @@ for letter, tri in zip("abcd", ALL_TRIPLETS):
 # Fig 45. Relevance values are small (~0.001-0.008) because ECoG-to-behaviour
 # Pearson coupling is weak — PSID leverages dynamics, not static correlation.
 
+
 # %%
 def _plot_relevance(tri, fig_letter: str):
     base = _session_spectra_dir(tri.label)
@@ -600,8 +660,9 @@ def _plot_relevance(tri, fig_letter: str):
     fb = corr.abs().loc[ecog_feats, _BEHAVIOR].to_numpy()
 
     fig, ax = plt.subplots(1, 1, figsize=(2.2, 3.8))
-    im = ax.imshow(fb, cmap="Blues", vmin=0.0, vmax=float(fb.max() * 1.1),
-                   aspect="auto")
+    im = ax.imshow(
+        fb, cmap="Blues", vmin=0.0, vmax=float(fb.max() * 1.1), aspect="auto"
+    )
     for k in (15, 30, 45):
         ax.axhline(k - 0.5, color="black", linewidth=0.6)
     ax.set_xticks([0, 1])
@@ -627,10 +688,22 @@ for letter, tri in zip("abcd", ALL_TRIPLETS):
 
 
 _DPAD_SESSIONS = [
-    ("PDI1_S2", "dpad_behavioral_PDI1_2_nx_4_n2_e3000_top5_dbs_{cond}_200Hz_narrow_band"),
-    ("PDI1_S4", "dpad_behavioral_PDI1_4_nx_25_n2_e3000_top5_dbs_{cond}_200Hz_narrow_band"),
-    ("PDI4_S2", "dpad_behavioral_PDI4_2_nx_15_n2_e3000_top5_dbs_{cond}_200Hz_narrow_band"),
-    ("PDI4_S3", "dpad_behavioral_PDI4_3_nx_25_n2_e3000_top5_dbs_{cond}_200Hz_narrow_band"),
+    (
+        "PDI1_S2",
+        "dpad_behavioral_PDI1_2_nx_4_n2_e3000_top5_dbs_{cond}_200Hz_narrow_band",
+    ),
+    (
+        "PDI1_S4",
+        "dpad_behavioral_PDI1_4_nx_25_n2_e3000_top5_dbs_{cond}_200Hz_narrow_band",
+    ),
+    (
+        "PDI4_S2",
+        "dpad_behavioral_PDI4_2_nx_15_n2_e3000_top5_dbs_{cond}_200Hz_narrow_band",
+    ),
+    (
+        "PDI4_S3",
+        "dpad_behavioral_PDI4_3_nx_25_n2_e3000_top5_dbs_{cond}_200Hz_narrow_band",
+    ),
 ]
 _DPAD_CONDS = ["both", "off", "on"]
 _COND_COLORS = {"both": COLOR_DPAD, "off": COLOR_DBS_OFF, "on": COLOR_DBS_ON}
@@ -642,29 +715,40 @@ _STAGE_TITLES = {
 }
 
 fig, axes = plt.subplots(4, 2, figsize=(8.5, 9.0), sharex=True)
-_panel_letters = ['A', 'B', 'C', 'D']
+_panel_letters = ["A", "B", "C", "D"]
 
 for ri, (label, pattern) in enumerate(_DPAD_SESSIONS):
     for ci, stage in enumerate(_DPAD_PLOT_STAGES):
         ax = axes[ri, ci]
         for cond in _DPAD_CONDS:
             variant = pattern.format(cond=cond)
-            hist_path = results_root / variant / 'training_history.json'
+            hist_path = results_root / variant / "training_history.json"
             if not hist_path.exists():
                 continue
             with open(hist_path) as f:
                 hist = json.load(f)
             sdata = hist.get(stage, {})
-            epochs = sdata.get('epochs', [])
-            train_loss = sdata.get('loss', [])
-            val_loss = sdata.get('val_loss', [])
+            epochs = sdata.get("epochs", [])
+            train_loss = sdata.get("loss", [])
+            val_loss = sdata.get("val_loss", [])
             if not epochs:
                 continue
             col = _COND_COLORS[cond]
-            ax.plot(epochs, train_loss, color=col, linewidth=1.2,
-                    label=f"{cond} train" if (ri == 0 and ci == 0) else None)
-            ax.plot(epochs, val_loss, color=col, linewidth=1.0, linestyle=':',
-                    label=f"{cond} val" if (ri == 0 and ci == 0) else None)
+            ax.plot(
+                epochs,
+                train_loss,
+                color=col,
+                linewidth=1.2,
+                label=f"{cond} train" if (ri == 0 and ci == 0) else None,
+            )
+            ax.plot(
+                epochs,
+                val_loss,
+                color=col,
+                linewidth=1.0,
+                linestyle=":",
+                label=f"{cond} val" if (ri == 0 and ci == 0) else None,
+            )
         if ri == 0:
             ax.set_title(_STAGE_TITLES[stage])
         if ci == 0:
@@ -674,11 +758,11 @@ for ri, (label, pattern) in enumerate(_DPAD_SESSIONS):
             ax.set_xlabel("epoch")
 
 fig.legend()
-fig.savefig(str(OUT / 'fig_039_dpad_training_curves.png'))
+fig.savefig(str(OUT / "fig_039_dpad_training_curves.png"))
 plt.show()
 print(
-    'Fig 39: DPAD training curves over 4 sessions x 3 DBS conditions.\n'
+    "Fig 39: DPAD training curves over 4 sessions x 3 DBS conditions.\n"
     "  Left column (model1_Cy): the 'neural encoder' RNN that maps Y -> behaviorally-relevant latent X1.\n"
     "  Right column (model2): the 'total dynamics' model that adds non-behaviorally-relevant latents (X2).\n"
-    '  Solid = train loss, dotted = val loss. model1 and model2_Cz stages omitted (near-flat, <1% change).'
+    "  Solid = train loss, dotted = val loss. model1 and model2_Cz stages omitted (near-flat, <1% change)."
 )

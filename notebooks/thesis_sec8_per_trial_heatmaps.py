@@ -34,9 +34,10 @@
 
 # %%
 import sys, os
-os.chdir('/home/bobby/repos/latent-neural-dynamics-modeling')
-sys.path.insert(0, '.')
-sys.path.insert(0, 'notebooks')
+
+os.chdir("/home/bobby/repos/latent-neural-dynamics-modeling")
+sys.path.insert(0, ".")
+sys.path.insert(0, "notebooks")
 
 from pathlib import Path
 import numpy as np
@@ -46,8 +47,9 @@ from thesis_style import apply_thesis_style, panel_label
 
 apply_thesis_style()
 
-OUT = Path('thesis_figures/sec8'); OUT.mkdir(parents=True, exist_ok=True)
-results_root = Path('results').resolve()
+OUT = Path("thesis_figures/sec8")
+OUT.mkdir(parents=True, exist_ok=True)
+results_root = Path("results").resolve()
 
 # %% [markdown]
 # ## Configuration
@@ -94,6 +96,7 @@ def channels_for(session, res):
 def get_channel_names(res, variant):
     """Get neural channel names (via YAML fallback), sorted by electrode then band."""
     channels = resolve_input_channels(res, variant)
+
     # Sort: electrode number, then band frequency
     def sort_key(ch):
         parts = ch.replace("ECOG_", "").replace("_raw", "").split("_", 1)
@@ -108,6 +111,7 @@ def get_channel_names(res, variant):
             except ValueError:
                 continue
         return (electrode, freq, band)
+
     return sorted(channels, key=sort_key)
 
 
@@ -122,13 +126,17 @@ def sorted_trial_indices(res):
     """Return trial indices sorted by stim (OFF first), then block, then trial."""
     n = len(res["stim"])
     indices = list(range(n))
+
     def key(i):
         stim_order = 0 if res["stim"][i] == "off" else 1
         return (stim_order, res["block"][i], res["trial"][i])
+
     return sorted(indices, key=key)
+
 
 # %% [markdown]
 # ## Helper: compute per-trial per-channel RMSE
+
 
 # %%
 def compute_per_trial_rmse_neural(res, channel_order, raw_channels):
@@ -146,11 +154,11 @@ def compute_per_trial_rmse_neural(res, channel_order, raw_channels):
     rmse_matrix = np.full((n_trials, n_ch), np.nan)
 
     for i in range(n_trials):
-        y_true = np.array(res["Y"][i])   # (T, n_channels)
+        y_true = np.array(res["Y"][i])  # (T, n_channels)
         y_pred = np.array(res["Yp"][i])  # (T, n_channels)
         for j, ci in enumerate(col_indices):
             diff = y_true[:, ci] - y_pred[:, ci]
-            rmse_matrix[i, j] = np.sqrt(np.mean(diff ** 2))
+            rmse_matrix[i, j] = np.sqrt(np.mean(diff**2))
 
     return rmse_matrix
 
@@ -190,7 +198,7 @@ def compute_per_trial_metrics_behavioral(res):
     rmse_matrix = np.full((n_trials, n_ch), np.nan)
 
     for i in range(n_trials):
-        z_true = np.array(res["Z"][i])   # (T, 2)
+        z_true = np.array(res["Z"][i])  # (T, 2)
         z_pred = np.array(res["Zp"][i])  # (T, 2)
         for j in range(min(n_ch, z_true.shape[1])):
             zt = z_true[:, j]
@@ -291,6 +299,7 @@ def compute_per_trial_metrics_forecast(res):
 
     return r_matrix, rmse_matrix
 
+
 # %% [markdown]
 # ## Neural Prediction — Pearson R Heatmap (test set)
 #
@@ -316,11 +325,17 @@ for sess in SESSIONS:
     r_mat_zfore, rmse_mat_zfore = compute_per_trial_metrics_forecast(res)
 
     SESSION_DATA[sess["label"]] = dict(
-        res=res, ch_order=ch_order, raw_channels=raw_channels,
-        trial_order=trial_order, t_labels=t_labels,
-        r_pred=r_mat_pred, rmse_pred=rmse_mat_pred,
-        r_behav=r_mat_behav, rmse_behav=rmse_mat_behav,
-        r_zfore=r_mat_zfore, rmse_zfore=rmse_mat_zfore,
+        res=res,
+        ch_order=ch_order,
+        raw_channels=raw_channels,
+        trial_order=trial_order,
+        t_labels=t_labels,
+        r_pred=r_mat_pred,
+        rmse_pred=rmse_mat_pred,
+        r_behav=r_mat_behav,
+        rmse_behav=rmse_mat_behav,
+        r_zfore=r_mat_zfore,
+        rmse_zfore=rmse_mat_zfore,
     )
 
     r_sorted = r_mat_pred[trial_order, :]
@@ -333,8 +348,15 @@ for sess in SESSIONS:
     fig_h = max(3.5, n_trials * 0.13 + 1.2)
 
     fig, ax = plt.subplots(figsize=(fig_w, fig_h))
-    im = ax.imshow(r_sorted, cmap="RdBu_r", vmin=-1, vmax=1,
-                   origin="upper", aspect="auto", interpolation="nearest")
+    im = ax.imshow(
+        r_sorted,
+        cmap="RdBu_r",
+        vmin=-1,
+        vmax=1,
+        origin="upper",
+        aspect="auto",
+        interpolation="nearest",
+    )
     ax.set_xticks(np.arange(n_ch))
     ax.set_xticklabels(ch_order, rotation=90, fontsize=6)
     ax.set_yticks(np.arange(n_trials))
@@ -370,8 +392,15 @@ for sess in SESSIONS:
     rmse_vmax = float(np.nanmax(rmse_sorted)) if np.isfinite(rmse_sorted).any() else 1.0
 
     fig, ax = plt.subplots(figsize=(fig_w, fig_h))
-    im = ax.imshow(rmse_sorted, cmap="Blues", vmin=0, vmax=rmse_vmax,
-                   origin="upper", aspect="auto", interpolation="nearest")
+    im = ax.imshow(
+        rmse_sorted,
+        cmap="Blues",
+        vmin=0,
+        vmax=rmse_vmax,
+        origin="upper",
+        aspect="auto",
+        interpolation="nearest",
+    )
     ax.set_xticks(np.arange(n_ch))
     ax.set_xticklabels(sd["ch_order"], rotation=90, fontsize=6)
     ax.set_yticks(np.arange(n_trials))
@@ -399,7 +428,9 @@ print(
 # %%
 for sess in SESSIONS:
     sd = SESSION_DATA[sess["label"]]
-    r_neu_f, rmse_neu_f = compute_per_trial_metrics_neural_forecast(sd["res"], sd["ch_order"], sd["raw_channels"])
+    r_neu_f, rmse_neu_f = compute_per_trial_metrics_neural_forecast(
+        sd["res"], sd["ch_order"], sd["raw_channels"]
+    )
     if r_neu_f is None:
         print(f"  {sess['label']}: no Y_future data, skipping neural forecast heatmap.")
         continue
@@ -417,8 +448,15 @@ for sess in SESSIONS:
 
     # Pearson r panel
     fig, ax = plt.subplots(figsize=(fig_w, fig_h))
-    im = ax.imshow(r_sorted, cmap="RdBu_r", vmin=-1, vmax=1,
-                   origin="upper", aspect="auto", interpolation="nearest")
+    im = ax.imshow(
+        r_sorted,
+        cmap="RdBu_r",
+        vmin=-1,
+        vmax=1,
+        origin="upper",
+        aspect="auto",
+        interpolation="nearest",
+    )
     ax.set_xticks(np.arange(n_ch))
     ax.set_xticklabels(sd["ch_order"], rotation=90, fontsize=6)
     ax.set_yticks(np.arange(n_trials))
@@ -433,8 +471,15 @@ for sess in SESSIONS:
     # RMSE panel
     rmse_vmax = float(np.nanmax(rmse_sorted)) if np.isfinite(rmse_sorted).any() else 1.0
     fig, ax = plt.subplots(figsize=(fig_w, fig_h))
-    im = ax.imshow(rmse_sorted, cmap="Blues", vmin=0, vmax=rmse_vmax,
-                   origin="upper", aspect="auto", interpolation="nearest")
+    im = ax.imshow(
+        rmse_sorted,
+        cmap="Blues",
+        vmin=0,
+        vmax=rmse_vmax,
+        origin="upper",
+        aspect="auto",
+        interpolation="nearest",
+    )
     ax.set_xticks(np.arange(n_ch))
     ax.set_xticklabels(sd["ch_order"], rotation=90, fontsize=6)
     ax.set_yticks(np.arange(n_trials))
@@ -458,16 +503,26 @@ print(
 #
 # Two panels side by side for the two behavioural outputs, using raw feature names.
 
+
 # %%
-def _behavioral_pair_heatmap(sess_label, t_labels, r_sorted, rmse_sorted, png_name, *, r_title, rmse_title):
+def _behavioral_pair_heatmap(
+    sess_label, t_labels, r_sorted, rmse_sorted, png_name, *, r_title, rmse_title
+):
     n_trials = len(t_labels)
     fig_h = max(3.5, n_trials * 0.15 + 1.2)
     fig, axes = plt.subplots(1, 2, figsize=(8.5, fig_h), sharey=True)
 
     # Panel A: Pearson r
     ax = axes[0]
-    im_r = ax.imshow(r_sorted, cmap="RdBu_r", vmin=-1, vmax=1,
-                     origin="upper", aspect="auto", interpolation="nearest")
+    im_r = ax.imshow(
+        r_sorted,
+        cmap="RdBu_r",
+        vmin=-1,
+        vmax=1,
+        origin="upper",
+        aspect="auto",
+        interpolation="nearest",
+    )
     ax.set_xticks(np.arange(len(BEHAV_CHANNELS)))
     ax.set_xticklabels(BEHAV_CHANNELS, rotation=20, ha="right", fontsize=7)
     ax.set_yticks(np.arange(n_trials))
@@ -479,8 +534,15 @@ def _behavioral_pair_heatmap(sess_label, t_labels, r_sorted, rmse_sorted, png_na
     # Panel B: RMSE
     ax = axes[1]
     rmse_vmax = float(np.nanmax(rmse_sorted)) if np.isfinite(rmse_sorted).any() else 1.0
-    im_e = ax.imshow(rmse_sorted, cmap="Blues", vmin=0, vmax=rmse_vmax,
-                     origin="upper", aspect="auto", interpolation="nearest")
+    im_e = ax.imshow(
+        rmse_sorted,
+        cmap="Blues",
+        vmin=0,
+        vmax=rmse_vmax,
+        origin="upper",
+        aspect="auto",
+        interpolation="nearest",
+    )
     ax.set_xticks(np.arange(len(BEHAV_CHANNELS)))
     ax.set_xticklabels(BEHAV_CHANNELS, rotation=20, ha="right", fontsize=7)
     fig.colorbar(im_e, ax=ax, shrink=0.7, label="RMSE")
@@ -495,7 +557,10 @@ for sess in SESSIONS:
     r_sorted = sd["r_behav"][sd["trial_order"], :]
     rmse_sorted = sd["rmse_behav"][sd["trial_order"], :]
     _behavioral_pair_heatmap(
-        sess["label"], sd["t_labels"], r_sorted, rmse_sorted,
+        sess["label"],
+        sd["t_labels"],
+        r_sorted,
+        rmse_sorted,
         png_name=f'behav_pred_{sess["label"].replace(" ", "_")}.png',
         r_title=f"Behav prediction Pearson r — {sess['label']}",
         rmse_title=f"Behav prediction RMSE — {sess['label']}",
@@ -521,7 +586,10 @@ for sess in SESSIONS:
     r_sorted = sd["r_zfore"][sd["trial_order"], :]
     rmse_sorted = sd["rmse_zfore"][sd["trial_order"], :]
     _behavioral_pair_heatmap(
-        sess["label"], sd["t_labels"], r_sorted, rmse_sorted,
+        sess["label"],
+        sd["t_labels"],
+        r_sorted,
+        rmse_sorted,
         png_name=f'behav_forecast_{sess["label"].replace(" ", "_")}.png',
         r_title=f"Behav forecast Pearson r — {sess['label']}",
         rmse_title=f"Behav forecast RMSE — {sess['label']}",
@@ -541,10 +609,23 @@ print(
 import re
 
 # Raw band-key suffixes exactly as they appear inside ECOG_<e>_<band_key>_raw.
-BAND_KEYS = ["theta_4_8", "alpha_8_12", "beta_12_17", "beta_17_22", "beta_22_27",
-             "beta_27_30", "gamma_30_35", "gamma_35_40", "gamma_40_45",
-             "gamma_45_50", "gamma_50_55", "gamma_55_60", "gamma_60_65",
-             "gamma_70_75", "gamma_75_80"]
+BAND_KEYS = [
+    "theta_4_8",
+    "alpha_8_12",
+    "beta_12_17",
+    "beta_17_22",
+    "beta_22_27",
+    "beta_27_30",
+    "gamma_30_35",
+    "gamma_35_40",
+    "gamma_40_45",
+    "gamma_45_50",
+    "gamma_50_55",
+    "gamma_55_60",
+    "gamma_60_65",
+    "gamma_70_75",
+    "gamma_75_80",
+]
 ELECTRODE_LABELS = ["ECOG_1", "ECOG_2", "ECOG_3", "ECOG_4"]
 
 n_sessions = len(SESSIONS)
@@ -560,7 +641,7 @@ for si, sess in enumerate(SESSIONS):
 
     grid = np.full((len(ELECTRODE_LABELS), len(BAND_KEYS)), np.nan)
     for ci, ch in enumerate(ch_order):
-        m = re.match(r'ECOG_(\d+)_(.+)_raw', ch)
+        m = re.match(r"ECOG_(\d+)_(.+)_raw", ch)
         if not m:
             continue
         electrode = int(m.group(1)) - 1
@@ -570,8 +651,15 @@ for si, sess in enumerate(SESSIONS):
                 grid[electrode, bi] = mean_r[ci]
                 break
 
-    im = ax.imshow(grid, cmap="RdBu_r", vmin=-0.5, vmax=0.5,
-                   origin="upper", aspect="auto", interpolation="nearest")
+    im = ax.imshow(
+        grid,
+        cmap="RdBu_r",
+        vmin=-0.5,
+        vmax=0.5,
+        origin="upper",
+        aspect="auto",
+        interpolation="nearest",
+    )
     ax.set_xticks(np.arange(len(BAND_KEYS)))
     ax.set_xticklabels(BAND_KEYS, rotation=45, ha="right", fontsize=6)
     if si == 0:
@@ -580,7 +668,7 @@ for si, sess in enumerate(SESSIONS):
     panel_label(ax, panel_letters[si], sess["label"])
 
 fig.colorbar(im, ax=axes.ravel().tolist(), shrink=0.7, label="r")
-fig.savefig(OUT / 'neural_pearson_summary.png')
+fig.savefig(OUT / "neural_pearson_summary.png")
 plt.show()
 print(
     "Mean Pearson r aggregated over test trials, reorganised into a (4 electrodes × "
@@ -596,6 +684,7 @@ print(
 # "Mean neural r" = average Pearson r across all neural channels in ``Y_future``.
 # "Mean behav r" = average across (velocity_x, accel_mag) in ``Z_future``.
 
+
 # %%
 def _top_trials_for_sec2(sess_label: str, sd: dict, k: int = 3) -> None:
     res = sd["res"]
@@ -606,10 +695,18 @@ def _top_trials_for_sec2(sess_label: str, sd: dict, k: int = 3) -> None:
 
     has_y_f = sd.get("r_yfore") is not None
     has_z_f = sd.get("r_zfore") is not None
-    mean_r_y = np.nanmean(sd["r_yfore"], axis=1) if has_y_f else np.full(n_trials, np.nan)
-    mean_r_z = np.nanmean(sd["r_zfore"], axis=1) if has_z_f else np.full(n_trials, np.nan)
-    mean_rmse_y = np.nanmean(sd["rmse_yfore"], axis=1) if has_y_f else np.full(n_trials, np.nan)
-    mean_rmse_z = np.nanmean(sd["rmse_zfore"], axis=1) if has_z_f else np.full(n_trials, np.nan)
+    mean_r_y = (
+        np.nanmean(sd["r_yfore"], axis=1) if has_y_f else np.full(n_trials, np.nan)
+    )
+    mean_r_z = (
+        np.nanmean(sd["r_zfore"], axis=1) if has_z_f else np.full(n_trials, np.nan)
+    )
+    mean_rmse_y = (
+        np.nanmean(sd["rmse_yfore"], axis=1) if has_y_f else np.full(n_trials, np.nan)
+    )
+    mean_rmse_z = (
+        np.nanmean(sd["rmse_zfore"], axis=1) if has_z_f else np.full(n_trials, np.nan)
+    )
 
     print(f"  -- {sess_label} --")
     for cond in ("off", "on"):
@@ -645,5 +742,5 @@ print(
 )
 
 # %%
-n = len(list(OUT.glob('*.png')))
-print(f'Section 8 total: {n} figures saved')
+n = len(list(OUT.glob("*.png")))
+print(f"Section 8 total: {n} figures saved")

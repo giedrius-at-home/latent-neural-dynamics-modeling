@@ -1,0 +1,43 @@
+{
+  "pipeline": "psid",
+  "variant": "psid_behavioral_PDI1_4_nx_64_n2_i100_dbs_both",
+  "phases": [
+    "train",
+    "inference",
+    "forecast",
+    "classify"
+  ],
+  "started_at": "2026-05-08T13:04:09.690287",
+  "finished_at": "2026-05-08T15:42:33.359645",
+  "state": {
+    "timestamps": {
+      "both": "20260508_130412",
+      "on": "20260508_130617",
+      "off": "20260508_130748"
+    }
+  },
+  "mode": "behavioral",
+  "participant": "PDI1",
+  "session": 4,
+  "nx": 64,
+  "n1": 2,
+  "i": 100,
+  "channels": [
+    "ECOG_2_alpha_8_12_raw",
+    "ECOG_1_beta_18_23_raw",
+    "ECOG_1_gamma_68_73_raw",
+    "ECOG_1_gamma_63_68_raw",
+    "ECOG_3_gamma_78_83_raw",
+    "ECOG_4_gamma_68_73_raw",
+    "ECOG_3_beta_28_32_env",
+    "ECOG_3_beta_18_23_env",
+    "ECOG_3_beta_13_18_env",
+    "ECOG_1_gamma_37_42_env",
+    "ECOG_4_gamma_78_83_env",
+    "ECOG_1_beta_28_32_env"
+  ],
+  "z_outputs": [
+    "tracing_velocity_x",
+    "tracing_acceleration_magnitude"
+  ]
+}

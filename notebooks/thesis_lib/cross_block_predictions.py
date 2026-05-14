@@ -71,7 +71,9 @@ def _primary_seq(res: Dict[str, Any], y_mode: Literal["Z", "Y"]) -> Optional[Lis
     return res.get(key)
 
 
-def _trial_map_for_mode(res: Dict[str, Any], y_mode: Literal["Z", "Y"]) -> Dict[Tuple[Any, ...], int]:
+def _trial_map_for_mode(
+    res: Dict[str, Any], y_mode: Literal["Z", "Y"]
+) -> Dict[Tuple[Any, ...], int]:
     seq = _primary_seq(res, y_mode)
     if not seq:
         return {}
@@ -105,6 +107,7 @@ def _aligned_trial_idx(
     ):
         return psid_row
     return None
+
 
 COLOR_OFF = "#185FA5"
 COLOR_BOTH = "#2d6a4f"
@@ -182,6 +185,7 @@ def _add_checkpoint_rmse_bands(
     show_legend: bool,
 ) -> None:
     """Ŷ ± session-mean RMSE ribbons (C2-style), respecting NaN gaps in stitched time."""
+
     def one(
         y_hat: np.ndarray,
         half: Optional[float],
@@ -288,7 +292,9 @@ def _series(
     return np.asarray(t, dtype=float).ravel(), np.asarray(y, dtype=float).ravel()
 
 
-def _tail(t: np.ndarray, *ys: np.ndarray, span_s: float) -> Tuple[np.ndarray, List[np.ndarray]]:
+def _tail(
+    t: np.ndarray, *ys: np.ndarray, span_s: float
+) -> Tuple[np.ndarray, List[np.ndarray]]:
     t = np.asarray(t, dtype=float).ravel()
     if t.size == 0 or span_s <= 0:
         return t, [np.asarray(y, dtype=float).ravel() for y in ys]
@@ -297,7 +303,9 @@ def _tail(t: np.ndarray, *ys: np.ndarray, span_s: float) -> Tuple[np.ndarray, Li
     return t[m], [np.asarray(y, dtype=float).ravel()[m] for y in ys]
 
 
-def _head(t: np.ndarray, *ys: np.ndarray, span_s: float) -> Tuple[np.ndarray, List[np.ndarray]]:
+def _head(
+    t: np.ndarray, *ys: np.ndarray, span_s: float
+) -> Tuple[np.ndarray, List[np.ndarray]]:
     t = np.asarray(t, dtype=float).ravel()
     if t.size == 0 or span_s <= 0:
         return t, [np.asarray(y, dtype=float).ravel() for y in ys]
@@ -396,32 +404,32 @@ def _load_fw(
         vj, tj = tri.psid_variant, tri.psid_run_ts
         vo, to = _variant_off(vj), triplet_branch_timestamp(tri, "psid", "off")
         vn, tn = _variant_on(vj), triplet_branch_timestamp(tri, "psid", "on")
-        veo, teo = _variant_cross_eval(_variant_on(vj), "off"), triplet_branch_timestamp(
-            tri, "psid", "eval_off"
-        )
-        ven, ten = _variant_cross_eval(_variant_off(vj), "on"), triplet_branch_timestamp(
-            tri, "psid", "eval_on"
-        )
+        veo, teo = _variant_cross_eval(
+            _variant_on(vj), "off"
+        ), triplet_branch_timestamp(tri, "psid", "eval_off")
+        ven, ten = _variant_cross_eval(
+            _variant_off(vj), "on"
+        ), triplet_branch_timestamp(tri, "psid", "eval_on")
     elif fw == "dpad":
         vj, tj = tri.dpad_variant, tri.dpad_run_ts
         vo, to = _variant_off(vj), triplet_branch_timestamp(tri, "dpad", "off")
         vn, tn = _variant_on(vj), triplet_branch_timestamp(tri, "dpad", "on")
-        veo, teo = _variant_cross_eval(_variant_on(vj), "off"), triplet_branch_timestamp(
-            tri, "dpad", "eval_off"
-        )
-        ven, ten = _variant_cross_eval(_variant_off(vj), "on"), triplet_branch_timestamp(
-            tri, "dpad", "eval_on"
-        )
+        veo, teo = _variant_cross_eval(
+            _variant_on(vj), "off"
+        ), triplet_branch_timestamp(tri, "dpad", "eval_off")
+        ven, ten = _variant_cross_eval(
+            _variant_off(vj), "on"
+        ), triplet_branch_timestamp(tri, "dpad", "eval_on")
     else:
         vj, tj = tri.varma_variant, tri.varma_run_ts
         vo, to = _variant_off(vj), triplet_branch_timestamp(tri, "varma", "off")
         vn, tn = _variant_on(vj), triplet_branch_timestamp(tri, "varma", "on")
-        veo, teo = _variant_cross_eval(_variant_on(vj), "off"), triplet_branch_timestamp(
-            tri, "varma", "eval_off"
-        )
-        ven, ten = _variant_cross_eval(_variant_off(vj), "on"), triplet_branch_timestamp(
-            tri, "varma", "eval_on"
-        )
+        veo, teo = _variant_cross_eval(
+            _variant_on(vj), "off"
+        ), triplet_branch_timestamp(tri, "varma", "eval_off")
+        ven, ten = _variant_cross_eval(
+            _variant_off(vj), "on"
+        ), triplet_branch_timestamp(tri, "varma", "eval_on")
     return _CrossFwPack(
         res_j=load_split_results_required(results_root, vj, tj, split),
         res_o=load_split_results_required(results_root, vo, to, split),
@@ -509,7 +517,9 @@ def _stitch_off_on(
         + float(rmse_z(zt, pred_on))
     ) / 3.0
 
-    zref_raw = np.concatenate([np.asarray(z0s, dtype=float).ravel(), np.asarray(z1s, dtype=float).ravel()])
+    zref_raw = np.concatenate(
+        [np.asarray(z0s, dtype=float).ravel(), np.asarray(z1s, dtype=float).ravel()]
+    )
     return t_plot, z_true, z_off, z_both, z_onm, rms, zref_raw
 
 
@@ -580,7 +590,9 @@ def _stitch_on_off(
         + float(rmse_z(zt, pred_both))
         + float(rmse_z(zt, pred_on))
     ) / 3.0
-    zref_raw = np.concatenate([np.asarray(z0s, dtype=float).ravel(), np.asarray(z1s, dtype=float).ravel()])
+    zref_raw = np.concatenate(
+        [np.asarray(z0s, dtype=float).ravel(), np.asarray(z1s, dtype=float).ravel()]
+    )
     return t_plot, z_true, z_off, z_both, z_onm, rms, zref_raw
 
 
@@ -618,13 +630,17 @@ def _extract_single_segment(
     # For OFF trial: OFF-trained model on this trial + ON-trained cross-eval on this OFF trial
     # For ON trial: ON-trained model on this trial + OFF-trained cross-eval on this ON trial
     if is_off_trial:
-        i_within = _aligned_trial_idx(res_o, res_j, k, trial_idx, y_mode)   # OFF-trained
-        i_cross = _aligned_trial_idx(res_eo, res_j, k, trial_idx, y_mode)   # ON-trained cross-eval on OFF
+        i_within = _aligned_trial_idx(res_o, res_j, k, trial_idx, y_mode)  # OFF-trained
+        i_cross = _aligned_trial_idx(
+            res_eo, res_j, k, trial_idx, y_mode
+        )  # ON-trained cross-eval on OFF
         if i_within is None or i_cross is None:
             return None
     else:
-        i_cross = _aligned_trial_idx(res_en, res_j, k, trial_idx, y_mode)   # OFF-trained cross-eval on ON
-        i_within = _aligned_trial_idx(res_n, res_j, k, trial_idx, y_mode)   # ON-trained
+        i_cross = _aligned_trial_idx(
+            res_en, res_j, k, trial_idx, y_mode
+        )  # OFF-trained cross-eval on ON
+        i_within = _aligned_trial_idx(res_n, res_j, k, trial_idx, y_mode)  # ON-trained
         if i_within is None or i_cross is None:
             return None
 
@@ -632,11 +648,15 @@ def _extract_single_segment(
         t, z_true = _series(res_j, trial_idx, ch, y_mode, False)
         p_both = _series(res_j, trial_idx, ch, y_mode, True)[1]
         if is_off_trial:
-            p_off = _series(res_o, i_within, ch, y_mode, True)[1]   # OFF-trained
-            p_on = _series(res_eo, i_cross, ch, y_mode, True)[1]    # ON-trained cross-eval
+            p_off = _series(res_o, i_within, ch, y_mode, True)[1]  # OFF-trained
+            p_on = _series(res_eo, i_cross, ch, y_mode, True)[
+                1
+            ]  # ON-trained cross-eval
         else:
-            p_off = _series(res_en, i_cross, ch, y_mode, True)[1]   # OFF-trained cross-eval
-            p_on = _series(res_n, i_within, ch, y_mode, True)[1]    # ON-trained
+            p_off = _series(res_en, i_cross, ch, y_mode, True)[
+                1
+            ]  # OFF-trained cross-eval
+            p_on = _series(res_n, i_within, ch, y_mode, True)[1]  # ON-trained
     except Exception:
         return None
 
@@ -645,9 +665,13 @@ def _extract_single_segment(
 
     # Extract tail (for OFF trial) or head (for ON trial)
     if is_off_trial:
-        t_s, (zt_s, po_s, pb_s, pn_s) = _tail(t, z_true, p_off, p_both, p_on, span_s=span_s)
+        t_s, (zt_s, po_s, pb_s, pn_s) = _tail(
+            t, z_true, p_off, p_both, p_on, span_s=span_s
+        )
     else:
-        t_s, (zt_s, po_s, pb_s, pn_s) = _head(t, z_true, p_off, p_both, p_on, span_s=span_s)
+        t_s, (zt_s, po_s, pb_s, pn_s) = _head(
+            t, z_true, p_off, p_both, p_on, span_s=span_s
+        )
 
     if t_s.size < 2:
         return None
@@ -679,7 +703,9 @@ def build_cross_block_predictions_figure(
         sl = list(stim) if stim is not None else []
         pair = find_adjacent_off_then_on_trial_indices(sl)
     if pair is None:
-        raise ValueError("Cross-block figure: no OFF→ON trial pair in joint PSID results.")
+        raise ValueError(
+            "Cross-block figure: no OFF→ON trial pair in joint PSID results."
+        )
     i_off, i_on = pair
 
     ch = _resolve_y_channel(res_joint, spec)
@@ -705,15 +731,39 @@ def build_cross_block_predictions_figure(
         k_off = _trial_key(res_j, i_off)
         k_on = _trial_key(res_j, i_on)
         res_o, res_n = _maybe_reload_off_on_for_boundary(
-            results_root, packs, res_j, k_off, k_on, i_off, i_on, y_mode, spec.split,
+            results_root,
+            packs,
+            res_j,
+            k_off,
+            k_on,
+            i_off,
+            i_on,
+            y_mode,
+            spec.split,
         )
         seg_off = _extract_single_segment(
-            res_j, res_o, res_n, packs.res_eo, packs.res_en,
-            i_off, True, ch, y_mode, span,
+            res_j,
+            res_o,
+            res_n,
+            packs.res_eo,
+            packs.res_en,
+            i_off,
+            True,
+            ch,
+            y_mode,
+            span,
         )
         seg_on = _extract_single_segment(
-            res_j, res_o, res_n, packs.res_eo, packs.res_en,
-            i_on, False, ch, y_mode, span,
+            res_j,
+            res_o,
+            res_n,
+            packs.res_eo,
+            packs.res_en,
+            i_on,
+            False,
+            ch,
+            y_mode,
+            span,
         )
         if seg_off is None or seg_on is None:
             logger.warning("Cross-block %s: segment extraction failed.", fw)
@@ -758,55 +808,79 @@ def build_cross_block_predictions_figure(
             x0 = float(np.nanmin(t_p))
             x1 = float(np.nanmax(t_p))
             fig.add_vrect(
-                x0=x0, x1=x1,
+                x0=x0,
+                x1=x1,
                 fillcolor=bg_color,
-                layer="below", line_width=0,
-                row=ri, col=ci,
+                layer="below",
+                line_width=0,
+                row=ri,
+                col=ci,
             )
 
             fig.add_trace(
                 go.Scatter(
-                    x=t_p, y=zt,
-                    name="y_true", mode="lines",
+                    x=t_p,
+                    y=zt,
+                    name="y_true",
+                    mode="lines",
                     line=dict(color=c_true, width=WIDTH_TRUE),
-                    showlegend=show_leg, legendgroup="true",
+                    showlegend=show_leg,
+                    legendgroup="true",
                     connectgaps=False,
                 ),
-                row=ri, col=ci,
+                row=ri,
+                col=ci,
             )
             fig.add_trace(
                 go.Scatter(
-                    x=t_p, y=zo,
-                    name="Ŷ OFF-trained", mode="lines",
+                    x=t_p,
+                    y=zo,
+                    name="Ŷ OFF-trained",
+                    mode="lines",
                     line=dict(color=COLOR_OFF, width=lw),
-                    showlegend=show_leg, legendgroup="off",
+                    showlegend=show_leg,
+                    legendgroup="off",
                     connectgaps=False,
                 ),
-                row=ri, col=ci,
+                row=ri,
+                col=ci,
             )
             fig.add_trace(
                 go.Scatter(
-                    x=t_p, y=zb,
-                    name="Ŷ BOTH-trained", mode="lines",
+                    x=t_p,
+                    y=zb,
+                    name="Ŷ BOTH-trained",
+                    mode="lines",
                     line=dict(color=COLOR_BOTH, width=lw),
-                    showlegend=show_leg, legendgroup="both",
+                    showlegend=show_leg,
+                    legendgroup="both",
                     connectgaps=False,
                 ),
-                row=ri, col=ci,
+                row=ri,
+                col=ci,
             )
             fig.add_trace(
                 go.Scatter(
-                    x=t_p, y=zn,
-                    name="Ŷ ON-trained", mode="lines",
+                    x=t_p,
+                    y=zn,
+                    name="Ŷ ON-trained",
+                    mode="lines",
                     line=dict(color=COLOR_ON, width=lw, dash=dash_on),
-                    showlegend=show_leg, legendgroup="on",
+                    showlegend=show_leg,
+                    legendgroup="on",
                     connectgaps=False,
                 ),
-                row=ri, col=ci,
+                row=ri,
+                col=ci,
             )
 
     apply_grid_xy_subplots(
-        fig, n_rows=n_rows, n_cols=2, theme=spec.theme, nticks=8, x_title=THESIS_TIME_AXIS_TITLE
+        fig,
+        n_rows=n_rows,
+        n_cols=2,
+        theme=spec.theme,
+        nticks=8,
+        x_title=THESIS_TIME_AXIS_TITLE,
     )
 
     apply_thesis_style(
@@ -826,10 +900,13 @@ def build_cross_block_predictions_figure(
             res_joint, ch, declared_outputs=THESIS_DECLARED_BEHAVIORAL_OUTPUTS
         )
         from thesis_lib.constants import d_score_axis_label
+
         ylab = d_score_axis_label(och)
     else:
         feat_disp = neural_y_feature_label(
-            res_joint, ch, neural_y_feature_name=spec.neural_y_feature_name,
+            res_joint,
+            ch,
+            neural_y_feature_name=spec.neural_y_feature_name,
         )
         ylab = feat_disp  # neural: raw feature name, no prefix
 
@@ -838,7 +915,11 @@ def build_cross_block_predictions_figure(
 
     feat = och if y_mode == "Z" else feat_disp
     cap = thesis_exemplar_tagline(
-        res_joint, i_off, i_on, feat, participant_label=spec.participant_label,
+        res_joint,
+        i_off,
+        i_on,
+        feat,
+        participant_label=spec.participant_label,
     )
     sc = (spec.caption or "").strip()
     if sc:

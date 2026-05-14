@@ -28,9 +28,10 @@
 
 # %%
 import sys, os
-os.chdir('/home/bobby/repos/latent-neural-dynamics-modeling')
-sys.path.insert(0, '.')
-sys.path.insert(0, 'notebooks')
+
+os.chdir("/home/bobby/repos/latent-neural-dynamics-modeling")
+sys.path.insert(0, ".")
+sys.path.insert(0, "notebooks")
 
 from pathlib import Path
 import numpy as np
@@ -41,12 +42,22 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 # Security-hook workaround: load in-repo serialized dumps via alias.
 import importlib as _importlib
+
 _serial = _importlib.import_module("pic" + "kle")  # nosec
 
 from thesis_style import (
-    COLOR_CHANCE, COLOR_DBS_OFF, COLOR_DBS_ON, COLOR_DPAD, COLOR_NS,
-    COLOR_PSID, COLOR_VARMA,
-    apply_thesis_style, dbs_color, hex_to_rgba, panel_label, stack_bar_label,
+    COLOR_CHANCE,
+    COLOR_DBS_OFF,
+    COLOR_DBS_ON,
+    COLOR_DPAD,
+    COLOR_NS,
+    COLOR_PSID,
+    COLOR_VARMA,
+    apply_thesis_style,
+    dbs_color,
+    hex_to_rgba,
+    panel_label,
+    stack_bar_label,
 )
 from thesis_lib.specs import (
     AlignedTriplet,
@@ -57,8 +68,9 @@ from thesis_sec2_common import ALL_TRIPLETS, ALL_TRIPLETS_LAP
 
 apply_thesis_style()
 
-OUT = Path('thesis_figures/sec5'); OUT.mkdir(parents=True, exist_ok=True)
-results_root = Path('results').resolve()
+OUT = Path("thesis_figures/sec5")
+OUT.mkdir(parents=True, exist_ok=True)
+results_root = Path("results").resolve()
 
 # Canonical true-signal colour for time-series panels.
 COLOR_TRUE = "#1A1A1A"
@@ -118,10 +130,20 @@ def _build_refs(model_label: str) -> Tuple[ClassificationF1PickleRef, ...]:
     for participant, sess, _mode, tri in _cell_records():
         base = _classification_dir(tri, model_label)
         for grp in _FEATURE_GROUPS:
-            rel = f"{base}/{_GROUP_TO_FILE[grp]}" if base else f"_missing_/{_GROUP_TO_FILE[grp]}"
-            refs.append(ClassificationF1PickleRef(
-                participant, sess, grp, rel, model_label,
-            ))
+            rel = (
+                f"{base}/{_GROUP_TO_FILE[grp]}"
+                if base
+                else f"_missing_/{_GROUP_TO_FILE[grp]}"
+            )
+            refs.append(
+                ClassificationF1PickleRef(
+                    participant,
+                    sess,
+                    grp,
+                    rel,
+                    model_label,
+                )
+            )
     return tuple(refs)
 
 
@@ -138,7 +160,10 @@ THESIS_CLASSIFICATION_F1 = [
 
 GROUP_ORDER: Tuple[str, ...] = ("xp", "xp_1", "xp_2", "xp_with_dbs")
 GROUP_SHORT: Dict[str, str] = {
-    "xp": "Xp", "xp_1": "Xp1", "xp_2": "Xp2", "xp_with_dbs": "Xp+DBS",
+    "xp": "Xp",
+    "xp_1": "Xp1",
+    "xp_2": "Xp2",
+    "xp_with_dbs": "Xp+DBS",
 }
 GROUP_COLORS: Dict[str, str] = {
     "xp": COLOR_PSID,
@@ -173,6 +198,7 @@ def _test_set_perm(
     test labels were random under the same predictions?' Cheap (no refit).
     """
     from sklearn.metrics import balanced_accuracy_score
+
     y_true = np.asarray(y_true).ravel()
     y_pred = np.asarray(y_pred).ravel()
     obs = float(balanced_accuracy_score(y_true, y_pred))
@@ -185,7 +211,7 @@ def _test_set_perm(
 
 
 def _extract_test_ba_and_perm(
-    res: Dict[str, Any]
+    res: Dict[str, Any],
 ) -> Tuple[float, Optional[float], Optional[Tuple[float, ...]]]:
     """Extract test BA and a test-side perm null. Computed in-notebook from
     y_true / y_pred stored in test_results — independent of the pipeline's
@@ -231,15 +257,17 @@ def collect_classification_f1_points(
                 ba, pval, pscores = _extract_test_ba_and_perm(res)
         elif strict:
             raise FileNotFoundError(f"Classification dump not found: {p}")
-        out.append(ClassificationF1Point(
-            participant_label=ref.participant_label,
-            session_label=ref.session_label,
-            group=ref.group,
-            balanced_accuracy=ba,
-            permutation_pvalue=pval,
-            model_label=getattr(ref, "model_label", "PSID"),
-            permutation_scores=pscores,
-        ))
+        out.append(
+            ClassificationF1Point(
+                participant_label=ref.participant_label,
+                session_label=ref.session_label,
+                group=ref.group,
+                balanced_accuracy=ba,
+                permutation_pvalue=pval,
+                model_label=getattr(ref, "model_label", "PSID"),
+                permutation_scores=pscores,
+            )
+        )
     return out
 
 
@@ -257,9 +285,13 @@ def _best_forecast_test_ba(
     if not run_dir.is_dir():
         return float("nan"), None, None, None
 
-    pipeline_pick: Optional[Tuple[float, str, Optional[float], Optional[Tuple[float, ...]]]] = None
+    pipeline_pick: Optional[
+        Tuple[float, str, Optional[float], Optional[Tuple[float, ...]]]
+    ] = None
     pipeline_pick_ba = -1.0
-    fallback_picks: List[Tuple[float, str, Optional[float], Optional[Tuple[float, ...]]]] = []
+    fallback_picks: List[
+        Tuple[float, str, Optional[float], Optional[Tuple[float, ...]]]
+    ] = []
     for d in sorted(run_dir.iterdir()):
         if not d.is_dir() or not d.name.startswith("h"):
             continue
@@ -298,12 +330,12 @@ def collect_forecast_bests(
     classification_parent: str = "classification",
 ) -> Dict[
     Tuple[str, str],
-    Tuple[float, Optional[str], Optional[float], Optional[Tuple[float, ...]]]
+    Tuple[float, Optional[str], Optional[float], Optional[Tuple[float, ...]]],
 ]:
     base = results_root / classification_parent
     out: Dict[
         Tuple[str, str],
-        Tuple[float, Optional[str], Optional[float], Optional[Tuple[float, ...]]]
+        Tuple[float, Optional[str], Optional[float], Optional[Tuple[float, ...]]],
     ] = {}
     for ref in refs:
         rel = Path(ref.pickle_relative_path)
@@ -340,15 +372,19 @@ SHOW_DPAD = False  # flip to True once DPAD perm scores are available
 
 f1_spec = THESIS_CLASSIFICATION_F1[0]
 cls_points = collect_classification_f1_points(
-    results_root, f1_spec.points, classification_parent=f1_spec.classification_parent,
+    results_root,
+    f1_spec.points,
+    classification_parent=f1_spec.classification_parent,
 )
 forecast_bests_psid = collect_forecast_bests(
     [r for r in f1_spec.points if r.model_label == "PSID"],
-    results_root, classification_parent=f1_spec.classification_parent,
+    results_root,
+    classification_parent=f1_spec.classification_parent,
 )
 forecast_bests_dpad = collect_forecast_bests(
     [r for r in f1_spec.points if r.model_label == "DPAD"],
-    results_root, classification_parent=f1_spec.classification_parent,
+    results_root,
+    classification_parent=f1_spec.classification_parent,
 )
 
 
@@ -359,7 +395,7 @@ def _mode_from_session_label(session_label: str) -> str:
 # Pooled buckets keyed by (feature, model, mode) → list of (session_key, ba, pval, pscores).
 pooled_pred: Dict[
     Tuple[str, str, str],
-    List[Tuple[str, float, Optional[float], Optional[Tuple[float, ...]]]]
+    List[Tuple[str, float, Optional[float], Optional[Tuple[float, ...]]]],
 ] = {}
 for pt in cls_points:
     sess_key = f"{pt.participant_label}_{pt.session_label}"
@@ -373,7 +409,9 @@ for pt in cls_points:
 # (best-BA) directory has perm scores, we keep them for the empirical chance band.
 pooled_fcst: Dict[
     Tuple[str, str, str],
-    List[Tuple[str, float, Optional[float], Optional[Tuple[float, ...]], Optional[str]]]
+    List[
+        Tuple[str, float, Optional[float], Optional[Tuple[float, ...]], Optional[str]]
+    ],
 ] = {}
 for src, model in [(forecast_bests_psid, "PSID"), (forecast_bests_dpad, "DPAD")]:
     for (sess, grp), (ba, hm, pval, pscores) in src.items():
@@ -395,9 +433,15 @@ pred_lookup: Dict[Tuple[str, str, str], ClassificationF1Point] = {
 
 
 def empirical_chance_band(
-    pooled: Dict[Tuple[str, str, str], List[Tuple[str, float, Optional[float], Optional[Tuple[float, ...]]]]],
-    feat: str, model: str, mode: str,
-    low: float = 5.0, high: float = 95.0,
+    pooled: Dict[
+        Tuple[str, str, str],
+        List[Tuple[str, float, Optional[float], Optional[Tuple[float, ...]]]],
+    ],
+    feat: str,
+    model: str,
+    mode: str,
+    low: float = 5.0,
+    high: float = 95.0,
 ) -> Optional[Tuple[float, float, float]]:
     """Pool perm scores across cells in (feat, model, mode); return (low, median, high)
     percentiles or None if no cell ships a perm distribution."""
@@ -410,7 +454,11 @@ def empirical_chance_band(
     if not pooled_scores:
         return None
     arr = np.asarray(pooled_scores, dtype=float)
-    return float(np.percentile(arr, low)), float(np.median(arr)), float(np.percentile(arr, high))
+    return (
+        float(np.percentile(arr, low)),
+        float(np.median(arr)),
+        float(np.percentile(arr, high)),
+    )
 
 
 features = list(GROUP_ORDER)
@@ -420,11 +468,17 @@ def _model_color(model: str) -> str:
     return COLOR_PSID if model == "PSID" else COLOR_DPAD
 
 
-def _draw_box(ax, vals, x_pos, color, *, hatch=None, fill_alpha=0.25, width: float = 0.14):
+def _draw_box(
+    ax, vals, x_pos, color, *, hatch=None, fill_alpha=0.25, width: float = 0.14
+):
     face = (*to_rgba(color)[:3], fill_alpha)
     bp = ax.boxplot(
-        [vals], positions=[x_pos], widths=width, patch_artist=True,
-        showfliers=False, manage_ticks=False,
+        [vals],
+        positions=[x_pos],
+        widths=width,
+        patch_artist=True,
+        showfliers=False,
+        manage_ticks=False,
     )
     for box in bp["boxes"]:
         box.set(facecolor=face, edgecolor=color, linewidth=1.0)
@@ -436,13 +490,21 @@ def _draw_box(ax, vals, x_pos, color, *, hatch=None, fill_alpha=0.25, width: flo
     return bp
 
 
-def _draw_chance_band(ax, x_center: float, lo: float, hi: float, mode: str, half_width: float):
+def _draw_chance_band(
+    ax, x_center: float, lo: float, hi: float, mode: str, half_width: float
+):
     """Per-(feature, mode) empirical chance band: shaded rect from 5–95% of pooled
     perm distribution. Hatched for laplacian to match box hatch convention."""
     rect = plt.Rectangle(
-        (x_center - half_width, lo), 2 * half_width, hi - lo,
-        facecolor="#888888", alpha=0.18, edgecolor="#555555", linewidth=0.5,
-        hatch=("//" if mode == "laplacian" else None), zorder=0,
+        (x_center - half_width, lo),
+        2 * half_width,
+        hi - lo,
+        facecolor="#888888",
+        alpha=0.18,
+        edgecolor="#555555",
+        linewidth=0.5,
+        hatch=("//" if mode == "laplacian" else None),
+        zorder=0,
     )
     ax.add_patch(rect)
 
@@ -472,7 +534,10 @@ def _forecast_hm_table(model_label: str) -> Tuple[List[List[str]], List[str]]:
 
 
 def render_pooled_classification(
-    model_label: str, save_path: Path, *, title_suffix: str = "",
+    model_label: str,
+    save_path: Path,
+    *,
+    title_suffix: str = "",
 ) -> bool:
     """Render the 2-panel pooled classification figure for one model + a third
     sub-axis with the per-(session, feature) (h, m) picks underneath. Returns
@@ -500,8 +565,9 @@ def render_pooled_classification(
                 band = empirical_chance_band(src, feat, model_label, mode)
                 if band is not None:
                     lo_p, _med, hi_p = band
-                    _draw_chance_band(ax, x_pos, lo_p, hi_p, mode,
-                                      half_width=band_half_width)
+                    _draw_chance_band(
+                        ax, x_pos, lo_p, hi_p, mode, half_width=band_half_width
+                    )
 
                 if not entries:
                     continue
@@ -509,7 +575,9 @@ def render_pooled_classification(
                 bas = np.array([e[1] for e in entries], dtype=float)
                 bas_finite = bas[np.isfinite(bas)]
                 if len(bas_finite) >= 2:
-                    _draw_box(ax, bas_finite, x_pos, color, hatch=hatch, width=box_width)
+                    _draw_box(
+                        ax, bas_finite, x_pos, color, hatch=hatch, width=box_width
+                    )
                     has_any = True
                 jitter = rng.uniform(-box_width * 0.25, box_width * 0.25, len(entries))
                 for j, entry in enumerate(entries):
@@ -519,14 +587,37 @@ def render_pooled_classification(
                     has_any = True
                     pval = entry[2]
                     if pval is not None and pval < 0.05:
-                        ax.scatter(x_pos + jitter[j], ba, s=28, color=color, alpha=1.0,
-                                   edgecolor="black", linewidths=0.5, zorder=3)
+                        ax.scatter(
+                            x_pos + jitter[j],
+                            ba,
+                            s=28,
+                            color=color,
+                            alpha=1.0,
+                            edgecolor="black",
+                            linewidths=0.5,
+                            zorder=3,
+                        )
                     elif pval is not None:
-                        ax.scatter(x_pos + jitter[j], ba, s=28, color=color, alpha=0.55,
-                                   edgecolor="none", zorder=3)
+                        ax.scatter(
+                            x_pos + jitter[j],
+                            ba,
+                            s=28,
+                            color=color,
+                            alpha=0.55,
+                            edgecolor="none",
+                            zorder=3,
+                        )
                     else:
-                        ax.scatter(x_pos + jitter[j], ba, s=28, color=color, alpha=1.0,
-                                   edgecolor="black", linewidths=0.5, zorder=3)
+                        ax.scatter(
+                            x_pos + jitter[j],
+                            ba,
+                            s=28,
+                            color=color,
+                            alpha=1.0,
+                            edgecolor="black",
+                            linewidths=0.5,
+                            zorder=3,
+                        )
         ax.axhline(0.5, linestyle=":", color="#999999", linewidth=0.8)
         ax.set_ylim(0.3, 1.05)
         ax.set_ylabel("Balanced accuracy")
@@ -538,14 +629,31 @@ def render_pooled_classification(
     panel_label(axes[1], "B", f"{model_label} forecast (CV-picked h, m){title_suffix}")
 
     legend_handles = [
-        _Patch(facecolor=hex_to_rgba(color, 0.25), edgecolor=color,
-               label=f"{model_label}, behavioral"),
-        _Patch(facecolor=hex_to_rgba(color, 0.25), edgecolor=color, hatch="//",
-               label=f"{model_label}, laplacian"),
-        _Patch(facecolor="#888888", alpha=0.18, edgecolor="#555555",
-               label="empirical chance 5–95% (test-perm null, n=100)"),
-        plt.Line2D([0], [0], linestyle=":", color="#999999", linewidth=0.8,
-                   label="0.5 reference"),
+        _Patch(
+            facecolor=hex_to_rgba(color, 0.25),
+            edgecolor=color,
+            label=f"{model_label}, behavioral",
+        ),
+        _Patch(
+            facecolor=hex_to_rgba(color, 0.25),
+            edgecolor=color,
+            hatch="//",
+            label=f"{model_label}, laplacian",
+        ),
+        _Patch(
+            facecolor="#888888",
+            alpha=0.18,
+            edgecolor="#555555",
+            label="empirical chance 5–95% (test-perm null, n=100)",
+        ),
+        plt.Line2D(
+            [0],
+            [0],
+            linestyle=":",
+            color="#999999",
+            linewidth=0.8,
+            label="0.5 reference",
+        ),
     ]
     axes[0].legend(handles=legend_handles, fontsize=8)
 
@@ -570,13 +678,23 @@ _dpad_rendered = False
 # Forecast (h, m) picks per session × feature — printed as pandas tables instead
 # of being baked into the figure (one table per model).
 import pandas as _pd
+
 for _mlabel, _src in (("PSID", forecast_bests_psid), ("DPAD", forecast_bests_dpad)):
     _rows = []
     for _sk in session_keys:
-        _rows.append([_hm_short(_src.get((_sk, _f), (None, ""))[1]) if _src.get((_sk, _f)) else "–"
-                     for _f in features])
-    _df = _pd.DataFrame(_rows, index=list(session_keys),
-                        columns=[GROUP_SHORT[_f] for _f in features])
+        _rows.append(
+            [
+                (
+                    _hm_short(_src.get((_sk, _f), (None, ""))[1])
+                    if _src.get((_sk, _f))
+                    else "–"
+                )
+                for _f in features
+            ]
+        )
+    _df = _pd.DataFrame(
+        _rows, index=list(session_keys), columns=[GROUP_SHORT[_f] for _f in features]
+    )
     print(f"\nForecast (h / m) picks — {_mlabel}")
     print(_df.to_string())
 
@@ -584,42 +702,77 @@ for _mlabel, _src in (("PSID", forecast_bests_psid), ("DPAD", forecast_bests_dpa
 table_path = OUT / "table_049_classification.csv"
 with open(table_path, "w", newline="") as f:
     w = csv.writer(f)
-    w.writerow(["panel", "session", "feature", "model", "mode", "balanced_accuracy",
-                "perm_pvalue", "best_h_m"])
+    w.writerow(
+        [
+            "panel",
+            "session",
+            "feature",
+            "model",
+            "mode",
+            "balanced_accuracy",
+            "perm_pvalue",
+            "best_h_m",
+        ]
+    )
     for pt in cls_points:
         sess_key = f"{pt.participant_label}_{pt.session_label}"
         mode = _mode_from_session_label(pt.session_label)
-        w.writerow([
-            "prediction", sess_key, pt.group, pt.model_label, mode,
-            f"{pt.balanced_accuracy:.4f}" if np.isfinite(pt.balanced_accuracy) else "",
-            f"{pt.permutation_pvalue:.4f}" if pt.permutation_pvalue is not None else "",
-            "",
-        ])
-    for src_dict, model in [(forecast_bests_psid, "PSID"), (forecast_bests_dpad, "DPAD")]:
+        w.writerow(
+            [
+                "prediction",
+                sess_key,
+                pt.group,
+                pt.model_label,
+                mode,
+                (
+                    f"{pt.balanced_accuracy:.4f}"
+                    if np.isfinite(pt.balanced_accuracy)
+                    else ""
+                ),
+                (
+                    f"{pt.permutation_pvalue:.4f}"
+                    if pt.permutation_pvalue is not None
+                    else ""
+                ),
+                "",
+            ]
+        )
+    for src_dict, model in [
+        (forecast_bests_psid, "PSID"),
+        (forecast_bests_dpad, "DPAD"),
+    ]:
         for (sess, grp), (ba, hm, pval, _pscores) in src_dict.items():
             mode = _mode_from_session_label(sess)
-            w.writerow([
-                "forecast", sess, grp, model, mode,
-                f"{ba:.4f}" if np.isfinite(ba) else "",
-                f"{pval:.4f}" if pval is not None else "",
-                hm or "",
-            ])
+            w.writerow(
+                [
+                    "forecast",
+                    sess,
+                    grp,
+                    model,
+                    mode,
+                    f"{ba:.4f}" if np.isfinite(ba) else "",
+                    f"{pval:.4f}" if pval is not None else "",
+                    hm or "",
+                ]
+            )
 
 _n_pred_perm_psid = sum(
-    1 for pt in cls_points
+    1
+    for pt in cls_points
     if pt.model_label == "PSID" and pt.permutation_scores is not None
 )
 _n_fcst_perm_psid = sum(
-    1 for (sess_grp, tup) in forecast_bests_psid.items()
+    1
+    for (sess_grp, tup) in forecast_bests_psid.items()
     if tup[3] is not None  # perm scores at pipeline-picked (h, m)
 )
 _n_pred_perm_dpad = sum(
-    1 for pt in cls_points
+    1
+    for pt in cls_points
     if pt.model_label == "DPAD" and pt.permutation_scores is not None
 )
 _n_fcst_perm_dpad = sum(
-    1 for (sess_grp, tup) in forecast_bests_dpad.items()
-    if tup[3] is not None
+    1 for (sess_grp, tup) in forecast_bests_dpad.items() if tup[3] is not None
 )
 print(
     f"Fig 49 (PSID only) - DBS classification BA, pooled across cells "
@@ -641,6 +794,7 @@ print(
 # (rows = true class). Diagonal = TPR(off) and TPR(on). Below-cell text shows the
 # raw counts. PSID-only when `SHOW_DPAD=False`; when DPAD ships, two grids
 # stacked vertically.
+
 
 # %%
 def _load_confusion(rel_pkl: str) -> Optional[np.ndarray]:
@@ -668,10 +822,21 @@ def _load_confusion(rel_pkl: str) -> Optional[np.ndarray]:
 
 def _draw_confusion_cell(ax, cm: Optional[np.ndarray], *, title: str, color: str):
     if cm is None:
-        ax.add_patch(plt.Rectangle((0, 0), 1, 1, facecolor="#EEEEEE",
-                                   edgecolor="#BBBBBB", hatch="///", linewidth=0.5))
-        ax.set_xlim(0, 1); ax.set_ylim(0, 1)
-        ax.set_xticks([]); ax.set_yticks([])
+        ax.add_patch(
+            plt.Rectangle(
+                (0, 0),
+                1,
+                1,
+                facecolor="#EEEEEE",
+                edgecolor="#BBBBBB",
+                hatch="///",
+                linewidth=0.5,
+            )
+        )
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, 1)
+        ax.set_xticks([])
+        ax.set_yticks([])
         ax.set_title(title, fontsize=7)
         return
     # Reorient so "on" is top row + leftmost column → top-left = TP_on (positive).
@@ -691,9 +856,17 @@ def _draw_confusion_cell(ax, cm: Optional[np.ndarray], *, title: str, color: str
     for i in range(2):
         for j in range(2):
             txt_color = "white" if norm_cm[i, j] > 0.55 else "#222222"
-            ax.text(j, i, f"{norm_cm[i, j]:.2f}\n({int(cm_oriented[i, j])})",
-                    ha="center", va="center", fontsize=6, color=txt_color)
-    ax.set_xticks([0, 1]); ax.set_yticks([0, 1])
+            ax.text(
+                j,
+                i,
+                f"{norm_cm[i, j]:.2f}\n({int(cm_oriented[i, j])})",
+                ha="center",
+                va="center",
+                fontsize=6,
+                color=txt_color,
+            )
+    ax.set_xticks([0, 1])
+    ax.set_yticks([0, 1])
     ax.set_xticklabels(["on", "off"], fontsize=6)
     ax.set_yticklabels(["on", "off"], fontsize=6)
     ax.set_title(title, fontsize=7)
@@ -702,11 +875,14 @@ def _draw_confusion_cell(ax, cm: Optional[np.ndarray], *, title: str, color: str
 def _confusion_grid(model_label: str, color: str) -> Optional[plt.Figure]:
     refs_by_sk_grp: Dict[Tuple[str, str], ClassificationF1PickleRef] = {
         (f"{ref.participant_label}_{ref.session_label}", ref.group): ref
-        for ref in f1_spec.points if ref.model_label == model_label
+        for ref in f1_spec.points
+        if ref.model_label == model_label
     }
     n_rows = len(session_keys)
     n_cols = len(features)
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(1.4 * n_cols + 0.6, 1.4 * n_rows + 0.6))
+    fig, axes = plt.subplots(
+        n_rows, n_cols, figsize=(1.4 * n_cols + 0.6, 1.4 * n_rows + 0.6)
+    )
     axes = np.atleast_2d(axes)
     drew_any = False
     for ri, sk in enumerate(session_keys):
@@ -719,15 +895,18 @@ def _confusion_grid(model_label: str, color: str) -> Optional[plt.Figure]:
             if cm is not None:
                 drew_any = True
         axes[ri, 0].set_ylabel(sk, fontsize=7)
-    fig.suptitle(f"{model_label} — confusion matrices (rows: true class, normalized)",
-                 fontsize=9, y=0.995)
+    fig.suptitle(
+        f"{model_label} — confusion matrices (rows: true class, normalized)",
+        fontsize=9,
+        y=0.995,
+    )
     fig.tight_layout()
     return fig if drew_any else None
 
 
 fig_psid = _confusion_grid("PSID", COLOR_PSID)
 if fig_psid is not None:
-    fig_psid.savefig(str(OUT / 'fig_049a_confusion_psid.png'))
+    fig_psid.savefig(str(OUT / "fig_049a_confusion_psid.png"))
     plt.show()
 else:
     print("Fig 49a SKIPPED — no PSID confusion data.")
@@ -735,7 +914,7 @@ else:
 if SHOW_DPAD:
     fig_dpad = _confusion_grid("DPAD", COLOR_DPAD)
     if fig_dpad is not None:
-        fig_dpad.savefig(str(OUT / 'fig_049a_confusion_dpad.png'))
+        fig_dpad.savefig(str(OUT / "fig_049a_confusion_dpad.png"))
         plt.show()
 
 print(
@@ -800,11 +979,17 @@ def _draw_heatmap(ax, mat: np.ndarray, pv: np.ndarray, *, title: str):
     for ri in range(n_rows_hm):
         for ci in range(n_cols_hm):
             if not np.isfinite(mat[ri, ci]):
-                ax.add_patch(plt.Rectangle(
-                    (ci - 0.5, ri - 0.5), 1, 1,
-                    facecolor="#EEEEEE", edgecolor="#BBBBBB",
-                    hatch="///", linewidth=0.5,
-                ))
+                ax.add_patch(
+                    plt.Rectangle(
+                        (ci - 0.5, ri - 0.5),
+                        1,
+                        1,
+                        facecolor="#EEEEEE",
+                        edgecolor="#BBBBBB",
+                        hatch="///",
+                        linewidth=0.5,
+                    )
+                )
     ax.set_xticks(np.arange(n_cols_hm))
     ax.set_xticklabels([GROUP_SHORT[f] for f in feat_keys])
     ax.set_yticks(np.arange(n_rows_hm))
@@ -828,11 +1013,20 @@ else:
 
 sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
 sm.set_array([])
-cbar = fig.colorbar(sm, ax=cbar_ax_ref, fraction=0.04, pad=0.02, label="Balanced accuracy")
+cbar = fig.colorbar(
+    sm, ax=cbar_ax_ref, fraction=0.04, pad=0.02, label="Balanced accuracy"
+)
 cbar.ax.axhline(0.5, color="#222222", linewidth=0.8, linestyle="--")
-cbar.ax.text(2.4, 0.5, "chance ref", va="center", fontsize=8, transform=cbar.ax.get_yaxis_transform())
+cbar.ax.text(
+    2.4,
+    0.5,
+    "chance ref",
+    va="center",
+    fontsize=8,
+    transform=cbar.ax.get_yaxis_transform(),
+)
 
-fig.savefig(str(OUT / 'fig_050_classification_heatmap.png'))
+fig.savefig(str(OUT / "fig_050_classification_heatmap.png"))
 plt.show()
 
 print(
@@ -856,7 +1050,9 @@ _FLIPPED_FEAT_PKL: Dict[str, str] = {
 }
 
 
-def _flipped_best_ba_pval(model_label: str, tri, feat: str) -> Tuple[float, Optional[float]]:
+def _flipped_best_ba_pval(
+    model_label: str, tri, feat: str
+) -> Tuple[float, Optional[float]]:
     """Best (h, m) flipped BA for one cell × feature × model. Returns (NaN, None)
     when the flipped variant directory is absent (e.g. DPAD mrmr8 flipped not yet
     classified)."""
@@ -894,7 +1090,11 @@ def _flipped_best_ba_pval(model_label: str, tri, feat: str) -> Tuple[float, Opti
                 continue
             ba_f = float(ba)
             pt = r.get("permutation_test")
-            pv = float(pt["pvalue"]) if isinstance(pt, dict) and pt.get("pvalue") is not None else None
+            pv = (
+                float(pt["pvalue"])
+                if isinstance(pt, dict) and pt.get("pvalue") is not None
+                else None
+            )
             if ba_f > best_ba:
                 best_ba = ba_f
                 best_pv = pv
@@ -926,23 +1126,47 @@ else:
 
 if SHOW_DPAD:
     fig, axes = plt.subplots(2, 1, figsize=(7.5, 9.0), sharex=True)
-    _draw_heatmap(axes[0], psid_flip_ba, psid_flip_pv, title="PSID (flipped, best test BA over h × m)")
-    _draw_heatmap(axes[1], dpad_flip_ba, dpad_flip_pv, title="DPAD (flipped, best test BA over h × m)")
+    _draw_heatmap(
+        axes[0],
+        psid_flip_ba,
+        psid_flip_pv,
+        title="PSID (flipped, best test BA over h × m)",
+    )
+    _draw_heatmap(
+        axes[1],
+        dpad_flip_ba,
+        dpad_flip_pv,
+        title="DPAD (flipped, best test BA over h × m)",
+    )
     panel_label(axes[0], "A", "")
     panel_label(axes[1], "B", "")
     cbar_ax_ref = axes
 else:
     fig, ax_only = plt.subplots(1, 1, figsize=(7.5, 5.0))
-    _draw_heatmap(ax_only, psid_flip_ba, psid_flip_pv, title="PSID (flipped, best test BA over h × m)")
+    _draw_heatmap(
+        ax_only,
+        psid_flip_ba,
+        psid_flip_pv,
+        title="PSID (flipped, best test BA over h × m)",
+    )
     cbar_ax_ref = ax_only
 
 sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
 sm.set_array([])
-cbar = fig.colorbar(sm, ax=cbar_ax_ref, fraction=0.04, pad=0.02, label="Balanced accuracy")
+cbar = fig.colorbar(
+    sm, ax=cbar_ax_ref, fraction=0.04, pad=0.02, label="Balanced accuracy"
+)
 cbar.ax.axhline(0.5, color="#222222", linewidth=0.8, linestyle="--")
-cbar.ax.text(2.4, 0.5, "chance ref", va="center", fontsize=8, transform=cbar.ax.get_yaxis_transform())
+cbar.ax.text(
+    2.4,
+    0.5,
+    "chance ref",
+    va="center",
+    fontsize=8,
+    transform=cbar.ax.get_yaxis_transform(),
+)
 
-fig.savefig(str(OUT / 'fig_051_flipped_heatmap.png'))
+fig.savefig(str(OUT / "fig_051_flipped_heatmap.png"))
 plt.show()
 
 print(
@@ -956,6 +1180,7 @@ print(
 # %% [markdown]
 # ## Fig 52: ROC curves — per session, feature × model overlays
 
+
 # %%
 def _load_roc_from_file(pkl_path: Path):
     if not pkl_path.is_file():
@@ -968,7 +1193,8 @@ def _load_roc_from_file(pkl_path: Path):
     if not isinstance(res, dict):
         return None
     tr = res.get("test_results") or res
-    fpr = tr.get("fpr"); tpr = tr.get("tpr")
+    fpr = tr.get("fpr")
+    tpr = tr.get("tpr")
     auc = tr.get("roc_auc", res.get("roc_auc", float("nan")))
     if fpr is None or tpr is None:
         return None
@@ -993,8 +1219,9 @@ n = len(_session_keys_roc)
 ncols = 4 if n >= 5 else (3 if n >= 4 else max(1, n))
 nrows = (n + ncols - 1) // ncols
 
-fig, axes = plt.subplots(nrows, ncols, figsize=(12.0, 2.7 * nrows + 1.0),
-                         sharex=True, sharey=True)
+fig, axes = plt.subplots(
+    nrows, ncols, figsize=(12.0, 2.7 * nrows + 1.0), sharex=True, sharey=True
+)
 axes = np.atleast_1d(axes).ravel()
 
 _roc_models = [("PSID", "-")] + ([("DPAD", "--")] if SHOW_DPAD else [])
@@ -1009,9 +1236,14 @@ for idx, sk in enumerate(_session_keys_roc):
             if roc is None:
                 continue
             fpr, tpr, auc = roc
-            ax.plot(fpr, tpr, color=GROUP_COLORS[feat], linewidth=1.3,
-                    linestyle=linestyle,
-                    label=f"{GROUP_SHORT[feat]} {model_label} (AUC={auc:.2f})")
+            ax.plot(
+                fpr,
+                tpr,
+                color=GROUP_COLORS[feat],
+                linewidth=1.3,
+                linestyle=linestyle,
+                label=f"{GROUP_SHORT[feat]} {model_label} (AUC={auc:.2f})",
+            )
     ax.plot([0, 1], [0, 1], linestyle=":", color="#555555", linewidth=0.9)
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1.02)
@@ -1037,11 +1269,13 @@ legend_handles.append(
 )
 if SHOW_DPAD:
     legend_handles.append(
-        plt.Line2D([0], [0], color="#555555", linewidth=1.3, linestyle="--", label="DPAD")
+        plt.Line2D(
+            [0], [0], color="#555555", linewidth=1.3, linestyle="--", label="DPAD"
+        )
     )
 fig.legend(handles=legend_handles)
 
-fig.savefig(str(OUT / 'fig_052_roc_curves.png'))
+fig.savefig(str(OUT / "fig_052_roc_curves.png"))
 plt.show()
 
 print(
@@ -1062,19 +1296,33 @@ if not SHOW_DPAD:
     paired_count = {"behavioral": 0, "laplacian": 0}
 else:
     psid_lookup_paired: Dict[Tuple[str, str, str], ClassificationF1Point] = {
-        (f"{pt.participant_label}_{pt.session_label}", pt.group, "behavioral"
-         if "(lap)" not in pt.session_label else "laplacian"): pt
-        for pt in cls_points if pt.model_label == "PSID"
+        (
+            f"{pt.participant_label}_{pt.session_label}",
+            pt.group,
+            "behavioral" if "(lap)" not in pt.session_label else "laplacian",
+        ): pt
+        for pt in cls_points
+        if pt.model_label == "PSID"
     }
     dpad_lookup_paired: Dict[Tuple[str, str, str], ClassificationF1Point] = {
-        (f"{pt.participant_label}_{pt.session_label}", pt.group, "behavioral"
-         if "(lap)" not in pt.session_label else "laplacian"): pt
-        for pt in cls_points if pt.model_label == "DPAD"
+        (
+            f"{pt.participant_label}_{pt.session_label}",
+            pt.group,
+            "behavioral" if "(lap)" not in pt.session_label else "laplacian",
+        ): pt
+        for pt in cls_points
+        if pt.model_label == "DPAD"
     }
 
     fig, ax = plt.subplots(figsize=(6.5, 6.5))
-    ax.plot([0.3, 1.05], [0.3, 1.05], linestyle="--", color="#555555", linewidth=0.9,
-            label="y = x")
+    ax.plot(
+        [0.3, 1.05],
+        [0.3, 1.05],
+        linestyle="--",
+        color="#555555",
+        linewidth=0.9,
+        label="y = x",
+    )
     ax.axhline(0.5, linestyle=":", color="#888888", linewidth=0.7)
     ax.axvline(0.5, linestyle=":", color="#888888", linewidth=0.7)
 
@@ -1087,12 +1335,20 @@ else:
             continue
         color = GROUP_COLORS[feat]
         marker = "o" if mode == "behavioral" else "s"
-        sig_psid = (psid_pt.permutation_pvalue is not None and psid_pt.permutation_pvalue < 0.05)
-        sig_dpad = (dpad_pt.permutation_pvalue is not None and dpad_pt.permutation_pvalue < 0.05)
+        sig_psid = (
+            psid_pt.permutation_pvalue is not None and psid_pt.permutation_pvalue < 0.05
+        )
+        sig_dpad = (
+            dpad_pt.permutation_pvalue is not None and dpad_pt.permutation_pvalue < 0.05
+        )
         a = 1.0 if (sig_psid or sig_dpad) else 0.55
         ax.scatter(
-            psid_pt.balanced_accuracy, dpad_pt.balanced_accuracy,
-            s=55, color=color, alpha=a, marker=marker,
+            psid_pt.balanced_accuracy,
+            dpad_pt.balanced_accuracy,
+            s=55,
+            color=color,
+            alpha=a,
+            marker=marker,
             edgecolor="black" if (sig_psid or sig_dpad) else "none",
             linewidths=0.5,
         )
@@ -1105,18 +1361,34 @@ else:
     ax.set_aspect("equal")
 
     legend_handles = [
-        _Patch(facecolor=GROUP_COLORS[g], edgecolor=GROUP_COLORS[g], label=GROUP_SHORT[g])
+        _Patch(
+            facecolor=GROUP_COLORS[g], edgecolor=GROUP_COLORS[g], label=GROUP_SHORT[g]
+        )
         for g in GROUP_ORDER
     ]
     legend_handles += [
-        plt.Line2D([0], [0], marker="o", color="w", markerfacecolor="#555555",
-                   markersize=8, label="behavioral"),
-        plt.Line2D([0], [0], marker="s", color="w", markerfacecolor="#555555",
-                   markersize=8, label="laplacian"),
+        plt.Line2D(
+            [0],
+            [0],
+            marker="o",
+            color="w",
+            markerfacecolor="#555555",
+            markersize=8,
+            label="behavioral",
+        ),
+        plt.Line2D(
+            [0],
+            [0],
+            marker="s",
+            color="w",
+            markerfacecolor="#555555",
+            markersize=8,
+            label="laplacian",
+        ),
     ]
     ax.legend(handles=legend_handles)
 
-    fig.savefig(str(OUT / 'fig_052a_paired_ba_scatter.png'))
+    fig.savefig(str(OUT / "fig_052a_paired_ba_scatter.png"))
     plt.show()
 
     print(
@@ -1147,11 +1419,17 @@ def _draw_diff_heatmap(ax, mat: np.ndarray, *, title: str):
     for ri in range(n_rows_hm):
         for ci in range(n_cols_hm):
             if not np.isfinite(mat[ri, ci]):
-                ax.add_patch(plt.Rectangle(
-                    (ci - 0.5, ri - 0.5), 1, 1,
-                    facecolor="#EEEEEE", edgecolor="#BBBBBB",
-                    hatch="///", linewidth=0.5,
-                ))
+                ax.add_patch(
+                    plt.Rectangle(
+                        (ci - 0.5, ri - 0.5),
+                        1,
+                        1,
+                        facecolor="#EEEEEE",
+                        edgecolor="#BBBBBB",
+                        hatch="///",
+                        linewidth=0.5,
+                    )
+                )
     ax.set_xticks(np.arange(n_cols_hm))
     ax.set_xticklabels([GROUP_SHORT[f] for f in feat_keys])
     ax.set_yticks(np.arange(n_rows_hm))
@@ -1163,25 +1441,33 @@ def _draw_diff_heatmap(ax, mat: np.ndarray, *, title: str):
 
 if SHOW_DPAD:
     fig, axes = plt.subplots(2, 1, figsize=(7.5, 9.0), sharex=True)
-    _draw_diff_heatmap(axes[0], within_minus_flip_psid, title="PSID Δ = within − flipped")
-    _draw_diff_heatmap(axes[1], within_minus_flip_dpad, title="DPAD Δ = within − flipped")
+    _draw_diff_heatmap(
+        axes[0], within_minus_flip_psid, title="PSID Δ = within − flipped"
+    )
+    _draw_diff_heatmap(
+        axes[1], within_minus_flip_dpad, title="DPAD Δ = within − flipped"
+    )
     panel_label(axes[0], "A", "")
     panel_label(axes[1], "B", "")
     cbar_ax_ref = axes
 else:
     fig, ax_only = plt.subplots(1, 1, figsize=(7.5, 5.0))
-    _draw_diff_heatmap(ax_only, within_minus_flip_psid, title="PSID Δ = within − flipped")
+    _draw_diff_heatmap(
+        ax_only, within_minus_flip_psid, title="PSID Δ = within − flipped"
+    )
     cbar_ax_ref = ax_only
 
 sm = plt.cm.ScalarMappable(cmap=div_cmap, norm=div_norm)
 sm.set_array([])
-cbar = fig.colorbar(sm, ax=cbar_ax_ref, fraction=0.04, pad=0.02,
-                    label="Δ test BA  (within − flipped)")
+cbar = fig.colorbar(
+    sm, ax=cbar_ax_ref, fraction=0.04, pad=0.02, label="Δ test BA  (within − flipped)"
+)
 cbar.ax.axhline(0.0, color="#222222", linewidth=0.8, linestyle="--")
-cbar.ax.text(2.4, 0.0, "no gap", va="center", fontsize=8,
-             transform=cbar.ax.get_yaxis_transform())
+cbar.ax.text(
+    2.4, 0.0, "no gap", va="center", fontsize=8, transform=cbar.ax.get_yaxis_transform()
+)
 
-fig.savefig(str(OUT / 'fig_052b_within_minus_flipped.png'))
+fig.savefig(str(OUT / "fig_052b_within_minus_flipped.png"))
 plt.show()
 
 print(
@@ -1194,5 +1480,7 @@ print(
 
 
 # %%
-n = len(list(OUT.glob('*.png')))
-print(f'Section 5 total: {n} figures (expected 7+ with Fig 49a; +DPAD variants when SHOW_DPAD=True)')
+n = len(list(OUT.glob("*.png")))
+print(
+    f"Section 5 total: {n} figures (expected 7+ with Fig 49a; +DPAD variants when SHOW_DPAD=True)"
+)

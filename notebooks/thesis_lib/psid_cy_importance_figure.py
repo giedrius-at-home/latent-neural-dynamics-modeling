@@ -151,7 +151,11 @@ def build_psid_cy_importance_figure(
             )
             if not showscale_done:
                 hm_kw["colorbar"] = dict(
-                    title=dict(text="Norm. |Cy|", side="right", font=dict(size=FONT_SIZE_TICK, family=FONT_FAMILY)),
+                    title=dict(
+                        text="Norm. |Cy|",
+                        side="right",
+                        font=dict(size=FONT_SIZE_TICK, family=FONT_FAMILY),
+                    ),
                     len=0.55,
                     thickness=14,
                     tickfont=dict(size=FONT_SIZE_TICK, family=FONT_FAMILY),

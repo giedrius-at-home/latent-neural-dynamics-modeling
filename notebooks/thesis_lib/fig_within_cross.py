@@ -214,7 +214,9 @@ def build_within_cross_timeseries_figure(
     tri = spec.joint_triplet
     pid = spec.participant_label
 
-    res_joint = load_split_results_required(results_root, tri.psid_variant, tri.psid_run_ts, spec.split)
+    res_joint = load_split_results_required(
+        results_root, tri.psid_variant, tri.psid_run_ts, spec.split
+    )
     _ch, _ = resolve_output_channel_display(
         res_joint, spec.channel_idx, declared_outputs=THESIS_DECLARED_BEHAVIORAL_OUTPUTS
     )
@@ -280,15 +282,36 @@ def build_within_cross_timeseries_figure(
     # col 1 = DBS-OFF trials, col 2 = DBS-ON trials
     cond_groups = [
         ("off", off_trials[:2], 1),
-        ("on",  on_trials[:2],  2),
+        ("on", on_trials[:2], 2),
     ]
 
     # Add background shading once per subplot (normalized time 0→tail_s)
     t_split_rel = (1.0 - frac) * tail_s
     for _col in (1, 2):
-        fig.add_vrect(x0=0, x1=t_split_rel, fillcolor=_WC_CONTEXT, layer="below", line_width=0, row=1, col=_col)
-        fig.add_vrect(x0=t_split_rel, x1=tail_s, fillcolor=_WC_LATE, layer="below", line_width=0, row=1, col=_col)
-        fig.add_vline(x=t_split_rel, line=dict(color=_WC_RULE, width=0.8, dash="dash"), row=1, col=_col)
+        fig.add_vrect(
+            x0=0,
+            x1=t_split_rel,
+            fillcolor=_WC_CONTEXT,
+            layer="below",
+            line_width=0,
+            row=1,
+            col=_col,
+        )
+        fig.add_vrect(
+            x0=t_split_rel,
+            x1=tail_s,
+            fillcolor=_WC_LATE,
+            layer="below",
+            line_width=0,
+            row=1,
+            col=_col,
+        )
+        fig.add_vline(
+            x=t_split_rel,
+            line=dict(color=_WC_RULE, width=0.8, dash="dash"),
+            row=1,
+            col=_col,
+        )
 
     for cond_stim, trial_list, col in cond_groups:
         for trial_num, (trial_idx, stim) in enumerate(trial_list):
@@ -363,84 +386,138 @@ def build_within_cross_timeseries_figure(
             if zc is not None:
                 zc = _mask_before_split(zc, t_rel, t_abs_split)
 
-            show_leg = (trial_num == 0 and col == 1)
+            show_leg = trial_num == 0 and col == 1
 
             # Compute per-trial RMSE for bands and caption
-            rmse_both = _rmse_for_trace(res_joint, trial_idx, spec.channel_idx, use_zp=True)
+            rmse_both = _rmse_for_trace(
+                res_joint, trial_idx, spec.channel_idx, use_zp=True
+            )
             rmse_within = float("nan")
             rmse_cross = float("nan")
             if stim == "off" and idx_off is not None and res_off:
-                rmse_within = _rmse_for_trace(res_off, idx_off, spec.channel_idx, use_zp=True)
+                rmse_within = _rmse_for_trace(
+                    res_off, idx_off, spec.channel_idx, use_zp=True
+                )
             if stim == "on" and idx_on is not None and res_on:
-                rmse_within = _rmse_for_trace(res_on, idx_on, spec.channel_idx, use_zp=True)
+                rmse_within = _rmse_for_trace(
+                    res_on, idx_on, spec.channel_idx, use_zp=True
+                )
             if stim == "off" and idx_cross_off is not None and res_cross_off:
-                rmse_cross = _rmse_for_trace(res_cross_off, idx_cross_off, spec.channel_idx, use_zp=True)
+                rmse_cross = _rmse_for_trace(
+                    res_cross_off, idx_cross_off, spec.channel_idx, use_zp=True
+                )
             if stim == "on" and idx_cross_on is not None and res_cross_on:
-                rmse_cross = _rmse_for_trace(res_cross_on, idx_cross_on, spec.channel_idx, use_zp=True)
+                rmse_cross = _rmse_for_trace(
+                    res_cross_on, idx_cross_on, spec.channel_idx, use_zp=True
+                )
 
             # RMSE ribbon bands (ŷ ± RMSE), drawn before line traces
             _add_rmse_band_wc(
-                fig, t_rel, zj, rmse_both if np.isfinite(rmse_both) else None,
-                _BAND_JOINT_FILL, _BAND_JOINT_LINE,
-                "both ±RMSE", "both_rmse", row=1, col=col,
+                fig,
+                t_rel,
+                zj,
+                rmse_both if np.isfinite(rmse_both) else None,
+                _BAND_JOINT_FILL,
+                _BAND_JOINT_LINE,
+                "both ±RMSE",
+                "both_rmse",
+                row=1,
+                col=col,
                 show_legend=(show_leg and trial_num == 0),
             )
             if zu is not None:
                 _add_rmse_band_wc(
-                    fig, t_rel, zu, rmse_within if np.isfinite(rmse_within) else None,
-                    _BAND_WITHIN_FILL, _BAND_WITHIN_LINE,
-                    "within ±RMSE", "within_rmse", row=1, col=col,
+                    fig,
+                    t_rel,
+                    zu,
+                    rmse_within if np.isfinite(rmse_within) else None,
+                    _BAND_WITHIN_FILL,
+                    _BAND_WITHIN_LINE,
+                    "within ±RMSE",
+                    "within_rmse",
+                    row=1,
+                    col=col,
                     show_legend=(show_leg and trial_num == 0),
                 )
             if zc is not None:
                 valid_mask = ~np.isnan(zc)
                 if valid_mask.any():
                     _add_rmse_band_wc(
-                        fig, t_rel[valid_mask], zc[valid_mask],
+                        fig,
+                        t_rel[valid_mask],
+                        zc[valid_mask],
                         rmse_cross if np.isfinite(rmse_cross) else None,
-                        _BAND_CROSS_FILL, _BAND_CROSS_LINE,
-                        "cross ±RMSE", "cross_rmse", row=1, col=col,
+                        _BAND_CROSS_FILL,
+                        _BAND_CROSS_LINE,
+                        "cross ±RMSE",
+                        "cross_rmse",
+                        row=1,
+                        col=col,
                         show_legend=(show_leg and trial_num == 0),
                     )
 
             # Line traces (drawn on top of bands)
             fig.add_trace(
                 go.Scatter(
-                    x=t_rel, y=zt, name="true", mode="lines",
+                    x=t_rel,
+                    y=zt,
+                    name="true",
+                    mode="lines",
                     line=dict(color=COLOR_TRUE, width=WIDTH_TRUE),
-                    opacity=alpha, legendgroup="true",
-                    showlegend=show_leg, connectgaps=False,
+                    opacity=alpha,
+                    legendgroup="true",
+                    showlegend=show_leg,
+                    connectgaps=False,
                 ),
-                row=1, col=col,
+                row=1,
+                col=col,
             )
             if zu is not None:
                 fig.add_trace(
                     go.Scatter(
-                        x=t_rel, y=zu, name="within", mode="lines",
+                        x=t_rel,
+                        y=zu,
+                        name="within",
+                        mode="lines",
                         line=dict(color=COLOR_WITHIN, width=2.0, dash="dash"),
-                        opacity=alpha, legendgroup="within",
-                        showlegend=show_leg, connectgaps=False,
+                        opacity=alpha,
+                        legendgroup="within",
+                        showlegend=show_leg,
+                        connectgaps=False,
                     ),
-                    row=1, col=col,
+                    row=1,
+                    col=col,
                 )
             if zc is not None:
                 fig.add_trace(
                     go.Scatter(
-                        x=t_rel, y=zc, name="cross", mode="lines",
+                        x=t_rel,
+                        y=zc,
+                        name="cross",
+                        mode="lines",
                         line=dict(color=COLOR_CROSS, width=2.0, dash="dot"),
-                        opacity=alpha, legendgroup="cross",
-                        showlegend=show_leg, connectgaps=False,
+                        opacity=alpha,
+                        legendgroup="cross",
+                        showlegend=show_leg,
+                        connectgaps=False,
                     ),
-                    row=1, col=col,
+                    row=1,
+                    col=col,
                 )
             fig.add_trace(
                 go.Scatter(
-                    x=t_rel, y=zj, name="both", mode="lines",
+                    x=t_rel,
+                    y=zj,
+                    name="both",
+                    mode="lines",
                     line=dict(color=COLOR_JOINT, width=WIDTH_PSID),
-                    opacity=alpha, legendgroup="both",
-                    showlegend=show_leg, connectgaps=False,
+                    opacity=alpha,
+                    legendgroup="both",
+                    showlegend=show_leg,
+                    connectgaps=False,
                 ),
-                row=1, col=col,
+                row=1,
+                col=col,
             )
 
             cond_lbl = "OFF" if stim == "off" else "ON"
@@ -453,16 +530,20 @@ def build_within_cross_timeseries_figure(
         fig.update_xaxes(
             title_text=THESIS_TIME_AXIS_TITLE,
             title_font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY),
-            row=1, col=col,
+            row=1,
+            col=col,
         )
         fig.update_yaxes(
             title_text=y_ylab if col == 1 else "",
             title_font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY),
-            row=1, col=col,
+            row=1,
+            col=col,
         )
 
     apply_thesis_style(
-        fig, theme, height=340,
+        fig,
+        theme,
+        height=340,
         margin=dict(l=60, r=20, t=50, b=72),
         legend_y=-0.18,
     )
@@ -519,7 +600,8 @@ def build_within_cross_boxplot_figure(
     ]
 
     fig = make_subplots(
-        rows=1, cols=2,
+        rows=1,
+        cols=2,
         subplot_titles=["DBS-OFF", "DBS-ON"],
         shared_yaxes=True,
         horizontal_spacing=0.06,
@@ -547,44 +629,66 @@ def build_within_cross_boxplot_figure(
                 y_max = max(y_max, float(np.nanmax(arr)))
                 q1, med, q3 = np.percentile(arr, [25, 50, 75])
                 iqr = q3 - q1
-                w_lo = max(float(np.nanmin(arr)), q1 - 1.5 * iqr) if iqr > 0 else float(np.nanmin(arr))
-                w_hi = min(float(np.nanmax(arr)), q3 + 1.5 * iqr) if iqr > 0 else float(np.nanmax(arr))
+                w_lo = (
+                    max(float(np.nanmin(arr)), q1 - 1.5 * iqr)
+                    if iqr > 0
+                    else float(np.nanmin(arr))
+                )
+                w_hi = (
+                    min(float(np.nanmax(arr)), q3 + 1.5 * iqr)
+                    if iqr > 0
+                    else float(np.nanmax(arr))
+                )
 
                 col = model_colors[mi]
                 fillcolor = _hex_to_rgba(col, 0.30) if not dashed else "rgba(0,0,0,0)"
 
                 fig.add_trace(
                     go.Box(
-                        y=arr, x=[x] * len(arr),
-                        marker_color=col, line=dict(color=col, width=1.2),
-                        fillcolor=fillcolor, boxpoints=False, quartilemethod="exclusive",
+                        y=arr,
+                        x=[x] * len(arr),
+                        marker_color=col,
+                        line=dict(color=col, width=1.2),
+                        fillcolor=fillcolor,
+                        boxpoints=False,
+                        quartilemethod="exclusive",
                         name=f"{models[mi]} {'cross' if dashed else 'within'}",
                         showlegend=(col_idx == 0),
                         legendgroup=f"{models[mi]}_{'cross' if dashed else 'within'}",
                     ),
-                    row=1, col=col_idx + 1,
+                    row=1,
+                    col=col_idx + 1,
                 )
                 jitter = rng.uniform(-0.08, 0.08, size=len(arr))
                 fig.add_trace(
                     go.Scatter(
-                        x=np.array([x] * len(arr)) + jitter, y=arr,
-                        mode="markers", marker=dict(size=DOT_SIZE, color=col, opacity=alpha, line=dict(width=0)),
+                        x=np.array([x] * len(arr)) + jitter,
+                        y=arr,
+                        mode="markers",
+                        marker=dict(
+                            size=DOT_SIZE, color=col, opacity=alpha, line=dict(width=0)
+                        ),
                         showlegend=False,
                     ),
-                    row=1, col=col_idx + 1,
+                    row=1,
+                    col=col_idx + 1,
                 )
 
             tick_positions.append(x_within + (BW + GAP) / 2)
             x_pos += 2 * BW + GAP + GROUP_GAP
 
         fig.update_xaxes(
-            tickvals=tick_positions, ticktext=models,
-            row=1, col=col_idx + 1,
+            tickvals=tick_positions,
+            ticktext=models,
+            row=1,
+            col=col_idx + 1,
         )
 
     y_max = max(y_max * 1.08, 0.85)
     apply_thesis_style(
-        fig, theme, height=400,
+        fig,
+        theme,
+        height=400,
         margin=dict(l=60, r=20, t=50, b=100),
         legend_y=-0.2,
     )
@@ -598,7 +702,8 @@ def build_within_cross_boxplot_figure(
     fig.update_yaxes(
         title_text=rmse_axis_label(),
         title_font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY),
-        row=1, col=1,
+        row=1,
+        col=1,
     )
 
     if save_path:
@@ -619,21 +724,29 @@ def plot_within_cross_figures(save: bool = True) -> None:
     for i, wc_spec in enumerate(THESIS_WITHIN_CROSS):
         try:
             fig_a, _ = build_within_cross_timeseries_figure(
-                wc_spec, RESULTS_ROOT,
+                wc_spec,
+                RESULTS_ROOT,
             )
             if save:
                 suffix = f"_{i}" if i > 0 else ""
                 for ext in ("png", "pdf"):
                     try:
-                        fig_a.write_image(str(out_dir / f"within_cross_timeseries{suffix}.{ext}"))
+                        fig_a.write_image(
+                            str(out_dir / f"within_cross_timeseries{suffix}.{ext}")
+                        )
                     except Exception:
                         pass
         except Exception as e:
-            log.warning("Could not build within-cross timeseries (%s): %s", wc_spec.section_title, e)
+            log.warning(
+                "Could not build within-cross timeseries (%s): %s",
+                wc_spec.section_title,
+                e,
+            )
 
     for i, wc_spec in enumerate(THESIS_WITHIN_CROSS):
         try:
             from thesis_lib.aggregate_rmse import collect_within_cross_rmse
+
             data = collect_within_cross_rmse(
                 RESULTS_ROOT,
                 [wc_spec.joint_triplet],
@@ -645,7 +758,9 @@ def plot_within_cross_figures(save: bool = True) -> None:
                 suffix = f"_{i}" if i > 0 else ""
                 for ext in ("png", "pdf"):
                     try:
-                        fig_b.write_image(str(out_dir / f"within_cross_boxplot{suffix}.{ext}"))
+                        fig_b.write_image(
+                            str(out_dir / f"within_cross_boxplot{suffix}.{ext}")
+                        )
                     except Exception:
                         pass
         except Exception as e:

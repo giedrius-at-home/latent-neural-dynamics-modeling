@@ -20,28 +20,40 @@
 
 # %%
 import sys, os
-os.chdir('/home/bobby/repos/latent-neural-dynamics-modeling')
-sys.path.insert(0, '.')
-sys.path.insert(0, 'notebooks')
+
+os.chdir("/home/bobby/repos/latent-neural-dynamics-modeling")
+sys.path.insert(0, ".")
+sys.path.insert(0, "notebooks")
 
 import numpy as np
 import matplotlib.pyplot as plt
 
 from thesis_style import (
-    apply_thesis_style, panel_label,
-    COLOR_DBS_OFF, COLOR_DBS_ON,
-    COLOR_PSID, COLOR_DPAD, COLOR_VARMA,
+    apply_thesis_style,
+    panel_label,
+    COLOR_DBS_OFF,
+    COLOR_DBS_ON,
+    COLOR_PSID,
+    COLOR_DPAD,
+    COLOR_VARMA,
 )
 from thesis_sec2_common import (
-    ALL_TRIPLETS, ALL_TRIPLETS_LAP, OUT, results_root,
-    mpl_per_cell_yz_box, mpl_raincloud_dbs_pair_vert,
-    mpl_raincloud_yz_pair_vert, pool_dbs_cells, pool_yz_dbs_cells,
+    ALL_TRIPLETS,
+    ALL_TRIPLETS_LAP,
+    OUT,
+    results_root,
+    mpl_per_cell_yz_box,
+    mpl_raincloud_dbs_pair_vert,
+    mpl_raincloud_yz_pair_vert,
+    pool_dbs_cells,
+    pool_yz_dbs_cells,
 )
 
 from thesis_loaders import load_split_results_required
 from thesis_utils import (
     normalize_stim,
-    trial_metric_y_for_model, trial_metric_z_for_model,
+    trial_metric_y_for_model,
+    trial_metric_z_for_model,
 )
 
 apply_thesis_style()
@@ -59,6 +71,7 @@ apply_thesis_style()
 # (scale-free across cells/models).
 #
 # Mode label: ECOG → laplacian LFP. No pooling — sec1/sec2a per-session style.
+
 
 # %%
 def _collect_per_cell_metric(triplets, target="Z", metric="pearson", split="test"):
@@ -110,7 +123,11 @@ _lap_z_r = _collect_per_cell_metric(ALL_TRIPLETS_LAP, target="Z", metric="pearso
 _lap_z_n = _collect_per_cell_metric(ALL_TRIPLETS_LAP, target="Z", metric="rmse")
 
 fig = mpl_per_cell_yz_box(
-    _lap_y_r, _lap_y_n, _lap_z_r, _lap_z_n, _lap_cells,
+    _lap_y_r,
+    _lap_y_n,
+    _lap_z_r,
+    _lap_z_n,
+    _lap_cells,
     mode_label="",
 )
 fig.savefig(str(OUT / "fig_070_lap_per_cell_yz_box.png"), bbox_inches="tight")
@@ -189,7 +206,11 @@ _beh_z_n = _collect_per_cell_metric(ALL_TRIPLETS, target="Z", metric="rmse")
 
 # %%
 fig = mpl_per_cell_yz_box(
-    _beh_y_r, _beh_y_n, _beh_z_r, _beh_z_n, _beh_cells,
+    _beh_y_r,
+    _beh_y_n,
+    _beh_z_r,
+    _beh_z_n,
+    _beh_cells,
     mode_label="",
 )
 fig.savefig(str(OUT / "fig_073_beh_per_cell_yz_box.png"), bbox_inches="tight")

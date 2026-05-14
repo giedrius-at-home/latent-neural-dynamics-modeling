@@ -6,6 +6,7 @@ So instead of ``GridSearchCV`` we just fit the pipeline across
 ``ChronoGroupsSplit`` folds, collect balanced accuracy per fold, and re-fit on
 the full training pool for the final ``best_pipeline``.
 """
+
 from typing import Any, Dict, Optional, Tuple
 import warnings
 
@@ -30,12 +31,12 @@ from .splits import ChronoGroupsSplit
 
 
 def _reorder_dims_for_mne(X: np.ndarray) -> np.ndarray:
-    """(n_epochs, n_samples, n_channels) -> (n_epochs, n_channels, n_samples) for MNE's CSP."""
+    """(n_epochs, n_samples, n_channels) -> (n_epochs, n_channels, n_samples) for MNE CSP."""
     return np.transpose(X, (0, 2, 1))
 
 
 def create_pipeline(fs: float = 80, feature_source: str = "Xp") -> Pipeline:
-    """LDA decoding pipeline: CSP features on latent trajectories, then LDA."""
+    """LDA decoding pipeline: transpose -> CSP(4) -> scale -> LDA."""
     steps = [
         ("transpose", FunctionTransformer(_reorder_dims_for_mne)),
         ("csp", CSP(n_components=4, reg="ledoit_wolf", log=True)),

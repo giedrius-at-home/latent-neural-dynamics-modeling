@@ -136,7 +136,9 @@ def load_panel_latent_data(
 
     # DPAD: skip entirely when not available (add DPAD 200Hz results later)
     if panel.dpad_run_ts:
-        res_d = load_split_results(results_root, panel.dpad_variant, panel.dpad_run_ts, split)
+        res_d = load_split_results(
+            results_root, panel.dpad_variant, panel.dpad_run_ts, split
+        )
         Xp_d = res_d["Xp"]
         stim_d = res_d["stim"]
         off_d, on_d = _trial_indices_by_stim(stim_d)
@@ -171,9 +173,7 @@ def load_panel_latent_data(
     traj_psid_off = _pick_trajectories(
         Xp_p, off_p, n_psid, n_traj, rng, "identity", None
     )
-    traj_psid_on = _pick_trajectories(
-        Xp_p, on_p, n_psid, n_traj, rng, "identity", None
-    )
+    traj_psid_on = _pick_trajectories(Xp_p, on_p, n_psid, n_traj, rng, "identity", None)
     rng2 = np.random.default_rng(traj_seed + 17)
     traj_dpad_off = _pick_trajectories(
         Xp_d, off_d, n_dpad, n_traj, rng2, "identity", None

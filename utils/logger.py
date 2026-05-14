@@ -95,17 +95,17 @@ class Logger:
         self.logger.info(f"Structured log file: {self.structured_log_file}")
         self.logger.info(f"Console mirror file: {self.console_log_file}")
 
-    def info(self, message: str):
-        self.logger.info(message)
+    def info(self, message: str, *args, **kwargs):
+        self.logger.info(message, *args, **kwargs)
 
-    def warning(self, message: str):
-        self.logger.warning(message)
+    def warning(self, message: str, *args, **kwargs):
+        self.logger.warning(message, *args, **kwargs)
 
-    def error(self, message: str):
-        self.logger.error(message)
+    def error(self, message: str, *args, **kwargs):
+        self.logger.error(message, *args, **kwargs)
 
-    def debug(self, message: str):
-        self.logger.debug(message)
+    def debug(self, message: str, *args, **kwargs):
+        self.logger.debug(message, *args, **kwargs)
 
     def close(self):
         try:
@@ -132,6 +132,12 @@ def get_logger():
     if _LOGGER_INSTANCE is None:
         _LOGGER_INSTANCE = Logger("logs", name="default")
     return _LOGGER_INSTANCE
+
+
+def setup_logging(name: str, log_path=None) -> Logger:
+    """Wrapper matching pipeline.py call signature: setup_logging(name, log_path)."""
+    log_dir = str(Path(log_path).parent) if log_path is not None else "logs"
+    return setup_logger(log_dir, name=name)
 
 
 def logger_executor(log_dir: str, name: str):

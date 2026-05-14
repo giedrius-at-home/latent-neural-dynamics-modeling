@@ -1,0 +1,79 @@
+framework:
+  name: varma
+  params:
+    p: 30
+    q: 1
+    long_ar_lags: 30
+    ridge_alpha: 1.0
+    max_root: 0.97
+    trial_edge_taper_sec: 0.1
+    time_first: true
+    fast: true
+    reuse_splits: false
+data:
+  root: resampled_recordings/participants_at_200Hz_scaled_1e6_raw_envelope
+  participant: PDI1
+  session: 4
+  Y:
+  - ECOG_2_theta_4_8_raw
+  - ECOG_4_gamma_68_73_raw
+  - ECOG_3_gamma_73_78_raw
+  - ECOG_3_gamma_63_68_raw
+  - ECOG_4_gamma_53_58_raw
+  - ECOG_4_alpha_8_12_raw
+  - ECOG_1_gamma_37_42_env
+  - ECOG_3_theta_4_8_env
+  - ECOG_3_beta_13_18_env
+  - ECOG_3_gamma_68_73_env
+  - ECOG_2_gamma_42_47_env
+  - ECOG_3_gamma_78_83_env
+  Z:
+  - LAPLACIAN_9-11_LFP_gamma_73_78_raw
+  - LAPLACIAN_12-14_LFP_gamma_78_83_raw
+  - LAPLACIAN_12-14_LFP_gamma_83_88_raw
+  - LAPLACIAN_12-14_LFP_gamma_58_63_raw
+  - LAPLACIAN_11-13_LFP_gamma_88_93_raw
+  - LAPLACIAN_14-16_LFP_gamma_83_88_raw
+  - LAPLACIAN_9-11_LFP_gamma_63_68_env
+  - LAPLACIAN_11-13_LFP_gamma_68_73_env
+  - LAPLACIAN_9-11_LFP_beta_13_18_env
+  - LAPLACIAN_13-15_LFP_gamma_68_73_env
+  - LAPLACIAN_13-15_LFP_theta_4_8_env
+  - LAPLACIAN_11-13_LFP_beta_13_18_env
+  sampling_frequency: 200
+experiment:
+  name: '{framework.name}_{experiment.type}_{data.participant}_S{data.session}_p{framework.params.p}_q{framework.params.q}'
+  type: z-as-neural
+  train:
+    model_dbs_state:
+    - both
+    - 'on'
+    - 'off'
+  predictions:
+    splits:
+    - train
+    - val
+    - test
+  forecasts:
+    default_h: 5.0
+    default_m: 2.0
+    h_grid:
+    - 0.5
+    - 1.0
+    - 1.5
+    - 2.0
+    - 3.0
+    - 4.0
+    - 5.0
+    m_test_grid:
+    - 0.5
+    - 1.0
+    - 1.5
+    - 2.0
+results:
+  project_root: .
+  save_dir: results/{framework.name}/{experiment.name}
+  model_dir: results/{framework.name}/{experiment.name}
+  log_dir: logs/{framework.name}
+  checkpoint_dir: checkpoints/{framework.name}
+  setups_dir: training/setups/{framework.name}

@@ -122,9 +122,7 @@ def _varma_ref_and_trial(
     return res_j_varma, psid_trial_idx
 
 
-def _has_fc(
-    res: Dict[str, Any], tidx: int, k_true: str, k_pred: str
-) -> bool:
+def _has_fc(res: Dict[str, Any], tidx: int, k_true: str, k_pred: str) -> bool:
     zt = res.get(k_true)
     zp = res.get(k_pred)
     if zt is None or zp is None:
@@ -224,7 +222,9 @@ def _build_checkpoint_cell(
         hist_end = int(h_infer)
     else:
         n_hist_want = n_hist_cap
-        th = _history_trace(res_ref, trial_ref, channel_idx, n_hist_want, hist_key=hist_key)
+        th = _history_trace(
+            res_ref, trial_ref, channel_idx, n_hist_want, hist_key=hist_key
+        )
         hist_end = len(th)
     n_hist = len(th)
 
@@ -289,13 +289,17 @@ def build_forecast_checkpoint_compare_figure(
         sl = list(stim) if stim is not None else []
         pair = find_adjacent_off_then_on_trial_indices(sl)
     if pair is None:
-        raise ValueError("Forecast checkpoint figure: no OFF→ON trial pair in joint PSID results.")
+        raise ValueError(
+            "Forecast checkpoint figure: no OFF→ON trial pair in joint PSID results."
+        )
     i_off, i_on = pair
 
     tri = spec.joint_triplet
-    res_d = load_split_results(
-        results_root, tri.dpad_variant, tri.dpad_run_ts, spec.split
-    ) if tri.dpad_run_ts else None
+    res_d = (
+        load_split_results(results_root, tri.dpad_variant, tri.dpad_run_ts, spec.split)
+        if tri.dpad_run_ts
+        else None
+    )
     res_v = load_split_results_required(
         results_root, tri.varma_variant, tri.varma_run_ts, spec.split
     )
@@ -309,7 +313,9 @@ def build_forecast_checkpoint_compare_figure(
         )
     else:
         ch = spec.channel_idx
-    meta_res = split_res_with_nonempty_input_channels(res_psid, res_d, res_v) or res_psid
+    meta_res = (
+        split_res_with_nonempty_input_channels(res_psid, res_d, res_v) or res_psid
+    )
     y_mode: Literal["Z", "Y"] = "Y" if spec.forecast_target == "Y" else "Z"
     paper_bg, plot_bg = paper_colors(spec.theme)
     fg = true_line_color(spec.theme)
@@ -425,7 +431,11 @@ def build_forecast_checkpoint_compare_figure(
             if fw == "dpad":
                 fc_arrays = [z_off[n_hist:], z_both[n_hist:], z_on[n_hist:]]
                 max_abs = max(
-                    (float(np.nanmax(np.abs(a))) for a in fc_arrays if np.any(np.isfinite(a))),
+                    (
+                        float(np.nanmax(np.abs(a)))
+                        for a in fc_arrays
+                        if np.any(np.isfinite(a))
+                    ),
                     default=0.0,
                 )
                 if max_abs > _DIVERGENCE_THRESHOLD:
@@ -442,11 +452,21 @@ def build_forecast_checkpoint_compare_figure(
                     )
                     return
 
-            t_plot = _insert_hist_forecast_gap(np.asarray(t_abs, dtype=float).ravel(), n_hist)
-            z_true = _insert_hist_forecast_gap(np.asarray(z_true, dtype=float).ravel(), n_hist)
-            z_off = _insert_hist_forecast_gap(np.asarray(z_off, dtype=float).ravel(), n_hist)
-            z_both = _insert_hist_forecast_gap(np.asarray(z_both, dtype=float).ravel(), n_hist)
-            z_on = _insert_hist_forecast_gap(np.asarray(z_on, dtype=float).ravel(), n_hist)
+            t_plot = _insert_hist_forecast_gap(
+                np.asarray(t_abs, dtype=float).ravel(), n_hist
+            )
+            z_true = _insert_hist_forecast_gap(
+                np.asarray(z_true, dtype=float).ravel(), n_hist
+            )
+            z_off = _insert_hist_forecast_gap(
+                np.asarray(z_off, dtype=float).ravel(), n_hist
+            )
+            z_both = _insert_hist_forecast_gap(
+                np.asarray(z_both, dtype=float).ravel(), n_hist
+            )
+            z_on = _insert_hist_forecast_gap(
+                np.asarray(z_on, dtype=float).ravel(), n_hist
+            )
 
             t_abs = np.asarray(t_abs, dtype=float).ravel()
             if t_abs.size and n_hist > 0:
@@ -540,11 +560,17 @@ def build_forecast_checkpoint_compare_figure(
     if not built_rows:
         detail = "; ".join(skipped) if skipped else "no detail"
         raise ValueError(
-            "Forecast checkpoint figure: no framework produced a panel. " f"Skipped: {detail}"
+            "Forecast checkpoint figure: no framework produced a panel. "
+            f"Skipped: {detail}"
         )
 
     apply_grid_xy_subplots(
-        fig, n_rows=3, n_cols=2, theme=spec.theme, nticks=12, x_title=THESIS_TIME_AXIS_TITLE
+        fig,
+        n_rows=3,
+        n_cols=2,
+        theme=spec.theme,
+        nticks=12,
+        x_title=THESIS_TIME_AXIS_TITLE,
     )
 
     apply_thesis_style(
@@ -565,6 +591,7 @@ def build_forecast_checkpoint_compare_figure(
             res_psid, ch, declared_outputs=THESIS_DECLARED_BEHAVIORAL_OUTPUTS
         )
         from thesis_lib.constants import d_score_axis_label
+
         ylab = d_score_axis_label(och)
         feat = och
     else:

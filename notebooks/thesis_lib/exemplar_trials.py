@@ -111,7 +111,9 @@ def find_best_trial_indices_per_condition(
     stim = _as_list(split_res.get("stim"))
     if not stim:
         return None
-    score_fn = trial_rmse_z_for_model if input_mode == "behavioral" else trial_rmse_y_for_model
+    score_fn = (
+        trial_rmse_z_for_model if input_mode == "behavioral" else trial_rmse_y_for_model
+    )
     best: dict[str, Tuple[int, float]] = {}
     for i, s in enumerate(stim):
         cond = normalize_stim(s)

@@ -57,16 +57,40 @@ from dashboard.thesis.specs import (
 def iter_spec_variant_run_ts(tri: AlignedTriplet) -> Iterable[tuple[str, str, str]]:
     """Yield ``(results_subdir, run_ts, role)`` for every thesis result folder implied by *tri*."""
     yield (tri.psid_variant, tri.psid_run_ts, f"{tri.label}|psid_joint")
-    yield (_variant_off(tri.psid_variant), tri.psid_run_ts_off or "", f"{tri.label}|psid_off")
-    yield (_variant_on(tri.psid_variant), tri.psid_run_ts_on or "", f"{tri.label}|psid_on")
+    yield (
+        _variant_off(tri.psid_variant),
+        tri.psid_run_ts_off or "",
+        f"{tri.label}|psid_off",
+    )
+    yield (
+        _variant_on(tri.psid_variant),
+        tri.psid_run_ts_on or "",
+        f"{tri.label}|psid_on",
+    )
 
     yield (tri.dpad_variant, tri.dpad_run_ts, f"{tri.label}|dpad_joint")
-    yield (_variant_off(tri.dpad_variant), tri.dpad_run_ts_off or "", f"{tri.label}|dpad_off")
-    yield (_variant_on(tri.dpad_variant), tri.dpad_run_ts_on or "", f"{tri.label}|dpad_on")
+    yield (
+        _variant_off(tri.dpad_variant),
+        tri.dpad_run_ts_off or "",
+        f"{tri.label}|dpad_off",
+    )
+    yield (
+        _variant_on(tri.dpad_variant),
+        tri.dpad_run_ts_on or "",
+        f"{tri.label}|dpad_on",
+    )
 
     yield (tri.varma_variant, tri.varma_run_ts, f"{tri.label}|varma_joint")
-    yield (_variant_off(tri.varma_variant), tri.varma_run_ts_off or "", f"{tri.label}|varma_off")
-    yield (_variant_on(tri.varma_variant), tri.varma_run_ts_on or "", f"{tri.label}|varma_on")
+    yield (
+        _variant_off(tri.varma_variant),
+        tri.varma_run_ts_off or "",
+        f"{tri.label}|varma_off",
+    )
+    yield (
+        _variant_on(tri.varma_variant),
+        tri.varma_run_ts_on or "",
+        f"{tri.label}|varma_on",
+    )
 
     yield (
         _variant_cross_eval(_variant_on(tri.varma_variant), "off"),
@@ -92,7 +116,10 @@ def spec_timestamps_by_variant(triplets: list[AlignedTriplet]) -> dict[str, set[
 
 
 def compare_spec_to_disk(
-    results_root: Path, *, split: str = "test", triplets: list[AlignedTriplet] | None = None
+    results_root: Path,
+    *,
+    split: str = "test",
+    triplets: list[AlignedTriplet] | None = None,
 ) -> list[dict[str, str | bool | None]]:
     """
     For each variant directory referenced in *triplets*, compare spec timestamp(s) to
@@ -111,12 +138,16 @@ def compare_spec_to_disk(
         rows.append(
             {
                 "variant": variant,
-                "spec_run_ts": spec_ts if not multi else "MULTIPLE: " + ",".join(sorted(spec_set)),
+                "spec_run_ts": (
+                    spec_ts if not multi else "MULTIPLE: " + ",".join(sorted(spec_set))
+                ),
                 "latest_on_disk": latest,
                 "disk_source": src,
                 "spec_conflict": multi,
                 "stale_vs_disk": stale,
-                "newer_on_disk": bool(latest and spec_ts and not multi and latest > spec_ts),
+                "newer_on_disk": bool(
+                    latest and spec_ts and not multi and latest > spec_ts
+                ),
             }
         )
     return rows
@@ -180,8 +211,12 @@ def resolve_aligned_triplet_timestamps(
         varma_run_ts=req(tri.varma_variant),
         varma_run_ts_off=req(_variant_off(tri.varma_variant)),
         varma_run_ts_on=req(_variant_on(tri.varma_variant)),
-        varma_run_ts_eval_off=req(_variant_cross_eval(_variant_on(tri.varma_variant), "off")),
-        varma_run_ts_eval_on=req(_variant_cross_eval(_variant_off(tri.varma_variant), "on")),
+        varma_run_ts_eval_off=req(
+            _variant_cross_eval(_variant_on(tri.varma_variant), "off")
+        ),
+        varma_run_ts_eval_on=req(
+            _variant_cross_eval(_variant_off(tri.varma_variant), "on")
+        ),
     )
 
 
@@ -259,7 +294,9 @@ def _resolve_classification_f1_spec(
     return replace(spec, points=new_points)
 
 
-def _resolve_psid_cy_panel(p: PsidCyPanel, results_root: Path, *, split: str) -> PsidCyPanel:
+def _resolve_psid_cy_panel(
+    p: PsidCyPanel, results_root: Path, *, split: str
+) -> PsidCyPanel:
     ts = _require_latest_ts(results_root / p.psid_variant, split=split)
     return replace(p, psid_run_ts=ts)
 
@@ -269,7 +306,9 @@ def _resolve_psid_cy_spec(
 ) -> ThesisPsidCyImportanceSpec:
     new_rows: list[PsidCyRow] = []
     for row in spec.rows:
-        new_panels = tuple(_resolve_psid_cy_panel(p, results_root, split=split) for p in row.panels)
+        new_panels = tuple(
+            _resolve_psid_cy_panel(p, results_root, split=split) for p in row.panels
+        )
         new_rows.append(replace(row, panels=new_panels))
     return replace(spec, rows=tuple(new_rows))
 
@@ -279,12 +318,16 @@ def _resolve_psid_cz_spec(
 ) -> ThesisPsidCzSpec:
     new_rows: list[PsidCyRow] = []
     for row in spec.rows:
-        new_panels = tuple(_resolve_psid_cy_panel(p, results_root, split=split) for p in row.panels)
+        new_panels = tuple(
+            _resolve_psid_cy_panel(p, results_root, split=split) for p in row.panels
+        )
         new_rows.append(replace(row, panels=new_panels))
     return replace(spec, rows=tuple(new_rows))
 
 
-def _resolve_latent_phase_panel(p: LatentPhasePanel, results_root: Path, *, split: str) -> LatentPhasePanel:
+def _resolve_latent_phase_panel(
+    p: LatentPhasePanel, results_root: Path, *, split: str
+) -> LatentPhasePanel:
     return replace(
         p,
         psid_run_ts=_require_latest_ts(results_root / p.psid_variant, split=split),
@@ -298,7 +341,8 @@ def _resolve_latent_phase_spec(
     new_rows: list[LatentPhaseRow] = []
     for row in spec.rows:
         new_panels = tuple(
-            _resolve_latent_phase_panel(p, results_root, split=split) for p in row.panels
+            _resolve_latent_phase_panel(p, results_root, split=split)
+            for p in row.panels
         )
         new_rows.append(replace(row, panels=new_panels))
     return replace(spec, rows=tuple(new_rows))
@@ -310,7 +354,9 @@ def _resolve_strip_panels_spec(
     new_entries: list[StripPanelEntry] = [
         replace(
             e,
-            triplet=resolve_aligned_triplet_timestamps(e.triplet, results_root, split=split),
+            triplet=resolve_aligned_triplet_timestamps(
+                e.triplet, results_root, split=split
+            ),
         )
         for e in spec.panels
     ]
@@ -358,34 +404,47 @@ def build_thesis_dashboard_specs(
         figures=tuple(rjf(s) for s in THESIS_FIGURES),
         neural_timeseries=tuple(rjf(s) for s in THESIS_NEURAL_TIMESERIES),
         c2_forecasts=tuple(rjf(s) for s in THESIS_C2_FORECASTS),
-        cross_block=tuple(replace(s, joint_triplet=rt(s.joint_triplet)) for s in THESIS_CROSS_BLOCK),
+        cross_block=tuple(
+            replace(s, joint_triplet=rt(s.joint_triplet)) for s in THESIS_CROSS_BLOCK
+        ),
         forecast_checkpoint=tuple(
-            replace(s, joint_triplet=rt(s.joint_triplet)) for s in THESIS_FORECAST_CHECKPOINT
+            replace(s, joint_triplet=rt(s.joint_triplet))
+            for s in THESIS_FORECAST_CHECKPOINT
         ),
         neural_forecast_figures=tuple(
-            replace(s, triplets=tuple(rt(t) for t in s.triplets)) for s in THESIS_NEURAL_FORECAST_FIGURES
+            replace(s, triplets=tuple(rt(t) for t in s.triplets))
+            for s in THESIS_NEURAL_FORECAST_FIGURES
         ),
         classification_f1=tuple(
-            _resolve_classification_f1_spec(s, rr, split=split) for s in THESIS_CLASSIFICATION_F1
+            _resolve_classification_f1_spec(s, rr, split=split)
+            for s in THESIS_CLASSIFICATION_F1
         ),
         aggregate_figures=tuple(
-            replace(s, triplets=tuple(rt(t) for t in s.triplets)) for s in THESIS_AGGREGATE_FIGURES
+            replace(s, triplets=tuple(rt(t) for t in s.triplets))
+            for s in THESIS_AGGREGATE_FIGURES
         ),
         forecast_figures=tuple(
-            replace(s, triplets=tuple(rt(t) for t in s.triplets)) for s in THESIS_FORECAST_FIGURES
+            replace(s, triplets=tuple(rt(t) for t in s.triplets))
+            for s in THESIS_FORECAST_FIGURES
         ),
         neural_band_heatmaps=tuple(
-            replace(s, triplets=tuple(rt(t) for t in s.triplets)) for s in THESIS_NEURAL_BAND_HEATMAPS
+            replace(s, triplets=tuple(rt(t) for t in s.triplets))
+            for s in THESIS_NEURAL_BAND_HEATMAPS
         ),
-        latent_phase=tuple(_resolve_latent_phase_spec(s, rr, split=split) for s in THESIS_LATENT_PHASE),
+        latent_phase=tuple(
+            _resolve_latent_phase_spec(s, rr, split=split) for s in THESIS_LATENT_PHASE
+        ),
         psid_cy_importance=tuple(
             _resolve_psid_cy_spec(s, rr, split=split) for s in THESIS_PSID_CY_IMPORTANCE
         ),
         psid_cz_heatmap=tuple(
             _resolve_psid_cz_spec(s, rr, split=split) for s in THESIS_PSID_CZ_HEATMAP
         ),
-        strip_panels=tuple(_resolve_strip_panels_spec(s, rr, split=split) for s in THESIS_STRIP_PANELS),
+        strip_panels=tuple(
+            _resolve_strip_panels_spec(s, rr, split=split) for s in THESIS_STRIP_PANELS
+        ),
         within_cross=tuple(
-            replace(wc, joint_triplet=rt(wc.joint_triplet)) for wc in THESIS_WITHIN_CROSS
+            replace(wc, joint_triplet=rt(wc.joint_triplet))
+            for wc in THESIS_WITHIN_CROSS
         ),
     )

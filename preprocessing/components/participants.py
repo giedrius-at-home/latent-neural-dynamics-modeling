@@ -2,7 +2,6 @@ import polars as pl
 import numpy as np
 from pathlib import Path
 
-from utils.ieeg import epoch_trials, calculate_psd_welch
 from utils.polars import read_and_implode_parquet
 from .motion import construct_motion_table
 from utils.file_handling import get_child_subchilds_tuples
@@ -99,42 +98,6 @@ def _add_full_data(
         max_pause_seconds=max_pause_seconds,
     )
 
-    for channel in all_band_channels:
-        if channel in participants.columns:
-            participants = participants.with_columns(
-                pl.col(channel)
-                .map_elements(epoch_trials, return_dtype=pl.List(pl.List(pl.Float64)))
-                .alias(f"{channel}_epochs")
-            )
-
-    for channel in all_band_channels:
-        epochs_col = f"{channel}_epochs"
-        if epochs_col in participants.columns:
-            participants = (
-                participants.with_columns(
-                    pl.col(epochs_col)
-                    .map_elements(
-                        lambda x: calculate_psd_welch(
-                            x,
-                            sfreq=config.ieeg_process.resampled_freq,
-                        ),
-                        return_dtype=pl.Object,
-                    )
-                    .alias(f"{channel}_psd")
-                )
-                .with_columns(
-                    pl.col(f"{channel}_psd")
-                    .map_elements(lambda x: x[0], return_dtype=pl.List(pl.Float64))
-                    .alias(f"{channel}_psd_freq"),
-                    pl.col(f"{channel}_psd")
-                    .map_elements(
-                        lambda x: x[1], return_dtype=pl.List(pl.List(pl.Float64))
-                    )
-                    .alias(f"{channel}_psd_values"),
-                )
-                .drop(f"{channel}_psd")
-            )
-
     return participants, all_band_channels
 
 
@@ -176,7 +139,9 @@ def construct_participants_table(
             participants = participants.drop("is_fragmented")
 
         if participants.is_empty():
-            logger.info(f"Skipping empty partition after fragmented filter: {p_partition_path}")
+            logger.info(
+                f"Skipping empty partition after fragmented filter: {p_partition_path}"
+            )
             continue
 
         participants, all_band_channels = _add_full_data(participants, config)
@@ -272,12 +237,34 @@ def _add_ieeg_data(
             logger.info(
                 f"Dropped {len(lfp_cols_to_drop)} LFP channels early (drop_lfp=True)"
             )
+    else:
+        # LFP_1..LFP_8 are physiologically discarded — only deepest contacts
+        # (9-16) used for Laplacians. Drop early to save memory through the
+        # band-processing pipeline.
+        lfp_early_drop = [
+            f"LFP_{i}" for i in range(1, 9) if f"LFP_{i}" in participants_.columns
+        ]
+        if lfp_early_drop:
+            participants_ = participants_.drop(lfp_early_drop)
+            logger.info(
+                f"Dropped LFP_1..LFP_8 early ({len(lfp_early_drop)} cols) — "
+                f"only LFP_9..16 used downstream"
+            )
 
     original_sfreq = 1000
     target_sfreq = config.ieeg_process.resampled_freq
     raw_bands = getattr(config.ieeg_process, "raw_bands", {})
     envelope_bands = getattr(config.ieeg_process, "envelope_bands", {})
     log_power_bands = getattr(config.ieeg_process, "log_power_bands", {})
+    morlet_log_power_bands = getattr(config.ieeg_process, "morlet_log_power_bands", {})
+    morlet_n_cycles_factor = getattr(config.ieeg_process, "morlet_n_cycles_factor", 0.5)
+    morlet_n_cycles_min = getattr(config.ieeg_process, "morlet_n_cycles_min", 3.0)
+    morlet_freqs_per_band = getattr(config.ieeg_process, "morlet_freqs_per_band", 3)
+    welch_log_power_bands = getattr(config.ieeg_process, "welch_log_power_bands", {})
+    welch_nperseg = int(getattr(config.ieeg_process, "welch_nperseg", 200))
+    welch_noverlap_cfg = getattr(config.ieeg_process, "welch_noverlap", None)
+    welch_noverlap = int(welch_noverlap_cfg) if welch_noverlap_cfg is not None else None
+    welch_nfft = int(getattr(config.ieeg_process, "welch_nfft", 1024))
     notch_freqs = config.ieeg_process.notch_freqs
     scale_factor = float(getattr(config.ieeg_process, "scale_factor", 1.0))
     compute_average = getattr(config.ieeg_process, "compute_average", False)
@@ -287,11 +274,20 @@ def _add_ieeg_data(
         list(raw_bands.keys())
         + list(envelope_bands.keys())
         + list(log_power_bands.keys())
+        + list(morlet_log_power_bands.keys())
+        + list(welch_log_power_bands.keys())
     )
     all_band_channels = []
 
     # Common Average Reference across ECOG channels (at raw 1000 Hz, pre-filter).
     # Subtracts the per-timestep mean of ECOG_1..ECOG_4 from each ECOG channel.
+    #
+    # CAR is per-row → per-block. Each block is a pure DBS on or off state
+    # (no within-block stim switching), so CAR is implicitly per-DBS-state:
+    # the per-timestep mean removed from an ON block uses only ON-state ECoG
+    # samples, and likewise for OFF. Stim-artifact common-mode is removed
+    # from ON blocks; intrinsic common-mode from OFF blocks. No cross-state
+    # contamination.
     if apply_car:
         ecog_present = [ch for ch in ECOG_CHANNELS if ch in participants_.columns]
         if len(ecog_present) >= 2:
@@ -316,6 +312,7 @@ def _add_ieeg_data(
             )
 
             for ch in ecog_present:
+
                 def _subtract_mean(row, ch_name=ch):
                     s = row[ch_name]
                     m = row["_ecog_car_mean"]
@@ -336,7 +333,9 @@ def _add_ieeg_data(
 
             participants_ = participants_.drop("_ecog_car_mean")
         else:
-            logger.info("apply_car=True but fewer than 2 ECOG channels present; skipping CAR")
+            logger.info(
+                "apply_car=True but fewer than 2 ECOG channels present; skipping CAR"
+            )
 
     # Process ECOG channels (ECOG_1 to ECOG_4)
     logger.info("Processing ECOG channels")
@@ -352,6 +351,14 @@ def _add_ieeg_data(
                 raw_bands=raw_bands,
                 envelope_bands=envelope_bands,
                 log_power_bands=log_power_bands,
+                morlet_log_power_bands=morlet_log_power_bands,
+                morlet_n_cycles_factor=morlet_n_cycles_factor,
+                morlet_n_cycles_min=morlet_n_cycles_min,
+                morlet_freqs_per_band=morlet_freqs_per_band,
+                welch_log_power_bands=welch_log_power_bands,
+                welch_nperseg=welch_nperseg,
+                welch_noverlap=welch_noverlap,
+                welch_nfft=welch_nfft,
                 notch_freqs=notch_freqs,
                 original_sfreq=original_sfreq,
                 target_sfreq=target_sfreq,
@@ -418,20 +425,12 @@ def _add_ieeg_data(
                     .alias(avg_channel)
                 )
 
-    # Process LFP channels: Compute Laplacian for k ∈ {9, 10, 11, 12, 13, 14}
-    # To double the number, we'll also include k ∈ {8, 15} if available
+    # Process LFP channels: Compute Laplacian for k ∈ {9..14} using
+    # LFP_k, LFP_{k+1}, LFP_{k+2}. Range chosen so all three taps are in
+    # LFP_9..16 (deepest contacts; LFP_1..8 dropped above).
     if not drop_lfp:
-        logger.info("Processing LFP channels with Laplacian")
-        laplacian_k_values = [
-            8,
-            9,
-            10,
-            11,
-            12,
-            13,
-            14,
-            15,
-        ]  # Doubled from original 6 to 8
+        logger.info("Processing LFP channels with Laplacian (LFP_9..16 only)")
+        laplacian_k_values = [9, 10, 11, 12, 13, 14]
 
         for k in laplacian_k_values:
             lfp_k_name = f"LFP_{k}"
@@ -469,6 +468,14 @@ def _add_ieeg_data(
                     raw_bands=raw_bands,
                     envelope_bands=envelope_bands,
                     log_power_bands=log_power_bands,
+                    morlet_log_power_bands=morlet_log_power_bands,
+                    morlet_n_cycles_factor=morlet_n_cycles_factor,
+                    morlet_n_cycles_min=morlet_n_cycles_min,
+                    morlet_freqs_per_band=morlet_freqs_per_band,
+                    welch_log_power_bands=welch_log_power_bands,
+                    welch_nperseg=welch_nperseg,
+                    welch_noverlap=welch_noverlap,
+                    welch_nfft=welch_nfft,
                     notch_freqs=notch_freqs,
                     original_sfreq=original_sfreq,
                     target_sfreq=target_sfreq,
@@ -482,21 +489,12 @@ def _add_ieeg_data(
             )
 
             for band_name in all_band_names:
-                # Split band_name into band and feature (e.g., "delta_raw" -> band="delta", feature="raw")
-                # Handle different formats: "delta_raw", "lowbeta_env", "raw" (no underscore)
-                if "_" in band_name:
-                    parts = band_name.rsplit("_", 1)
-                    if len(parts) == 2:
-                        band, feature = parts
-                    else:
-                        band = band_name
-                        feature = "raw"
-                else:
-                    band = band_name
-                    feature = "raw"
-
-                # Create channel name: LAPLACIAN_k-{k+2}_LFP_{band}_{feature}
-                laplacian_channel = f"LAPLACIAN_{k}-{k+2}_LFP_{band}_{feature}"
+                # Use ``band_name`` verbatim, matching the ECoG naming pattern
+                # (``ECOG_n_{band_name}``). Legacy yamls encode mode directly in
+                # the band name (``delta_log_power``, ``beta_13_env``, etc.) so
+                # outputs stay identical for them; new yamls (e.g. morlet) get
+                # clean names like ``LAPLACIAN_9-11_LFP_theta``.
+                laplacian_channel = f"LAPLACIAN_{k}-{k+2}_LFP_{band_name}"
                 all_band_channels.append(laplacian_channel)
                 participants_ = participants_.with_columns(
                     pl.col(f"_bands_laplacian_{k}")

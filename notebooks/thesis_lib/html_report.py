@@ -23,8 +23,12 @@ from plotly.io import to_html
 
 from dashboard.thesis.aggregate_rmse import collect_pooled_rmse
 from dashboard.thesis.c2_forecast_timeseries import build_c2_forecast_figure
-from dashboard.thesis.cross_block_predictions import build_cross_block_predictions_figure
-from dashboard.thesis.forecast_checkpoint_compare import build_forecast_checkpoint_compare_figure
+from dashboard.thesis.cross_block_predictions import (
+    build_cross_block_predictions_figure,
+)
+from dashboard.thesis.forecast_checkpoint_compare import (
+    build_forecast_checkpoint_compare_figure,
+)
 from dashboard.thesis.classification_f1_data import (
     GROUP_ORDER,
     collect_classification_f1_points,
@@ -332,7 +336,9 @@ def _build_thesis_html_document_body(
     parts.append("<main>")
 
     # Title and introduction
-    parts.append("<h1>Latent Neural Dynamics Modelling for Deep Brain Stimulation: Results</h1>")
+    parts.append(
+        "<h1>Latent Neural Dynamics Modelling for Deep Brain Stimulation: Results</h1>"
+    )
     parts.append(
         "<p>This report evaluates three modelling frameworks for learning latent representations "
         "from neural recordings during deep brain stimulation (DBS). "
@@ -352,7 +358,7 @@ def _build_thesis_html_document_body(
     # Section 1: Data Verification
     # ===================================================================
 
-    parts.append('<h2>1. Data Verification</h2>')
+    parts.append("<h2>1. Data Verification</h2>")
 
     # Trial count per session and DBS condition
     try:
@@ -434,15 +440,17 @@ def _build_thesis_html_document_body(
     except Exception as e:
         parts.append(_p_error(f"Failed to build raw-vs-laplacian figure: {e}"))
 
-    parts.append(_transition(
-        "With the data verified, we assess whether the models reconstruct neural and behavioural signals."
-    ))
+    parts.append(
+        _transition(
+            "With the data verified, we assess whether the models reconstruct neural and behavioural signals."
+        )
+    )
 
     # ===================================================================
     # Section 2: Model Validation
     # ===================================================================
 
-    parts.append('<h2>2. Model Validation</h2>')
+    parts.append("<h2>2. Model Validation</h2>")
 
     # Pooled behavioral RMSE bars
     for spec in THESIS_AGGREGATE_FIGURES:
@@ -542,10 +550,18 @@ def _build_thesis_html_document_body(
                 model_labels = ["PSID", "PSID", "DPAD", "DPAD", "VARMA", "VARMA"]
                 cond_labels = ["OFF", "ON", "OFF", "ON", "OFF", "ON"]
                 for i in range(6):
-                    m_v = agg_single.means[i] if i < len(agg_single.means) else float("nan")
-                    s_v = agg_single.sems[i] if i < len(agg_single.sems) else float("nan")
+                    m_v = (
+                        agg_single.means[i]
+                        if i < len(agg_single.means)
+                        else float("nan")
+                    )
+                    s_v = (
+                        agg_single.sems[i] if i < len(agg_single.sems) else float("nan")
+                    )
                     if math.isfinite(m_v):
-                        stat_parts.append(f"{model_labels[i]} {cond_labels[i]}: {m_v:.3f} \u00b1 {s_v:.3f}")
+                        stat_parts.append(
+                            f"{model_labels[i]} {cond_labels[i]}: {m_v:.3f} \u00b1 {s_v:.3f}"
+                        )
                 stat_str = ". ".join(stat_parts) + "." if stat_parts else ""
                 parts.append(
                     _p_caption(
@@ -557,7 +573,9 @@ def _build_thesis_html_document_body(
                 )
             except Exception as e:
                 parts.append(
-                    _p_error(f"Failed to build per-session RMSE figure for {session_label}: {e}")
+                    _p_error(
+                        f"Failed to build per-session RMSE figure for {session_label}: {e}"
+                    )
                 )
 
     # Session-mean RMSE strip plots
@@ -662,12 +680,19 @@ def _build_thesis_html_document_body(
                 res_fc, fc_spec.neural_y_feature_name, fc_spec.channel_idx
             )
             inn = channels_as_str_list(res_fc.get("input_channels"))
-            neu_lbl = inn[ch_ix] if ch_ix < len(inn) else neural_y_feature_label(
-                res_fc, ch_ix, neural_y_feature_name=fc_spec.neural_y_feature_name
+            neu_lbl = (
+                inn[ch_ix]
+                if ch_ix < len(inn)
+                else neural_y_feature_label(
+                    res_fc, ch_ix, neural_y_feature_name=fc_spec.neural_y_feature_name
+                )
             )
             y_fc_title = rmse_axis_label(neu_lbl)
             fig_fc = build_forecast_rmse_figure_or_empty(
-                fc_data, fc_spec.theme, y_axis_title=y_fc_title, column_name=neu_lbl,
+                fc_data,
+                fc_spec.theme,
+                y_axis_title=y_fc_title,
+                column_name=neu_lbl,
             )
             add_fig(fig_fc)
             parts.append(
@@ -718,15 +743,17 @@ def _build_thesis_html_document_body(
     except Exception as e:
         parts.append(_p_error(f"Failed to build vanilla comparison figure: {e}"))
 
-    parts.append(_transition(
-        "Having validated neural reconstruction, we test whether surface ECoG can predict depth LFP signals."
-    ))
+    parts.append(
+        _transition(
+            "Having validated neural reconstruction, we test whether surface ECoG can predict depth LFP signals."
+        )
+    )
 
     # ===================================================================
     # Section 3: RQ1 -- Cross-Modal Prediction (ECoG to LFP)
     # ===================================================================
 
-    parts.append('<h2>3. RQ1 \u2014 Cross-Modal Prediction (ECoG to LFP)</h2>')
+    parts.append("<h2>3. RQ1 \u2014 Cross-Modal Prediction (ECoG to LFP)</h2>")
     parts.append(
         "<p>Can surface ECoG features predict depth LFP signals recorded at the DBS electrode? "
         "We train PSID with Laplacian-referenced LFP as the behavioural target, "
@@ -765,15 +792,17 @@ def _build_thesis_html_document_body(
     except Exception as e:
         parts.append(_p_error(f"Failed to build Laplacian time series figure: {e}"))
 
-    parts.append(_transition(
-        "Cross-modal prediction is limited; we now examine whether the models decode behavioural output from neural activity."
-    ))
+    parts.append(
+        _transition(
+            "Cross-modal prediction is limited; we now examine whether the models decode behavioural output from neural activity."
+        )
+    )
 
     # ===================================================================
     # Section 4: RQ2 -- Behavioral Decoding
     # ===================================================================
 
-    parts.append('<h2>4. RQ2 \u2014 Behavioural Decoding</h2>')
+    parts.append("<h2>4. RQ2 \u2014 Behavioural Decoding</h2>")
     parts.append(
         "<p>Can latent neural dynamics predict concurrent behavioural output (tracing speed)? "
         "PSID and DPAD decode behaviour through learned latent states, while VARMA "
@@ -838,11 +867,16 @@ def _build_thesis_html_document_body(
                 fc_spec.split,
             )
             ch_fc, _dfc = resolve_output_channel_display(
-                res_fc, fc_spec.channel_idx, declared_outputs=THESIS_DECLARED_BEHAVIORAL_OUTPUTS
+                res_fc,
+                fc_spec.channel_idx,
+                declared_outputs=THESIS_DECLARED_BEHAVIORAL_OUTPUTS,
             )
             y_fc_title = rmse_axis_label(ch_fc)
             fig_fc = build_forecast_rmse_figure_or_empty(
-                fc_data, fc_spec.theme, y_axis_title=y_fc_title, column_name=ch_fc,
+                fc_data,
+                fc_spec.theme,
+                y_axis_title=y_fc_title,
+                column_name=ch_fc,
             )
             add_fig(fig_fc)
             parts.append(
@@ -860,16 +894,20 @@ def _build_thesis_html_document_body(
         except Exception as e:
             parts.append(_p_error(f"Failed to build forecast RMSE figure: {e}"))
 
-    parts.append(_transition(
-        "Although behavioural decoding is modest, the latent representations may still encode DBS state, "
-        "which we test next through classification and cross-condition generalisation."
-    ))
+    parts.append(
+        _transition(
+            "Although behavioural decoding is modest, the latent representations may still encode DBS state, "
+            "which we test next through classification and cross-condition generalisation."
+        )
+    )
 
     # ===================================================================
     # Section 5: RQ3 -- DBS Classification and Cross-Condition Generalisation
     # ===================================================================
 
-    parts.append('<h2>5. RQ3 \u2014 DBS Classification and Cross-Condition Generalisation</h2>')
+    parts.append(
+        "<h2>5. RQ3 \u2014 DBS Classification and Cross-Condition Generalisation</h2>"
+    )
     parts.append(
         "<p>Do the learned latent states encode DBS stimulation state? "
         "We apply CSP + LDA classification to latent subspaces (X<sub>p</sub>, X<sub>p,1</sub>, X<sub>p,2</sub>) "
@@ -878,7 +916,9 @@ def _build_thesis_html_document_body(
 
     # Classification grouped bar chart
     for f1_spec in THESIS_CLASSIFICATION_F1:
-        model_labels = sorted({getattr(ref, "model_label", "PSID") for ref in f1_spec.points})
+        model_labels = sorted(
+            {getattr(ref, "model_label", "PSID") for ref in f1_spec.points}
+        )
         model_str = " / ".join(model_labels)
         try:
             cls_points = collect_classification_f1_points(
@@ -894,7 +934,11 @@ def _build_thesis_html_document_body(
             add_fig(fig_cls_bar)
             cap_lines: list[str] = []
             for pt in cls_points:
-                pval_str = f"p = {pt.permutation_pvalue:.4f}" if pt.permutation_pvalue is not None else "\u2014"
+                pval_str = (
+                    f"p = {pt.permutation_pvalue:.4f}"
+                    if pt.permutation_pvalue is not None
+                    else "\u2014"
+                )
                 cap_lines.append(
                     f"{pt.participant_label}_{pt.session_label} "
                     f"{_FEAT_SHORT.get(pt.group, pt.group)}: "
@@ -909,13 +953,18 @@ def _build_thesis_html_document_body(
                 )
             )
         except Exception as e:
-            parts.append(_p_error(f"Failed to build classification grouped bar chart: {e}"))
+            parts.append(
+                _p_error(f"Failed to build classification grouped bar chart: {e}")
+            )
 
     # Standard classification heatmap
     parts.append('<hr class="section">')
     for f1_spec in THESIS_CLASSIFICATION_F1:
         try:
-            from dashboard.thesis.classification_f1_figure import build_standard_heatmap_figure
+            from dashboard.thesis.classification_f1_figure import (
+                build_standard_heatmap_figure,
+            )
+
             cls_pts = collect_classification_f1_points(
                 results_root,
                 f1_spec.points,
@@ -932,12 +981,17 @@ def _build_thesis_html_document_body(
                 )
             )
         except Exception as e:
-            parts.append(_p_error(f"Failed to build standard classification heatmap: {e}"))
+            parts.append(
+                _p_error(f"Failed to build standard classification heatmap: {e}")
+            )
 
     # Flipped classification heatmaps
     parts.append('<hr class="section">')
     try:
-        from dashboard.thesis.classification_f1_figure import build_flipped_heatmap_figure
+        from dashboard.thesis.classification_f1_figure import (
+            build_flipped_heatmap_figure,
+        )
+
         flipped_fig = build_flipped_heatmap_figure(results_root)
         add_fig(flipped_fig)
         parts.append(
@@ -957,6 +1011,7 @@ def _build_thesis_html_document_body(
     parts.append('<hr class="section">')
     try:
         from dashboard.thesis.roc_curve_figure import build_roc_curve_figure
+
         fig_roc = build_roc_curve_figure(results_root)
         add_fig(fig_roc)
         parts.append(
@@ -991,7 +1046,11 @@ def _build_thesis_html_document_body(
                 )
             )
         except Exception as e:
-            parts.append(_p_error(f"Failed to build within-cross boxplot ({wc_spec.section_title}): {e}"))
+            parts.append(
+                _p_error(
+                    f"Failed to build within-cross boxplot ({wc_spec.section_title}): {e}"
+                )
+            )
 
     # Cross-block decoding
     parts.append('<hr class="section">')
@@ -1016,7 +1075,9 @@ def _build_thesis_html_document_body(
     parts.append('<hr class="section">')
     for fc_ck_spec in THESIS_FORECAST_CHECKPOINT:
         try:
-            fig_fc_ck, cap_fc_ck = build_forecast_checkpoint_compare_figure(fc_ck_spec, results_root)
+            fig_fc_ck, cap_fc_ck = build_forecast_checkpoint_compare_figure(
+                fc_ck_spec, results_root
+            )
             add_fig(fig_fc_ck)
             parts.append(
                 _p_caption(
@@ -1030,15 +1091,17 @@ def _build_thesis_html_document_body(
         except Exception as e:
             parts.append(_p_error(f"Failed to build forecast checkpoint figure: {e}"))
 
-    parts.append(_transition(
-        "We now synthesize findings across all three research questions and present supplementary analyses."
-    ))
+    parts.append(
+        _transition(
+            "We now synthesize findings across all three research questions and present supplementary analyses."
+        )
+    )
 
     # ===================================================================
     # Section 6: Summary, Supplementary Analysis, and Appendix
     # ===================================================================
 
-    parts.append('<h2>6. Summary, Supplementary Analysis, and Appendix</h2>')
+    parts.append("<h2>6. Summary, Supplementary Analysis, and Appendix</h2>")
     parts.append(
         "<p><b>Synthesis.</b> "
         "Cross-modal prediction (RQ1) confirms that surface ECoG carries limited depth LFP information. "
@@ -1123,7 +1186,7 @@ def _build_thesis_html_document_body(
 
     # Appendix items
     parts.append('<hr class="section">')
-    parts.append('<h3>Appendix</h3>')
+    parts.append("<h3>Appendix</h3>")
     appendix_specs = [
         (
             "DPAD training curves (4-stage loss)",
@@ -1173,10 +1236,14 @@ def write_thesis_html_report(
     use_latest_result_timestamps: bool | None = None,
 ) -> Path:
     """Write the static HTML report to ``output_path``. Returns the path written."""
-    rr = results_root if results_root is not None else default_results_root(project_root)
+    rr = (
+        results_root if results_root is not None else default_results_root(project_root)
+    )
     proj = project_root or Path(__file__).resolve().parents[2]
     if use_latest_result_timestamps is None:
-        use_latest_result_timestamps = os.environ.get("THESIS_USE_SPEC_TIMESTAMPS", "").strip() != "1"
+        use_latest_result_timestamps = (
+            os.environ.get("THESIS_USE_SPEC_TIMESTAMPS", "").strip() != "1"
+        )
     html_doc = build_thesis_html_document(
         rr,
         verbose_logging=verbose_logging,

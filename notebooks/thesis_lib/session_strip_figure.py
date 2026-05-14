@@ -90,7 +90,11 @@ def build_session_strip_figure(
                         y=[my, my],
                         mode="lines",
                         line=dict(color="black", width=WIDTH_MEAN),
-                        name="Participant mean (session avg.)" if show_leg and cell_idx == 0 else None,
+                        name=(
+                            "Participant mean (session avg.)"
+                            if show_leg and cell_idx == 0
+                            else None
+                        ),
                         legendgroup="meanline",
                         showlegend=show_leg and cell_idx == 0,
                         hoverinfo="skip",
@@ -266,7 +270,10 @@ def build_session_strip_boxplot_figure(
         for mi, (model, mc, off_cell, on_cell) in enumerate(
             zip(models, model_colors, _OFF_CELLS, _ON_CELLS)
         ):
-            for cond_label, cell_idx, alpha in (("OFF", off_cell, 0.80), ("ON", on_cell, 0.45)):
+            for cond_label, cell_idx, alpha in (
+                ("OFF", off_cell, 0.80),
+                ("ON", on_cell, 0.45),
+            ):
                 vals = panel.trial_rmse[cell_idx]
                 if not vals:
                     continue
@@ -298,7 +305,11 @@ def build_session_strip_boxplot_figure(
                         x=[xpos + jt[i] for i in range(len(arr))],
                         y=arr,
                         mode="markers",
-                        marker=dict(size=5, color=_hex_to_rgba(mc, alpha * 0.85), line=dict(width=0)),
+                        marker=dict(
+                            size=5,
+                            color=_hex_to_rgba(mc, alpha * 0.85),
+                            line=dict(width=0),
+                        ),
                         showlegend=False,
                         legendgroup=leg_name,
                         hovertemplate=f"{leg_name}<br>%{{y:.3f}}<extra></extra>",
@@ -308,10 +319,14 @@ def build_session_strip_boxplot_figure(
                 )
 
         fig.add_annotation(
-            row=row, col=col,
-            xref="x domain", yref="y domain",
-            x=0.04, y=0.93,
-            xanchor="left", yanchor="top",
+            row=row,
+            col=col,
+            xref="x domain",
+            yref="y domain",
+            x=0.04,
+            y=0.93,
+            xanchor="left",
+            yanchor="top",
             text=f"<b>{panel.panel_label}</b>",
             showarrow=False,
             font=dict(size=FONT_SIZE_BASE, family=FONT_FAMILY, color=fg),
@@ -319,17 +334,27 @@ def build_session_strip_boxplot_figure(
 
         for xv in (1.5, 3.5):
             fig.add_shape(
-                type="line", xref="x", yref="y",
-                x0=xv, x1=xv, y0=0, y1=data.y_max,
+                type="line",
+                xref="x",
+                yref="y",
+                x0=xv,
+                x1=xv,
+                y0=0,
+                y1=data.y_max,
                 line=dict(color=COLOR_SEPARATOR, width=0.7, dash="dash"),
-                opacity=0.5, row=row, col=col,
+                opacity=0.5,
+                row=row,
+                col=col,
             )
 
     x_tick_vals = [0, 1, 2, 3, 4, 5]
     x_tick_text = [
-        "PSID\nOFF", "PSID\nON",
-        "DPAD\nOFF", "DPAD\nON",
-        "VARMA\nOFF", "VARMA\nON",
+        "PSID\nOFF",
+        "PSID\nON",
+        "DPAD\nOFF",
+        "DPAD\nON",
+        "VARMA\nOFF",
+        "VARMA\nON",
     ]
     c_title = max(1, (ncols + 1) // 2)
 
@@ -342,16 +367,21 @@ def build_session_strip_boxplot_figure(
                 continue
             fig.update_yaxes(
                 range=[0, data.y_max],
-                showgrid=True, gridcolor=grid,
-                showline=True, linecolor=fg, linewidth=1,
+                showgrid=True,
+                gridcolor=grid,
+                showline=True,
+                linecolor=fg,
+                linewidth=1,
                 tickfont=dict(size=FONT_SIZE_TICK),
-                row=r, col=c,
+                row=r,
+                col=c,
             )
             if c == 1:
                 fig.update_yaxes(
                     title_text=rmse_axis_label(),
                     title_font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY),
-                    row=r, col=c,
+                    row=r,
+                    col=c,
                 )
             if r < nrows:
                 fig.update_xaxes(showticklabels=False, row=r, col=c)
@@ -366,7 +396,8 @@ def build_session_strip_boxplot_figure(
                     title_text=xt,
                     title_font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY),
                     automargin=True,
-                    row=r, col=c,
+                    row=r,
+                    col=c,
                 )
 
     apply_thesis_style(

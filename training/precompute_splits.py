@@ -1,18 +1,23 @@
 #!/usr/bin/env python3
-"""Precompute balanced block-chronological splits for every session and
-write per-session YAMLs under ``configs/splits/{participant}_S{session}.yaml``.
+"""Precompute balanced block-chronological splits for every session.
 
-Each YAML carries train / val / test block-id lists. ``utils/split.py:
-create_splits`` loads the matching file at training time and assigns trials
-by block membership — so every framework (PSID, DPAD, VARMA) and every
-variant sees byte-identical block assignments by construction.
+Writes three shared parquets co-located with the recordings:
 
-Algorithm (same as create_splits):
-  * group blocks by DBS condition ('stim'), sort chronologically.
+    <data_root>/../splits/train.parquet
+    <data_root>/../splits/val.parquet
+    <data_root>/../splits/test.parquet
+
+Each parquet has columns: ``participant_id``, ``session``, ``block``,
+``trial``, ``dbs_state``. Running for a new session upserts into the
+existing files (removes stale rows for that participant+session, appends
+fresh rows).
+
+Algorithm:
+  * Group blocks by DBS condition, sort chronologically.
   * min_n = min(#off_blocks, #on_blocks).
-  * per-cond: first round(train*min_n) → train,
-              last  round(test *min_n) → test,
-              middle (+surplus) → val.
+  * Per condition: first round(train_frac * min_n) -> train,
+                   last  round(test_frac  * min_n) -> test,
+                   middle (+surplus) -> val.
 
 Usage:
     python training/precompute_splits.py
@@ -22,39 +27,66 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 import polars as pl
-import yaml
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DATA_ROOT = PROJECT_ROOT / "resampled_recordings" / "participants_at_200Hz_scaled_1e6_narrow_band"
-OUT_DIR = PROJECT_ROOT / "configs" / "splits"
+sys.path.insert(0, str(PROJECT_ROOT))
+
+_DEFAULT_DATA_ROOT = "resampled_recordings/participants_at_200Hz_scaled_1e6_narrow_band"
+
+_SPLIT_NAMES = ("train", "val", "test")
 
 
-def block_metadata(participant: str, session: str) -> pl.DataFrame:
-    sess = DATA_ROOT / f"participant_id={participant}" / f"session={session}"
+def splits_dir(data_root: Path) -> Path:
+    """Split parquets live alongside the recordings: ``<data_root>/../splits/``."""
+    return data_root.parent / "splits"
+
+
+def load_trial_index(data_root: Path, participant: str, session: str) -> pl.DataFrame:
+    """Return one row per trial: block, trial, dbs_state."""
+    sess = data_root / f"participant_id={participant}" / f"session={session}"
     rows = []
-    for b in sorted(sess.glob("block=*")):
-        pq_files = list(b.glob("*.parquet"))
+    for b_dir in sorted(sess.glob("block=*")):
+        pq_files = list(b_dir.glob("*.parquet"))
         if not pq_files:
             continue
+        block_id = int(b_dir.name.split("=")[1])
         df = pl.read_parquet(pq_files[0])
-        block_id = int(b.name.split("=")[1])
-        stim_vals = [str(v).lower() for v in df["stim"].unique().to_list()]
-        dbs = "mixed" if len(set(stim_vals)) > 1 else ("on" if stim_vals[0] in ("on", "true", "1") else "off")
         trial_col = "trial" if "trial" in df.columns else "trial_number"
-        rows.append({"block": block_id, "dbs": dbs, "n_trials": df[trial_col].n_unique()})
-    return pl.DataFrame(rows).sort("block")
+        stim_col = "stim" if "stim" in df.columns else None
+        for row in df.select([trial_col] + ([stim_col] if stim_col else [])).iter_rows(
+            named=True
+        ):
+            trial_id = row[trial_col]
+            stim_raw = (
+                str(row.get(stim_col, "unknown")).lower() if stim_col else "unknown"
+            )
+            dbs = (
+                "on"
+                if stim_raw in ("on", "true", "1")
+                else ("off" if stim_raw in ("off", "false", "0") else stim_raw)
+            )
+            rows.append({"block": block_id, "trial": trial_id, "dbs_state": dbs})
+    return pl.DataFrame(
+        rows, schema={"block": pl.Int64, "trial": pl.Int64, "dbs_state": pl.Utf8}
+    ).sort(["block", "trial"])
 
 
-def allocate(blocks_df: pl.DataFrame, train_frac: float, test_frac: float) -> dict:
-    conds = blocks_df["dbs"].unique().to_list()
-
-    fold_map: dict = {}
+def allocate_blocks(
+    trial_index: pl.DataFrame, train_frac: float, test_frac: float
+) -> dict[int, str]:
+    """Return {block_id: split_name} using balanced block-chronological logic."""
+    block_df = (
+        trial_index.group_by("block").agg(pl.col("dbs_state").first()).sort("block")
+    )
+    conds = block_df["dbs_state"].unique().to_list()
+    fold_map: dict[int, str] = {}
 
     if len(conds) == 1:
-        blocks = blocks_df["block"].to_list()
+        blocks = block_df["block"].to_list()
         n = len(blocks)
         n_train = round(train_frac * n)
         n_test = round(test_frac * n)
@@ -67,7 +99,7 @@ def allocate(blocks_df: pl.DataFrame, train_frac: float, test_frac: float) -> di
                 fold_map[b] = "val"
     else:
         per_cond = {
-            c: blocks_df.filter(pl.col("dbs") == c)["block"].to_list()
+            c: block_df.filter(pl.col("dbs_state") == c)["block"].to_list()
             for c in conds
         }
         min_n = min(len(v) for v in per_cond.values())
@@ -82,16 +114,59 @@ def allocate(blocks_df: pl.DataFrame, train_frac: float, test_frac: float) -> di
                     fold_map[b] = "test"
                 else:
                     fold_map[b] = "val"
-
-    out = {"train_blocks": [], "val_blocks": [], "test_blocks": []}
-    for b in sorted(fold_map):
-        out[f"{fold_map[b]}_blocks"].append(b)
-    return out
+    return fold_map
 
 
-def discover_sessions() -> list[tuple[str, str]]:
+def upsert_split_parquets(
+    out_dir: Path,
+    participant: str,
+    session: str,
+    trial_index: pl.DataFrame,
+    block_assignment: dict[int, str],
+) -> dict[str, int]:
+    """Upsert rows for (participant, session) into the three split parquets.
+
+    Returns {split_name: n_trials} for logging.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    counts: dict[str, int] = {}
+
+    for split in _SPLIT_NAMES:
+        blocks_in_split = {b for b, s in block_assignment.items() if s == split}
+        new_rows = (
+            trial_index.filter(pl.col("block").is_in(list(blocks_in_split)))
+            .with_columns(
+                [
+                    pl.lit(participant).alias("participant_id"),
+                    pl.lit(int(session)).alias("session"),
+                ]
+            )
+            .select(["participant_id", "session", "block", "trial", "dbs_state"])
+        )
+        counts[split] = new_rows.height
+
+        out_path = out_dir / f"{split}.parquet"
+        if out_path.exists():
+            existing = pl.read_parquet(out_path).filter(
+                ~(
+                    (pl.col("participant_id") == participant)
+                    & (pl.col("session") == int(session))
+                )
+            )
+            combined = pl.concat([existing, new_rows], how="diagonal_relaxed")
+        else:
+            combined = new_rows
+
+        combined.sort(["participant_id", "session", "block", "trial"]).write_parquet(
+            out_path
+        )
+
+    return counts
+
+
+def discover_sessions(data_root: Path) -> list[tuple[str, str]]:
     out = []
-    for p_dir in sorted(DATA_ROOT.glob("participant_id=*")):
+    for p_dir in sorted(data_root.glob("participant_id=*")):
         p = p_dir.name.split("=")[1]
         for s_dir in sorted(p_dir.glob("session=*")):
             s = s_dir.name.split("=")[1]
@@ -101,81 +176,59 @@ def discover_sessions() -> list[tuple[str, str]]:
 
 
 def main():
-    ap = argparse.ArgumentParser()
+    ap = argparse.ArgumentParser(
+        description="Precompute train/val/test splits as shared parquets."
+    )
     ap.add_argument("--participant", default=None)
     ap.add_argument("--session", default=None)
     ap.add_argument("--train", type=float, default=0.5)
     ap.add_argument("--test", type=float, default=0.4)
+    ap.add_argument(
+        "--data-root",
+        default=None,
+        help=f"Override data dir. Default: {_DEFAULT_DATA_ROOT}",
+    )
     args = ap.parse_args()
 
-    if args.participant and args.session:
-        sessions = [(args.participant, args.session)]
-    else:
-        sessions = discover_sessions()
+    raw = args.data_root or _DEFAULT_DATA_ROOT
+    data_root = Path(raw) if Path(raw).is_absolute() else PROJECT_ROOT / raw
+    if not data_root.exists():
+        print(f"[error] data root not found: {data_root}")
+        sys.exit(2)
+    print(f"[run] data root: {data_root.relative_to(PROJECT_ROOT)}")
 
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    out_dir = splits_dir(data_root)
+    sessions = (
+        [(args.participant, args.session)]
+        if args.participant and args.session
+        else discover_sessions(data_root)
+    )
 
     for p, s in sessions:
         try:
-            meta = block_metadata(p, s)
+            trial_index = load_trial_index(data_root, p, s)
         except Exception as e:
             print(f"[skip] {p}_S{s}: {e}")
             continue
-        if meta.height == 0:
-            print(f"[skip] {p}_S{s}: no blocks found")
+        if trial_index.height == 0:
+            print(f"[skip] {p}_S{s}: no trials found")
             continue
 
-        alloc = allocate(meta, train_frac=args.train, test_frac=args.test)
+        block_assignment = allocate_blocks(trial_index, args.train, args.test)
+        counts = upsert_split_parquets(out_dir, p, s, trial_index, block_assignment)
 
-        off_n = meta.filter(pl.col("dbs") == "off").height
-        on_n = meta.filter(pl.col("dbs") == "on").height
-        dbs_of = meta.with_columns(pl.col("block").cast(pl.Int64))
-        cond_by_block = {
-            r["block"]: r["dbs"] for r in dbs_of.iter_rows(named=True)
-        }
-        trials_by_block = {
-            r["block"]: r["n_trials"] for r in meta.iter_rows(named=True)
-        }
-
-        def _fold_stats(blocks: list[int]) -> dict:
-            off = sum(trials_by_block[b] for b in blocks if cond_by_block[b] == "off")
-            on = sum(trials_by_block[b] for b in blocks if cond_by_block[b] == "on")
-            return {"n_blocks": len(blocks), "n_trials_off": off, "n_trials_on": on}
-
-        payload = {
-            "participant": p,
-            "session": int(s),
-            "strategy": "balanced_block_chronological",
-            "train_frac": args.train,
-            "test_frac": args.test,
-            "n_blocks_total": meta.height,
-            "n_blocks_off": off_n,
-            "n_blocks_on": on_n,
-            "train_blocks": alloc["train_blocks"],
-            "val_blocks": alloc["val_blocks"],
-            "test_blocks": alloc["test_blocks"],
-            "summary": {
-                "train": _fold_stats(alloc["train_blocks"]),
-                "val": _fold_stats(alloc["val_blocks"]),
-                "test": _fold_stats(alloc["test_blocks"]),
-            },
-        }
-
-        out_path = OUT_DIR / f"{p}_S{s}.yaml"
-        with open(out_path, "w") as f:
-            yaml.safe_dump(payload, f, sort_keys=False)
-        s_sum = payload["summary"]
+        train_b = sorted(b for b, sp in block_assignment.items() if sp == "train")
+        val_b = sorted(b for b, sp in block_assignment.items() if sp == "val")
+        test_b = sorted(b for b, sp in block_assignment.items() if sp == "test")
         print(
-            f"[ok]   {p}_S{s}: "
-            f"train={alloc['train_blocks']} "
-            f"val={alloc['val_blocks']} "
-            f"test={alloc['test_blocks']} "
-            f"trials off/on = "
-            f"train {s_sum['train']['n_trials_off']}/{s_sum['train']['n_trials_on']}, "
-            f"val {s_sum['val']['n_trials_off']}/{s_sum['val']['n_trials_on']}, "
-            f"test {s_sum['test']['n_trials_off']}/{s_sum['test']['n_trials_on']}"
+            f"[ok]  {p}_S{s}: "
+            f"train_blocks={train_b} ({counts['train']} trials)  "
+            f"val_blocks={val_b} ({counts['val']} trials)  "
+            f"test_blocks={test_b} ({counts['test']} trials)"
         )
-        print(f"       → {out_path.relative_to(PROJECT_ROOT)}")
+    print(
+        f"[done] splits -> {out_dir.relative_to(PROJECT_ROOT)}/{{train,val,test}}.parquet"
+    )
 
 
 if __name__ == "__main__":

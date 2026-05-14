@@ -156,7 +156,9 @@ def build_psd_dbs_comparison_figures() -> List[Tuple[str, Figure]]:
                 # Native sampling rate from the parquet (1000 Hz)
                 fs_native = 1000
                 nperseg = min(len(signal), fs_native * 2)
-                freqs, psd = welch(signal, fs=fs_native, nperseg=nperseg, noverlap=nperseg // 2)
+                freqs, psd = welch(
+                    signal, fs=fs_native, nperseg=nperseg, noverlap=nperseg // 2
+                )
                 psd_db = 10 * np.log10(psd + 1e-20)
                 if freqs_ref is None:
                     freqs_ref = freqs
@@ -203,28 +205,44 @@ def build_psd_dbs_comparison_figures() -> List[Tuple[str, Figure]]:
                 # SEM band
                 xb = np.concatenate([freqs_ref, freqs_ref[::-1]])
                 yb = np.concatenate([mean + sem, (mean - sem)[::-1]])
-                r_c, g_c, b_c = int(col_c[1:3], 16), int(col_c[3:5], 16), int(col_c[5:7], 16)
+                r_c, g_c, b_c = (
+                    int(col_c[1:3], 16),
+                    int(col_c[3:5], 16),
+                    int(col_c[5:7], 16),
+                )
                 fc = f"rgba({r_c},{g_c},{b_c},0.18)"
                 fig.add_trace(
                     go.Scatter(
-                        x=xb, y=yb, fill="toself", fillcolor=fc,
-                        line=dict(width=0), showlegend=False,
-                        name=cond_label, legendgroup=cond_label, hoverinfo="skip",
+                        x=xb,
+                        y=yb,
+                        fill="toself",
+                        fillcolor=fc,
+                        line=dict(width=0),
+                        showlegend=False,
+                        name=cond_label,
+                        legendgroup=cond_label,
+                        hoverinfo="skip",
                     ),
-                    row=ri + 1, col=ci + 1,
+                    row=ri + 1,
+                    col=ci + 1,
                 )
                 fig.add_trace(
                     go.Scatter(
-                        x=freqs_ref, y=mean, mode="lines",
+                        x=freqs_ref,
+                        y=mean,
+                        mode="lines",
                         line=dict(color=col_c, width=2.2, dash=line_dash),
-                        showlegend=(ch_idx == 0), name=cond_label,
+                        showlegend=(ch_idx == 0),
+                        name=cond_label,
                         legendgroup=cond_label,
                     ),
-                    row=ri + 1, col=ci + 1,
+                    row=ri + 1,
+                    col=ci + 1,
                 )
 
         apply_thesis_style(
-            fig, ThesisTheme.LIGHT,
+            fig,
+            ThesisTheme.LIGHT,
             height=max(280 * nrows + 80, 480),
             margin=dict(l=72, r=40, t=56, b=100),
             legend_y=-0.08,
@@ -237,12 +255,14 @@ def build_psd_dbs_comparison_figures() -> List[Tuple[str, Figure]]:
             fig.update_xaxes(
                 title_text="Frequency (Hz)" if ri >= nrows - 1 else "",
                 title_font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY),
-                row=ri + 1, col=ci + 1,
+                row=ri + 1,
+                col=ci + 1,
             )
             fig.update_yaxes(
                 title_text="PSD (dB/Hz)" if ci == 0 else "",
                 title_font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY),
-                row=ri + 1, col=ci + 1,
+                row=ri + 1,
+                col=ci + 1,
             )
 
         figures.append((label, fig))
@@ -312,15 +332,11 @@ def build_tracing_speed_dbs_comparison_figure() -> Figure:
         for c in range(ncols):
             pi = rp * ncols + c
             lab = (triplets[pi].label or "") if pi < n_panels else ""
-            subplot_titles.append(
-                f"{lab} — velocity" if lab else ""
-            )
+            subplot_titles.append(f"{lab} — velocity" if lab else "")
         for c in range(ncols):
             pi = rp * ncols + c
             lab = (triplets[pi].label or "") if pi < n_panels else ""
-            subplot_titles.append(
-                f"{lab} — acceleration" if lab else ""
-            )
+            subplot_titles.append(f"{lab} — acceleration" if lab else "")
     fig = make_subplots(
         rows=nrows_plot,
         cols=ncols,
@@ -358,7 +374,10 @@ def build_tracing_speed_dbs_comparison_figure() -> Figure:
         ):
             z_off, z_on = _collect(col_idx)
             z_off, z_on = _zscore_traces(z_off, z_on)
-            for cond, col_c, label in [(z_off, OFF_C, "DBS-OFF"), (z_on, ON_C, "DBS-ON")]:
+            for cond, col_c, label in [
+                (z_off, OFF_C, "DBS-OFF"),
+                (z_on, ON_C, "DBS-ON"),
+            ]:
                 if not cond:
                     continue
                 mat = np.vstack(cond)
@@ -386,7 +405,8 @@ def build_tracing_speed_dbs_comparison_figure() -> Figure:
     _fg = true_line_color(theme)
 
     apply_thesis_style(
-        fig, theme,
+        fig,
+        theme,
         height=max(260 * nrows_plot + 100, 480),
         margin=dict(b=120, t=64, l=88, r=40),
         legend_y=-0.06,
@@ -397,16 +417,25 @@ def build_tracing_speed_dbs_comparison_figure() -> Figure:
         for c in range(ncols):
             for ri_off in (2 * rp + 1, 2 * rp + 2):
                 fig.update_xaxes(
-                    showline=True, linecolor=_fg, linewidth=1,
+                    showline=True,
+                    linecolor=_fg,
+                    linewidth=1,
                     tickfont=dict(size=FONT_SIZE_TICK),
-                    title_text="time (s)" if (rp >= nrows_pair - 1 and ri_off == 2 * rp + 2) else "",
+                    title_text=(
+                        "time (s)"
+                        if (rp >= nrows_pair - 1 and ri_off == 2 * rp + 2)
+                        else ""
+                    ),
                     title_font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY),
                     row=ri_off,
                     col=c + 1,
                 )
                 fig.update_yaxes(
-                    showgrid=True, gridcolor=_grid,
-                    showline=True, linecolor=_fg, linewidth=1,
+                    showgrid=True,
+                    gridcolor=_grid,
+                    showline=True,
+                    linecolor=_fg,
+                    linewidth=1,
                     tickfont=dict(size=FONT_SIZE_TICK),
                     title_font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY),
                     row=ri_off,
@@ -428,7 +457,12 @@ def _load_classification_scores() -> pl.DataFrame:
         for pkl_path in base.rglob("LDA_*_prediction.pkl"):
             feat = pkl_path.stem.replace("LDA_", "").replace("_prediction", "")
             run_dir = pkl_path.parent.parent  # up past the run_ts dir
-            config_path = Path(__file__).resolve().parents[2] / "classification" / "setups" / f"{run_dir.name}.yaml"
+            config_path = (
+                Path(__file__).resolve().parents[2]
+                / "classification"
+                / "setups"
+                / f"{run_dir.name}.yaml"
+            )
             if not config_path.exists():
                 continue
             text = config_path.read_text()
@@ -448,8 +482,30 @@ def _load_classification_scores() -> pl.DataFrame:
                 score = res.get("best_cv_score", float("nan"))
             except Exception:
                 continue
-            rows.append({"participant_id": pid, "session": sess, "nx": nx, "n1": n1, "feature": feat, "score": score})
-    return pl.DataFrame(rows) if rows else pl.DataFrame({"participant_id": [], "session": [], "nx": [], "n1": [], "feature": [], "score": []})
+            rows.append(
+                {
+                    "participant_id": pid,
+                    "session": sess,
+                    "nx": nx,
+                    "n1": n1,
+                    "feature": feat,
+                    "score": score,
+                }
+            )
+    return (
+        pl.DataFrame(rows)
+        if rows
+        else pl.DataFrame(
+            {
+                "participant_id": [],
+                "session": [],
+                "nx": [],
+                "n1": [],
+                "feature": [],
+                "score": [],
+            }
+        )
+    )
 
 
 _CLASSIFICATION_SESSIONS = [
@@ -474,14 +530,24 @@ def build_classification_heatmap_figure() -> Figure:
         f"{label}  —  {feat}" for label in [s[2] for s in sessions] for feat in features
     ]
     fig = make_subplots(
-        rows=nrows, cols=ncols,
-        vertical_spacing=0.10, horizontal_spacing=0.06,
+        rows=nrows,
+        cols=ncols,
+        vertical_spacing=0.10,
+        horizontal_spacing=0.06,
         subplot_titles=subplot_titles,
     )
 
     # Discover combined axis values from the data
-    all_nx = sorted(df["nx"].unique().to_list()) if not df.is_empty() else [1, 2, 5, 60, 65, 70, 75, 80]
-    all_n1 = sorted(df["n1"].unique().to_list()) if not df.is_empty() else [1, 2, 5, 6, 8, 10, 12]
+    all_nx = (
+        sorted(df["nx"].unique().to_list())
+        if not df.is_empty()
+        else [1, 2, 5, 60, 65, 70, 75, 80]
+    )
+    all_n1 = (
+        sorted(df["n1"].unique().to_list())
+        if not df.is_empty()
+        else [1, 2, 5, 6, 8, 10, 12]
+    )
 
     # Global color range across all panels
     global_min, global_max = 0.45, 0.70
@@ -500,7 +566,9 @@ def build_classification_heatmap_figure() -> Figure:
             )
             # Deduplicate: keep best score per (nx, n1)
             if not sub.is_empty():
-                sub = sub.sort("score", descending=True).unique(subset=["nx", "n1"], keep="first")
+                sub = sub.sort("score", descending=True).unique(
+                    subset=["nx", "n1"], keep="first"
+                )
 
             mat = np.full((len(all_n1), len(all_nx)), np.nan)
             text_mat = np.empty_like(mat, dtype=object)
@@ -521,27 +589,40 @@ def build_classification_heatmap_figure() -> Figure:
             y_idx = np.arange(len(all_n1), dtype=float)
             fig.add_trace(
                 go.Heatmap(
-                    z=mat, x=x_idx, y=y_idx,
-                    text=text_mat, texttemplate="%{text}",
+                    z=mat,
+                    x=x_idx,
+                    y=y_idx,
+                    text=text_mat,
+                    texttemplate="%{text}",
                     textfont=dict(size=9),
                     colorscale="Blues",
-                    zmin=global_min, zmax=global_max,
+                    zmin=global_min,
+                    zmax=global_max,
                     showscale=(ri == 0 and ci == ncols - 1),
-                    colorbar=dict(title="Bal. acc.", len=0.3, y=0.85) if (ri == 0 and ci == ncols - 1) else None,
+                    colorbar=(
+                        dict(title="Bal. acc.", len=0.3, y=0.85)
+                        if (ri == 0 and ci == ncols - 1)
+                        else None
+                    ),
                 ),
-                row=ri + 1, col=ci + 1,
+                row=ri + 1,
+                col=ci + 1,
             )
             fig.update_xaxes(
                 title_text="n<sub>x</sub>" if ri == nrows - 1 else "",
-                tickmode="array", tickvals=x_idx,
+                tickmode="array",
+                tickvals=x_idx,
                 ticktext=[str(v) for v in all_nx],
-                row=ri + 1, col=ci + 1,
+                row=ri + 1,
+                col=ci + 1,
             )
             fig.update_yaxes(
                 title_text="n<sub>1</sub>" if ci == 0 else "",
-                tickmode="array", tickvals=y_idx,
+                tickmode="array",
+                tickvals=y_idx,
                 ticktext=[str(v) for v in all_n1],
-                row=ri + 1, col=ci + 1,
+                row=ri + 1,
+                col=ci + 1,
             )
             # Mark the selected config
             sel_key = f"{pid}_S{sess}"
@@ -553,15 +634,20 @@ def build_classification_heatmap_figure() -> Figure:
                     by = all_n1.index(n1_pick)
                     fig.add_shape(
                         type="rect",
-                        x0=float(bx) - 0.5, x1=float(bx) + 0.5,
-                        y0=float(by) - 0.5, y1=float(by) + 0.5,
+                        x0=float(bx) - 0.5,
+                        x1=float(bx) + 0.5,
+                        y0=float(by) - 0.5,
+                        y1=float(by) + 0.5,
                         line=dict(color=COLOR_CHANCE, width=2.5),
-                        fillcolor="rgba(0,0,0,0)", layer="above",
-                        row=ri + 1, col=ci + 1,
+                        fillcolor="rgba(0,0,0,0)",
+                        layer="above",
+                        row=ri + 1,
+                        col=ci + 1,
                     )
 
     apply_thesis_style(
-        fig, ThesisTheme.LIGHT,
+        fig,
+        ThesisTheme.LIGHT,
         height=250 * nrows,
         margin=dict(l=60, r=60, t=40, b=60),
         show_legend=False,
@@ -572,21 +658,45 @@ def build_classification_heatmap_figure() -> Figure:
 
 def build_trial_count_summary_figure() -> Figure:
     triplets = get_triplets()
-    rows = [{"session": t.label or "", "DBS-OFF": sum(1 for r in load_results_for_triplet(t) if r.get("stim") == "off"),
-             "DBS-ON": sum(1 for r in load_results_for_triplet(t) if r.get("stim") == "on")} for t in triplets]
+    rows = [
+        {
+            "session": t.label or "",
+            "DBS-OFF": sum(
+                1 for r in load_results_for_triplet(t) if r.get("stim") == "off"
+            ),
+            "DBS-ON": sum(
+                1 for r in load_results_for_triplet(t) if r.get("stim") == "on"
+            ),
+        }
+        for t in triplets
+    ]
     fig = go.Figure()
-    fig.add_trace(go.Bar(
-        x=[r["session"] for r in rows], y=[r["DBS-OFF"] for r in rows],
-        name="DBS-OFF", marker_color=COLOR_DBS_OFF, width=0.35,
-        text=[r["DBS-OFF"] for r in rows], textposition="auto",
-    ))
-    fig.add_trace(go.Bar(
-        x=[r["session"] for r in rows], y=[r["DBS-ON"] for r in rows],
-        name="DBS-ON", marker_color=COLOR_DBS_ON, width=0.35,
-        text=[r["DBS-ON"] for r in rows], textposition="auto",
-    ))
+    fig.add_trace(
+        go.Bar(
+            x=[r["session"] for r in rows],
+            y=[r["DBS-OFF"] for r in rows],
+            name="DBS-OFF",
+            marker_color=COLOR_DBS_OFF,
+            width=0.35,
+            text=[r["DBS-OFF"] for r in rows],
+            textposition="auto",
+        )
+    )
+    fig.add_trace(
+        go.Bar(
+            x=[r["session"] for r in rows],
+            y=[r["DBS-ON"] for r in rows],
+            name="DBS-ON",
+            marker_color=COLOR_DBS_ON,
+            width=0.35,
+            text=[r["DBS-ON"] for r in rows],
+            textposition="auto",
+        )
+    )
     theme = ThesisTheme.LIGHT
-    apply_thesis_style(fig, theme, height=320, margin=dict(l=72, r=24, t=36, b=60), legend_y=-0.20)
+    apply_thesis_style(
+        fig, theme, height=320, margin=dict(l=72, r=24, t=36, b=60), legend_y=-0.20
+    )
     fig.update_layout(
         barmode="group",
         xaxis=dict(title_text="", showgrid=False),
@@ -603,7 +713,6 @@ def build_trial_count_summary_figure() -> Figure:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-
 def build_vanilla_comparison_figure() -> Figure:
     """Grouped bar chart comparing improved vs vanilla PSID across sessions."""
     import json as _json
@@ -612,14 +721,26 @@ def build_vanilla_comparison_figure() -> Figure:
     grd = grid_color(ThesisTheme.LIGHT)
 
     sessions = [
-        ("PDI1_S2", "psid_behavioral_PDI1_2_nx_80_n12_i40_dbs_both_narrow_band",
-         "psid_behavioral_PDI1_2_nx_80_n12_i40_vanilla_dbs_both_narrow_band"),
-        ("PDI1_S4", "psid_behavioral_PDI1_4_nx_80_n6_i40_dbs_both_narrow_band",
-         "psid_behavioral_PDI1_4_nx_80_n6_i40_vanilla_dbs_both_narrow_band"),
-        ("PDI4_S2", "psid_behavioral_PDI4_2_nx_80_n10_i40_dbs_both_narrow_band",
-         "psid_behavioral_PDI4_2_nx_80_n10_i40_vanilla_dbs_both_narrow_band"),
-        ("PDI4_S3", "psid_behavioral_PDI4_3_nx65_n10_i40_dbs_both_narrow_band",
-         "psid_behavioral_PDI4_3_nx65_n10_i40_vanilla_dbs_both_narrow_band"),
+        (
+            "PDI1_S2",
+            "psid_behavioral_PDI1_2_nx_80_n12_i40_dbs_both_narrow_band",
+            "psid_behavioral_PDI1_2_nx_80_n12_i40_vanilla_dbs_both_narrow_band",
+        ),
+        (
+            "PDI1_S4",
+            "psid_behavioral_PDI1_4_nx_80_n6_i40_dbs_both_narrow_band",
+            "psid_behavioral_PDI1_4_nx_80_n6_i40_vanilla_dbs_both_narrow_band",
+        ),
+        (
+            "PDI4_S2",
+            "psid_behavioral_PDI4_2_nx_80_n10_i40_dbs_both_narrow_band",
+            "psid_behavioral_PDI4_2_nx_80_n10_i40_vanilla_dbs_both_narrow_band",
+        ),
+        (
+            "PDI4_S3",
+            "psid_behavioral_PDI4_3_nx65_n10_i40_dbs_both_narrow_band",
+            "psid_behavioral_PDI4_3_nx65_n10_i40_vanilla_dbs_both_narrow_band",
+        ),
     ]
 
     labels: List[str] = []
@@ -639,7 +760,11 @@ def build_vanilla_comparison_figure() -> Figure:
                 rmse_y_list.append(np.nan)
                 continue
             train_dir = res_path / "train"
-            parquets = list(train_dir.glob("test_results_*.parquet")) if train_dir.exists() else []
+            parquets = (
+                list(train_dir.glob("test_results_*.parquet"))
+                if train_dir.exists()
+                else []
+            )
             if not parquets:
                 r_list.append(np.nan)
                 rmse_z_list.append(np.nan)
@@ -651,7 +776,12 @@ def build_vanilla_comparison_figure() -> Figure:
                 for col in ["metric_pearson_r_mean_Z", "pearson_mean_Z"]:
                     if col in tdf.columns:
                         vals = tdf[col].to_list()
-                        valid = [v for v in vals if v is not None and not (isinstance(v, float) and np.isnan(v))]
+                        valid = [
+                            v
+                            for v in vals
+                            if v is not None
+                            and not (isinstance(v, float) and np.isnan(v))
+                        ]
                         r_list.append(float(np.mean(valid)) if valid else np.nan)
                         break
                 else:
@@ -674,31 +804,97 @@ def build_vanilla_comparison_figure() -> Figure:
         labels.append(label)
 
     fig = make_subplots(
-        rows=1, cols=3,
+        rows=1,
+        cols=3,
         subplot_titles=["Pearson r", "RMSE(z)", "RMSE(z) — neural"],
         horizontal_spacing=0.10,
     )
 
     _c_imp, _c_van = COLOR_PSID, "#D97706"
-    fig.add_trace(go.Bar(x=labels, y=r_improved_z, name="Improved (BK + rescale)",
-                          marker_color=_c_imp, width=0.35), row=1, col=1)
-    fig.add_trace(go.Bar(x=labels, y=r_vanilla_z, name="Vanilla PSID",
-                          marker_color=_c_van, width=0.35), row=1, col=1)
-    fig.add_trace(go.Bar(x=labels, y=rmse_improved_z, name="Improved (BK + rescale)",
-                          marker_color=_c_imp, width=0.35, showlegend=False), row=1, col=2)
-    fig.add_trace(go.Bar(x=labels, y=rmse_vanilla_z, name="Vanilla PSID",
-                          marker_color=_c_van, width=0.35, showlegend=False), row=1, col=2)
-    fig.add_trace(go.Bar(x=labels, y=rmse_improved_y, name="Improved (BK + rescale)",
-                          marker_color=_c_imp, width=0.35, showlegend=False), row=1, col=3)
-    fig.add_trace(go.Bar(x=labels, y=rmse_vanilla_y, name="Vanilla PSID",
-                          marker_color=_c_van, width=0.35, showlegend=False), row=1, col=3)
+    fig.add_trace(
+        go.Bar(
+            x=labels,
+            y=r_improved_z,
+            name="Improved (BK + rescale)",
+            marker_color=_c_imp,
+            width=0.35,
+        ),
+        row=1,
+        col=1,
+    )
+    fig.add_trace(
+        go.Bar(
+            x=labels,
+            y=r_vanilla_z,
+            name="Vanilla PSID",
+            marker_color=_c_van,
+            width=0.35,
+        ),
+        row=1,
+        col=1,
+    )
+    fig.add_trace(
+        go.Bar(
+            x=labels,
+            y=rmse_improved_z,
+            name="Improved (BK + rescale)",
+            marker_color=_c_imp,
+            width=0.35,
+            showlegend=False,
+        ),
+        row=1,
+        col=2,
+    )
+    fig.add_trace(
+        go.Bar(
+            x=labels,
+            y=rmse_vanilla_z,
+            name="Vanilla PSID",
+            marker_color=_c_van,
+            width=0.35,
+            showlegend=False,
+        ),
+        row=1,
+        col=2,
+    )
+    fig.add_trace(
+        go.Bar(
+            x=labels,
+            y=rmse_improved_y,
+            name="Improved (BK + rescale)",
+            marker_color=_c_imp,
+            width=0.35,
+            showlegend=False,
+        ),
+        row=1,
+        col=3,
+    )
+    fig.add_trace(
+        go.Bar(
+            x=labels,
+            y=rmse_vanilla_y,
+            name="Vanilla PSID",
+            marker_color=_c_van,
+            width=0.35,
+            showlegend=False,
+        ),
+        row=1,
+        col=3,
+    )
 
     from dashboard.thesis.constants import apply_thesis_style
-    apply_thesis_style(fig, ThesisTheme.LIGHT, height=420, margin=dict(l=60, r=40, t=56, b=80))
+
+    apply_thesis_style(
+        fig, ThesisTheme.LIGHT, height=420, margin=dict(l=60, r=40, t=56, b=80)
+    )
     fig.update_layout(barmode="group")
     fig.update_yaxes(title_text="Pearson r", showgrid=True, gridcolor=grd, row=1, col=1)
-    fig.update_yaxes(title_text=rmse_axis_label(), showgrid=True, gridcolor=grd, row=1, col=2)
-    fig.update_yaxes(title_text="RMSE(z) — neural", showgrid=True, gridcolor=grd, row=1, col=3)
+    fig.update_yaxes(
+        title_text=rmse_axis_label(), showgrid=True, gridcolor=grd, row=1, col=2
+    )
+    fig.update_yaxes(
+        title_text="RMSE(z) — neural", showgrid=True, gridcolor=grd, row=1, col=3
+    )
     return fig
 
 
@@ -722,15 +918,43 @@ def build_laplacian_prediction_figure() -> Figure:
             r_z_vals.append(np.nan)
             labels.append(label)
             continue
-        r_y_vals.append(float(res.get("pearson_overall_mean", res.get("pearson_overall", np.nan))))
-        r_z_vals.append(float(res.get("pearson_overall_mean_Z", res.get("pearson_overall_Z", np.nan))))
+        r_y_vals.append(
+            float(res.get("pearson_overall_mean", res.get("pearson_overall", np.nan)))
+        )
+        r_z_vals.append(
+            float(
+                res.get("pearson_overall_mean_Z", res.get("pearson_overall_Z", np.nan))
+            )
+        )
         labels.append(label)
 
     fig = go.Figure()
-    fig.add_trace(go.Bar(x=labels, y=r_y_vals, name="Y (ECoG recon.)", marker_color=COLOR_PSID, width=0.35))
-    fig.add_trace(go.Bar(x=labels, y=r_z_vals, name="Z (Laplacian pred.)", marker_color=COLOR_CHANCE, width=0.35))
+    fig.add_trace(
+        go.Bar(
+            x=labels,
+            y=r_y_vals,
+            name="Y (ECoG recon.)",
+            marker_color=COLOR_PSID,
+            width=0.35,
+        )
+    )
+    fig.add_trace(
+        go.Bar(
+            x=labels,
+            y=r_z_vals,
+            name="Z (Laplacian pred.)",
+            marker_color=COLOR_CHANCE,
+            width=0.35,
+        )
+    )
 
-    apply_thesis_style(fig, ThesisTheme.LIGHT, height=400, margin=dict(l=72, r=24, t=36, b=60), legend_y=-0.20)
+    apply_thesis_style(
+        fig,
+        ThesisTheme.LIGHT,
+        height=400,
+        margin=dict(l=72, r=24, t=36, b=60),
+        legend_y=-0.20,
+    )
     fig.update_layout(
         barmode="group",
         yaxis=dict(title_text="Pearson r", range=[0, 1.05]),
@@ -744,17 +968,33 @@ def build_laplacian_timeseries_figure() -> Figure:
 
     nrows = len(LAPLACIAN_SESSIONS)
     _c_true = true_line_color(ThesisTheme.LIGHT)
-    fig = make_subplots(rows=nrows, cols=1, vertical_spacing=0.08,
-                        subplot_titles=[s[0] for s in LAPLACIAN_SESSIONS])
+    fig = make_subplots(
+        rows=nrows,
+        cols=1,
+        vertical_spacing=0.08,
+        subplot_titles=[s[0] for s in LAPLACIAN_SESSIONS],
+    )
     fig.update_layout(colorway=[_c_true, COLOR_PSID])
 
     for ri, (label, variant) in enumerate(LAPLACIAN_SESSIONS, 1):
         variant_dir = RESULTS_ROOT / variant
         run_ts, _src = latest_run_timestamp_on_disk(variant_dir, split="test")
-        res = load_split_results(RESULTS_ROOT, variant, run_ts or "", "test") if run_ts else None
+        res = (
+            load_split_results(RESULTS_ROOT, variant, run_ts or "", "test")
+            if run_ts
+            else None
+        )
         if res is None:
-            fig.add_annotation(text="No data", x=0.5, y=0.5, xref="x domain", yref="y domain",
-                               showarrow=False, row=ri, col=1)
+            fig.add_annotation(
+                text="No data",
+                x=0.5,
+                y=0.5,
+                xref="x domain",
+                yref="y domain",
+                showarrow=False,
+                row=ri,
+                col=1,
+            )
             continue
         try:
             z_list = res.get("Z")
@@ -765,23 +1005,49 @@ def build_laplacian_timeseries_figure() -> Figure:
             z_pred = np.asarray(zp_list[0])
             t = np.arange(z_true.shape[0]) / 200.0
             _c_true = true_line_color(ThesisTheme.LIGHT)
-            fig.add_trace(go.Scatter(x=t, y=z_true[:, 0], name="z_true",
-                                      legendgroup="z_true",
-                                      marker=dict(color=_c_true),
-                                      line=dict(color=_c_true, width=1.8),
-                                      showlegend=(ri == 1)), row=ri, col=1)
-            fig.add_trace(go.Scatter(x=t, y=z_pred[:, 0], name="z_hat_PSID",
-                                      legendgroup="z_hat_PSID",
-                                      marker=dict(color=COLOR_PSID),
-                                      line=dict(color=COLOR_PSID, width=2.0, dash="dash"),
-                                      showlegend=(ri == 1)), row=ri, col=1)
+            fig.add_trace(
+                go.Scatter(
+                    x=t,
+                    y=z_true[:, 0],
+                    name="z_true",
+                    legendgroup="z_true",
+                    marker=dict(color=_c_true),
+                    line=dict(color=_c_true, width=1.8),
+                    showlegend=(ri == 1),
+                ),
+                row=ri,
+                col=1,
+            )
+            fig.add_trace(
+                go.Scatter(
+                    x=t,
+                    y=z_pred[:, 0],
+                    name="z_hat_PSID",
+                    legendgroup="z_hat_PSID",
+                    marker=dict(color=COLOR_PSID),
+                    line=dict(color=COLOR_PSID, width=2.0, dash="dash"),
+                    showlegend=(ri == 1),
+                ),
+                row=ri,
+                col=1,
+            )
         except Exception:
-            fig.add_annotation(text="Error loading", x=0.5, y=0.5, xref="x domain", yref="y domain",
-                               showarrow=False, row=ri, col=1)
+            fig.add_annotation(
+                text="Error loading",
+                x=0.5,
+                y=0.5,
+                xref="x domain",
+                yref="y domain",
+                showarrow=False,
+                row=ri,
+                col=1,
+            )
 
     from dashboard.thesis.constants import apply_thesis_style
+
     apply_thesis_style(
-        fig, ThesisTheme.LIGHT,
+        fig,
+        ThesisTheme.LIGHT,
         height=200 * nrows + 80,
         margin=dict(l=72, r=40, t=56, b=80),
         legend_y=-0.08,
@@ -794,7 +1060,12 @@ def build_laplacian_timeseries_figure() -> Figure:
         elif trace.legendgroup == "y_hat_PSID":
             trace.line.color = COLOR_PSID
     fig.update_xaxes(title_text="Time (s)", row=nrows, col=1)
-    fig.update_yaxes(title_text="z-score", title_font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY), col=1, row=nrows // 2 + 1)
+    fig.update_yaxes(
+        title_text="z-score",
+        title_font=dict(size=FONT_SIZE_LABEL, family=FONT_FAMILY),
+        col=1,
+        row=nrows // 2 + 1,
+    )
     return fig
 
 
@@ -802,21 +1073,60 @@ def build_laplacian_timeseries_figure() -> Figure:
 # Matplotlib plot_* functions (for PDF/PNG file export)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _box(ax, cx: float, cy: float, w: float, h: float, label: str, sublabel: str, color: str, fontsize: float = 8.5) -> None:
+
+def _box(
+    ax,
+    cx: float,
+    cy: float,
+    w: float,
+    h: float,
+    label: str,
+    sublabel: str,
+    color: str,
+    fontsize: float = 8.5,
+) -> None:
     rect = mpatches.FancyBboxPatch(
-        (cx - w / 2, cy - h / 2), w, h,
+        (cx - w / 2, cy - h / 2),
+        w,
+        h,
         boxstyle="round,pad=0.05",
-        facecolor=color, edgecolor="#888780", linewidth=0.6, zorder=3,
+        facecolor=color,
+        edgecolor="#888780",
+        linewidth=0.6,
+        zorder=3,
     )
     ax.add_patch(rect)
-    ax.text(cx, cy + (0.12 if sublabel else 0), label, ha="center", va="center", fontsize=fontsize, fontweight="bold", zorder=4)
+    ax.text(
+        cx,
+        cy + (0.12 if sublabel else 0),
+        label,
+        ha="center",
+        va="center",
+        fontsize=fontsize,
+        fontweight="bold",
+        zorder=4,
+    )
     if sublabel:
-        ax.text(cx, cy - 0.22, sublabel, ha="center", va="center", fontsize=7.0, color="#5F5E5A", zorder=4)
+        ax.text(
+            cx,
+            cy - 0.22,
+            sublabel,
+            ha="center",
+            va="center",
+            fontsize=7.0,
+            color="#5F5E5A",
+            zorder=4,
+        )
 
 
 def _arrow(ax, x1: float, y1: float, x2: float, y2: float) -> None:
-    ax.annotate("", xy=(x2, y2), xytext=(x1, y1),
-                arrowprops=dict(arrowstyle="-|>", color="#444441", lw=1.1), zorder=2)
+    ax.annotate(
+        "",
+        xy=(x2, y2),
+        xytext=(x1, y1),
+        arrowprops=dict(arrowstyle="-|>", color="#444441", lw=1.1),
+        zorder=2,
+    )
 
 
 def plot_preprocessing_pipeline(save: bool = True) -> plt.Figure:
@@ -829,42 +1139,136 @@ def plot_preprocessing_pipeline(save: bool = True) -> plt.Figure:
 
     _box(ax, 2.5, 9.2, 2.8, 0.7, "Raw iEEG", "22 kHz · LFP 16ch + ECoG 4ch", C_RAW)
     _arrow(ax, 2.5, 8.85, 2.5, 8.1)
-    _box(ax, 2.5, 7.7, 2.8, 0.7, "Resample + bandpass", "↓ 60 Hz · 3–28 Hz BP (MNE)", C_PROC)
+    _box(
+        ax,
+        2.5,
+        7.7,
+        2.8,
+        0.7,
+        "Resample + bandpass",
+        "↓ 60 Hz · 3–28 Hz BP (MNE)",
+        C_PROC,
+    )
     _arrow(ax, 2.5, 7.35, 2.5, 6.6)
-    _box(ax, 2.5, 6.2, 2.8, 0.7, "Common avg. re-reference", "Per modality, per trial", C_PROC)
+    _box(
+        ax,
+        2.5,
+        6.2,
+        2.8,
+        0.7,
+        "Common avg. re-reference",
+        "Per modality, per trial",
+        C_PROC,
+    )
     _arrow(ax, 2.5, 5.85, 2.5, 5.1)
     _box(ax, 2.5, 4.7, 2.8, 0.7, "Scale ×10⁶", "→ microvolts", C_PROC)
     _arrow(ax, 2.5, 4.35, 2.5, 3.6)
-    _box(ax, 2.5, 3.2, 2.8, 0.9, "Narrowband features",
-         "δ/θ/α raw · β 13–29 Hz Hilbert env\n4 ch × 29 bands = 116 inputs (Y)", C_FEAT, fontsize=8.0)
+    _box(
+        ax,
+        2.5,
+        3.2,
+        2.8,
+        0.9,
+        "Narrowband features",
+        "δ/θ/α raw · β 13–29 Hz Hilbert env\n4 ch × 29 bands = 116 inputs (Y)",
+        C_FEAT,
+        fontsize=8.0,
+    )
 
-    _box(ax, 7.5, 9.2, 2.8, 0.7, "Tablet coordinates", "x(t), y(t) at variable rate", C_RAW)
+    _box(
+        ax,
+        7.5,
+        9.2,
+        2.8,
+        0.7,
+        "Tablet coordinates",
+        "x(t), y(t) at variable rate",
+        C_RAW,
+    )
     _arrow(ax, 7.5, 8.85, 7.5, 8.1)
-    _box(ax, 7.5, 7.7, 2.8, 0.7, "Kinematic derivation", "v, a, j in x/y/xy/mag", C_PROC)
+    _box(
+        ax, 7.5, 7.7, 2.8, 0.7, "Kinematic derivation", "v, a, j in x/y/xy/mag", C_PROC
+    )
     _arrow(ax, 7.5, 7.35, 7.5, 6.6)
-    _box(ax, 7.5, 6.2, 2.8, 0.7, "Savitzky-Golay smooth", "~200 ms window · 3rd order", C_PROC)
+    _box(
+        ax,
+        7.5,
+        6.2,
+        2.8,
+        0.7,
+        "Savitzky-Golay smooth",
+        "~200 ms window · 3rd order",
+        C_PROC,
+    )
     _arrow(ax, 7.5, 5.85, 7.5, 5.1)
-    _box(ax, 7.5, 4.7, 2.8, 0.7, "Interpolate to 60 Hz", "Linear onto neural grid", C_PROC)
+    _box(
+        ax,
+        7.5,
+        4.7,
+        2.8,
+        0.7,
+        "Interpolate to 60 Hz",
+        "Linear onto neural grid",
+        C_PROC,
+    )
     _arrow(ax, 7.5, 4.35, 7.5, 3.6)
     _box(ax, 7.5, 3.2, 2.8, 0.7, "Tracing speed", "velocity magnitude (Z)", C_FEAT)
 
     seg_rect = mpatches.FancyBboxPatch(
-        (1.0, 2.35), 8.0, 0.55,
+        (1.0, 2.35),
+        8.0,
+        0.55,
         boxstyle="round,pad=0.04",
-        facecolor="#FAEEDA", edgecolor="#854F0B", linewidth=0.7, zorder=2,
+        facecolor="#FAEEDA",
+        edgecolor="#854F0B",
+        linewidth=0.7,
+        zorder=2,
     )
     ax.add_patch(seg_rect)
-    ax.text(5.0, 2.625, "Trial segmentation: 9 s trial · ±2 s margin buffer",
-            ha="center", va="center", fontsize=8.0, color="#412402", zorder=4)
+    ax.text(
+        5.0,
+        2.625,
+        "Trial segmentation: 9 s trial · ±2 s margin buffer",
+        ha="center",
+        va="center",
+        fontsize=8.0,
+        color="#412402",
+        zorder=4,
+    )
     _arrow(ax, 2.5, 2.75, 2.5, 2.35)
     _arrow(ax, 7.5, 2.75, 7.5, 2.35)
     _arrow(ax, 2.5, 2.35, 4.5, 1.75)
     _arrow(ax, 7.5, 2.35, 5.5, 1.75)
-    _box(ax, 5.0, 1.45, 3.2, 0.7, "Model input (Y, Z) at 60 Hz", "Train 60% · Val 20% · Test 20%", C_MERGE, fontsize=8.5)
+    _box(
+        ax,
+        5.0,
+        1.45,
+        3.2,
+        0.7,
+        "Model input (Y, Z) at 60 Hz",
+        "Train 60% · Val 20% · Test 20%",
+        C_MERGE,
+        fontsize=8.5,
+    )
 
-    for i, (c, lbl) in enumerate([(C_RAW, "Raw input"), (C_PROC, "Processing step"), (C_FEAT, "Feature / output"), (C_MERGE, "Model input")]):
+    for i, (c, lbl) in enumerate(
+        [
+            (C_RAW, "Raw input"),
+            (C_PROC, "Processing step"),
+            (C_FEAT, "Feature / output"),
+            (C_MERGE, "Model input"),
+        ]
+    ):
         px = 0.55 + i * 2.3
-        r = mpatches.FancyBboxPatch((px, 0.15), 0.35, 0.28, boxstyle="round,pad=0.03", facecolor=c, edgecolor="#888780", lw=0.5)
+        r = mpatches.FancyBboxPatch(
+            (px, 0.15),
+            0.35,
+            0.28,
+            boxstyle="round,pad=0.03",
+            facecolor=c,
+            edgecolor="#888780",
+            lw=0.5,
+        )
         ax.add_patch(r)
         ax.text(px + 0.45, 0.29, lbl, va="center", fontsize=7.5, color="#444441")
 
@@ -879,7 +1283,10 @@ def plot_preprocessing_pipeline(save: bool = True) -> plt.Figure:
 # PSD comparison: DBS-ON vs DBS-OFF
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _compute_trial_psd(signal_1d: np.ndarray, fs: int = 60) -> Tuple[np.ndarray, np.ndarray]:
+
+def _compute_trial_psd(
+    signal_1d: np.ndarray, fs: int = 60
+) -> Tuple[np.ndarray, np.ndarray]:
     nperseg = min(len(signal_1d), fs * 2)
     freqs, psd = welch(signal_1d, fs=fs, nperseg=nperseg, noverlap=nperseg // 2)
     return freqs, 10 * np.log10(psd + 1e-20)
@@ -896,7 +1303,14 @@ def plot_psd_dbs_comparison(
     ncols = 2
     nrows = (n_panels + ncols - 1) // ncols
     figsize = (4.5 * ncols, 3.5 * nrows)
-    fig, axes = plt.subplots(nrows, ncols, figsize=figsize, sharex=True, sharey=True, gridspec_kw={"hspace": 0.12, "wspace": 0.08})
+    fig, axes = plt.subplots(
+        nrows,
+        ncols,
+        figsize=figsize,
+        sharex=True,
+        sharey=True,
+        gridspec_kw={"hspace": 0.12, "wspace": 0.08},
+    )
     axes_flat = np.atleast_2d(axes).ravel()
     OFF_C, ON_C = COLOR_DBS_OFF, COLOR_DBS_ON
 
@@ -904,7 +1318,15 @@ def plot_psd_dbs_comparison(
         ax = axes_flat[pi]
         trials = load_results_for_triplet(tri)
         if not trials:
-            ax.text(0.5, 0.5, "no data", ha="center", va="center", transform=ax.transAxes, color="gray")
+            ax.text(
+                0.5,
+                0.5,
+                "no data",
+                ha="center",
+                va="center",
+                transform=ax.transAxes,
+                color="gray",
+            )
             continue
 
         psds_off, psds_on = [], []
@@ -915,7 +1337,9 @@ def plot_psd_dbs_comparison(
             if y is None:
                 continue
             y_arr = np.asarray(y)
-            channel_mean = y_arr.mean(axis=1) if y_arr.ndim == 2 else np.asarray(y).ravel()
+            channel_mean = (
+                y_arr.mean(axis=1) if y_arr.ndim == 2 else np.asarray(y).ravel()
+            )
             freqs, psd_db = _compute_trial_psd(channel_mean, fs=FS)
             if freqs_ref is None:
                 freqs_ref = freqs
@@ -926,19 +1350,36 @@ def plot_psd_dbs_comparison(
 
         if freqs_ref is None:
             continue
-        for cond_psds, col, label in [(psds_off, OFF_C, "DBS-OFF"), (psds_on, ON_C, "DBS-ON")]:
+        for cond_psds, col, label in [
+            (psds_off, OFF_C, "DBS-OFF"),
+            (psds_on, ON_C, "DBS-ON"),
+        ]:
             if not cond_psds:
                 continue
             mat = np.vstack(cond_psds)
             mean = mat.mean(axis=0)
             sem = mat.std(axis=0) / np.sqrt(len(mat))
-            ax.fill_between(freqs_ref, mean - sem, mean + sem, color=col, alpha=0.15, lw=0)
+            ax.fill_between(
+                freqs_ref, mean - sem, mean + sem, color=col, alpha=0.15, lw=0
+            )
             ax.plot(freqs_ref, mean, color=col, lw=1.8, label=label)
         if band_shade is not None:
             ax.axvspan(band_shade[0], band_shade[1], color=BAND_SHADE_COLOR, alpha=0.05)
-            ax.axvline(band_shade[0], color=BAND_SHADE_COLOR, lw=0.8, ls="--", alpha=0.6)
-            ax.axvline(band_shade[1], color=BAND_SHADE_COLOR, lw=0.8, ls="--", alpha=0.6)
-        ax.text(0.04, 0.95, tri.label or f"{tri.psid_variant}", transform=ax.transAxes, fontsize=10, fontweight="bold", va="top")
+            ax.axvline(
+                band_shade[0], color=BAND_SHADE_COLOR, lw=0.8, ls="--", alpha=0.6
+            )
+            ax.axvline(
+                band_shade[1], color=BAND_SHADE_COLOR, lw=0.8, ls="--", alpha=0.6
+            )
+        ax.text(
+            0.04,
+            0.95,
+            tri.label or f"{tri.psid_variant}",
+            transform=ax.transAxes,
+            fontsize=10,
+            fontweight="bold",
+            va="top",
+        )
         if pi % ncols == 0:
             ax.set_ylabel("power/freq (dB/Hz)")
         if pi >= n_panels - ncols:
@@ -947,10 +1388,28 @@ def plot_psd_dbs_comparison(
     for ax in axes_flat[n_panels:]:
         ax.set_visible(False)
 
-    handles = [plt.Line2D([], [], color=OFF_C, lw=1.8, label="DBS-OFF mean"), plt.Line2D([], [], color=ON_C, lw=1.8, label="DBS-ON mean")]
+    handles = [
+        plt.Line2D([], [], color=OFF_C, lw=1.8, label="DBS-OFF mean"),
+        plt.Line2D([], [], color=ON_C, lw=1.8, label="DBS-ON mean"),
+    ]
     if band_shade is not None:
-        handles.append(plt.Line2D([], [], color=BAND_SHADE_COLOR, lw=0.8, ls="--", label=f"band {band_shade[0]}-{band_shade[1]} Hz"))
-    fig.legend(handles=handles, loc="lower center", ncol=3, fontsize=8.5, bbox_to_anchor=(0.5, -0.02))
+        handles.append(
+            plt.Line2D(
+                [],
+                [],
+                color=BAND_SHADE_COLOR,
+                lw=0.8,
+                ls="--",
+                label=f"band {band_shade[0]}-{band_shade[1]} Hz",
+            )
+        )
+    fig.legend(
+        handles=handles,
+        loc="lower center",
+        ncol=3,
+        fontsize=8.5,
+        bbox_to_anchor=(0.5, -0.02),
+    )
     fig.suptitle("ECoG PSD: DBS-ON vs DBS-OFF", fontsize=12, y=1.01)
     if save:
         for ext in ("pdf", "png"):
@@ -961,6 +1420,7 @@ def plot_psd_dbs_comparison(
 # ─────────────────────────────────────────────────────────────────────────────
 # Tracing speed: DBS-ON vs DBS-OFF
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def plot_tracing_speed_dbs_comparison(save: bool = True) -> plt.Figure:
     """Mean traces for ``tracing_velocity_x`` and ``tracing_acceleration_magnitude`` (YAML output names)."""
@@ -1008,12 +1468,22 @@ def plot_tracing_speed_dbs_comparison(save: bool = True) -> plt.Figure:
                 (off_l if stim == "off" else on_l).append(za)
             return off_l, on_l
 
-        ax_v.set_title(f"{tri.label or tri.psid_variant}\ntracing_velocity_x", fontsize=8.5)
+        ax_v.set_title(
+            f"{tri.label or tri.psid_variant}\ntracing_velocity_x", fontsize=8.5
+        )
         ax_a.set_title("tracing_acceleration_magnitude", fontsize=8.5)
 
         if not trials:
             for ax in (ax_v, ax_a):
-                ax.text(0.5, 0.5, "no data", ha="center", va="center", transform=ax.transAxes, color="gray")
+                ax.text(
+                    0.5,
+                    0.5,
+                    "no data",
+                    ha="center",
+                    va="center",
+                    transform=ax.transAxes,
+                    color="gray",
+                )
             continue
 
         for ax, col_idx, ylbl in (
@@ -1022,12 +1492,17 @@ def plot_tracing_speed_dbs_comparison(save: bool = True) -> plt.Figure:
         ):
             z_off, z_on = _collect(col_idx)
             z_off, z_on = _zscore_traces(z_off, z_on)
-            for cond_list, col, label in [(z_off, OFF_C, "DBS-OFF"), (z_on, ON_C, "DBS-ON")]:
+            for cond_list, col, label in [
+                (z_off, OFF_C, "DBS-OFF"),
+                (z_on, ON_C, "DBS-ON"),
+            ]:
                 if not cond_list:
                     continue
                 mat = np.vstack(cond_list)
                 mean = np.nanmean(mat, axis=0)
-                ax.plot(t, mean, color=col, lw=1.8, label=f"{label} (n={len(cond_list)})")
+                ax.plot(
+                    t, mean, color=col, lw=1.8, label=f"{label} (n={len(cond_list)})"
+                )
             ax.set_xlim(0, 9)
             if c == 0:
                 ax.set_ylabel(ylbl, fontsize=8)
@@ -1039,7 +1514,13 @@ def plot_tracing_speed_dbs_comparison(save: bool = True) -> plt.Figure:
         plt.Line2D([], [], color=OFF_C, lw=1.8, label="DBS-OFF"),
         plt.Line2D([], [], color=ON_C, lw=1.8, label="DBS-ON"),
     ]
-    fig.legend(handles=handles, loc="lower center", ncol=2, fontsize=8.5, bbox_to_anchor=(0.5, -0.02))
+    fig.legend(
+        handles=handles,
+        loc="lower center",
+        ncol=2,
+        fontsize=8.5,
+        bbox_to_anchor=(0.5, -0.02),
+    )
     fig.suptitle(
         "tracing_velocity_x and tracing_acceleration_magnitude (trial means, z per metric)",
         fontsize=11,
@@ -1047,15 +1528,16 @@ def plot_tracing_speed_dbs_comparison(save: bool = True) -> plt.Figure:
     )
     if save:
         for ext in ("pdf", "png"):
-            fig.savefig(OUT_DIR / f"tracing_speed_dbs_comparison.{ext}", bbox_inches="tight")
+            fig.savefig(
+                OUT_DIR / f"tracing_speed_dbs_comparison.{ext}", bbox_inches="tight"
+            )
     return fig
-
-
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Trial count summary
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def plot_trial_count_summary(save: bool = True) -> plt.Figure:
     """Bar chart: trial counts per participant×session×condition."""
@@ -1066,13 +1548,32 @@ def plot_trial_count_summary(save: bool = True) -> plt.Figure:
         trials = load_results_for_triplet(tri)
         off = sum(1 for t in trials if t.get("stim") == "off")
         on = sum(1 for t in trials if t.get("stim") == "on")
-        rows.append({"session": tri.label or "", "DBS-OFF": off, "DBS-ON": on, "total": off + on})
+        rows.append(
+            {
+                "session": tri.label or "",
+                "DBS-OFF": off,
+                "DBS-ON": on,
+                "total": off + on,
+            }
+        )
 
     fig, ax = plt.subplots(figsize=(6, 3.5))
     x = np.arange(len(rows))
     w = 0.35
-    ax.bar(x - w / 2, [r["DBS-OFF"] for r in rows], w, label="DBS-OFF", color=COLORS["dbs_off"])
-    ax.bar(x + w / 2, [r["DBS-ON"] for r in rows], w, label="DBS-ON", color=COLORS["dbs_on"])
+    ax.bar(
+        x - w / 2,
+        [r["DBS-OFF"] for r in rows],
+        w,
+        label="DBS-OFF",
+        color=COLORS["dbs_off"],
+    )
+    ax.bar(
+        x + w / 2,
+        [r["DBS-ON"] for r in rows],
+        w,
+        label="DBS-ON",
+        color=COLORS["dbs_on"],
+    )
     ax.set_xticks(x)
     ax.set_xticklabels([r["session"] for r in rows])
     ax.set_ylabel("trial count")
@@ -1088,11 +1589,20 @@ def plot_trial_count_summary(save: bool = True) -> plt.Figure:
 # Placeholders
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def plot_beta_burst_placeholder(save: bool = True) -> plt.Figure:
     apply_style()
     fig, ax = plt.subplots(figsize=(5, 3))
-    ax.text(0.5, 0.5, "Beta burst duration/amplitude: requires burst detection pipeline.",
-            ha="center", va="center", transform=ax.transAxes, fontsize=10, wrap=True)
+    ax.text(
+        0.5,
+        0.5,
+        "Beta burst duration/amplitude: requires burst detection pipeline.",
+        ha="center",
+        va="center",
+        transform=ax.transAxes,
+        fontsize=10,
+        wrap=True,
+    )
     ax.axis("off")
     if save:
         for ext in ("pdf", "png"):
@@ -1103,12 +1613,22 @@ def plot_beta_burst_placeholder(save: bool = True) -> plt.Figure:
 def plot_residual_diagnostics_placeholder(save: bool = True) -> plt.Figure:
     apply_style()
     fig, ax = plt.subplots(figsize=(5, 3))
-    ax.text(0.5, 0.5, "Residual diagnostics (Ljung-Box): requires residual extraction from model.",
-            ha="center", va="center", transform=ax.transAxes, fontsize=10, wrap=True)
+    ax.text(
+        0.5,
+        0.5,
+        "Residual diagnostics (Ljung-Box): requires residual extraction from model.",
+        ha="center",
+        va="center",
+        transform=ax.transAxes,
+        fontsize=10,
+        wrap=True,
+    )
     ax.axis("off")
     if save:
         for ext in ("pdf", "png"):
-            fig.savefig(OUT_DIR / f"residual_diagnostics_placeholder.{ext}", bbox_inches="tight")
+            fig.savefig(
+                OUT_DIR / f"residual_diagnostics_placeholder.{ext}", bbox_inches="tight"
+            )
     return fig
 
 
@@ -1116,13 +1636,31 @@ def plot_residual_diagnostics_placeholder(save: bool = True) -> plt.Figure:
 # CLI
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Generate thesis appendix figures (matplotlib)")
-    parser.add_argument("--figures", nargs="*",
-                        default=["preprocessing", "psd", "tracing", "grid_pearson", "grid_rmse", "grid_lag", "trial_count", "beta_burst", "residual"],
-                        help="Which figures to generate")
+    parser = argparse.ArgumentParser(
+        description="Generate thesis appendix figures (matplotlib)"
+    )
+    parser.add_argument(
+        "--figures",
+        nargs="*",
+        default=[
+            "preprocessing",
+            "psd",
+            "tracing",
+            "grid_pearson",
+            "grid_rmse",
+            "grid_lag",
+            "trial_count",
+            "beta_burst",
+            "residual",
+        ],
+        help="Which figures to generate",
+    )
     parser.add_argument("--no-save", action="store_true", help="Show only, do not save")
-    parser.add_argument("--band-shade", nargs=2, type=float, default=[13, 29], metavar=("LO", "HI"))
+    parser.add_argument(
+        "--band-shade", nargs=2, type=float, default=[13, 29], metavar=("LO", "HI")
+    )
     args = parser.parse_args()
 
     save = not args.no_save

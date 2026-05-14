@@ -33,10 +33,14 @@ class StripPanelData:
     panel_label: str
     triplet_label: str
     # Lists of session-mean RMSE (one float per session contributing to that cell)
-    session_means: Tuple[List[float], List[float], List[float], List[float], List[float], List[float]]
+    session_means: Tuple[
+        List[float], List[float], List[float], List[float], List[float], List[float]
+    ]
     mean_line_y: Tuple[float, float, float, float, float, float]
     # Individual trial RMSE values per cell (for box plots)
-    trial_rmse: Tuple[List[float], List[float], List[float], List[float], List[float], List[float]]
+    trial_rmse: Tuple[
+        List[float], List[float], List[float], List[float], List[float], List[float]
+    ]
 
 
 @dataclass
@@ -60,7 +64,9 @@ def _one_panel_session_data(
     # Frameworks to iterate: PSID always, DPAD only if results exist, VARMA always.
     frameworks: Dict[str, Dict] = {"psid": res_p}
     if tri.dpad_run_ts:
-        res_d = load_split_results(results_root, tri.dpad_variant, tri.dpad_run_ts, split)
+        res_d = load_split_results(
+            results_root, tri.dpad_variant, tri.dpad_run_ts, split
+        )
         if res_d is not None:
             frameworks["dpad"] = res_d
     if res_v is not None:
@@ -103,7 +109,8 @@ def _one_panel_session_data(
             trial_rmse[idx].extend([float(v) for v in trial_rmses if np.isfinite(v)])
 
     mean_line_y = tuple(
-        float(np.mean(session_means[i])) if session_means[i] else float("nan") for i in range(6)
+        float(np.mean(session_means[i])) if session_means[i] else float("nan")
+        for i in range(6)
     )
 
     return StripPanelData(

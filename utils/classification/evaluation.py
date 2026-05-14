@@ -8,9 +8,9 @@
   ``run_classification_pipeline``: top-level orchestration called by
   ``classification/compute.py``.
 """
+
 from typing import Any, Dict, Optional, Tuple
 
-import joblib
 import numpy as np
 from sklearn.base import clone
 from sklearn.metrics import (
@@ -123,7 +123,7 @@ def run_permutation_test(
         )
 
     obs_scores = cross_val_score(
-        pipeline, X, y, cv=cv, groups=groups, scoring=scoring, n_jobs=2
+        pipeline, X, y, cv=cv, groups=groups, scoring=scoring, n_jobs=-1
     )
     obs_mean_score = float(np.mean(obs_scores))
 
@@ -138,15 +138,18 @@ def run_permutation_test(
         perm_map = dict(zip(group_ids, perm_labels))
         y_perm = np.array([perm_map[g] for g in groups])
         p_scores = cross_val_score(
-            clone(pipeline), X, y_perm, cv=cv, groups=groups,
-            scoring=scoring, n_jobs=1,
+            clone(pipeline),
+            X,
+            y_perm,
+            cv=cv,
+            groups=groups,
+            scoring=scoring,
+            n_jobs=-1,
         )
         return float(np.mean(p_scores))
 
     permutation_scores = np.array(
-        joblib.Parallel(n_jobs=8)(
-            joblib.delayed(run_one_permutation)(i) for i in range(n_permutations)
-        )
+        [run_one_permutation(i) for i in range(n_permutations)]
     )
 
     pvalue = (np.sum(permutation_scores >= obs_mean_score) + 1) / (n_permutations + 1)
@@ -160,6 +163,7 @@ def run_permutation_test(
 # ─────────────────────────────────────────────────────────────────────────────
 # Orchestration
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def run_lda_fit_and_test_only(
     X_train: np.ndarray,
@@ -192,9 +196,7 @@ def run_lda_fit_and_test_only(
     if X_test is not None and y_test is not None:
         test_res = evaluate_on_test_set(results["best_pipeline"], X_test, y_test)
         results["test_results"] = test_res
-        logger.info(
-            f"  LDA Test Balanced Acc: {test_res['balanced_accuracy']:.4f}"
-        )
+        logger.info(f"  LDA Test Balanced Acc: {test_res['balanced_accuracy']:.4f}")
 
     return results
 
@@ -239,9 +241,13 @@ def run_classification_pipeline(
     feature_source: str = "Xp",
 ) -> Dict[str, Any]:
     results = run_lda_fit_and_test_only(
-        X_train, y_train, groups_train,
-        X_test, y_test,
-        config, logger,
+        X_train,
+        y_train,
+        groups_train,
+        X_test,
+        y_test,
+        config,
+        logger,
         feature_source=feature_source,
     )
     if config.classification.get("permutation_test", False):
