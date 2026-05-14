@@ -171,12 +171,13 @@ def create_dataloaders(
         f"Loaded datasets: train={len(train_dataset)} trials, val={len(val_dataset)} trials, test={len(test_dataset)} trials"
     )
 
-    train_loader = TrialDataLoader(train_dataset, batch_size=data_params.batch_size)
-    val_loader = TrialDataLoader(val_dataset, batch_size=data_params.batch_size)
-    test_loader = TrialDataLoader(test_dataset, batch_size=data_params.batch_size)
+    batch_size = getattr(data_params, "batch_size", 1)
+    train_loader = TrialDataLoader(train_dataset, batch_size=batch_size)
+    val_loader = TrialDataLoader(val_dataset, batch_size=batch_size)
+    test_loader = TrialDataLoader(test_dataset, batch_size=batch_size)
 
     logger.info(
-        f"Constructed dataloaders with batch_size={data_params.batch_size}. "
+        f"Constructed dataloaders with batch_size={batch_size}. "
         f"Train steps/epoch≈{len(train_loader)}, Val steps≈{len(val_loader)}, Test steps≈{len(test_loader)}"
     )
 

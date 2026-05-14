@@ -29,8 +29,13 @@ class FrameworkPipeline:
 
         self.framework: str = config.framework.name
         self.project_root: Path = Path(config.results.project_root)
+        _bool_map = {True: "on", False: "off"}
         self.model_dbs_state: tuple = (
-            (dbs,) if dbs else tuple(config.experiment.train.model_dbs_state)
+            (dbs,)
+            if dbs
+            else tuple(
+                _bool_map.get(s, s) for s in config.experiment.train.model_dbs_state
+            )
         )
 
         if phases is not None:
@@ -157,7 +162,6 @@ class FrameworkPipeline:
                 test(
                     self.config,
                     model_dbs=model_dbs,
-                    data_dbs="both",
                     run_timestamp=ts[model_dbs],
                     incremental=True,
                     splits=splits,

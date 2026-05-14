@@ -1,12 +1,14 @@
 framework:
-  name: psid
+  name: varma
   params:
-    nx: 64
-    n1: 1
-    i: 100
-    A_eigen_constrain: 0.9999
+    p: 30
+    q: 1
+    long_ar_lags: 30
+    ridge_alpha: 1.0
+    max_root: 0.97
+    trial_edge_taper_sec: 0.1
     time_first: true
-    fast: false
+    fast: true
     reuse_splits: false
 data:
   root: resampled_recordings/participants_at_200Hz_scaled_1e6_raw_envelope
@@ -30,7 +32,7 @@ data:
   - tracing_acceleration_magnitude
   sampling_frequency: 200
 experiment:
-  name: '{framework.name}_{experiment.type}_{data.participant}_S{data.session}_nx_{framework.params.nx}_n1_{framework.params.n1}'
+  name: '{framework.name}_{experiment.type}_{data.participant}_S{data.session}_p{framework.params.p}_q{framework.params.q}'
   type: z-as-behavior
   train:
     model_dbs_state:
@@ -58,41 +60,6 @@ experiment:
     - 1.0
     - 1.5
     - 2.0
-  classification:
-    epoch_length: 0.5
-    epoch_overlap: 0.25
-    n_splits: 5
-    t_cut_grid:
-    - 0.5
-    - 1
-    - 2
-    - 3
-    - 4
-    - 5
-    - 6
-    - 7
-    - 8
-    - 9
-    perm_ba_gate: 0.5
-    n_permutations: 100
-    prediction_significance_window: 0.5
-    forecast_insignificance_window: 0.1
-    param_grid:
-      LDA:
-        classifier__solver:
-        - lsqr
-        classifier__shrinkage:
-        - auto
-    feature_sources_pred:
-    - Xp
-    - Xp_1
-    - Xp_2
-    - Xp_with_dbs
-    feature_sources_forecast:
-    - Xf
-    - Xf_1
-    - Xf_2
-    - Xf_with_dbs
 results:
   project_root: .
   save_dir: results/{framework.name}/{experiment.name}

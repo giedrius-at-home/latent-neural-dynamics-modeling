@@ -1,0 +1,15 @@
+# Minimal set for DPAD training on Modal (base: tensorflow/tensorflow:2.15.0-gpu).
+# PSID absent intentionally — DPAD 0.0.9 pins PSID==1.2.5 as dep; pip installs
+# that without conflict. PSID==1.2.6 force-installed after via --no-deps.
+# torch and scipy handled separately in dpad_modal.py run_commands.
+DPAD==0.0.9
+polars==1.32.0
+pandas==2.3.1
+scikit-learn==1.7.1
+statsmodels==0.14.6
+feature-engine==1.9.4
+mrmr-selection==0.2.8
+PyYAML==6.0.2
+numpy==1.26.4
+matplotlib==3.10.5
+mne==1.10.1

@@ -11,7 +11,6 @@
 
 from typing import Any, Dict, Optional, Tuple
 
-import joblib
 import numpy as np
 from sklearn.base import clone
 from sklearn.metrics import (
@@ -124,7 +123,7 @@ def run_permutation_test(
         )
 
     obs_scores = cross_val_score(
-        pipeline, X, y, cv=cv, groups=groups, scoring=scoring, n_jobs=2
+        pipeline, X, y, cv=cv, groups=groups, scoring=scoring, n_jobs=-1
     )
     obs_mean_score = float(np.mean(obs_scores))
 
@@ -145,14 +144,12 @@ def run_permutation_test(
             cv=cv,
             groups=groups,
             scoring=scoring,
-            n_jobs=1,
+            n_jobs=-1,
         )
         return float(np.mean(p_scores))
 
     permutation_scores = np.array(
-        joblib.Parallel(n_jobs=8)(
-            joblib.delayed(run_one_permutation)(i) for i in range(n_permutations)
-        )
+        [run_one_permutation(i) for i in range(n_permutations)]
     )
 
     pvalue = (np.sum(permutation_scores >= obs_mean_score) + 1) / (n_permutations + 1)

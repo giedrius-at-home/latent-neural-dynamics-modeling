@@ -172,8 +172,10 @@ class PSIDWrapper(BaseWrapper):
             return
         try:
             Pp_new = solve_discrete_are(a=A.T, b=C.T, q=Q, r=R, e=None, s=S)
-        except Exception:
+        except Exception as exc:
+            get_logger().warning("DARE refit failed (e=None, force=%s): %s", force, exc)
             return
+        get_logger().info("DARE recomputed (e=None, force=%s)", force)
         innovCov = C @ Pp_new @ C.T + R
         innovCov = (innovCov + innovCov.T) / 2
         innovCovInv = np.linalg.pinv(innovCov)

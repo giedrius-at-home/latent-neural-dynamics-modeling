@@ -147,27 +147,38 @@ def _train_then_score(
     rng: np.random.Generator,
     log,
     allow_mixed_label_groups: bool = False,
+    precomputed_train: Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]] = None,
+    precomputed_scores: Optional[Dict[str, Tuple[np.ndarray, np.ndarray]]] = None,
 ) -> List[Dict[str, Any]]:
-    """Fit one LDA on the full window, score at each entry of ``score_grid``."""
+    """Fit one LDA on the full window, score at each entry of ``score_grid``.
+
+    precomputed_train: (X_base, y, groups) before sub-source slicing — skips
+        prepare_epoched_data for the training step.
+    precomputed_scores: label -> (X_base, y) before slicing — skips
+        prepare_epoched_data for each matching score_grid entry.
+    """
     base = _base_feature(feature_source)
     sfreq = int(sampling_freq)
 
-    X_full, y_full, g_full, _ = prepare_epoched_data(
-        pool_trials,
-        feature_source=base,
-        epoch_length_sec=classifier_cfg.epoch_length,
-        overlap=classifier_cfg.epoch_overlap,
-        fs=sfreq,
-        n1=n1,
-        nx=nx,
-        **train_kwargs,
-    )
-    if X_full is None or len(X_full) == 0:
+    if precomputed_train is not None:
+        X_full_base, y_full, g_full = precomputed_train
+    else:
+        X_full_base, y_full, g_full, _ = prepare_epoched_data(
+            pool_trials,
+            feature_source=base,
+            epoch_length_sec=classifier_cfg.epoch_length,
+            overlap=classifier_cfg.epoch_overlap,
+            fs=sfreq,
+            n1=n1,
+            nx=nx,
+            **train_kwargs,
+        )
+    if X_full_base is None or len(X_full_base) == 0:
         raise RuntimeError(
             f"prepare_epoched_data produced no training epochs for "
             f"feature={base} kwargs={train_kwargs}"
         )
-    X_full = _slice_subsource(X_full, y_full, feature_source, n1=n1, nx=nx)
+    X_full = _slice_subsource(X_full_base, y_full, feature_source, n1=n1, nx=nx)
 
     _, cv_ba, res = run_cv(
         X_full,
@@ -182,21 +193,13 @@ def _train_then_score(
     clf = res["best_pipeline"]
 
     rows: List[Dict[str, Any]] = []
-    for label, kwargs in score_grid:
-        pool_use = kwargs.pop("_pool_override", pool_trials)
-        X_score, y_score, _, _ = prepare_epoched_data(
-            pool_use,
-            feature_source=base,
-            epoch_length_sec=classifier_cfg.epoch_length,
-            overlap=classifier_cfg.epoch_overlap,
-            fs=sfreq,
-            n1=n1,
-            nx=nx,
-            **kwargs,
-        )
-        if X_score is None or len(X_score) == 0:
+    for label, _ in score_grid:
+        if precomputed_scores is None or label not in precomputed_scores:
             continue
-        X_score = _slice_subsource(X_score, y_score, feature_source, n1=n1, nx=nx)
+        X_score_base, y_score = precomputed_scores[label]
+        if X_score_base is None or len(X_score_base) == 0:
+            continue
+        X_score = _slice_subsource(X_score_base, y_score, feature_source, n1=n1, nx=nx)
         pred = clf.predict(X_score)
         ba = balanced_accuracy_score(y_score, pred)
         rows.append(
@@ -263,24 +266,33 @@ def run_predictions_sweep(
         pool_split_dicts = {k: v for k, v in splits.items() if k in ("train", "val")}
         pool_full = list(pool_split_dicts.values())
 
+        _common = dict(
+            feature_source="Xp",
+            epoch_length_sec=classifier_cfg.epoch_length,
+            overlap=classifier_cfg.epoch_overlap,
+            fs=sfreq,
+            n1=n1,
+            nx=nx,
+            mode="prediction",
+        )
+        X_train_base, y_train, g_train, _ = prepare_epoched_data(pool_full, **_common)
+        pre_scores_pred: Dict[str, Tuple[np.ndarray, np.ndarray]] = {}
+        for t_cut in t_cut_grid:
+            t_samples = int(round(t_cut * sfreq))
+            trimmed = _truncate_split_Xp(pool_split_dicts, t_samples)
+            X_s, y_s, _, _ = prepare_epoched_data(list(trimmed.values()), **_common)
+            if X_s is not None and len(X_s) > 0:
+                pre_scores_pred[f"t={t_cut:g}"] = (X_s, y_s)
+
+        score_grid_pred: List[Tuple[str, Dict[str, Any]]] = [
+            (f"t={t_cut:g}", {"mode": "prediction"}) for t_cut in t_cut_grid
+        ]
+
         for sub in feature_sources:
             log.info(f"predictions  dbs={dbs_train} sub={sub}")
-            score_grid: List[Tuple[str, Dict[str, Any]]] = []
-            for t_cut in t_cut_grid:
-                t_samples = int(round(t_cut * sfreq))
-                trimmed = _truncate_split_Xp(pool_split_dicts, t_samples)
-                score_grid.append(
-                    (
-                        f"t={t_cut:g}",
-                        {
-                            "mode": "prediction",
-                            "_pool_override": list(trimmed.values()),
-                        },
-                    )
-                )
             rows = _train_then_score(
                 train_kwargs={"mode": "prediction"},
-                score_grid=score_grid,
+                score_grid=score_grid_pred,
                 pool_trials=pool_full,
                 feature_source=sub,
                 n1=n1,
@@ -289,6 +301,12 @@ def run_predictions_sweep(
                 sampling_freq=sfreq,
                 rng=rng,
                 log=log,
+                precomputed_train=(
+                    (X_train_base, y_train, g_train)
+                    if X_train_base is not None
+                    else None
+                ),
+                precomputed_scores=pre_scores_pred,
             )
             for r in rows:
                 t_val = float(r["score_label"].split("=")[1])
@@ -360,35 +378,56 @@ def run_forecast_sweep(
                 )
                 flip_models[side] = fw.model.idSys
 
-        for sub in feature_sources:
-            for h in h_grid:
+        for h in h_grid:
+            base_kwargs: Dict[str, Any] = {
+                "mode": "forecast",
+                "history_horizon": float(h),
+                "forecast_horizon": float(m_seconds),
+                "framework": framework,
+            }
+            if flipped:
+                base_kwargs.update(
+                    {
+                        "model_on": flip_models["on"],
+                        "model_off": flip_models["off"],
+                        "model_both": flip_models["both"],
+                        "target_future": True,
+                        "framework": None,
+                    }
+                )
+
+            _common = dict(
+                feature_source="Xf",
+                epoch_length_sec=classifier_cfg.epoch_length,
+                overlap=classifier_cfg.epoch_overlap,
+                fs=sfreq,
+                n1=n1,
+                nx=nx,
+            )
+            X_train_base, y_train, g_train, _ = prepare_epoched_data(
+                pool_full, **_common, **base_kwargs
+            )
+            pre_scores: Dict[str, Tuple[np.ndarray, np.ndarray]] = {}
+            for m_test in m_test_grid:
+                kw_s = {**base_kwargs, "forecast_horizon": float(m_test)}
+                X_s, y_s, _, _ = prepare_epoched_data(pool_full, **_common, **kw_s)
+                if X_s is not None and len(X_s) > 0:
+                    pre_scores[f"m_test={m_test:g}"] = (X_s, y_s)
+
+            score_grid: List[Tuple[str, Dict[str, Any]]] = [
+                (
+                    f"m_test={m_test:g}",
+                    {**base_kwargs, "forecast_horizon": float(m_test)},
+                )
+                for m_test in m_test_grid
+            ]
+
+            for sub in feature_sources:
                 log.info(
                     f"forecast{' (flipped)' if flipped else ''}  dbs={dbs_train} sub={sub} h={h:.1f}"
                 )
-                train_kwargs: Dict[str, Any] = {
-                    "mode": "forecast",
-                    "history_horizon": float(h),
-                    "forecast_horizon": float(m_seconds),
-                    "framework": framework,
-                }
-                if flipped:
-                    train_kwargs.update(
-                        {
-                            "model_on": flip_models["on"],
-                            "model_off": flip_models["off"],
-                            "model_both": flip_models["both"],
-                            "target_future": True,
-                            "framework": None,
-                        }
-                    )
-                score_grid: List[Tuple[str, Dict[str, Any]]] = []
-                for m_test in m_test_grid:
-                    kw = dict(train_kwargs)
-                    kw["forecast_horizon"] = float(m_test)
-                    score_grid.append((f"m_test={m_test:g}", kw))
-
                 rows = _train_then_score(
-                    train_kwargs=train_kwargs,
+                    train_kwargs=base_kwargs,
                     score_grid=score_grid,
                     pool_trials=pool_full,
                     feature_source=sub,
@@ -399,6 +438,12 @@ def run_forecast_sweep(
                     rng=rng,
                     log=log,
                     allow_mixed_label_groups=flipped,
+                    precomputed_train=(
+                        (X_train_base, y_train, g_train)
+                        if X_train_base is not None
+                        else None
+                    ),
+                    precomputed_scores=pre_scores,
                 )
                 for r in rows:
                     m_val = float(r["score_label"].split("=")[1])
@@ -480,6 +525,6 @@ def run_sweep(
     out_dir.mkdir(parents=True, exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     out_path = out_dir / f"sweep_{ts}.parquet"
-    pl.DataFrame(rows).write_parquet(out_path)
+    pl.DataFrame(rows, infer_schema_length=len(rows)).write_parquet(out_path)
     log.info("wrote %d rows -> %s", len(rows), out_path)
     return out_path

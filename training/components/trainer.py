@@ -98,7 +98,7 @@ class Trainer:
                 try:
                     block_num = int(bf.parent.name.split("=")[1])
                     if (
-                        self.data_params.blocks != "all"
+                        getattr(self.data_params, "blocks", "all") != "all"
                         and block_num not in self.data_params.blocks
                     ):
                         continue
@@ -165,7 +165,7 @@ class Trainer:
                 maintain_order=True,
             )
 
-            if self.data_params.blocks != "all":
+            if getattr(self.data_params, "blocks", "all") != "all":
                 trial = trial.filter(pl.col("block").is_in(self.data_params.blocks))
 
             if self.model_dbs != "both":

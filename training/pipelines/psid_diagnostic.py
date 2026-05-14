@@ -658,6 +658,12 @@ def amend_run_config(
     cfg["framework"]["params"]["i"] = i_train
     cfg["data"]["Y"] = list(y_channels)
     cfg["data"]["Z"] = list(z_outputs)
+    # Normalize model_dbs_state: yaml.safe_load parses unquoted on/off as booleans.
+    dbs_states = cfg.get("experiment", {}).get("train", {}).get("model_dbs_state", [])
+    _bool_map = {True: "on", False: "off"}
+    cfg["experiment"]["train"]["model_dbs_state"] = [
+        _bool_map.get(s, s) for s in dbs_states
+    ]
     with open(out_path, "w") as f:
         yaml.dump(cfg, f, default_flow_style=False, sort_keys=False)
     return out_path

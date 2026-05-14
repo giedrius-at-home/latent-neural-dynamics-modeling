@@ -30,12 +30,24 @@ from pathlib import Path
 import modal
 import yaml
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+try:
+    PROJECT_ROOT = Path(__file__).resolve().parents[2]
+except IndexError:
+    PROJECT_ROOT = Path("/app")
 
 _image = (
     modal.Image.from_registry("tensorflow/tensorflow:2.15.0-gpu")
     .apt_install("git", "build-essential")
+    # Step 1: install most packages from the exact conda env export.
+    # DPAD 0.0.9 pins PSID==1.2.5 as a dep; PSID is intentionally absent here
+    # so pip installs 1.2.5 as DPAD's transitive dep without conflict.
     .pip_install_from_requirements(str(PROJECT_ROOT / "modal_requirements.txt"))
+    # Step 2: overwrite with PSID==1.2.6 (our version) ignoring DPAD's pin,
+    # and add torch + scipy which are excluded from the conda export.
+    .run_commands(
+        "pip install --no-deps PSID==1.2.6",
+        "pip install torch==2.9.1 scipy==1.16.0",
+    )
     .env({"TF_CPP_MIN_LOG_LEVEL": "2"})
     .add_local_dir(
         str(PROJECT_ROOT),
@@ -47,9 +59,7 @@ _image = (
             "**/.ipynb_checkpoints/**",
             "results/**",
             "resampled_recordings/**",
-            "training/setups/psid/**",
-            "training/setups/dpad/**",
-            "training/setups/varma/**",
+            "training/setups/**",
             "classification/setups/**",
             "thesis_figures/**",
             "archives/**",
@@ -71,14 +81,10 @@ _image = (
 _data_vol = modal.Volume.from_name("dpad-data", create_if_missing=True)
 _results_vol = modal.Volume.from_name("dpad-results", create_if_missing=True)
 _training_vol = modal.Volume.from_name("dpad-training-setups", create_if_missing=True)
-_classification_vol = modal.Volume.from_name(
-    "dpad-classification-setups", create_if_missing=True
-)
 _VOLUMES = {
     "/app/resampled_recordings": _data_vol,
     "/app/results": _results_vol,
     "/app/training/setups": _training_vol,
-    "/app/classification/setups": _classification_vol,
 }
 
 app = modal.App("dpad-pipeline")
@@ -101,7 +107,6 @@ def _run_dpad(config_path: str, phases: str, model_dbs: str = None) -> None:
     subprocess.run(cmd, check=True)
     _results_vol.commit()
     _training_vol.commit()
-    _classification_vol.commit()
 
 
 def _load_sweep_entries(configs_dir: str, mode_filter: str = None) -> list:
@@ -121,14 +126,14 @@ def _load_sweep_entries(configs_dir: str, mode_filter: str = None) -> list:
     return entries
 
 
-@app.function(image=_image, gpu="A10G", volumes=_VOLUMES)
+@app.function(image=_image, gpu="A10G", timeout=86400, volumes=_VOLUMES)
 def train_one(config_path: str, model_dbs: str) -> str:
     """Stage 1: train one config x one dbs side in isolation."""
     _run_dpad(config_path, phases="train", model_dbs=model_dbs)
     return f"trained:{config_path}:{model_dbs}"
 
 
-@app.function(image=_image, gpu="A10G", volumes=_VOLUMES)
+@app.function(image=_image, gpu="A10G", timeout=86400, volumes=_VOLUMES)
 def run_post_train(config_path: str) -> str:
     """Stage 2: predictions + forecasts + classification for one config."""
     _run_dpad(config_path, phases="predictions,forecasts,classification")

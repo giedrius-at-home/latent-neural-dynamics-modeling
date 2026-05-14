@@ -33,4 +33,4 @@ experiment:
 results:
   project_root: "."
   save_dir: training/setups/psid_diagnostic
-  log_dir: logs/psid_diagnostic
+  log_dir: "logs/psid_diagnostic/{experiment.type}"

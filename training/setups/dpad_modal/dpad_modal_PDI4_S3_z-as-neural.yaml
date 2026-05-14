@@ -1,46 +1,50 @@
 framework:
-  name: psid
+  name: dpad
   params:
     nx: 64
-    n1: 2
-    i: 100
-    A_eigen_constrain: 0.9999
-    time_first: true
-    fast: false
+    n1: 4
+    epochs: 1000
+    checkpoint_every: 100
+    method_code: DPAD_uAKCzCy2HL32U
+    fast: true
     reuse_splits: false
+    steps_ahead:
+    - 1
+    steps_ahead_loss_weights:
+    - 1.0
 data:
   root: resampled_recordings/participants_at_200Hz_scaled_1e6_raw_envelope
   participant: PDI4
-  session: 2
+  session: 3
   Y:
-  - ECOG_2_gamma_83_88_raw
-  - ECOG_1_beta_28_32_raw
-  - ECOG_1_theta_4_8_raw
-  - ECOG_1_gamma_83_88_raw
+  - ECOG_1_beta_23_28_raw
   - ECOG_2_beta_28_32_raw
-  - ECOG_2_gamma_88_93_raw
-  - ECOG_2_gamma_83_88_env
-  - ECOG_1_gamma_88_93_env
-  - ECOG_1_theta_4_8_env
-  - ECOG_3_alpha_8_12_env
+  - ECOG_3_beta_23_28_raw
+  - ECOG_2_beta_23_28_raw
+  - ECOG_4_beta_23_28_raw
+  - ECOG_3_beta_28_32_raw
   - ECOG_2_beta_23_28_env
-  - ECOG_1_gamma_42_47_env
+  - ECOG_1_beta_18_23_env
+  - ECOG_1_gamma_32_37_env
+  - ECOG_1_beta_23_28_env
+  - ECOG_4_beta_28_32_env
+  - ECOG_2_gamma_32_37_env
   Z:
-  - LAPLACIAN_10-12_LFP_gamma_78_83_raw
-  - LAPLACIAN_13-15_LFP_theta_4_8_raw
-  - LAPLACIAN_11-13_LFP_theta_4_8_raw
+  - LAPLACIAN_10-12_LFP_gamma_88_93_raw
   - LAPLACIAN_9-11_LFP_gamma_78_83_raw
-  - LAPLACIAN_13-15_LFP_alpha_8_12_raw
-  - LAPLACIAN_12-14_LFP_alpha_8_12_raw
-  - LAPLACIAN_10-12_LFP_gamma_78_83_env
-  - LAPLACIAN_11-13_LFP_gamma_73_78_env
-  - LAPLACIAN_10-12_LFP_theta_4_8_env
-  - LAPLACIAN_13-15_LFP_alpha_8_12_env
-  - LAPLACIAN_12-14_LFP_gamma_68_73_env
-  - LAPLACIAN_11-13_LFP_gamma_42_47_env
+  - LAPLACIAN_14-16_LFP_gamma_73_78_raw
+  - LAPLACIAN_11-13_LFP_beta_18_23_raw
+  - LAPLACIAN_13-15_LFP_beta_18_23_raw
+  - LAPLACIAN_12-14_LFP_beta_18_23_raw
+  - LAPLACIAN_11-13_LFP_beta_18_23_env
+  - LAPLACIAN_12-14_LFP_beta_18_23_env
+  - LAPLACIAN_12-14_LFP_beta_13_18_env
+  - LAPLACIAN_12-14_LFP_theta_4_8_env
+  - LAPLACIAN_14-16_LFP_gamma_78_83_env
+  - LAPLACIAN_13-15_LFP_beta_23_28_env
   sampling_frequency: 200
 experiment:
-  name: '{framework.name}_{experiment.type}_{data.participant}_S{data.session}_nx_{framework.params.nx}_n1_{framework.params.n1}'
+  name: '{framework.name}_{experiment.type}_{data.participant}_S{data.session}_nx_{framework.params.nx}_n1_{framework.params.n1}_e{framework.params.epochs}'
   type: z-as-neural
   train:
     model_dbs_state:
