@@ -37,8 +37,8 @@ This yields **8 config pairs** (4 sessions x 2 experiment types) per framework, 
 3. **Common Average Reference (CAR):** subtract mean across all ECoG channels at each timepoint.
 4. **Notch filter** at 50, 100, 150, 200 Hz to suppress power line interference and harmonics.
 5. **Narrowband decomposition:** bandpass into 17 frequency bands covering 4-93 Hz (gap at 47-53 Hz to avoid notch artefact):
-   - Bands (Hz): 4-8, 8-12, 12-17, 17-22, 18-23, 23-28, 28-32, 32-37, 37-42, 42-47, 53-58, 58-63, 63-68, 68-73, 73-78, 78-83, 83-88, 88-93
-   - Actual config has 17 `raw_bands` and 17 `envelope_bands`; band lists overlap by design to allow both raw and envelope views of same frequency.
+   - Bands (Hz): 4-8, 8-12, 13-18, 18-23, 23-28, 28-32, 32-37, 37-42, 42-47, 53-58, 58-63, 63-68, 68-73, 73-78, 78-83, 83-88, 88-93
+   - Config has 17 `raw_bands` and 17 `envelope_bands`; same frequency grid applied to both modes.
 6. **Hilbert envelope:** for each band, compute the analytic signal magnitude to produce the amplitude envelope. This yields 34 features per ECoG channel: 17 raw narrowband + 17 envelope signals.
 7. **Output format:** Hive-partitioned Parquet stored as `resampled_recordings/participants_at_200Hz_scaled_1e6_raw_envelope/{participant_id=...}/{session=...}/{block=...}/0.parquet`.
 
@@ -65,7 +65,7 @@ n_val   = min_n - n_train - n_test   # remainder (~10%)
 
 Blocks are assigned chronologically: first `n_train` pairs go to train, then `n_val` pairs to val, then `n_test` pairs to test. The balanced-pair design guarantees that each split contains at least one on-block and one off-block, which is required for the ChronoGroupsSplit classifier CV to function.
 
-The 50/10/40 split was chosen specifically to ensure >= 2 blocks in val (the original 60/10/30 produced single-class val from certain sessions). The `min_n` floor prevents imbalanced splits when on/off block counts differ.
+The 50/10/40 split was chosen specifically to ensure that train and test sets are balanced
 
 **Output files** (written to `{data_root}/splits/`):
 - `train.parquet`, `val.parquet`, `test.parquet`
@@ -104,9 +104,10 @@ The diagnostic runs four sequential stages.
 ### Stage 1: mRMR Feature Selection
 
 **Feature extraction:**
-- For each ECoG channel, compute per-trial log-standard-deviation: `log(std(channel_signal) + 1e-12)`.
-- Epoch each trial into 2-second windows (400 samples), compute std per epoch. Average across all epochs to get one value per channel per trial.
-- This produces a matrix `[n_trials x n_channels]` used as the mRMR input.
+- Epoch each trial into non-overlapping 2-second windows (400 samples at 200 Hz). Trials shorter than one window are skipped.
+- For each window and each ECoG channel, compute log-standard-deviation: `log(std(window_signal) + 1e-12)`.
+- Each window becomes one row; the parent trial's DBS label and block index are replicated to that row.
+- This produces a matrix `[N_epochs x n_channels]` (where N_epochs = total windows across all training trials) used as the mRMR input.
 
 **mRMR algorithm (MIQ method):**
 - Mutual information quotient: at each step, select the channel `j` that maximizes `MI(j; Z) / mean(MI(j; already_selected))`.
@@ -122,7 +123,7 @@ The diagnostic runs four sequential stages.
 
 ### Stage 2: Cross-validate nx (latent state dimension)
 
-- Candidate grid: `nx_grid = [20, 40, 60, 80, 100]`.
+- Candidate grid: `nx_grid = [4, 8, 16, 32, 64]`.
 - For each candidate nx, run `cv_select_nx()`:
   - ChronoGroupsSplit CV on training data.
   - Fit PSID with `n1 = min(nz, nx)` (Z-dimension saturated).
