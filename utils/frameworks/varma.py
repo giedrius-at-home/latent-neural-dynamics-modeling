@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import statsmodels.api as sm
 from statsmodels.tsa.api import VAR
+from sklearn.linear_model import Ridge
 
 from utils.config import Config
 from utils.logger import get_logger
@@ -278,18 +279,16 @@ class VARMAOLSWrapper(BaseWrapper):
             f"Design matrix shape: {X_full.shape}, Target shape: {Y_full.shape}"
         )
 
-        # Ridge regression (Tikhonov). OLS on multivariate VARMA produced
-        # unstable companion eigenvalues that triggered aggressive AR-root
-        # stabilization (gamma << 1) and crippled all but the first channel.
-        # Ridge keeps the fit stable; intercept (column 0 of X_full) is not
-        # penalised. alpha defaults to 1.0; configurable via config.model.
+        # Ridge regression. OLS on multivariate VARMA produced unstable
+        # companion eigenvalues that triggered aggressive AR-root stabilization
+        # (gamma << 1) and crippled all but the first channel. Ridge keeps the
+        # fit stable; fit_intercept=True excludes intercept from penalty.
+        # Column 0 of X_full is the ones intercept column — drop it so sklearn
+        # owns the intercept; reconstruct beta in original [n_features, K] shape.
         ridge_alpha = self.config.framework.params.ridge_alpha
-        n_features = X_full.shape[1]
-        penalty = ridge_alpha * np.eye(n_features)
-        penalty[0, 0] = 0.0  # do not penalise intercept
-        XtX = X_full.T @ X_full + penalty
-        XtY = X_full.T @ Y_full
-        self.beta = np.linalg.solve(XtX, XtY)
+        ridge = Ridge(alpha=ridge_alpha, fit_intercept=True)
+        ridge.fit(X_full[:, 1:], Y_full)
+        self.beta = np.vstack([ridge.intercept_[np.newaxis, :], ridge.coef_.T])
         self.logger.info(
             f"VARMA-Ridge fit: alpha={ridge_alpha}, beta shape={self.beta.shape}"
         )

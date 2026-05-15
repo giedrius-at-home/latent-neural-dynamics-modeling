@@ -97,7 +97,7 @@ Guarantees balanced classes in every fold. Number of folds = `min_n`.
 ---
 
 **Script:** `training/pipelines/psid_diagnostic.py`  
-**Purpose:** Select which Y channels and which hyperparameters (nx, n1) to use for PSID, VARMA, and DPAD.
+**Purpose:** Select which Y/Z channels and PSID hyperparameters (nx, n1) to use. Channel selection is shared by all three frameworks; hyperparameter patching applies to PSID configs only.
 
 The diagnostic runs four sequential stages.
 
@@ -156,7 +156,7 @@ The diagnostic runs four sequential stages.
 
 - Fit PSID on the full training set with the chosen nx and n1.
 - Evaluate on train, val, test splits and log CC metrics.
-- Call `amend_run_config()` to write the selected nx, n1, and channel lists back into the training YAML configs for PSID, VARMA, and DPAD. This is what generates the `training/setups/psid_PDI*.yaml`, `training/setups/varma_PDI*.yaml`, and `training/setups/dpad_modal/*.yaml` files.
+- Call `amend_run_config()` to write the selected nx, n1, i_train, and channel lists back into `training/setups/psid_PDI*.yaml` only. VARMA and DPAD configs use the same Y/Z channels but are maintained manually — the diagnostic does not patch them.
 
 ---
 
@@ -243,8 +243,8 @@ where `x` is the `nx`-dimensional latent state. The first `n1` dimensions are pr
 
 ### Training
 
-`PSIDWrapper.fit_ws()` calls `PSID.PSID(Y_concat, Z_concat, nx, n1, i=10, WS=ws, return_WS=True)`:
-- `i=10`: Hankel lag parameter (block rows in the Hankel matrix).
+`PSIDWrapper.fit_ws()` calls `PSID.PSID(Y_concat, Z_concat, nx, n1, i=100, WS=ws, return_WS=True)`:
+- `i=100`: Hankel lag (block rows in the Hankel matrix). Used in real pipeline training. The diagnostic CV uses a cheaper `i=50` during nx/channel grid search, then writes `i=100` into the final pipeline YAML via `i_train`.
 - Trials concatenated along the time axis before fitting; PSID operates on the full session.
 - Returns `idSys` object containing matrices: A (nx x nx), Cy (ny x nx), Cz (nz x nx), Q, R, S (noise covariance matrices).
 
@@ -255,14 +255,13 @@ After PSID fit, A matrix poles are checked for stability:
 ```python
 eigvals, V = np.linalg.eig(A)
 mags = np.abs(eigvals)
-max_abs = 0.9999
-unstable = mags > max_abs
-scale = max_abs / mags[unstable]
-eigvals[unstable] *= scale
+max_abs = config.A_eigen_constrain   # from YAML
+scale = np.where(mags > max_abs, max_abs / np.maximum(mags, 1e-15), 1.0)
+eigvals *= scale
 A_clipped = V @ np.diag(eigvals) @ np.linalg.inv(V)
 ```
 
-This clips eigenvalue modulus to <= 0.9999, ensuring the discrete-time system is stable (all poles inside the unit circle). Done in `_clip_A_eigenvalues()`.
+Clips eigenvalue modulus to <= `A_eigen_constrain`, ensuring discrete-time stability (all poles inside unit circle). Done in `_clip_A_eigenvalues()`.
 
 ### DARE refit
 
@@ -333,7 +332,7 @@ VARMA(p, q) models the joint `[Y; Z]` process:
 [Y(t); Z(t)] = sum_{k=1}^{p} AR_k [Y(t-k); Z(t-k)] + MA_1 eps(t-1) + eps(t)
 ```
 
-with `p = q = 30` (autoregressive and moving-average lag both 30 samples at 200 Hz = 0.15 seconds).
+with `p = 30` (AR lag, 30 samples at 200 Hz = 0.15 seconds) and `q = 1` (single MA lag; MA history approximated via Long-VAR residuals with `long_ar_lags = 30`).
 
 ### Training
 
@@ -341,14 +340,16 @@ Five steps in `VARMAWrapper.train()`:
 
 **Step 1 - Per-channel z-score normalization:**
 ```python
-mu, sigma = np.mean(Y_concat, axis=0), np.std(Y_concat, axis=0)
-Y_norm = (Y_concat - mu) / (sigma + 1e-8)
+mu = np.mean(Y_concat, axis=0)
+sigma = np.std(Y_concat, axis=0)
+sigma[sigma < 1e-10] = 1.0   # constant channels: divide by 1 (no-op)
+Y_norm = (Y_concat - mu) / sigma
 ```
-Applied to the concatenated training trials.
+Applied to the concatenated training trials. Mean/std stored per channel for denormalization at predict time.
 
 **Step 2 - Hamming edge taper:**
-- Create a 20-sample (0.1s at 200 Hz) Hamming window ramp.
-- Apply the rising ramp to the first 20 samples and the falling ramp to the last 20 samples of each trial before concatenation.
+- Create a normalized Hamming ramp over 20 samples (0.1s at 200 Hz): take a 40-sample Hamming window, split in half, normalize each half to [0, 1] so the ramp starts and ends at exactly 0.
+- Multiply the first 20 samples of each trial by the rising ramp and the last 20 samples by the falling ramp, before concatenation.
 - Purpose: smooth the discontinuities at trial boundaries caused by concatenation; prevents spectral leakage in the autoregressive fit.
 
 **Step 3 - Long-VAR residual proxy for MA term:**
@@ -366,10 +367,11 @@ This is a regression design matrix of shape `[T-30, (ny+nz)*30 + (ny+nz)]`.
 **Step 5 - Ridge OLS solve:**
 ```python
 from sklearn.linear_model import Ridge
-ridge = Ridge(alpha=1.0)
-ridge.fit(Phi, [Y; Z])
+ridge = Ridge(alpha=ridge_alpha, fit_intercept=True)
+ridge.fit(Phi[:, 1:], [Y; Z])          # drop ones column; sklearn owns intercept
+beta = np.vstack([ridge.intercept_, ridge.coef_.T])
 ```
-Coefficients yield the AR and MA matrices.
+Coefficients yield the AR and MA matrices. `fit_intercept=True` keeps the intercept unpenalized (sklearn centers X/y internally). OLS on multivariate VARMA produces unstable companion eigenvalues; ridge keeps the fit stable without aggressive AR-root rescaling. `ridge_alpha=0.1` by default (configurable in YAML).
 
 ### Eigenvalue stabilization
 
@@ -432,9 +434,9 @@ z(t)   = Cz x(t) + e(t)        (linear Z readout)
 - `reuse_splits=False`: always recompute internal train/val split.
 - `steps_ahead=[1]`: optimize 1-step-ahead prediction loss only.
 
-**Hyperparameters (fixed across all sessions):**
-- `nx = 64` (same as PSID)
-- `n1 = 4` (fixed, not swept; DPAD n1 is less sensitive due to nonlinear readout)
+**Hyperparameters:**
+- `nx = 64`: hardcoded in DPAD YAMLs; matches PSID diagnostic result but set manually (diagnostic does not patch DPAD configs)
+- `n1 = 4`: hardcoded in DPAD YAMLs; not swept — due to time constraints a single value was chosen rather than running a diagnostic sweep. DPAD n1 is also less sensitive than PSID n1 due to nonlinear readout, making a full sweep less critical.
 - `epochs = 1000`
 - `checkpoint_every = 100`
 
@@ -444,8 +446,6 @@ DPAD models contain TensorFlow computation graphs that cannot be directly stored
 1. `idSys.discardModels()`: removes the TF graph (Keras model), leaving only numpy matrices.
 2. Save the stripped `idSys` as binary-format object file.
 3. On load: `idSys.restoreModels()`: reconstructs the TF graph from the saved matrices.
-
-This two-step protocol is required because TF graphs are not natively serializable as binary objects.
 
 ### Prediction
 
@@ -725,10 +725,10 @@ framework:
   params:
     nx: 64            # latent state dimension (all sessions post-diagnostic)
     n1: 1             # Z-prioritized dims (session-specific, see table above)
-    # PSID-only: i=10 (Hankel lag), internal to PSIDWrapper
+    # PSID-only: i=100 (Hankel lag), internal to PSIDWrapper
     # VARMA-only:
     p: 30             # AR order (samples)
-    q: 30             # MA order (samples; VARMA uses 1 MA lag in design matrix but p=q=30 for Long-VAR)
+    q: 1              # MA order (1 lag in design matrix; MA history approximated via Long-VAR with long_ar_lags=30)
     # DPAD-only:
     epochs: 1000
     checkpoint_every: 100
@@ -846,7 +846,7 @@ training/pipelines/psid_diagnostic.py
      v
 predictions phase
   - run_predictions_incremental()
-  - Trial-by-trial Kalman filter (PSID/DPAD) or recursive (VARMA)
+  - Trial-by-trial Kalman filter (PSID/DPAD) or teacher-forced one-step-ahead (VARMA — uses true past Y+Z as regressors)
   - Resume on crash (check partition exists)
   - Write Hive Parquet + HDF5 system matrices
      |
@@ -885,18 +885,19 @@ classification phase
 | Split ratio            | 50/10/40          | precompute_splits.py |
 | mRMR top-k ECoG        | 12 channels       | psid_diagnostic.py |
 | mRMR top-k LFP         | 8 channels        | psid_diagnostic.py |
-| Hankel lag i           | 10                | psid.py            |
+| Hankel lag i (train)   | 100               | pipeline YAML (set by diagnostic i_train) |
+| Hankel lag i (diag CV) | 50                | psid_diagnostic.py (i_horizon, used during nx grid search) |
 | nx (all sessions)      | 64                | YAML (post-diag)   |
 | n1 (session-specific)  | 1-8               | YAML (post-diag)   |
-| Eigenvalue clip        | 0.9999            | psid.py            |
+| Eigenvalue clip        | A_eigen_constrain | YAML               |
 | A-powers cached        | 1..200 steps      | psid.py            |
 | VARMA AR order p       | 30 samples        | varma.py           |
 | VARMA MA order q       | 1 (design matrix) | varma.py           |
 | Long-VAR order         | 30                | varma.py           |
 | Hamming edge taper     | 20 samples (0.1s) | varma.py           |
-| Ridge alpha            | 1.0               | varma.py           |
+| Ridge alpha            | 0.1               | varma.py           |
 | DPAD epochs            | 1000              | YAML               |
-| DPAD n1                | 4 (fixed)         | YAML               |
+| DPAD n1                | 4 (hardcoded in YAML)     | YAML               |
 | DPAD steps_ahead       | [1]               | YAML               |
 | Modal GPU              | A10G              | dpad_modal.py      |
 | Train timeout          | 86400s            | dpad_modal.py      |
