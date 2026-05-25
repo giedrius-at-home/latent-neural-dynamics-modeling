@@ -46,7 +46,7 @@ from thesis_style import (
     panel_label,
 )
 from thesis_sec2_common import *
-
+from types import SimpleNamespace as _NS
 from thesis_loaders import (
     load_split_results_required,
     channels_as_str_list,
@@ -62,10 +62,31 @@ from thesis_utils import (
     pick_best_feature_for_psid,
     metric_axis_label,
 )
-
 from thesis_lib.forecast_horizon_rmse import collect_forecast_horizon_rmse
 
+
+def _session_ns(session, exp_type):
+    pv, pt = discover_session_run(results_root, "psid", exp_type, session)
+    vv, vt = discover_session_run(results_root, "varma", exp_type, session)
+    dv, dt = discover_session_run(results_root, "dpad", exp_type, session)
+    return _NS(
+        psid_variant=pv or "", psid_run_ts=pt or "",
+        varma_variant=vv or "", varma_run_ts=vt or "",
+        dpad_variant=dv or "", dpad_run_ts=dt or "", label=session,
+    )
+
+
+_all_session_objs = [_session_ns(s, EXP_BEHAVIORAL) for s in SESSIONS]
+_all_lap_session_objs = [_session_ns(s, EXP_NEURAL) for s in SESSIONS]
+
 apply_thesis_style()
+
+# %% [markdown]
+# ## Available results
+
+# %%
+from thesis_loaders import inspect_available_results
+display(inspect_available_results(results_root))
 
 # %% [markdown]
 # ## Figs 64-67: Forecast distribution alternatives + drift visualisations (pooled Y, RMSE)
@@ -160,7 +181,7 @@ def _collect_forecast_trial_metric(
 
 def _forecast_at(split):
     return _collect_forecast_trial_metric(
-        ALL_TRIPLETS,
+        _all_session_objs,
         0,
         "rmse",
         forecast_target="Y",
@@ -264,11 +285,11 @@ def _collect_per_cell_forecast(triplets, *, target="Z", metric="pearson", split=
 # ### Laplacian forecast (figs 80-82)
 
 # %%
-_lap_cells_fc = [t.label for t in ALL_TRIPLETS_LAP]
-_lap_y_r_fc = _collect_per_cell_forecast(ALL_TRIPLETS_LAP, target="Y", metric="pearson")
-_lap_y_n_fc = _collect_per_cell_forecast(ALL_TRIPLETS_LAP, target="Y", metric="rmse")
-_lap_z_r_fc = _collect_per_cell_forecast(ALL_TRIPLETS_LAP, target="Z", metric="pearson")
-_lap_z_n_fc = _collect_per_cell_forecast(ALL_TRIPLETS_LAP, target="Z", metric="rmse")
+_lap_cells_fc = [t.label for t in _all_lap_session_objs]
+_lap_y_r_fc = _collect_per_cell_forecast(_all_lap_session_objs, target="Y", metric="pearson")
+_lap_y_n_fc = _collect_per_cell_forecast(_all_lap_session_objs, target="Y", metric="rmse")
+_lap_z_r_fc = _collect_per_cell_forecast(_all_lap_session_objs, target="Z", metric="pearson")
+_lap_z_n_fc = _collect_per_cell_forecast(_all_lap_session_objs, target="Z", metric="rmse")
 
 fig = mpl_per_cell_yz_box(
     _lap_y_r_fc, _lap_y_n_fc, _lap_z_r_fc, _lap_z_n_fc, _lap_cells_fc
@@ -304,11 +325,11 @@ print(
 # ### Behavioral forecast (figs 83-85)
 
 # %%
-_beh_cells_fc = [t.label for t in ALL_TRIPLETS]
-_beh_y_r_fc = _collect_per_cell_forecast(ALL_TRIPLETS, target="Y", metric="pearson")
-_beh_y_n_fc = _collect_per_cell_forecast(ALL_TRIPLETS, target="Y", metric="rmse")
-_beh_z_r_fc = _collect_per_cell_forecast(ALL_TRIPLETS, target="Z", metric="pearson")
-_beh_z_n_fc = _collect_per_cell_forecast(ALL_TRIPLETS, target="Z", metric="rmse")
+_beh_cells_fc = [t.label for t in _all_session_objs]
+_beh_y_r_fc = _collect_per_cell_forecast(_all_session_objs, target="Y", metric="pearson")
+_beh_y_n_fc = _collect_per_cell_forecast(_all_session_objs, target="Y", metric="rmse")
+_beh_z_r_fc = _collect_per_cell_forecast(_all_session_objs, target="Z", metric="pearson")
+_beh_z_n_fc = _collect_per_cell_forecast(_all_session_objs, target="Z", metric="rmse")
 
 fig = mpl_per_cell_yz_box(
     _beh_y_r_fc, _beh_y_n_fc, _beh_z_r_fc, _beh_z_n_fc, _beh_cells_fc
@@ -454,7 +475,7 @@ SAMPLING_HZ = 200.0
 SAMPLE_EVERY = 5
 DT_MS = 1000.0 / SAMPLING_HZ
 _horizon_arrays = _collect_horizon_per_step(
-    ALL_TRIPLETS,
+    _all_session_objs,
     target="Y",
     channel_idx=5,
     neural_y_feature_name="ECOG_1_beta_27_30_raw",

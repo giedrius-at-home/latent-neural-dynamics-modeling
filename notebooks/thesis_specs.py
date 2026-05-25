@@ -37,38 +37,12 @@ class ThesisDataError(FileNotFoundError):
     """Missing or incomplete thesis results."""
 
 
-# ---------------------------------------------------------------------------
-# Core triplet dataclass
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class AlignedTriplet:
-    """One participant/session slice: matching PSID, DPAD, and VARMA result folders + timestamps."""
-
-    psid_variant: str
-    psid_run_ts: str
-    dpad_variant: str
-    dpad_run_ts: str
-    varma_variant: str
-    varma_run_ts: str
-    label: str = ""
-    psid_run_ts_off: str | None = None
-    psid_run_ts_on: str | None = None
-    dpad_run_ts_off: str | None = None
-    dpad_run_ts_on: str | None = None
-    varma_run_ts_off: str | None = None
-    varma_run_ts_on: str | None = None
-    varma_run_ts_eval_off: str | None = None
-    varma_run_ts_eval_on: str | None = None
-
-
 @dataclass(frozen=True)
 class StripPanelEntry:
-    """One subplot: display label + aligned triplet."""
+    """One subplot: display label + session name."""
 
     panel_label: str
-    triplet: AlignedTriplet
+    session: str
 
 
 # ---------------------------------------------------------------------------
@@ -78,11 +52,12 @@ class StripPanelEntry:
 
 @dataclass(frozen=True)
 class ThesisStripPanelsSpec:
-    """Session-mean RMSE strip plots (one panel per participant slice)."""
+    """Session-mean RMSE strip plots (one panel per session)."""
 
     section_title: str
     channel_idx: int
     panels: list[StripPanelEntry]
+    exp_type: str = ""
     split: str = "test"
     ncols: int = 4
     theme: ThesisTheme = ThesisTheme.LIGHT
@@ -96,7 +71,8 @@ class ThesisAggregateRmseSpec:
 
     section_title: str
     channel_idx: int
-    triplets: list[AlignedTriplet]
+    sessions: list[str]
+    exp_type: str
     split: str = "test"
     theme: ThesisTheme = ThesisTheme.LIGHT
     run_wilcoxon: bool = True
@@ -111,7 +87,8 @@ class ThesisForecastRmseSpec:
 
     section_title: str
     channel_idx: int
-    triplets: list[AlignedTriplet]
+    sessions: list[str]
+    exp_type: str
     split: str = "test"
     sampling_hz: float = 80.0
     sample_every: int = 5
@@ -127,7 +104,8 @@ class ThesisNeuralBandHeatmapSpec:
     """Pooled neural self-prediction: mean Pearson r by spectral band x model x DBS."""
 
     section_title: str
-    triplets: list[AlignedTriplet]
+    sessions: list[str]
+    exp_type: str
     split: str = "test"
     theme: ThesisTheme = ThesisTheme.LIGHT
     band_row_order: list[str] | None = None

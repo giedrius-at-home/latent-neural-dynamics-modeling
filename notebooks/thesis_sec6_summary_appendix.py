@@ -55,6 +55,13 @@ OUT = Path("thesis_figures/sec6")
 OUT.mkdir(parents=True, exist_ok=True)
 results_root = Path("results").resolve()
 
+# %% [markdown]
+# ## Available results
+
+# %%
+from thesis_loaders import inspect_available_results
+display(inspect_available_results(results_root))
+
 # ---------------------------------------------------------------------------
 # Inline session config — dataclass types only from specs.py
 # ---------------------------------------------------------------------------
@@ -68,13 +75,13 @@ from thesis_lib.specs import (
     ThesisPsidCzSpec,
 )
 
-# -- Session triplets — loaded from thesis_triplets.csv via thesis_sec2_common --
-from thesis_sec2_common import (
-    TRIPLET_PDI1_S2,
-    TRIPLET_PDI1_S4,
-    TRIPLET_PDI4_S2,
-    TRIPLET_PDI4_S3,
-)
+from thesis_loaders import discover_session_run, EXP_BEHAVIORAL
+_disc = {}
+for _s in ("PDI1_S2", "PDI1_S4", "PDI4_S2", "PDI4_S3"):
+    _disc[_s] = {
+        "psid": discover_session_run(results_root, "psid", EXP_BEHAVIORAL, _s),
+        "dpad": discover_session_run(results_root, "dpad", EXP_BEHAVIORAL, _s),
+    }
 
 # -- Spec objects -----------------------------------------------------------
 
@@ -87,17 +94,17 @@ THESIS_LATENT_PHASE = [
                 (
                     LatentPhasePanel(
                         "S2",
-                        TRIPLET_PDI1_S2.psid_variant,
-                        TRIPLET_PDI1_S2.psid_run_ts,
-                        TRIPLET_PDI1_S2.dpad_variant,
-                        TRIPLET_PDI1_S2.dpad_run_ts,
+                        _disc["PDI1_S2"]["psid"][0],
+                        _disc["PDI1_S2"]["psid"][1],
+                        _disc["PDI1_S2"]["dpad"][0],
+                        _disc["PDI1_S2"]["dpad"][1],
                     ),
                     LatentPhasePanel(
                         "S4",
-                        TRIPLET_PDI1_S4.psid_variant,
-                        TRIPLET_PDI1_S4.psid_run_ts,
-                        TRIPLET_PDI1_S4.dpad_variant,
-                        TRIPLET_PDI1_S4.dpad_run_ts,
+                        _disc["PDI1_S4"]["psid"][0],
+                        _disc["PDI1_S4"]["psid"][1],
+                        _disc["PDI1_S4"]["dpad"][0],
+                        _disc["PDI1_S4"]["dpad"][1],
                     ),
                 ),
             ),
@@ -106,17 +113,17 @@ THESIS_LATENT_PHASE = [
                 (
                     LatentPhasePanel(
                         "S2",
-                        TRIPLET_PDI4_S2.psid_variant,
-                        TRIPLET_PDI4_S2.psid_run_ts,
-                        TRIPLET_PDI4_S2.dpad_variant,
-                        TRIPLET_PDI4_S2.dpad_run_ts,
+                        _disc["PDI4_S2"]["psid"][0],
+                        _disc["PDI4_S2"]["psid"][1],
+                        _disc["PDI4_S2"]["dpad"][0],
+                        _disc["PDI4_S2"]["dpad"][1],
                     ),
                     LatentPhasePanel(
                         "S3",
-                        TRIPLET_PDI4_S3.psid_variant,
-                        TRIPLET_PDI4_S3.psid_run_ts,
-                        TRIPLET_PDI4_S3.dpad_variant,
-                        TRIPLET_PDI4_S3.dpad_run_ts,
+                        _disc["PDI4_S3"]["psid"][0],
+                        _disc["PDI4_S3"]["psid"][1],
+                        _disc["PDI4_S3"]["dpad"][0],
+                        _disc["PDI4_S3"]["dpad"][1],
                     ),
                 ),
             ),
@@ -131,23 +138,15 @@ THESIS_PSID_CY_IMPORTANCE = [
             PsidCyRow(
                 "PDI1",
                 (
-                    PsidCyPanel(
-                        "S2", TRIPLET_PDI1_S2.psid_variant, TRIPLET_PDI1_S2.psid_run_ts
-                    ),
-                    PsidCyPanel(
-                        "S4", TRIPLET_PDI1_S4.psid_variant, TRIPLET_PDI1_S4.psid_run_ts
-                    ),
+                    PsidCyPanel("S2", _disc["PDI1_S2"]["psid"][0], _disc["PDI1_S2"]["psid"][1]),
+                    PsidCyPanel("S4", _disc["PDI1_S4"]["psid"][0], _disc["PDI1_S4"]["psid"][1]),
                 ),
             ),
             PsidCyRow(
                 "PDI4",
                 (
-                    PsidCyPanel(
-                        "S2", TRIPLET_PDI4_S2.psid_variant, TRIPLET_PDI4_S2.psid_run_ts
-                    ),
-                    PsidCyPanel(
-                        "S3", TRIPLET_PDI4_S3.psid_variant, TRIPLET_PDI4_S3.psid_run_ts
-                    ),
+                    PsidCyPanel("S2", _disc["PDI4_S2"]["psid"][0], _disc["PDI4_S2"]["psid"][1]),
+                    PsidCyPanel("S3", _disc["PDI4_S3"]["psid"][0], _disc["PDI4_S3"]["psid"][1]),
                 ),
             ),
         ),
@@ -163,23 +162,15 @@ THESIS_PSID_CZ_HEATMAP = [
             PsidCyRow(
                 "PDI1",
                 (
-                    PsidCyPanel(
-                        "S2", TRIPLET_PDI1_S2.psid_variant, TRIPLET_PDI1_S2.psid_run_ts
-                    ),
-                    PsidCyPanel(
-                        "S4", TRIPLET_PDI1_S4.psid_variant, TRIPLET_PDI1_S4.psid_run_ts
-                    ),
+                    PsidCyPanel("S2", _disc["PDI1_S2"]["psid"][0], _disc["PDI1_S2"]["psid"][1]),
+                    PsidCyPanel("S4", _disc["PDI1_S4"]["psid"][0], _disc["PDI1_S4"]["psid"][1]),
                 ),
             ),
             PsidCyRow(
                 "PDI4",
                 (
-                    PsidCyPanel(
-                        "S2", TRIPLET_PDI4_S2.psid_variant, TRIPLET_PDI4_S2.psid_run_ts
-                    ),
-                    PsidCyPanel(
-                        "S3", TRIPLET_PDI4_S3.psid_variant, TRIPLET_PDI4_S3.psid_run_ts
-                    ),
+                    PsidCyPanel("S2", _disc["PDI4_S2"]["psid"][0], _disc["PDI4_S2"]["psid"][1]),
+                    PsidCyPanel("S3", _disc["PDI4_S3"]["psid"][0], _disc["PDI4_S3"]["psid"][1]),
                 ),
             ),
         ),

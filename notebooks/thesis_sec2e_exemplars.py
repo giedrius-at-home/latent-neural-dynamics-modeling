@@ -45,6 +45,22 @@ from thesis_style import (
     hex_to_rgba,
 )
 from thesis_sec2_common import *
+from types import SimpleNamespace as _NS
+
+
+def _session_ns(session, exp_type):
+    pv, pt = discover_session_run(results_root, "psid", exp_type, session)
+    vv, vt = discover_session_run(results_root, "varma", exp_type, session)
+    dv, dt = discover_session_run(results_root, "dpad", exp_type, session)
+    return _NS(
+        psid_variant=pv or "", psid_run_ts=pt or "",
+        varma_variant=vv or "", varma_run_ts=vt or "",
+        dpad_variant=dv or "", dpad_run_ts=dt or "", label=session,
+    )
+
+
+_all_session_objs = [_session_ns(s, EXP_BEHAVIORAL) for s in SESSIONS]
+_all_lap_session_objs = [_session_ns(s, EXP_NEURAL) for s in SESSIONS]
 
 from thesis_lib.aggregate_rmse import _key_index_map, _trial_key, normalize_stim
 from thesis_lib.loaders import (
@@ -56,6 +72,13 @@ from thesis_lib.loaders import (
 )
 
 apply_thesis_style()
+
+# %% [markdown]
+# ## Available results
+
+# %%
+from thesis_loaders import inspect_available_results
+display(inspect_available_results(results_root))
 
 # %% [markdown]
 # ## Figs 18-21: Neural reconstruction time series
@@ -231,7 +254,7 @@ def compose_thesis_neural_figure(spec, results_root):
         if ts_off is None or ts_on is None:
             raise ThesisDataError(
                 f"ThesisNeuralTimeseriesSpec {spec.section_title!r}: varma_run_ts_off/on required "
-                f"for dbs_both VARMA (or match _ALL_TRIPLETS)."
+                f"for dbs_both VARMA (or match __all_session_objs)."
             )
         res_v_off = load_split_results_required(results_root, v_off, ts_off, spec.split)
         res_v_on = load_split_results_required(results_root, v_on, ts_on, spec.split)
@@ -679,7 +702,7 @@ def _pick_best_feat(
     """Return (feature_name, column_index_in_Z_or_Y, psid_score)."""
     tri_use = tri
     if feat_type == "lfp":
-        lap_map = {t.label: t for t in ALL_TRIPLETS_LAP}
+        lap_map = {t.label: t for t in _all_lap_session_objs}
         tri_use = lap_map.get(tri.label, tri)
     res = load_split_results_required(
         results_root, tri_use.psid_variant, tri_use.psid_run_ts, "test"
@@ -845,12 +868,12 @@ def build_exemplar_grid(target: str, metric: str, fig_num: int):
         ("forecast", "lfp"): ("Z_future_true", "Z_future_pred"),
     }
 
-    lap_by_label = {t.label: t for t in ALL_TRIPLETS_LAP}
+    lap_by_label = {t.label: t for t in _all_lap_session_objs}
     fig, axes = plt.subplots(4, 3, figsize=(10.0, 9.5))
     feature_picks = []
     legend_added = False
 
-    for ri, tri in enumerate(ALL_TRIPLETS):
+    for ri, tri in enumerate(_all_session_objs):
         for ci, feat_type in enumerate(feat_types):
             ax = axes[ri, ci]
             tri_use = lap_by_label[tri.label] if feat_type == "lfp" else tri

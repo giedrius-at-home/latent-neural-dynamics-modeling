@@ -29,6 +29,7 @@ except Exception:  # pragma: no cover — plotly optional after migration
 from thesis_loaders import (
     ThesisDataError,
     _prepare_z_array,
+    discover_session_run,
     get_channel,
     has_dpad_data,
     load_split_results,
@@ -378,18 +379,37 @@ class AggregateRmseData:
     show_dpad: bool = True
 
 
+def _discover_all(
+    results_root: Path,
+    sessions: List[str],
+    exp_type: str,
+) -> Dict[str, Dict[str, Tuple[str, str]]]:
+    """Return {session: {fw: (variant, run_ts)}} for psid/varma/dpad, skipping sessions
+    where psid or varma is missing."""
+    out: Dict[str, Dict[str, Tuple[str, str]]] = {}
+    for session in sessions:
+        psid = discover_session_run(results_root, "psid", exp_type, session)
+        varma = discover_session_run(results_root, "varma", exp_type, session)
+        if not psid[0] or not varma[0]:
+            continue
+        dpad = discover_session_run(results_root, "dpad", exp_type, session)
+        out[session] = {"psid": psid, "varma": varma, "dpad": dpad}
+    return out
+
+
 def collect_pooled_rmse(
     results_root: Path,
-    triplet_specs: List[Any],
+    sessions: List[str],
+    exp_type: str,
     channel_idx: int,
     split: str = "test",
     run_wilcoxon: bool = True,
     include_dpad: Optional[bool] = None,
     metric: MetricKind = "rmse",
 ) -> AggregateRmseData:
-    """Pool per-trial scores across aligned PSID/DPAD/VARMA triplets.
+    """Pool per-trial scores across sessions for PSID/DPAD/VARMA.
 
-    ``include_dpad``: None (default) auto-detects per-triplet via has_dpad_data.
+    ``include_dpad``: None (default) auto-detects per session via has_dpad_data.
     ``metric``: 'rmse' (default), 'pearson', or 'vaf'.
     """
     score_fn = (
@@ -397,16 +417,22 @@ def collect_pooled_rmse(
         if metric == "rmse"
         else (lambda res, i, ch: trial_metric_z_for_model(res, i, ch, metric))
     )
+
+    session_runs = _discover_all(results_root, sessions, exp_type)
+    if not session_runs:
+        raise ThesisDataError("collect_pooled_rmse: no sessions have valid PSID+VARMA results.")
+
     if include_dpad is None:
         show_dpad = any(
-            has_dpad_data(results_root, tri.dpad_variant, tri.dpad_run_ts, split)
-            for tri in triplet_specs
+            has_dpad_data(results_root, runs["dpad"][0], runs["dpad"][1], split)
+            for runs in session_runs.values()
+            if runs["dpad"][0]
         )
     else:
         show_dpad = bool(include_dpad)
 
-    cells: List[List[float]] = [[] for _ in range(6)]
-    cells_with_pid: List[List[Tuple[float, str]]] = [[] for _ in range(6)]
+    score_buckets: List[List[float]] = [[] for _ in range(6)]
+    buckets_with_pid: List[List[Tuple[float, str]]] = [[] for _ in range(6)]
     paired_off_psid_varma: List[Tuple[float, float]] = []
     paired_on_psid_varma: List[Tuple[float, float]] = []
     paired_off_dpad_varma: List[Tuple[float, float]] = []
@@ -414,20 +440,17 @@ def collect_pooled_rmse(
     paired_off_psid_dpad: List[Tuple[float, float]] = []
     paired_on_psid_dpad: List[Tuple[float, float]] = []
 
-    if not triplet_specs:
-        raise ThesisDataError("collect_pooled_rmse: triplet_specs is empty.")
-
     n_ok = 0
-    for tri in triplet_specs:
-        res_p = load_split_results_required(
-            results_root, tri.psid_variant, tri.psid_run_ts, split
-        )
-        res_v = load_split_results_required(
-            results_root, tri.varma_variant, tri.varma_run_ts, split
-        )
-        has_dpad = show_dpad and bool(tri.dpad_run_ts)
+    for session, runs in session_runs.items():
+        psid_var, psid_ts = runs["psid"]
+        varma_var, varma_ts = runs["varma"]
+        dpad_var, dpad_ts = runs["dpad"]
+
+        res_p = load_split_results_required(results_root, psid_var, psid_ts, split)
+        res_v = load_split_results_required(results_root, varma_var, varma_ts, split)
+        has_dpad = show_dpad and bool(dpad_ts)
         res_d = (
-            load_split_results(results_root, tri.dpad_variant, tri.dpad_run_ts, split)
+            load_split_results(results_root, dpad_var, dpad_ts, split)
             if has_dpad
             else None
         )
@@ -440,7 +463,7 @@ def collect_pooled_rmse(
             common_pd &= set(md.keys())
         if not common_pd:
             raise ThesisDataError(
-                f"Pooled RMSE triplet {tri.label!r}: no trial keys common to PSID and VARMA."
+                f"Pooled RMSE session {session!r}: no trial keys common to PSID and VARMA."
             )
 
         n_ok += 1
@@ -466,39 +489,39 @@ def collect_pooled_rmse(
             pid = str(k[0]) if k else "?"
             d_ok = show_dpad and np.isfinite(r_d)
             if stim == "off":
-                cells[0].append(r_p)
-                cells_with_pid[0].append((r_p, pid))
-                cells[4].append(r_v)
-                cells_with_pid[4].append((r_v, pid))
+                score_buckets[0].append(r_p)
+                buckets_with_pid[0].append((r_p, pid))
+                score_buckets[4].append(r_v)
+                buckets_with_pid[4].append((r_v, pid))
                 paired_off_psid_varma.append((r_p, r_v))
                 if d_ok:
-                    cells[2].append(r_d)
-                    cells_with_pid[2].append((r_d, pid))
+                    score_buckets[2].append(r_d)
+                    buckets_with_pid[2].append((r_d, pid))
                     paired_off_dpad_varma.append((r_d, r_v))
                     paired_off_psid_dpad.append((r_p, r_d))
             else:
-                cells[1].append(r_p)
-                cells_with_pid[1].append((r_p, pid))
-                cells[5].append(r_v)
-                cells_with_pid[5].append((r_v, pid))
+                score_buckets[1].append(r_p)
+                buckets_with_pid[1].append((r_p, pid))
+                score_buckets[5].append(r_v)
+                buckets_with_pid[5].append((r_v, pid))
                 paired_on_psid_varma.append((r_p, r_v))
                 if d_ok:
-                    cells[3].append(r_d)
-                    cells_with_pid[3].append((r_d, pid))
+                    score_buckets[3].append(r_d)
+                    buckets_with_pid[3].append((r_d, pid))
                     paired_on_dpad_varma.append((r_d, r_v))
                     paired_on_psid_dpad.append((r_p, r_d))
 
     if n_ok == 0:
         raise ThesisDataError(
-            "collect_pooled_rmse: no triplets produced aligned PSID/DPAD/VARMA trial keys."
+            "collect_pooled_rmse: no sessions produced aligned PSID/DPAD/VARMA trial keys."
         )
-    if sum(len(c) for c in cells) == 0:
+    if sum(len(b) for b in score_buckets) == 0:
         raise ThesisDataError(
             "collect_pooled_rmse: no trial score values after alignment (check stim and Z/Zp)."
         )
 
-    means = tuple(float(np.mean(c)) if len(c) else float("nan") for c in cells)
-    sems = tuple(_sem(np.array(c)) if len(c) > 1 else float("nan") for c in cells)
+    means = tuple(float(np.mean(b)) if len(b) else float("nan") for b in score_buckets)
+    sems = tuple(_sem(np.array(b)) if len(b) > 1 else float("nan") for b in score_buckets)
 
     w = WilcoxonResults()
     if run_wilcoxon:
@@ -517,8 +540,8 @@ def collect_pooled_rmse(
     return AggregateRmseData(
         means=means,
         sems=sems,
-        trial_rmse=tuple(cells),
-        trial_rmse_with_participant=tuple(cells_with_pid),
+        trial_rmse=tuple(score_buckets),
+        trial_rmse_with_participant=tuple(buckets_with_pid),
         wilcoxon=w,
         n_triplets_used=n_ok,
         show_dpad=show_dpad,
@@ -776,7 +799,8 @@ def _band_indices(channels: list[str], order: list[str]) -> Dict[str, List[int]]
 
 def collect_neural_band_metric(
     results_root: Path,
-    triplet_specs: List[Any],
+    sessions: List[str],
+    exp_type: str,
     metric: MetricKind = "pearson",
     split: str = "test",
     band_row_order: Optional[Tuple[str, ...]] = None,
@@ -784,15 +808,15 @@ def collect_neural_band_metric(
     target: Literal["Y", "Z"] = "Y",
     models: Tuple[str, ...] = ("psid", "dpad", "varma"),
 ) -> NeuralBandMetricData:
-    """Per-band mean metric × model × DBS condition, across trials × sessions.
+    """Per-band mean metric x model x DBS condition, across trials x sessions.
 
     ``target='Y'``: score neural self-reconstruction (Y/Yp), channels resolved
     via ``resolve_input_channels``. Default; used by sec2c Fig 22 (behavioral-mode
-    ECoG → ECoG).
+    ECoG -> ECoG).
 
     ``target='Z'``: score output-signal prediction (Z/Zp), channels resolved
     via ``resolve_output_channels``. Used by sec2c Fig 23 (laplacian-mode
-    ECoG → LFP). Since laplacian test parquets have empty output_channels,
+    ECoG -> LFP). Since laplacian test parquets have empty output_channels,
     the YAML fallback is essential.
 
     ``models``: tuple of {'psid', 'dpad', 'varma'} to include as columns.
@@ -809,42 +833,37 @@ def collect_neural_band_metric(
     resolve_fn = resolve_input_channels if target == "Y" else resolve_output_channels
     score_fn = trial_metric_y_for_model if target == "Y" else trial_metric_z_for_model
 
-    def variant_for(tri, m):
-        return getattr(tri, f"{m}_variant")
+    session_runs = _discover_all(results_root, sessions, exp_type)
 
-    def runts_for(tri, m):
-        return getattr(tri, f"{m}_run_ts")
-
-    buckets: Dict[str, Dict[Tuple[str, str], List[float]]] = {
+    band_buckets: Dict[str, Dict[Tuple[str, str], List[float]]] = {
         cond: {(b, m): [] for b in order for m in model_keys} for cond in ("off", "on")
     }
-    n_triplets_used = 0
+    n_sessions_used = 0
     n_trials = {"off": 0, "on": 0}
 
-    for tri in triplet_specs:
+    for session, runs in session_runs.items():
         res = {
-            m: load_split_results(
-                results_root, variant_for(tri, m), runts_for(tri, m), split
-            )
+            m: load_split_results(results_root, runs[m][0], runs[m][1], split)
             for m in model_keys
+            if runs.get(m, ("", ""))[0]
         }
-        channels = {m: resolve_fn(res[m], variant_for(tri, m)) for m in model_keys}
-        band_idx = {m: _band_indices(channels[m], order) for m in model_keys}
+        channels = {m: resolve_fn(res[m], runs[m][0]) for m in model_keys if m in res}
+        band_idx = {m: _band_indices(channels[m], order) for m in model_keys if m in channels}
 
-        if "psid" not in model_keys or res["psid"] is None:
-            ref = next((m for m in model_keys if res[m] is not None), None)
+        if "psid" not in model_keys or res.get("psid") is None:
+            ref = next((m for m in model_keys if res.get(m) is not None), None)
             if ref is None:
                 continue
         else:
             ref = "psid"
-        idx_maps = {m: _key_index_map(res[m]) for m in model_keys if res[m]}
+        idx_maps = {m: _key_index_map(res[m]) for m in model_keys if res.get(m)}
         common = set(idx_maps[ref].keys())
         for m in model_keys:
             if m in idx_maps and m != ref:
                 common &= set(idx_maps[m].keys())
         if not common:
             continue
-        n_triplets_used += 1
+        n_sessions_used += 1
 
         for k in sorted(common, key=lambda x: tuple(str(c) for c in x)):
             stim = normalize_stim(res[ref]["stim"][idx_maps[ref][k]])
@@ -852,7 +871,7 @@ def collect_neural_band_metric(
                 continue
             n_trials[stim] += 1
             for m in model_keys:
-                if m not in idx_maps or not channels[m]:
+                if m not in idx_maps or not channels.get(m):
                     continue
                 tidx = idx_maps[m][k]
                 n_ch = len(channels[m])
@@ -871,10 +890,10 @@ def collect_neural_band_metric(
                         if i < len(ch_vals) and np.isfinite(ch_vals[i])
                     ]
                     if vals:
-                        buckets[stim][(band, m)].append(float(np.mean(vals)))
+                        band_buckets[stim][(band, m)].append(float(np.mean(vals)))
 
     bands_present = {
-        b for cond in buckets for (b, _m), lst in buckets[cond].items() if lst
+        b for cond in band_buckets for (b, _m), lst in band_buckets[cond].items() if lst
     }
     row_labels = [b for b in order if b in bands_present]
 
@@ -882,7 +901,7 @@ def collect_neural_band_metric(
         z = np.full((len(row_labels), len(model_keys)), np.nan, dtype=float)
         for bi, band in enumerate(row_labels):
             for mi, m in enumerate(model_keys):
-                vals = buckets[cond][(band, m)]
+                vals = band_buckets[cond][(band, m)]
                 if vals:
                     z[bi, mi] = float(np.mean(vals))
         return z
@@ -894,7 +913,7 @@ def collect_neural_band_metric(
         column_labels=column_labels,
         metric=metric,
         target=target,
-        n_triplets_used=n_triplets_used,
+        n_triplets_used=n_sessions_used,
         n_trials_off=n_trials["off"],
         n_trials_on=n_trials["on"],
     )
@@ -969,7 +988,8 @@ class SessionGroupedData:
 
 def collect_session_grouped(
     results_root: Path,
-    triplet_specs: List[Any],
+    sessions: List[str],
+    exp_type: str,
     channel_idx: int,
     split: str = "test",
     metric: MetricKind = "rmse",
@@ -977,23 +997,24 @@ def collect_session_grouped(
 ) -> SessionGroupedData:
     """Per-session + per-model + per-DBS trial scores from ``dbs_both`` models.
 
-    The ``dbs_both`` model is loaded for each triplet; its trials are split by
-    ``stim`` into DBS-OFF / DBS-ON cells. This matches the user spec
-    "predictions from the dbs_both models, DBS-OFF vs DBS-ON separately".
+    The ``dbs_both`` model is loaded for each session; its trials are split by
+    ``stim`` into DBS-OFF / DBS-ON groups.
     """
-    if not triplet_specs:
-        raise ThesisDataError("collect_session_grouped: triplet_specs is empty.")
+    session_runs = _discover_all(results_root, sessions, exp_type)
+    if not session_runs:
+        raise ThesisDataError("collect_session_grouped: no sessions have valid PSID+VARMA results.")
 
     if include_dpad is None:
         show_dpad = any(
-            has_dpad_data(results_root, tri.dpad_variant, tri.dpad_run_ts, split)
-            for tri in triplet_specs
+            has_dpad_data(results_root, runs["dpad"][0], runs["dpad"][1], split)
+            for runs in session_runs.values()
+            if runs["dpad"][0]
         )
     else:
         show_dpad = bool(include_dpad)
 
     models = ("PSID", "DPAD", "VARMA") if show_dpad else ("PSID", "VARMA")
-    session_labels = tuple(tri.label for tri in triplet_specs)
+    session_labels = tuple(session_runs.keys())
     scores: Dict[str, Dict[str, Dict[str, List[float]]]] = {
         cond: {m: {lbl: [] for lbl in session_labels} for m in models}
         for cond in ("off", "on")
@@ -1006,16 +1027,16 @@ def collect_session_grouped(
         else (lambda res, i, ch: trial_metric_z_for_model(res, i, ch, metric))
     )
 
-    for tri in triplet_specs:
-        res_p = load_split_results_required(
-            results_root, tri.psid_variant, tri.psid_run_ts, split
-        )
-        res_v = load_split_results_required(
-            results_root, tri.varma_variant, tri.varma_run_ts, split
-        )
-        has_dpad = show_dpad and bool(tri.dpad_run_ts)
+    for session, runs in session_runs.items():
+        psid_var, psid_ts = runs["psid"]
+        varma_var, varma_ts = runs["varma"]
+        dpad_var, dpad_ts = runs["dpad"]
+
+        res_p = load_split_results_required(results_root, psid_var, psid_ts, split)
+        res_v = load_split_results_required(results_root, varma_var, varma_ts, split)
+        has_dpad = show_dpad and bool(dpad_ts)
         res_d = (
-            load_split_results(results_root, tri.dpad_variant, tri.dpad_run_ts, split)
+            load_split_results(results_root, dpad_var, dpad_ts, split)
             if has_dpad
             else None
         )
@@ -1028,7 +1049,7 @@ def collect_session_grouped(
             common &= set(md.keys())
         if not common:
             raise ThesisDataError(
-                f"collect_session_grouped: triplet {tri.label!r} has no common trial keys."
+                f"collect_session_grouped: session {session!r} has no common trial keys."
             )
 
         for k in sorted(
@@ -1050,12 +1071,12 @@ def collect_session_grouped(
                 logger.debug("Skip trial %s: %s", k, e)
                 continue
 
-            scores[stim]["PSID"][tri.label].append(r_p)
-            scores[stim]["VARMA"][tri.label].append(r_v)
+            scores[stim]["PSID"][session].append(r_p)
+            scores[stim]["VARMA"][session].append(r_v)
             if show_dpad and np.isfinite(r_d):
-                scores[stim]["DPAD"][tri.label].append(r_d)
+                scores[stim]["DPAD"][session].append(r_d)
 
-            participants.setdefault(tri.label, str(k[0]) if k else "?")
+            participants.setdefault(session, str(k[0]) if k else "?")
 
     return SessionGroupedData(
         session_labels=session_labels,

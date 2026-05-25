@@ -47,8 +47,31 @@ from thesis_style import (
     panel_label,
 )
 from thesis_sec2_common import *
+from types import SimpleNamespace as _NS
+
+
+def _session_ns(session, exp_type):
+    pv, pt = discover_session_run(results_root, "psid", exp_type, session)
+    vv, vt = discover_session_run(results_root, "varma", exp_type, session)
+    dv, dt = discover_session_run(results_root, "dpad", exp_type, session)
+    return _NS(
+        psid_variant=pv or "", psid_run_ts=pt or "",
+        varma_variant=vv or "", varma_run_ts=vt or "",
+        dpad_variant=dv or "", dpad_run_ts=dt or "", label=session,
+    )
+
+
+_all_session_objs = [_session_ns(s, EXP_BEHAVIORAL) for s in SESSIONS]
+_all_lap_session_objs = [_session_ns(s, EXP_NEURAL) for s in SESSIONS]
 
 apply_thesis_style()
+
+# %% [markdown]
+# ## Available results
+
+# %%
+from thesis_loaders import inspect_available_results
+display(inspect_available_results(results_root))
 
 # %% [markdown]
 # ## Fig 36: PSID scree / elbow analysis — justification for n1, nx
@@ -118,7 +141,7 @@ from thesis_loaders import resolve_input_channels
 
 # Per-session label → laplacian triplet lookup so we can pair ecog/laplacian
 # rows inside one session's figure.
-_LAP_BY_LABEL = {t.label: t for t in ALL_TRIPLETS_LAP}
+_LAP_BY_LABEL = {s: _session_ns(s, EXP_NEURAL) for s in SESSIONS}
 
 
 def _plot_session_scree(label: str, fig_letter: str):
@@ -165,7 +188,7 @@ def _plot_session_scree(label: str, fig_letter: str):
     plt.show()
 
 
-for letter, tri in zip("abcd", ALL_TRIPLETS):
+for letter, tri in zip("abcd", _all_session_objs):
     _plot_session_scree(tri.label, letter)
     e_n1, e_nx = _resolve_elbows(tri.label, "ecog")
     l_n1, l_nx = _resolve_elbows(tri.label, "laplacian")
@@ -306,7 +329,7 @@ _BAND_SHORT = {
     "gamma_75_80": "75-80",
 }
 _BEHAVIOR = ["tracing_velocity_x", "tracing_acceleration_magnitude"]
-_K = 8
+_K = 12
 
 
 def _ecog_grid(corr_df, selected):
@@ -596,7 +619,7 @@ def _plot_session_mrmr(tri, fig_letter: str):
     return sel_behav_y, sel_lap_y, sel_lap_z
 
 
-for letter, tri in zip("abcd", ALL_TRIPLETS):
+for letter, tri in zip("abcd", _all_session_objs):
     sel_behav_y, sel_lap_y, sel_lap_z = _plot_session_mrmr(tri, letter)
     print(
         f"Fig 44{letter}: {tri.label} top-{_K} picks (Mazzanti MIQ symmetric).\n"
@@ -637,7 +660,7 @@ def _plot_correlation_matrix(tri, fig_letter: str):
     plt.show()
 
 
-for letter, tri in zip("abcd", ALL_TRIPLETS):
+for letter, tri in zip("abcd", _all_session_objs):
     _plot_correlation_matrix(tri, letter)
     print(f"Fig 45{letter}: {tri.label} ECoG feature-feature |r| matrix (60×60).")
 
@@ -674,7 +697,7 @@ def _plot_relevance(tri, fig_letter: str):
     plt.show()
 
 
-for letter, tri in zip("abcd", ALL_TRIPLETS):
+for letter, tri in zip("abcd", _all_session_objs):
     _plot_relevance(tri, letter)
     print(f"Fig 46{letter}: {tri.label} feature-behaviour relevance |r|.")
 

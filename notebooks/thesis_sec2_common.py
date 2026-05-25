@@ -20,7 +20,6 @@ OUT.mkdir(parents=True, exist_ok=True)
 results_root = Path("results").resolve()
 
 from thesis_specs import (
-    AlignedTriplet,
     StripPanelEntry,
     ThesisTheme,
     ThesisAggregateRmseSpec,
@@ -30,102 +29,13 @@ from thesis_specs import (
     ThesisForecastRmseSpec,
     ThesisC2ForecastSpec,
 )
-
-# ---------------------------------------------------------------------------
-# Triplet registry — loaded from notebooks/thesis_triplets.csv.
-#
-# CSV columns (one row per (cell, side, date_recorded)):
-#   date_recorded, cell, side,
-#   psid_variant, psid_run_ts, psid_run_ts_on, psid_run_ts_off,
-#   dpad_variant, dpad_run_ts, dpad_run_ts_on, dpad_run_ts_off,
-#   varma_variant, varma_run_ts, varma_run_ts_on, varma_run_ts_off,
-#   varma_run_ts_eval_on, varma_run_ts_eval_off
-#
-# For each (cell, side) the row with max(date_recorded) wins — so to swap
-# timestamps, append a new row with today's date and the new values; no code
-# edit needed. DPAD fields are blank for side == 'laplacian' (no DPAD
-# laplacian training).
-#
-# Channels: K=8 mRMR per side (tag: _mrmr8_).
-# PSID / DPAD: nx/n1 from configs/diagnostic/elbow_choices.yaml (PDI1_S2: 55/15;
-# all others: 50/10). PSID i=100.
-# ---------------------------------------------------------------------------
-import csv as _csv
-from dataclasses import fields as _dc_fields
-
-TRIPLETS_CSV = Path(__file__).resolve().parent / "thesis_triplets.csv"
-
-
-def _cell_label_to_canonical(label: str) -> str:
-    """`PDI1_S2` stays as-is. Tolerate alternate separators like `PDI1-S2`."""
-    return label.replace("-", "_")
-
-
-def _latest_rows_by_key(csv_path: Path) -> list[dict]:
-    """Read the CSV and keep the most-recent row per (cell, side)."""
-    latest: dict[tuple[str, str], dict] = {}
-    with csv_path.open() as f:
-        reader = _csv.DictReader(f)
-        for row in reader:
-            key = (_cell_label_to_canonical(row["cell"]), row["side"])
-            prev = latest.get(key)
-            if prev is None or row["date_recorded"] > prev["date_recorded"]:
-                latest[key] = row
-    return list(latest.values())
-
-
-def _none_if_blank(v: str | None) -> str | None:
-    return v if (v is not None and v != "") else None
-
-
-def _triplet_from_row(row: dict) -> AlignedTriplet:
-    """Build an AlignedTriplet from a CSV row. Laplacian rows have blank DPAD
-    fields (represented as None)."""
-    is_lap = row["side"] == "laplacian"
-    return AlignedTriplet(
-        psid_variant=row["psid_variant"],
-        psid_run_ts=row["psid_run_ts"],
-        dpad_variant=(row["dpad_variant"] or ("" if not is_lap else "")),
-        dpad_run_ts=(row["dpad_run_ts"] or ("" if not is_lap else "")),
-        varma_variant=row["varma_variant"],
-        varma_run_ts=row["varma_run_ts"],
-        label=_cell_label_to_canonical(row["cell"]),
-        psid_run_ts_off=row["psid_run_ts_off"] or None,
-        psid_run_ts_on=row["psid_run_ts_on"] or None,
-        dpad_run_ts_off=_none_if_blank(row.get("dpad_run_ts_off")),
-        dpad_run_ts_on=_none_if_blank(row.get("dpad_run_ts_on")),
-        varma_run_ts_off=row["varma_run_ts_off"] or None,
-        varma_run_ts_on=row["varma_run_ts_on"] or None,
-        varma_run_ts_eval_off=row["varma_run_ts_eval_off"] or None,
-        varma_run_ts_eval_on=row["varma_run_ts_eval_on"] or None,
-    )
-
-
-_latest = _latest_rows_by_key(TRIPLETS_CSV)
-_triplets_by_key: dict[tuple[str, str], "AlignedTriplet"] = {
-    (_cell_label_to_canonical(r["cell"]), r["side"]): _triplet_from_row(r)
-    for r in _latest
-}
-
-# Canonical cell order (session chronology): PDI1 before PDI4; S2 before S4/S3.
-_CELLS_ORDER = ("PDI1_S2", "PDI1_S4", "PDI4_S2", "PDI4_S3")
-
-TRIPLET_PDI1_S2 = _triplets_by_key[("PDI1_S2", "behavioral")]
-TRIPLET_PDI1_S4 = _triplets_by_key[("PDI1_S4", "behavioral")]
-TRIPLET_PDI4_S2 = _triplets_by_key[("PDI4_S2", "behavioral")]
-TRIPLET_PDI4_S3 = _triplets_by_key[("PDI4_S3", "behavioral")]
-ALL_TRIPLETS = [TRIPLET_PDI1_S2, TRIPLET_PDI1_S4, TRIPLET_PDI4_S2, TRIPLET_PDI4_S3]
-
-TRIPLET_LAP_PDI1_S2 = _triplets_by_key[("PDI1_S2", "laplacian")]
-TRIPLET_LAP_PDI1_S4 = _triplets_by_key[("PDI1_S4", "laplacian")]
-TRIPLET_LAP_PDI4_S2 = _triplets_by_key[("PDI4_S2", "laplacian")]
-TRIPLET_LAP_PDI4_S3 = _triplets_by_key[("PDI4_S3", "laplacian")]
-ALL_TRIPLETS_LAP = [
-    TRIPLET_LAP_PDI1_S2,
-    TRIPLET_LAP_PDI1_S4,
-    TRIPLET_LAP_PDI4_S2,
-    TRIPLET_LAP_PDI4_S3,
-]
+from thesis_loaders import (
+    discover_session_run,
+    EXP_BEHAVIORAL,
+    EXP_NEURAL,
+    SESSIONS,
+    inspect_available_results,
+)
 
 # Laplacian LFP output-band order (column index in Z). Test parquets don't store
 # output_channels, so we hardcode the 15 narrow bands in the order the trainer emits.
@@ -159,60 +69,25 @@ def laplacian_band_label(idx: int) -> str:
 # Spec lists
 THESIS_AGGREGATE_FIGURES = [
     ThesisAggregateRmseSpec(
-        section_title="Pooled RMSE ch0", channel_idx=0, triplets=ALL_TRIPLETS
+        section_title="Pooled RMSE ch0", channel_idx=0,
+        sessions=list(SESSIONS), exp_type=EXP_BEHAVIORAL,
     ),
     ThesisAggregateRmseSpec(
-        section_title="Pooled RMSE ch1", channel_idx=1, triplets=ALL_TRIPLETS
+        section_title="Pooled RMSE ch1", channel_idx=1,
+        sessions=list(SESSIONS), exp_type=EXP_BEHAVIORAL,
     ),
 ]
 THESIS_STRIP_PANELS = [
     ThesisStripPanelsSpec(
         section_title="Session-mean RMSE strip plots",
         channel_idx=0,
+        exp_type=EXP_BEHAVIORAL,
         panels=[
-            StripPanelEntry(panel_label="PDI1 S2", triplet=TRIPLET_PDI1_S2),
-            StripPanelEntry(panel_label="PDI1 S4", triplet=TRIPLET_PDI1_S4),
-            StripPanelEntry(panel_label="PDI4 S2", triplet=TRIPLET_PDI4_S2),
-            StripPanelEntry(panel_label="PDI4 S3", triplet=TRIPLET_PDI4_S3),
+            StripPanelEntry(panel_label="PDI1 S2", session="PDI1_S2"),
+            StripPanelEntry(panel_label="PDI1 S4", session="PDI1_S4"),
+            StripPanelEntry(panel_label="PDI4 S2", session="PDI4_S2"),
+            StripPanelEntry(panel_label="PDI4 S3", session="PDI4_S3"),
         ],
-    ),
-]
-THESIS_NEURAL_TIMESERIES = [
-    ThesisNeuralTimeseriesSpec(
-        section_title=tri.label.replace("_", " "),
-        participant_label=tri.label.split("_")[0],
-        psid_variant=tri.psid_variant,
-        dpad_variant=tri.dpad_variant,
-        varma_variant=tri.varma_variant,
-        psid_run_ts=tri.psid_run_ts,
-        dpad_run_ts=tri.dpad_run_ts,
-        varma_run_ts=tri.varma_run_ts,
-        split="test",
-        trial_idx_off=off,
-        trial_idx_on=on,
-        neural_y_channel_idx=5,
-        neural_y_feature_name="ECOG_1_beta_27_30_raw",
-        use_adjacent_off_on_trials=True,
-        exemplar_layout="side_by_side",
-        varma_run_ts_off=tri.varma_run_ts_off,
-        varma_run_ts_on=tri.varma_run_ts_on,
-    )
-    for tri, (off, on) in zip(ALL_TRIPLETS, [(11, 27), (17, 5), (5, 18), (9, 25)])
-]
-THESIS_NEURAL_BAND_HEATMAPS = [
-    ThesisNeuralBandHeatmapSpec(
-        section_title="Neural band Pearson r",
-        triplets=ALL_TRIPLETS,
-        band_row_order=("Theta", "Alpha", "Beta"),
-    ),
-]
-THESIS_NEURAL_FORECAST_FIGURES = [
-    ThesisForecastRmseSpec(
-        section_title="Neural forecast RMSE",
-        channel_idx=5,
-        triplets=ALL_TRIPLETS,
-        forecast_target="Y",
-        neural_y_feature_name="ECOG_1_beta_27_30_raw",
     ),
 ]
 _TRIAL_INDICES = {
@@ -221,26 +96,68 @@ _TRIAL_INDICES = {
     "PDI4_S2": (5, 18),
     "PDI4_S3": (9, 25),
 }
-THESIS_C2_FORECASTS = [
-    ThesisC2ForecastSpec(
-        section_title=tri.label,
-        participant_label=tri.label.split("_")[0],
-        psid_variant=tri.psid_variant,
-        dpad_variant=tri.dpad_variant,
-        varma_variant=tri.varma_variant,
-        psid_run_ts=tri.psid_run_ts,
-        dpad_run_ts=tri.dpad_run_ts,
-        varma_run_ts=tri.varma_run_ts,
+THESIS_NEURAL_TIMESERIES = []
+THESIS_C2_FORECASTS = []
+for _session, (_off, _on) in _TRIAL_INDICES.items():
+    _psid_var, _psid_ts = discover_session_run(results_root, "psid", EXP_BEHAVIORAL, _session)
+    _dpad_var, _dpad_ts = discover_session_run(results_root, "dpad", EXP_BEHAVIORAL, _session)
+    _varma_var, _varma_ts = discover_session_run(results_root, "varma", EXP_BEHAVIORAL, _session)
+    _, _varma_ts_off = discover_session_run(results_root, "varma", EXP_BEHAVIORAL, _session, "dbs_off")
+    _, _varma_ts_on = discover_session_run(results_root, "varma", EXP_BEHAVIORAL, _session, "dbs_on")
+    if not _psid_ts or not _varma_ts:
+        continue
+    THESIS_NEURAL_TIMESERIES.append(ThesisNeuralTimeseriesSpec(
+        section_title=_session.replace("_", " "),
+        participant_label=_session.split("_")[0],
+        psid_variant=_psid_var,
+        dpad_variant=_dpad_var,
+        varma_variant=_varma_var,
+        psid_run_ts=_psid_ts,
+        dpad_run_ts=_dpad_ts,
+        varma_run_ts=_varma_ts,
         split="test",
-        trial_idx_off=_TRIAL_INDICES[tri.label][0],
-        trial_idx_on=_TRIAL_INDICES[tri.label][1],
+        trial_idx_off=_off,
+        trial_idx_on=_on,
+        neural_y_channel_idx=5,
+        neural_y_feature_name="ECOG_1_beta_27_30_raw",
+        use_adjacent_off_on_trials=True,
+        exemplar_layout="side_by_side",
+        varma_run_ts_off=_varma_ts_off or None,
+        varma_run_ts_on=_varma_ts_on or None,
+    ))
+    THESIS_C2_FORECASTS.append(ThesisC2ForecastSpec(
+        section_title=_session,
+        participant_label=_session.split("_")[0],
+        psid_variant=_psid_var,
+        dpad_variant=_dpad_var,
+        varma_variant=_varma_var,
+        psid_run_ts=_psid_ts,
+        dpad_run_ts=_dpad_ts,
+        varma_run_ts=_varma_ts,
+        split="test",
+        trial_idx_off=_off,
+        trial_idx_on=_on,
         channel_idx=5,
         forecast_target="Y",
         neural_y_feature_name="ECOG_1_beta_27_30_raw",
-        varma_run_ts_off=tri.varma_run_ts_off,
-        varma_run_ts_on=tri.varma_run_ts_on,
-    )
-    for tri in ALL_TRIPLETS
+        varma_run_ts_off=_varma_ts_off or None,
+        varma_run_ts_on=_varma_ts_on or None,
+    ))
+THESIS_NEURAL_BAND_HEATMAPS = [
+    ThesisNeuralBandHeatmapSpec(
+        section_title="Neural band Pearson r",
+        sessions=list(SESSIONS), exp_type=EXP_BEHAVIORAL,
+        band_row_order=("Theta", "Alpha", "Beta"),
+    ),
+]
+THESIS_NEURAL_FORECAST_FIGURES = [
+    ThesisForecastRmseSpec(
+        section_title="Neural forecast RMSE",
+        channel_idx=5,
+        sessions=list(SESSIONS), exp_type=EXP_BEHAVIORAL,
+        forecast_target="Y",
+        neural_y_feature_name="ECOG_1_beta_27_30_raw",
+    ),
 ]
 
 THESIS_DECLARED_BEHAVIORAL_OUTPUTS = (

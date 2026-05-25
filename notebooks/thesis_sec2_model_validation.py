@@ -80,6 +80,7 @@ from thesis_utils import (
     metric_display_name,
 )
 from thesis_loaders import (
+    discover_session_run,
     load_split_results,
     load_split_results_required,
     channels_as_str_list,
@@ -91,6 +92,13 @@ from thesis_loaders import (
 )
 
 apply_thesis_style()
+
+# %% [markdown]
+# ## Available results
+
+# %%
+from thesis_loaders import inspect_available_results
+display(inspect_available_results(results_root))
 
 
 def resolve_output_channel_display(split_res, channel_idx, *, declared_outputs):
@@ -109,13 +117,9 @@ def resolve_output_channel_display(split_res, channel_idx, *, declared_outputs):
 # %%
 fig_num = 7
 for spec in THESIS_AGGREGATE_FIGURES:
+    _psid_var, _psid_ts = discover_session_run(results_root, "psid", spec.exp_type, spec.sessions[0])
     ch, _ = resolve_output_channel_display(
-        load_split_results_required(
-            results_root,
-            spec.triplets[0].psid_variant,
-            spec.triplets[0].psid_run_ts,
-            spec.split,
-        ),
+        load_split_results_required(results_root, _psid_var, _psid_ts, spec.split),
         spec.channel_idx,
         declared_outputs=THESIS_DECLARED_BEHAVIORAL_OUTPUTS,
     )
@@ -123,7 +127,8 @@ for spec in THESIS_AGGREGATE_FIGURES:
     def _collect(metric, _spec=spec):
         return collect_session_grouped(
             results_root,
-            _spec.triplets,
+            _spec.sessions,
+            _spec.exp_type,
             _spec.channel_idx,
             split=_spec.split,
             metric=metric,
@@ -142,7 +147,7 @@ for spec in THESIS_AGGREGATE_FIGURES:
     print(
         f"Fig {fig_num}: pooled behavioural decoding for '{ch}' from dbs_both models. "
         f"Layout: 2 panels (DBS-OFF | DBS-ON) x 3 model groups x 4 session boxes. "
-        f"Sessions: {', '.join(t.label for t in spec.triplets)}. Three metric PNGs emitted."
+        f"Sessions: {', '.join(spec.sessions)}. Three metric PNGs emitted."
     )
     fig_num += 1
 
@@ -152,22 +157,19 @@ for spec in THESIS_AGGREGATE_FIGURES:
 # %%
 fig_num = 9
 for spec in THESIS_AGGREGATE_FIGURES:
+    _psid_var, _psid_ts = discover_session_run(results_root, "psid", spec.exp_type, spec.sessions[0])
     ch, _ = resolve_output_channel_display(
-        load_split_results_required(
-            results_root,
-            spec.triplets[0].psid_variant,
-            spec.triplets[0].psid_run_ts,
-            spec.split,
-        ),
+        load_split_results_required(results_root, _psid_var, _psid_ts, spec.split),
         spec.channel_idx,
         declared_outputs=THESIS_DECLARED_BEHAVIORAL_OUTPUTS,
     )
-    for tri in spec.triplets:
+    for session in spec.sessions:
 
-        def _collect(metric, _tri=tri, _spec=spec):
+        def _collect(metric, _session=session, _spec=spec):
             return collect_pooled_rmse(
                 results_root,
-                [_tri],
+                [_session],
+                _spec.exp_type,
                 _spec.channel_idx,
                 split=_spec.split,
                 run_wilcoxon=False,
@@ -177,13 +179,13 @@ for spec in THESIS_AGGREGATE_FIGURES:
         fig = write_boxplot_three_metrics(
             collector=_collect,
             fig_num=fig_num,
-            filename_stem=f'session_{tri.label}_{ch.replace(" ", "_")}',
-            target_label=f"{tri.label} - {ch}",
+            filename_stem=f'session_{session}_{ch.replace(" ", "_")}',
+            target_label=f"{session} - {ch}",
             rng_seed=spec.jitter_seed,
         )
         if fig is not None:
             plt.show()
-        pid, sess = tri.label.split("_")
+        pid, sess = session.split("_")
         print(
             f"Fig {fig_num}: behavioural decoding for {pid} S{sess[1:]} - '{ch}'. "
             f"Three metric PNGs emitted."
@@ -201,7 +203,15 @@ for spec in THESIS_AGGREGATE_FIGURES:
 from thesis_lib.session_strip_rmse import collect_strip_figure_data
 
 strip_spec = THESIS_STRIP_PANELS[0]
-panel_triplets = [(e.panel_label, e.triplet) for e in strip_spec.panels]
+from types import SimpleNamespace as _NS
+def _session_ns(session, exp_type):
+    pv, pt = discover_session_run(results_root, "psid", exp_type, session)
+    vv, vt = discover_session_run(results_root, "varma", exp_type, session)
+    dv, dt = discover_session_run(results_root, "dpad", exp_type, session)
+    return _NS(psid_variant=pv or "", psid_run_ts=pt or "",
+               varma_variant=vv or "", varma_run_ts=vt or "",
+               dpad_variant=dv or "", dpad_run_ts=dt or "", label=session)
+panel_triplets = [(e.panel_label, _session_ns(e.session, strip_spec.exp_type)) for e in strip_spec.panels]
 strip_data = collect_strip_figure_data(
     results_root,
     panel_triplets,
@@ -417,7 +427,7 @@ def compose_thesis_neural_figure(spec, results_root):
         if ts_off is None or ts_on is None:
             raise ThesisDataError(
                 f"ThesisNeuralTimeseriesSpec {spec.section_title!r}: varma_run_ts_off/on required "
-                f"for dbs_both VARMA (or match _ALL_TRIPLETS)."
+                f"for dbs_both VARMA (pass varma_run_ts_off/on explicitly)."
             )
         res_v_off = load_split_results_required(results_root, v_off, ts_off, spec.split)
         res_v_on = load_split_results_required(results_root, v_on, ts_on, spec.split)
@@ -624,7 +634,8 @@ first_fig = None
 for metric in ("rmse", "pearson", "vaf"):
     nb_data = collect_neural_band_metric(
         results_root,
-        nb_spec.triplets,
+        nb_spec.sessions,
+        nb_spec.exp_type,
         metric=metric,
         split=nb_spec.split,
         band_row_order=nb_spec.band_row_order,
@@ -790,9 +801,10 @@ def build_forecast_rmse_figure_or_empty(data, *, y_axis_title=None, column_name=
 
 
 fc_spec = THESIS_NEURAL_FORECAST_FIGURES[0]
+_fc_session_objs = [_session_ns(s, fc_spec.exp_type) for s in fc_spec.sessions]
 fc_data = collect_forecast_horizon_rmse(
     results_root,
-    fc_spec.triplets,
+    _fc_session_objs,
     channel_idx=fc_spec.channel_idx,
     split=fc_spec.split,
     sampling_hz=fc_spec.sampling_hz,
@@ -801,12 +813,8 @@ fc_data = collect_forecast_horizon_rmse(
     forecast_target=fc_spec.forecast_target,
     neural_y_feature_name=fc_spec.neural_y_feature_name,
 )
-res_fc = load_split_results_required(
-    results_root,
-    fc_spec.triplets[0].psid_variant,
-    fc_spec.triplets[0].psid_run_ts,
-    fc_spec.split,
-)
+_fc_pv, _fc_pt = discover_session_run(results_root, "psid", fc_spec.exp_type, fc_spec.sessions[0])
+res_fc = load_split_results_required(results_root, _fc_pv, _fc_pt, fc_spec.split)
 ch_ix = resolve_neural_y_channel_idx(
     res_fc, fc_spec.neural_y_feature_name, fc_spec.channel_idx
 )
@@ -826,7 +834,7 @@ plt.show()
 print(
     f"Fig 23: Neural forecast RMSE vs. horizon for channel '{neu_lbl}'. "
     f"Mean per-step absolute error (z-scored) over the forecast window; DBS-OFF / DBS-ON side by side. "
-    f"Pooled across {len(fc_spec.triplets)} sessions ({', '.join(t.label for t in fc_spec.triplets)})."
+    f"Pooled across {len(fc_spec.sessions)} sessions ({', '.join(fc_spec.sessions)})."
 )
 
 # %% [markdown]
@@ -899,19 +907,19 @@ def _collect_forecast_trial_metric(
     )
 
 
-res_first = load_split_results_required(
-    results_root, ALL_TRIPLETS[0].psid_variant, ALL_TRIPLETS[0].psid_run_ts, "test"
-)
+_first_pv, _first_pt = discover_session_run(results_root, "psid", EXP_BEHAVIORAL, SESSIONS[0])
+res_first = load_split_results_required(results_root, _first_pv, _first_pt, "test")
 ch_ix_neural = resolve_neural_y_channel_idx(res_first, "ECOG_1_theta_4_8_raw", 0)
 inn0 = channels_as_str_list(res_first.get("input_channels"))
 neu_lbl_pooled = (
     inn0[ch_ix_neural] if ch_ix_neural < len(inn0) else "ECOG_1_theta_4_8_raw"
 )
+_all_session_objs = [_session_ns(s, EXP_BEHAVIORAL) for s in SESSIONS]
 
 # Fig 24: pooled forecast metric
 fig = write_boxplot_three_metrics(
     collector=lambda m: _collect_forecast_trial_metric(
-        ALL_TRIPLETS,
+        _all_session_objs,
         0,
         m,
         forecast_target="Y",
@@ -930,22 +938,23 @@ print(
 
 # Figs 25-28: per-session
 fig_num = 25
-for tri in ALL_TRIPLETS:
+for session in SESSIONS:
+    _sobj = _session_ns(session, EXP_BEHAVIORAL)
     fig = write_boxplot_three_metrics(
-        collector=lambda m, _tri=tri: _collect_forecast_trial_metric(
-            [_tri],
+        collector=lambda m, _so=_sobj: _collect_forecast_trial_metric(
+            [_so],
             0,
             m,
             forecast_target="Y",
             neural_y_feature_name="ECOG_1_theta_4_8_raw",
         ),
         fig_num=fig_num,
-        filename_stem=f"session_forecast_{tri.label}",
-        target_label=f"{tri.label} forecast - {neu_lbl_pooled}",
+        filename_stem=f"session_forecast_{session}",
+        target_label=f"{session} forecast - {neu_lbl_pooled}",
     )
     if fig is not None:
         plt.show()
-    pid, sess = tri.label.split("_")
+    pid, sess = session.split("_")
     print(
         f"Fig {fig_num}: Per-trial forecast metric for {pid} S{sess[1:]} - '{neu_lbl_pooled}'. "
         f"Three metric PNGs; PSID/VARMA only."
@@ -1612,14 +1621,14 @@ def _collect_pooled_metric_y(triplet_specs, session_channels, metric, split="tes
     )
 
 
-_session_channels = _resolve_per_session_channels(ALL_TRIPLETS, pick_metric="pearson")
+_session_channels = _resolve_per_session_channels(_all_session_objs, pick_metric="pearson")
 _pick_summary = ", ".join(
     f"{lbl}: {sc['name']}" for lbl, sc in _session_channels.items()
 )
 
 # Fig 39: pooled across 4 sessions
 fig = write_boxplot_three_metrics(
-    collector=lambda m: _collect_pooled_metric_y(ALL_TRIPLETS, _session_channels, m),
+    collector=lambda m: _collect_pooled_metric_y(_all_session_objs, _session_channels, m),
     fig_num=39,
     filename_stem="pooled_neural_pred_psid_best",
     target_label="PSID-best neural channel (per session)",
@@ -1627,13 +1636,13 @@ fig = write_boxplot_three_metrics(
 if fig is not None:
     plt.show()
 print(
-    f"Fig 39: Pooled per-trial neural (Y) reconstruction across {len(ALL_TRIPLETS)} sessions, "
+    f"Fig 39: Pooled per-trial neural (Y) reconstruction across {len(_all_session_objs)} sessions, "
     f"each on its PSID-best channel. Per-session picks — {_pick_summary}."
 )
 
 # Figs 40-43: per-session
 fig_num = 40
-for tri in ALL_TRIPLETS:
+for tri in _all_session_objs:
     sc = _session_channels[tri.label]
     fig = write_boxplot_three_metrics(
         collector=lambda m, _tri=tri: _collect_pooled_metric_y(

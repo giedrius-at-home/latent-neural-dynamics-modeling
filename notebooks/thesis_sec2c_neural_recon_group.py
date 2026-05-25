@@ -38,8 +38,6 @@ from thesis_style import (
     COLOR_VARMA,
 )
 from thesis_sec2_common import (
-    ALL_TRIPLETS,
-    ALL_TRIPLETS_LAP,
     OUT,
     results_root,
     mpl_per_cell_yz_box,
@@ -47,7 +45,25 @@ from thesis_sec2_common import (
     mpl_raincloud_yz_pair_vert,
     pool_dbs_cells,
     pool_yz_dbs_cells,
+    inspect_available_results,
 )
+from thesis_loaders import discover_session_run, EXP_BEHAVIORAL, EXP_NEURAL, SESSIONS
+from types import SimpleNamespace as _NS
+
+
+def _session_ns(session, exp_type):
+    pv, pt = discover_session_run(results_root, "psid", exp_type, session)
+    vv, vt = discover_session_run(results_root, "varma", exp_type, session)
+    dv, dt = discover_session_run(results_root, "dpad", exp_type, session)
+    return _NS(
+        psid_variant=pv or "", psid_run_ts=pt or "",
+        varma_variant=vv or "", varma_run_ts=vt or "",
+        dpad_variant=dv or "", dpad_run_ts=dt or "", label=session,
+    )
+
+
+_all_session_objs = [_session_ns(s, EXP_BEHAVIORAL) for s in SESSIONS]
+_all_lap_session_objs = [_session_ns(s, EXP_NEURAL) for s in SESSIONS]
 
 from thesis_loaders import load_split_results_required
 from thesis_utils import (
@@ -59,11 +75,17 @@ from thesis_utils import (
 apply_thesis_style()
 
 # %% [markdown]
+# ## Available results
+
+# %%
+display(inspect_available_results(results_root))
+
+# %% [markdown]
 # ## Fig 70 — Per-cell Y + Z two-metric box (laplacian mode)
 #
 # Per-cell × per-model × DBS, both reconstructions:
-# * Rows 1-2: Y self-recon (top-8 ECOG mRMR) — Pearson r, NRMSE
-# * Rows 3-4: Z decoding (top-8 LFP laplacian) — Pearson r, NRMSE
+# * Rows 1-2: Y self-recon (top-12 ECoG (6 raw, 6 env)) — Pearson r, NRMSE
+# * Rows 3-4: Z decoding (top-12 LFP (6 raw, 6 env)) — Pearson r, NRMSE
 #
 # 4 rows × 4 cols (cells: PDI1_S2, PDI1_S4, PDI4_S2, PDI4_S3). Each subplot:
 # x = PSID/DPAD/VARMA, hue = DBS-OFF (blue) / DBS-ON (red). Per-trial values
@@ -116,11 +138,11 @@ def _collect_per_cell_metric(triplets, target="Z", metric="pearson", split="test
     return out
 
 
-_lap_cells = [t.label for t in ALL_TRIPLETS_LAP]
-_lap_y_r = _collect_per_cell_metric(ALL_TRIPLETS_LAP, target="Y", metric="pearson")
-_lap_y_n = _collect_per_cell_metric(ALL_TRIPLETS_LAP, target="Y", metric="rmse")
-_lap_z_r = _collect_per_cell_metric(ALL_TRIPLETS_LAP, target="Z", metric="pearson")
-_lap_z_n = _collect_per_cell_metric(ALL_TRIPLETS_LAP, target="Z", metric="rmse")
+_lap_cells = [t.label for t in _all_lap_session_objs]
+_lap_y_r = _collect_per_cell_metric(_all_lap_session_objs, target="Y", metric="pearson")
+_lap_y_n = _collect_per_cell_metric(_all_lap_session_objs, target="Y", metric="rmse")
+_lap_z_r = _collect_per_cell_metric(_all_lap_session_objs, target="Z", metric="pearson")
+_lap_z_n = _collect_per_cell_metric(_all_lap_session_objs, target="Z", metric="rmse")
 
 fig = mpl_per_cell_yz_box(
     _lap_y_r,
@@ -133,8 +155,8 @@ fig = mpl_per_cell_yz_box(
 fig.savefig(str(OUT / "fig_070_lap_per_cell_yz_box.png"), bbox_inches="tight")
 plt.show()
 print(
-    "Fig 70 (laplacian): 4 rows × 4 cells. Y self-recon (top-8 ECOG) + "
-    "Z decoding (top-8 LFP). Pearson r + NRMSE per target."
+    "Fig 70 (laplacian): 4 rows × 4 cells. Y self-recon (top-12 ECoG) + "
+    "Z decoding (top-12 LFP). Pearson r + NRMSE per target."
 )
 
 
@@ -190,15 +212,15 @@ print(
 # %% [markdown]
 # ## Behavioral mode — group figures (mirror of 70/71/72)
 #
-# Same templates, swap `ALL_TRIPLETS_LAP` → `ALL_TRIPLETS`. Y = top-8 ECoG
+# Same templates, swap `_all_lap_session_objs` → `_all_session_objs`. Y = top-12 ECoG
 # self-recon, Z = 2 behavioral targets (tracing_velocity_x, tracing_acc_mag).
 
 # %%
-_beh_cells = [t.label for t in ALL_TRIPLETS]
-_beh_y_r = _collect_per_cell_metric(ALL_TRIPLETS, target="Y", metric="pearson")
-_beh_y_n = _collect_per_cell_metric(ALL_TRIPLETS, target="Y", metric="rmse")
-_beh_z_r = _collect_per_cell_metric(ALL_TRIPLETS, target="Z", metric="pearson")
-_beh_z_n = _collect_per_cell_metric(ALL_TRIPLETS, target="Z", metric="rmse")
+_beh_cells = [t.label for t in _all_session_objs]
+_beh_y_r = _collect_per_cell_metric(_all_session_objs, target="Y", metric="pearson")
+_beh_y_n = _collect_per_cell_metric(_all_session_objs, target="Y", metric="rmse")
+_beh_z_r = _collect_per_cell_metric(_all_session_objs, target="Z", metric="pearson")
+_beh_z_n = _collect_per_cell_metric(_all_session_objs, target="Z", metric="rmse")
 
 
 # %% [markdown]
@@ -216,7 +238,7 @@ fig = mpl_per_cell_yz_box(
 fig.savefig(str(OUT / "fig_073_beh_per_cell_yz_box.png"), bbox_inches="tight")
 plt.show()
 print(
-    "Fig 73 (behavioral): 4 rows × 4 cells. Y self-recon (top-8 ECoG) + "
+    "Fig 73 (behavioral): 4 rows × 4 cells. Y self-recon (top-12 ECoG) + "
     "Z decoding (behavioral vars). Pearson r + NRMSE per target."
 )
 
@@ -249,5 +271,5 @@ fig.savefig(str(OUT / "fig_075_beh_pool_raincloud_yz.png"), bbox_inches="tight")
 plt.show()
 print(
     "Fig 75 (Y vs Z, behavioral, pooled across 4 cells × 2 DBS states): "
-    "horizontal raincloud per model. Y = top-8 ECoG; Z = behavior vars."
+    "horizontal raincloud per model. Y = top-12 ECoG; Z = behavior vars."
 )

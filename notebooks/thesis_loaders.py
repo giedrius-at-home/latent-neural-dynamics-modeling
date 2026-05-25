@@ -6,11 +6,13 @@ No dashboard dependencies — imports only from utils.* and standard library.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Dict, Literal, Optional, Tuple
 
 import numpy as np
+import pandas as pd
 
 from utils.classification import load_precomputed_results
 
@@ -19,7 +21,176 @@ logger = logging.getLogger(__name__)
 # Deduplicate "trial out of range" warnings across repeated calls in the same kernel session.
 _oof_trial_warned: set[str] = set()
 
+# ---------------------------------------------------------------------------
+# Auto-discovery: load latest run without timestamp bookkeeping
+# ---------------------------------------------------------------------------
+
+SESSIONS = ("PDI1_S2", "PDI1_S4", "PDI4_S2", "PDI4_S3")
+EXP_BEHAVIORAL = "z-as-behavior"
+EXP_NEURAL = "z-as-neural"
+
+
+def _latest_pkl_ts(variant_dir: Path) -> Optional[str]:
+    """Lexicographically latest model timestamp from pkl filenames."""
+    pkls = sorted(variant_dir.glob("model_*.pkl"))
+    if not pkls:
+        return None
+    m = re.search(r"model_(\d{8}_\d{6})\.pkl", pkls[-1].name)
+    return m.group(1) if m else None
+
+
+def _discover_variant(
+    results_root: Path,
+    framework: str,
+    exp_type: str,
+    session: str,
+    condition: str = "dbs_both",
+) -> Optional[Tuple[Path, str]]:
+    """Return (variant_dir, run_ts) for the latest run matching the query.
+
+    Scans results/{framework}/{framework}_{exp_type}_{cell}_*_{condition}/
+    and picks the dir whose latest model pkl has the highest timestamp.
+    """
+    pattern = f"{framework}_{exp_type}_{session}_*_{condition}"
+    best_dir: Optional[Path] = None
+    best_ts: str = ""
+    for d in sorted((results_root / framework).glob(pattern)):
+        if not d.is_dir():
+            continue
+        ts = _latest_pkl_ts(d)
+        if ts and ts > best_ts:
+            best_ts = ts
+            best_dir = d
+    if best_dir is None:
+        return None
+    return best_dir, best_ts
+
+
+_SPLIT_PATH: Dict[str, str] = {
+    "test": "inference/test",
+    "val": "val",
+    "train": "train",
+}
+
+
+def load_latest(
+    results_root: Path,
+    framework: str,
+    exp_type: str,
+    session: str,
+    split: str,
+    condition: str = "dbs_both",
+) -> Optional[Dict[str, Any]]:
+    """Load results for latest run of (framework, exp_type, session) from split.
+
+    split: "test", "val", or "train". "test" resolves to inference/test.
+    Returns None when no matching variant exists — callers treat as unavailable.
+    """
+    found = _discover_variant(results_root, framework, exp_type, session, condition)
+    if found is None:
+        logger.info("load_latest: no variant for (%s, %s, %s, %s)", framework, exp_type, session, condition)
+        return None
+    variant_dir, run_ts = found
+    resolved_split = _SPLIT_PATH.get(split, split)
+    return load_precomputed_results(variant_dir, run_ts, resolved_split)
+
+
+def load_latest_classification(
+    results_root: Path,
+    framework: str,
+    exp_type: str,
+    session: str,
+    condition: str = "dbs_both",
+) -> Optional[pd.DataFrame]:
+    """Load latest classification sweep parquet for (framework, exp_type, session).
+
+    Returns None when no classification dir or no sweep parquet exists.
+    """
+    found = _discover_variant(results_root, framework, exp_type, session, condition)
+    if found is None:
+        return None
+    variant_dir, _ = found
+    parquets = sorted((variant_dir / "classification").glob("sweep_*.parquet"))
+    if not parquets:
+        return None
+    return pd.read_parquet(parquets[-1])
+
+
+def get_latest_variant_dir(
+    results_root: Path,
+    framework: str,
+    exp_type: str,
+    session: str,
+    condition: str = "dbs_both",
+) -> Optional[Path]:
+    """Return variant_dir for the latest run, or None if not found.
+
+    Use when notebooks need raw filesystem access (training history, split parquets).
+    """
+    found = _discover_variant(results_root, framework, exp_type, session, condition)
+    return found[0] if found else None
+
+
+def inspect_available_results(results_root: Path) -> pd.DataFrame:
+    """Return a summary table of available results for all cells.
+
+    Columns: one per (framework, exp_type) combination. Values show the run
+    timestamp and inference/test trial count, or '-' when unavailable.
+    Displays cleanly in a Jupyter notebook cell.
+    """
+    import pyarrow.parquet as _pq
+
+    def _trial_count(vdir: Path, ts: str) -> Optional[int]:
+        p = vdir / "inference" / "test" / f"test_results_{ts}.parquet"
+        if not p.exists():
+            return None
+        n = sum(1 for _ in p.rglob("0.parquet"))
+        return n if n > 0 else None
+
+    cols_spec = [
+        ("psid", EXP_BEHAVIORAL, "psid/beh"),
+        ("dpad", EXP_BEHAVIORAL, "dpad/beh"),
+        ("varma", EXP_BEHAVIORAL, "varma/beh"),
+        ("psid", EXP_NEURAL, "psid/neu"),
+        ("dpad", EXP_NEURAL, "dpad/neu"),
+        ("varma", EXP_NEURAL, "varma/neu"),
+    ]
+
+    rows = []
+    for session in SESSIONS:
+        row: Dict[str, str] = {"session": session}
+        for fw, exp, label in cols_spec:
+            found = _discover_variant(results_root, fw, exp, session)
+            if found is None:
+                row[label] = "-"
+            else:
+                vdir, ts = found
+                n = _trial_count(vdir, ts)
+                row[label] = f"{ts[-6:]} ({n}T)" if n is not None else f"{ts[-6:]} (train)"
+        cls_beh = load_latest_classification(results_root, "psid", EXP_BEHAVIORAL, session)
+        cls_neu = load_latest_classification(results_root, "psid", EXP_NEURAL, session)
+        row["cls/beh"] = "✓" if cls_beh is not None else "-"
+        row["cls/neu"] = "✓" if cls_neu is not None else "-"
+        rows.append(row)
+    return pd.DataFrame(rows).set_index("session")
+
+
 InputMode = Literal["neural", "behavioral"]
+
+
+def discover_session_run(
+    results_root: Path,
+    framework: str,
+    exp_type: str,
+    session: str,
+    condition: str = "dbs_both",
+) -> Tuple[str, str]:
+    """Return (variant_name, run_ts) for the latest matching run, or ("", "") if not found."""
+    found = _discover_variant(results_root, framework, exp_type, session, condition)
+    if found is None:
+        return ("", "")
+    variant_dir, run_ts = found
+    return (variant_dir.name, run_ts)
 
 
 # ---------------------------------------------------------------------------
@@ -129,14 +300,20 @@ def rmse_z(z_true: np.ndarray, z_pred: np.ndarray) -> float:
 # ---------------------------------------------------------------------------
 
 
+def _variant_dir(results_root: Path, variant: str) -> Path:
+    """Resolve variant path including framework subfolder (psid/dpad/varma)."""
+    framework = variant.split("_")[0]
+    return results_root / framework / variant
+
+
 def load_split_results(
     results_root: Path,
     variant: str,
     run_timestamp: str,
     split: str,
 ) -> Optional[Dict[str, Any]]:
-    variant_dir = results_root / variant
-    return load_precomputed_results(variant_dir, run_timestamp, split)
+    resolved_split = _SPLIT_PATH.get(split, split)
+    return load_precomputed_results(_variant_dir(results_root, variant), run_timestamp, resolved_split)
 
 
 def has_dpad_data(
@@ -148,7 +325,8 @@ def has_dpad_data(
     """Auto-detect whether DPAD parquets are available for a triplet/split."""
     if not variant or not run_ts:
         return False
-    pq_dir = results_root / variant / split / f"test_results_{run_ts}.parquet"
+    resolved_split = _SPLIT_PATH.get(split, split)
+    pq_dir = _variant_dir(results_root, variant) / resolved_split / f"test_results_{run_ts}.parquet"
     if not pq_dir.is_dir():
         return False
     return next(pq_dir.rglob("0.parquet"), None) is not None
@@ -164,8 +342,9 @@ def load_split_results_required(
     r = load_split_results(results_root, variant, run_timestamp, split)
     if r is not None:
         return r
-    variant_dir = results_root / variant
-    pq = variant_dir / split / f"test_results_{run_timestamp}.parquet"
+    vdir = _variant_dir(results_root, variant)
+    resolved_split = _SPLIT_PATH.get(split, split)
+    pq = vdir / resolved_split / f"test_results_{run_timestamp}.parquet"
     raise ThesisDataError(
         f"No results for variant={variant!r} run_ts={run_timestamp!r} split={split!r}. "
         f"Expected parquet directory: {pq}."

@@ -57,11 +57,19 @@ from thesis_utils import (
     metric_y_range,
 )
 from thesis_loaders import (
+    discover_session_run,
     load_split_results_required,
     output_channel_label,
 )
 
 apply_thesis_style()
+
+# %% [markdown]
+# ## Available results
+
+# %%
+from thesis_loaders import inspect_available_results
+display(inspect_available_results(results_root))
 
 
 def resolve_output_channel_display(split_res, channel_idx, *, declared_outputs):
@@ -82,13 +90,9 @@ def resolve_output_channel_display(split_res, channel_idx, *, declared_outputs):
 # Predictions come from the dbs_both models; trials are split by stim into the two panels.
 fig_num = 7
 for spec in THESIS_AGGREGATE_FIGURES:
+    _psid_var, _psid_ts = discover_session_run(results_root, "psid", spec.exp_type, spec.sessions[0])
     ch, _ = resolve_output_channel_display(
-        load_split_results_required(
-            results_root,
-            spec.triplets[0].psid_variant,
-            spec.triplets[0].psid_run_ts,
-            spec.split,
-        ),
+        load_split_results_required(results_root, _psid_var, _psid_ts, spec.split),
         spec.channel_idx,
         declared_outputs=THESIS_DECLARED_BEHAVIORAL_OUTPUTS,
     )
@@ -96,7 +100,8 @@ for spec in THESIS_AGGREGATE_FIGURES:
     def _collect(metric, _spec=spec):
         return collect_session_grouped(
             results_root,
-            _spec.triplets,
+            _spec.sessions,
+            _spec.exp_type,
             _spec.channel_idx,
             split=_spec.split,
             metric=metric,
@@ -116,7 +121,7 @@ for spec in THESIS_AGGREGATE_FIGURES:
     print(
         f"Fig {fig_num}{panel_letter}: behavioural decoding for '{ch}' from dbs_both models.\n"
         f"  - layout: 2 panels (DBS-OFF | DBS-ON) x 3 model groups x 4 session boxes.\n"
-        f"  - sessions: {', '.join(t.label for t in spec.triplets)}.\n"
+        f"  - sessions: {', '.join(spec.sessions)}.\n"
         f"  - split: {spec.split} (three metric PNGs emitted: _rmse / _pearson / _vaf)."
     )
     fig_num += 1
@@ -127,22 +132,19 @@ for spec in THESIS_AGGREGATE_FIGURES:
 # %%
 fig_num = 9
 for spec in THESIS_AGGREGATE_FIGURES:
+    _psid_var, _psid_ts = discover_session_run(results_root, "psid", spec.exp_type, spec.sessions[0])
     ch, _ = resolve_output_channel_display(
-        load_split_results_required(
-            results_root,
-            spec.triplets[0].psid_variant,
-            spec.triplets[0].psid_run_ts,
-            spec.split,
-        ),
+        load_split_results_required(results_root, _psid_var, _psid_ts, spec.split),
         spec.channel_idx,
         declared_outputs=THESIS_DECLARED_BEHAVIORAL_OUTPUTS,
     )
-    for tri in spec.triplets:
+    for session in spec.sessions:
 
-        def _collect(metric, _tri=tri, _spec=spec):
+        def _collect(metric, _session=session, _spec=spec):
             return collect_pooled_rmse(
                 results_root,
-                [_tri],
+                [_session],
+                _spec.exp_type,
                 _spec.channel_idx,
                 split=_spec.split,
                 run_wilcoxon=False,
@@ -152,13 +154,13 @@ for spec in THESIS_AGGREGATE_FIGURES:
         fig = write_boxplot_three_metrics(
             collector=_collect,
             fig_num=fig_num,
-            filename_stem=f'session_{tri.label}_{ch.replace(" ", "_")}',
-            target_label=f"{tri.label} - {ch}",
+            filename_stem=f'session_{session}_{ch.replace(" ", "_")}',
+            target_label=f"{session} - {ch}",
             rng_seed=spec.jitter_seed,
         )
         if fig is not None:
             plt.show()
-        pid, sess = tri.label.split("_")
+        pid, sess = session.split("_")
         print(
             f"Fig {fig_num}: Per-trial behavioural prediction for participant {pid}, "
             f"session {sess[1:]}, output channel '{ch}'. Three metrics emitted as "
@@ -175,19 +177,21 @@ for spec in THESIS_AGGREGATE_FIGURES:
 
 # %%
 fig_num = 46
-for tri in ALL_TRIPLETS_LAP:
-    res_p = load_split_results_required(
-        results_root, tri.psid_variant, tri.psid_run_ts, "test"
-    )
+for session in SESSIONS:
+    _psid_var, _psid_ts = discover_session_run(results_root, "psid", EXP_NEURAL, session)
+    if not _psid_ts:
+        continue
+    res_p = load_split_results_required(results_root, _psid_var, _psid_ts, "test")
     Z0 = res_p["Z"][0] if res_p.get("Z") else None
     n_bands = min(np.asarray(Z0).shape) if Z0 is not None else len(LAPLACIAN_BAND_NAMES)
     band_indices = list(range(min(n_bands, len(LAPLACIAN_BAND_NAMES))))
 
-    def _collect(metric, _tri=tri, _res_p=res_p, _idxs=band_indices):
+    def _collect(metric, _session=session, _res_p=res_p, _idxs=band_indices):
         best_idx = pick_best_feature_for_psid(_res_p, _idxs, metric, target="Z")
         return collect_pooled_rmse(
             results_root,
-            [_tri],
+            [_session],
+            EXP_NEURAL,
             best_idx,
             split="test",
             run_wilcoxon=False,
@@ -195,16 +199,14 @@ for tri in ALL_TRIPLETS_LAP:
             include_dpad=False,
         )
 
-    best_name_idx = pick_best_feature_for_psid(
-        res_p, band_indices, "pearson", target="Z"
-    )
+    best_name_idx = pick_best_feature_for_psid(res_p, band_indices, "pearson", target="Z")
     band_stem = laplacian_band_label(best_name_idx).replace(".", "").replace("/", "_")
 
     fig = write_boxplot_three_metrics(
         collector=_collect,
         fig_num=fig_num,
-        filename_stem=f"session_{tri.label}_lfp_{band_stem}",
-        target_label=f"{tri.label} LFP",
+        filename_stem=f"session_{session}_lfp_{band_stem}",
+        target_label=f"{session} LFP",
         rng_seed=42,
     )
     if fig is not None:
@@ -216,7 +218,7 @@ for tri in ALL_TRIPLETS_LAP:
         for m in ("rmse", "pearson", "vaf")
     }
     print(
-        f"Fig {fig_num}: {tri.label} LFP reconstruction — per-metric best bands picked from PSID test split.\n"
+        f"Fig {fig_num}: {session} LFP reconstruction -- per-metric best bands picked from PSID test split.\n"
         f"  RMSE-best: {picks['rmse']}  |  Pearson-best: {picks['pearson']}  |  VAF-best: {picks['vaf']}.\n"
         f"  2-model layout (PSID + VARMA; no DPAD laplacian). Three metric PNGs emitted."
     )

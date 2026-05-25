@@ -62,34 +62,39 @@ results_root = Path("results").resolve()
 raw_data_root = Path(
     "resampled_recordings/participants_at_200Hz_scaled_1e6_narrow_band"
 )
+
+# %% [markdown]
+# ## Available results
+
+# %%
+from thesis_loaders import inspect_available_results
+display(inspect_available_results(results_root))
 ECOG_CHANNELS = ["ECOG_1", "ECOG_2", "ECOG_3", "ECOG_4"]
 
 # %%
-# Session registry — derived from the canonical triplets in
-# notebooks/thesis_triplets.csv (loaded via thesis_sec2_common). Single source
-# of truth: append a newer-dated row in the CSV to swap variants/timestamps.
+# Session registry — auto-discovered via discover_session_run.
 # The split parquets are identical across variant choices for a given
 # (participant, session), so pointing sec1 at the current modelling variants
 # guarantees sec1 reads the same splits the rest of the thesis uses.
-from thesis_sec2_common import ALL_TRIPLETS
+from thesis_loaders import discover_session_run, EXP_BEHAVIORAL, SESSIONS as _SESSION_NAMES
 
 SessionSpec = namedtuple(
     "SessionSpec", ["label", "participant", "session", "psid_variant", "psid_run_ts"]
 )
 
-
-def _session_spec_from_triplet(tri) -> SessionSpec:
-    pid, sess = tri.label.split("_S")
-    return SessionSpec(
-        label=tri.label,
-        participant=pid,
-        session=int(sess),
-        psid_variant=tri.psid_variant,
-        psid_run_ts=tri.psid_run_ts,
-    )
-
-
-SESSIONS = [_session_spec_from_triplet(t) for t in ALL_TRIPLETS]
+SESSIONS = []
+for _name in _SESSION_NAMES:
+    _var, _ts = discover_session_run(results_root, "psid", EXP_BEHAVIORAL, _name)
+    if not _var:
+        continue
+    _pid, _sess = _name.split("_S")
+    SESSIONS.append(SessionSpec(
+        label=_name,
+        participant=_pid,
+        session=int(_sess),
+        psid_variant=_var,
+        psid_run_ts=_ts,
+    ))
 
 # %% [markdown]
 # ## Trial inventory
@@ -148,7 +153,8 @@ def _p2_block_info(pid, ses):
 
 def _split_block_trials(variant):
     """Read split parquets: {block: {trial: stim}}."""
-    base = results_root / variant / "split"
+    framework = variant.split("_")[0]
+    base = results_root / framework / variant / "split"
     bt = defaultdict(dict)
     for split in ("train", "val", "test"):
         df = pl.read_parquet(base / f"{split}.parquet")
@@ -830,7 +836,8 @@ def _smooth(arr, win):
 for var_name in beh_vars:
     traces_by_session = {}
     for s in SESSIONS:
-        base = results_root / s.psid_variant / "split"
+        framework = s.psid_variant.split("_")[0]
+        base = results_root / framework / s.psid_variant / "split"
         traces = {"off": [], "on": []}
         for split in ("train", "val", "test"):
             fp = base / f"{split}.parquet"

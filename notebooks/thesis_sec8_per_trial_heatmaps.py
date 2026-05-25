@@ -52,23 +52,26 @@ OUT.mkdir(parents=True, exist_ok=True)
 results_root = Path("results").resolve()
 
 # %% [markdown]
-# ## Configuration
-#
-# 4 sessions with PSID model timestamps (test split). Pulled from the canonical
-# `thesis_triplets.csv` via `thesis_sec2_common.ALL_TRIPLETS` so this notebook
-# automatically tracks the current PSID runs without manual edits.
+# ## Available results
 
 # %%
-from thesis_sec2_common import ALL_TRIPLETS
+from thesis_loaders import inspect_available_results
+display(inspect_available_results(results_root))
 
-SESSIONS = [
-    {
-        "label": tri.label.replace("_", " "),
-        "variant": tri.psid_variant,
-        "run_ts": tri.psid_run_ts,
-    }
-    for tri in ALL_TRIPLETS
-]
+# %% [markdown]
+# ## Configuration
+#
+# 4 sessions with PSID model timestamps (test split). Auto-discovered via
+# discover_session_run so this notebook automatically tracks current runs.
+
+# %%
+from thesis_loaders import discover_session_run, EXP_BEHAVIORAL, SESSIONS as _SESSION_NAMES
+
+SESSIONS = []
+for _s in _SESSION_NAMES:
+    _var, _ts = discover_session_run(results_root, "psid", EXP_BEHAVIORAL, _s)
+    if _var:
+        SESSIONS.append({"label": _s.replace("_", " "), "variant": _var, "run_ts": _ts})
 
 BEHAV_CHANNELS = ["tracing_velocity_x", "tracing_acceleration_magnitude"]
 
