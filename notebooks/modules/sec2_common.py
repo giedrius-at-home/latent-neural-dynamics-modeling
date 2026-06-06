@@ -1101,48 +1101,58 @@ def load_forecast(results_root, variant, split, horizon="h5"):
     return load_precomputed_results(fdir, ts, split)
 
 
-def pool_yz_dbs_cells(per_cell_y, per_cell_z, cells, *, models=None):
-    """Pool Y and Z metric dicts across cells and DBS into dict[(model, target)]."""
+def pool_yz_dbs_cells(per_cell_y, per_cell_z, cells, *, models=None,
+                       y_label="Y", z_label="Z"):
+    """Pool Y and Z metric dicts across cells and DBS into dict[(model, label)]."""
     if models is None:
         models = MODELS
     out = {}
     for m in models:
-        for target_name, source in (("Y", per_cell_y), ("Z", per_cell_z)):
+        for label, source in ((y_label, per_cell_y), (z_label, per_cell_z)):
             buf = []
             for c in cells:
                 for d in ("off", "on"):
                     arr = source.get((c, m, d))
                     if arr is not None:
                         buf.extend([float(v) for v in arr if np.isfinite(v)])
-            out[(m, target_name)] = np.array(buf, dtype=float)
+            out[(m, label)] = np.array(buf, dtype=float)
     return out
 
 
 def yz_raincloud_fig(pool_r, pool_n, *, models=None, model_cols=None):
     """Vertical raincloud, 2 panels: top=Pearson r, bottom=NRMSE log.
-    Per model slot: Y left (lighter), Z right (hatched darker)."""
+    Sides inferred from pool_r keys (model, label). Labels starting with Y get
+    light style; Z get hatched dark style. Pass y_label/z_label to pool_yz_dbs_cells
+    to produce 4-slot figures (e.g. 'Y-neural', 'Z-neural', 'Y-behavioral', 'Z-behavioral')."""
     if models is None:
         models = MODELS
     if model_cols is None:
         model_cols = MODEL_COLS
+    targets = list(dict.fromkeys(t for _, t in pool_r))
+    n = len(targets)
+    span = 0.80
+    offsets = [(i - (n - 1) / 2) * span / n for i in range(n)]
     rng = np.random.default_rng(42)
-    target_alpha = {"Y": 0.30, "Z": 0.85}
-    target_hatch = {"Y": None, "Z": "////"}
-    target_side = {"Y": "left", "Z": "right"}
-    fig, axes = plt.subplots(2, 1, figsize=(7.0, 9.0))
+
+    def _style(label):
+        is_z = label.upper().startswith("Z")
+        return {"alpha": 0.80 if is_z else 0.32, "hatch": "////" if is_z else None}
+
+    kde_w = min(0.16, span / n * 0.55)
+    box_w = min(0.07, span / n * 0.25)
+
+    fig, axes = plt.subplots(2, 1, figsize=(max(7.0, 5.0 + n * 0.8), 9.0))
     for ax, data, ylabel, logy, plabel, ptitle in [
-        (axes[0], pool_r, "Pearson r", False, "A", "Pearson r"),
-        (axes[1], pool_n, "NRMSE (log)", True, "B", "NRMSE"),
+        (axes[0], pool_r, "Pearson r",   False, "A", "Pearson r"),
+        (axes[1], pool_n, "NRMSE (log)", True,  "B", "NRMSE"),
     ]:
         panel_label(ax, plabel, ptitle)
         if logy:
             ax.set_yscale("log")
-        ax.axhline(
-            1.0 if logy else 0.0, color="black", ls=":", lw=0.6, alpha=0.30, zorder=0
-        )
+        ax.axhline(1.0 if logy else 0.0, color="black", ls=":", lw=0.6, alpha=0.30, zorder=0)
         for mi, m in enumerate(models):
             color = model_cols[m]
-            for t in ("Y", "Z"):
+            for ti, t in enumerate(targets):
                 vals = data.get((m, t))
                 if vals is None or len(vals) < 2:
                     continue
@@ -1150,80 +1160,39 @@ def yz_raincloud_fig(pool_r, pool_n, *, models=None, model_cols=None):
                     vals = vals[vals > 0]
                 if len(vals) < 2:
                     continue
-                # raincloud_slot doesn't support hatch; use kde_half_violin_vert directly for Z
-                strip_x = mi - 0.08 if target_side[t] == "left" else mi + 0.08
-                box_x = mi - 0.20 if target_side[t] == "left" else mi + 0.20
-                anchor = mi - 0.30 if target_side[t] == "left" else mi + 0.30
-                kde_half_violin_vert(
-                    ax,
-                    vals,
-                    x_anchor=anchor,
-                    color=color,
-                    alpha=target_alpha[t],
-                    hatch=target_hatch[t],
-                    logy=logy,
-                    bw=0.55,
-                    width=0.18,
-                    side=target_side[t],
-                )
-                bp = dict(
-                    facecolor=color,
-                    alpha=target_alpha[t],
-                    edgecolor=color,
-                    linewidth=1.0,
-                )
-                if target_hatch[t]:
-                    bp["hatch"] = target_hatch[t]
-                ax.boxplot(
-                    [vals],
-                    positions=[box_x],
-                    widths=0.08,
-                    vert=True,
-                    patch_artist=True,
-                    showfliers=False,
-                    boxprops=bp,
-                    medianprops=dict(color=color, linewidth=1.4),
-                    whiskerprops=dict(color=color, linewidth=1.0),
-                    capprops=dict(color=color, linewidth=1.0),
-                )
-                sv = (
-                    vals[rng.choice(len(vals), 80, replace=False)]
-                    if len(vals) > 80
-                    else vals
-                )
-                ax.scatter(
-                    strip_x + rng.uniform(-0.04, 0.04, len(sv)),
-                    sv,
-                    c=color,
-                    alpha=min(target_alpha[t], 0.35),
-                    s=7,
-                    linewidths=0,
-                )
+                st = _style(t)
+                off = offsets[ti]
+                side = "left" if off <= 0 else "right"
+                pos = mi + off
+                anchor = pos + (-kde_w if side == "left" else kde_w)
+                box_x  = pos + (-box_w * 1.5 if side == "left" else box_w * 1.5)
+                strip_x = pos + (-box_w * 0.4 if side == "left" else box_w * 0.4)
+                kde_half_violin_vert(ax, vals, x_anchor=anchor, color=color,
+                                     alpha=st["alpha"], hatch=st["hatch"],
+                                     logy=logy, bw=0.55, width=kde_w, side=side)
+                bp = dict(facecolor=color, alpha=st["alpha"], edgecolor=color, linewidth=1.0)
+                if st["hatch"]:
+                    bp["hatch"] = st["hatch"]
+                ax.boxplot([vals], positions=[box_x], widths=box_w, vert=True,
+                           patch_artist=True, showfliers=False, boxprops=bp,
+                           medianprops=dict(color=color, linewidth=1.4),
+                           whiskerprops=dict(color=color, linewidth=1.0),
+                           capprops=dict(color=color, linewidth=1.0))
+                sv = vals[rng.choice(len(vals), 60, replace=False)] if len(vals) > 60 else vals
+                ax.scatter(strip_x + rng.uniform(-0.02, 0.02, len(sv)), sv,
+                           c=color, alpha=min(st["alpha"], 0.28), s=5, linewidths=0)
         ax.set_xticks(range(len(models)))
         ax.set_xticklabels(models)
         ax.set_xlim(-0.55, len(models) - 0.45)
         ax.set_ylabel(ylabel)
     from matplotlib.patches import Patch
-
-    fig.legend(
-        [
-            Patch(facecolor="#888888", alpha=0.30, edgecolor="none"),
-            Patch(
-                facecolor="#888888",
-                alpha=0.85,
-                edgecolor="#555555",
-                linewidth=0.6,
-                hatch="////",
-            ),
-        ],
-        ["Y (neural self-recon)", "Z (target decoding)"],
-        loc="lower center",
-        ncol=2,
-        frameon=False,
-        fontsize=9,
-        bbox_to_anchor=(0.5, -0.06),
-    )
-    fig.subplots_adjust(bottom=0.10)
+    handles = [Patch(facecolor="#888888", alpha=_style(t)["alpha"],
+                     edgecolor="#555555" if _style(t)["hatch"] else "none",
+                     linewidth=0.6, hatch=_style(t)["hatch"] or "", label=t)
+               for t in targets]
+    fig.legend(handles=handles, loc="lower center", ncol=n,
+               frameon=False, fontsize=9, bbox_to_anchor=(0.5, -0.04))
+    fig.subplots_adjust(bottom=0.12)
     return fig
 
 
