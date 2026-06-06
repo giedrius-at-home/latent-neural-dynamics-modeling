@@ -41,25 +41,25 @@ Use 3 separate subplots (one per model), each with 4-session rows.
 
 ## Q1 — How well do PSID/DPAD latents predict subcortical LFP and cortical ECoG?
 
-Z target = top-8 LFP (subcortical) + ECoG reconstruction (cortical).
-VARMA included as AR baseline.
+Y target = 12 ECoG features (cortical). Z target = top-8 LFP (subcortical).
+Both Y and Z equally important. VARMA included as AR baseline.
 
 ### Q1.1  1-step-ahead (reconstruction)
 
-**fig_q1_recon_raincloud.png — Pooled reconstruction quality overview**
-- Raincloud: Zp vs Z across sessions, PSID/DPAD/VARMA
+**fig_q1_recon_raincloud.png — Pooled Y + Z reconstruction quality overview**
+- Raincloud: Yp vs Y and Zp vs Z across sessions, PSID/DPAD/VARMA
 - Brief overview; not focal result
 
-**fig_q1_recon_decomp.png — Signal decomposition on Zp (amplitude / inst. freq / phase)**
+**fig_q1_recon_decomp.png — Signal decomposition on Yp + Zp (amplitude / inst. freq / phase)**
 - 3 panels per model:
-  - Amplitude: Hilbert envelope correlation, Zp vs Z
-  - Instantaneous frequency: correlation of d(phase)/dt, Zp vs Z
-  - Phase: circular correlation or PLV, Zp vs Z
+  - Amplitude: Hilbert envelope correlation, Yp vs Y and Zp vs Z
+  - Instantaneous frequency: correlation of d(phase)/dt, Yp vs Y and Zp vs Z
+  - Phase: circular correlation or PLV, Yp vs Y and Zp vs Z
 - What aspect of the neural signal is captured at 1-step
 
 **fig_latent_X1X2.png — X1 vs X2 subspace information content (PSID)**
-- Reconstruct Z using X1-only vs X2-only readout; compare RMSE/r
-- Which subspace drives neural reconstruction
+- Reconstruct Y + Z using X1-only vs X2-only readout; compare RMSE/r
+- Which subspace drives Y and Z reconstruction
 
 **fig_061_cy_importance.png — PSID Cy readout heatmap**
 - |Cy|: which latent dims drive each Y channel
@@ -73,13 +73,13 @@ VARMA included as AR baseline.
 
 ### Q1.2  m-step-ahead (forecast)
 
-**fig_q1_forecast_decay.png — Forecast accuracy vs horizon [PRIMARY]**
+**fig_q1_forecast_decay.png — Y + Z forecast accuracy vs horizon [PRIMARY]**
 - RMSE + Pearson r vs h [0 ... 2 s], one line per model
 - Shaded band = quantile 0.10-0.95 across sessions
 - Annotate: rate-of-change flattens after ~0.5 s; verify 0.95 stable from 500 ms
 
-**fig_q1_forecast_decomp.png — Signal decomposition on Zf at 0.5 s (amplitude / inst. freq / phase)**
-- Same 3-panel structure as fig_q1_recon_decomp, applied to Zf
+**fig_q1_forecast_decomp.png — Signal decomposition on Yf + Zf at 0.5 s (amplitude / inst. freq / phase)**
+- Same 3-panel structure as fig_q1_recon_decomp, applied to Yf + Zf
 - Which signal aspects survive m-step forecast horizon
 
 **fig_A_dynamics.png — A-matrix: A_both vs A_on vs A_off (PSID)**
@@ -90,20 +90,20 @@ VARMA included as AR baseline.
 
 ---
 
-## Q2 — How well do PSID/DPAD latents predict tracing speed and acceleration from cortical ECoG?
+## Q2 — How well do PSID/DPAD latents predict tracing kinematics and cortical ECoG?
 
-Z target = tracing velocity_x and acceleration_magnitude.
-VARMA included as AR baseline.
+Y target = 12 ECoG features. Z target = tracing velocity_x and acceleration_magnitude.
+Both Y and Z equally important. VARMA included as AR baseline.
 
 ### Q2.1  1-step-ahead (reconstruction)
 
-**fig_q2_recon_raincloud.png — Pooled reconstruction quality overview**
-- Raincloud: Zp vs Z across sessions, PSID/DPAD/VARMA
+**fig_q2_recon_raincloud.png — Pooled Y + Z reconstruction quality overview**
+- Raincloud: Yp vs Y and Zp vs Z across sessions, PSID/DPAD/VARMA
 - Brief overview; not focal result
 
-**fig_q2_recon_decomp.png — Signal decomposition on Zp (amplitude / inst. freq / phase)**
-- Same 3-panel structure as Q1, applied to behavioral Z target
-- What aspect of kinematics is captured at 1-step
+**fig_q2_recon_decomp.png — Signal decomposition on Yp + Zp (amplitude / inst. freq / phase)**
+- Same 3-panel structure as Q1, applied to behavioral Y + Z targets
+- What aspect of ECoG and kinematics is captured at 1-step
 
 *Appendix: Figs 9-16 per-session strip plots; per-feature boxplots*
 
@@ -111,12 +111,12 @@ VARMA included as AR baseline.
 
 ### Q2.2  m-step-ahead (forecast)
 
-**fig_q2_forecast_decay.png — Forecast accuracy vs horizon [PRIMARY]**
+**fig_q2_forecast_decay.png — Y + Z forecast accuracy vs horizon [PRIMARY]**
 - RMSE + Pearson r vs h [0 ... 2 s], one line per model
 - Shaded band = quantile 0.10-0.95; annotate plateau after ~0.5 s
 
-**fig_q2_forecast_decomp.png — Signal decomposition on Zf at 0.5 s (amplitude / inst. freq / phase)**
-- Same 3-panel structure as Q1 forecast decomp, behavioral target
+**fig_q2_forecast_decomp.png — Signal decomposition on Yf + Zf at 0.5 s (amplitude / inst. freq / phase)**
+- Same 3-panel structure as Q1 forecast decomp, behavioral Y + Z targets
 
 *Appendix: per-session 4-panel — (ECoG->LFP forecast) and (ECoG->kinematics forecast)*
 

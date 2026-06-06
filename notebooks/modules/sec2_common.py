@@ -575,25 +575,32 @@ def raincloud_slot(
 # ---------------------------------------------------------------------------
 
 
-def dbs_raincloud_fig(pool_r, pool_n, *, models=None, figsize=(9, 4)):
-    """2-row raincloud: r (top) + NRMSE log (bottom). DBS-OFF left / DBS-ON right."""
+def dbs_raincloud_fig(pool_r, pool_n, *, models=None, model_cols=None, figsize=None):
+    """Per-model subplots: 2 rows (r, RMSE) x N cols (models). Each subplot has DBS-OFF left, DBS-ON right."""
     if models is None:
         models = MODELS
+    if model_cols is None:
+        model_cols = MODEL_COLS
+    n = len(models)
+    if figsize is None:
+        figsize = (2.8 * n, 7)
     rng = np.random.default_rng(42)
-    fig, axes = plt.subplots(2, 1, figsize=figsize)
-    for ax, data, ylabel, logy, plabel, ptitle in [
-        (axes[0], pool_r, "Pearson r", False, "A", "Pearson r"),
-        (axes[1], pool_n, "NRMSE (log)", True, "B", "NRMSE"),
-    ]:
-        panel_label(ax, plabel, ptitle)
-        if logy:
-            ax.set_yscale("log")
-        for mi, m in enumerate(models):
+    fig, axes = plt.subplots(2, n, figsize=figsize, layout="constrained")
+    axes = np.atleast_2d(axes)
+    for col, model in enumerate(models):
+        panel_label(axes[0, col], "ABC"[col], model)
+        for row, (pool, ylabel, logy) in enumerate([
+            (pool_r, "Pearson r", False),
+            (pool_n, "NRMSE (log)", True),
+        ]):
+            ax = axes[row, col]
+            if logy:
+                ax.set_yscale("log")
             for d, color, side in [
                 ("off", COLOR_DBS_OFF, "left"),
                 ("on", COLOR_DBS_ON, "right"),
             ]:
-                vals = data.get((m, d), np.array([]))
+                vals = pool.get((model, d), np.array([]))
                 if len(vals) < 2:
                     continue
                 if logy:
@@ -601,14 +608,12 @@ def dbs_raincloud_fig(pool_r, pool_n, *, models=None, figsize=(9, 4)):
                 if len(vals) < 2:
                     continue
                 raincloud_slot(
-                    ax, mi, vals, color=color, alpha=0.45, side=side, logy=logy, rng=rng
+                    ax, 0, vals, color=color, alpha=0.45, side=side, logy=logy, rng=rng
                 )
-        ax.set_xticks(range(len(models)))
-        ax.set_xticklabels(models)
-        ax.set_xlim(-0.55, len(models) - 0.45)
-        ax.set_ylabel(ylabel)
+            ax.set_xticks([])
+            if col == 0:
+                ax.set_ylabel(ylabel)
     from matplotlib.patches import Patch
-
     fig.legend(
         [
             Patch(facecolor=COLOR_DBS_OFF, alpha=0.7, edgecolor="black", linewidth=0.6),
@@ -709,9 +714,9 @@ def band_raincloud_fig(
 
 
 def hilbert_raincloud_sessions_fig(
-    axes, data, session_labels, *, models=None, model_cols=None
+    data, session_labels, *, models=None, model_cols=None, figsize=None
 ):
-    """4x2 raincloud: rows=sessions, cols=[amplitude r, PLV]."""
+    """Per-model subplots: 2 rows (amplitude r, PLV) x N cols (models). Sessions pooled."""
     if models is None:
         models = MODELS
     if model_cols is None:
@@ -719,38 +724,39 @@ def hilbert_raincloud_sessions_fig(
     rng = np.random.default_rng(42)
     from matplotlib.patches import Patch
 
+    n_models = len(models)
+    if figsize is None:
+        figsize = (2.8 * n_models, 7)
     metrics = [("amplitude_r", "r (amplitude)", 0.0), ("phase_plv", "PLV", None)]
-    letters = "ABCDEFGH"
-    for row, sess in enumerate(session_labels):
-        for col, (metric, ylabel, ref) in enumerate(metrics):
+    fig, axes = plt.subplots(2, n_models, figsize=figsize, layout="constrained")
+    axes = np.atleast_2d(axes)
+    for col, model in enumerate(models):
+        panel_label(axes[0, col], "ABC"[col], model)
+        for row, (metric, ylabel, ref) in enumerate(metrics):
             ax = axes[row, col]
-            for pos, model in enumerate(models):
-                vals = data.get((sess, model, metric), np.array([]))
-                if len(vals) > 1:
-                    raincloud_slot(
-                        ax,
-                        pos,
-                        vals,
-                        color=model_cols[model],
-                        alpha=0.65,
-                        side="right",
-                        rng=rng,
-                        strip_cap=60,
-                    )
+            # pool all sessions for this (model, metric)
+            pooled = []
+            for sess in session_labels:
+                v = data.get((sess, model, metric), np.array([]))
+                if len(v) > 0:
+                    pooled.append(v)
+            vals = np.concatenate(pooled) if pooled else np.array([])
+            if len(vals) > 1:
+                raincloud_slot(
+                    ax, 0, vals, color=model_cols[model], alpha=0.65,
+                    side="right", rng=rng, strip_cap=60,
+                )
             if ref is not None:
                 ax.axhline(ref, color="#bbb", lw=0.8, ls=":")
-            ax.set_xticks(range(len(models)))
-            ax.set_xticklabels(models)
-            ax.set_xlim(-0.6, len(models) - 0.4)
+            ax.set_xticks([])
             ax.set_ylabel(ylabel)
-            panel_label(ax, letters[row * 2 + col], f"{sess} - {ylabel}")
-    axes[0, 0].legend([Patch(fc=model_cols[m], alpha=0.72) for m in models], models)
+    return fig
 
 
 def rawenv_raincloud_sessions_fig(
-    axes, data_r, data_n, session_labels, *, models=None, model_cols=None
+    data_r, data_n, session_labels, *, models=None, model_cols=None, figsize=None
 ):
-    """4x2 raincloud: rows=sessions, cols=[r, NRMSE]."""
+    """Per-model subplots: 2 rows (r, NRMSE) x N cols (models). Sessions pooled, raw vs env per subplot."""
     if models is None:
         models = MODELS
     if model_cols is None:
@@ -758,43 +764,35 @@ def rawenv_raincloud_sessions_fig(
     rng = np.random.default_rng(42)
     from matplotlib.patches import Patch
 
-    letters = "ABCDEFGH"
-    for row, sess in enumerate(session_labels):
-        for col, (data, ylabel, ref) in enumerate(
-            [
-                (data_r, "r", 0.0),
-                (data_n, "NRMSE", None),
-            ]
-        ):
+    n_models = len(models)
+    if figsize is None:
+        figsize = (2.8 * n_models, 7)
+    fig, axes = plt.subplots(2, n_models, figsize=figsize, layout="constrained")
+    axes = np.atleast_2d(axes)
+    for col, model in enumerate(models):
+        panel_label(axes[0, col], "ABC"[col], model)
+        for row, (pool, ylabel) in enumerate([
+            (data_r, "r"),
+            (data_n, "NRMSE"),
+        ]):
             ax = axes[row, col]
-            tick_pos, tick_lab, pos = [], [], 0
-            for ttype, tlabel in CH_TYPES:
-                g0 = pos
-                for model in models:
-                    vals = data.get((sess, model, ttype), np.array([]))
-                    if len(vals) > 1:
-                        raincloud_slot(
-                            ax,
-                            pos,
-                            vals,
-                            color=model_cols[model],
-                            alpha=0.65,
-                            side="right",
-                            rng=rng,
-                            strip_cap=60,
-                        )
-                    pos += 1
-                tick_pos.append((g0 + pos - 1) / 2)
-                tick_lab.append(tlabel)
-                pos += 1
-            if ref is not None:
-                ax.axhline(ref, color="#bbb", lw=0.8, ls=":")
+            for pos, (ttype, tlabel) in enumerate(CH_TYPES):
+                pooled = []
+                for sess in session_labels:
+                    v = pool.get((sess, model, ttype), np.array([]))
+                    if len(v) > 0:
+                        pooled.append(v)
+                vals = np.concatenate(pooled) if pooled else np.array([])
+                if len(vals) > 1:
+                    raincloud_slot(
+                        ax, pos, vals, color=model_cols[model], alpha=0.65,
+                        side="right", rng=rng, strip_cap=60,
+                    )
+            ax.set_xticks(range(len(CH_TYPES)))
+            ax.set_xticklabels([t[1] for t in CH_TYPES])
+            ax.set_xlim(-0.6, len(CH_TYPES) - 0.4)
             ax.set_ylabel(ylabel)
-            ax.set_xticks(tick_pos)
-            ax.set_xticklabels(tick_lab)
-            ax.set_xlim(-0.8, pos - 1.2)
-            panel_label(ax, letters[row * 2 + col], f"{sess} - {ylabel}")
-    axes[0, 0].legend([Patch(fc=model_cols[m], alpha=0.72) for m in models], models)
+    return fig
 
 
 # ---------------------------------------------------------------------------
@@ -851,40 +849,42 @@ def horizon_quantile_bands(T, P, window_size=20, sampling_hz=200.0):
 
 
 def horizon_decay_fig(
-    horizon_data, panel_r="Pearson r", panel_n="NRMSE", *, models=None, model_cols=None
+    horizon_data, panel_r="Pearson r", panel_n="NRMSE", *, models=None, model_cols=None, figsize=None
 ):
-    """2-row figure: Pearson r (A) + NRMSE (B) vs horizon. Median + Q10-Q90 band."""
+    """Per-model subplots: 2 rows (r, NRMSE) x N cols (models). Solid=OFF, dashed=ON."""
     if models is None:
         models = MODELS
     if model_cols is None:
         model_cols = MODEL_COLS
     dbs_style = {"off": "-", "on": "--"}
-    fig, axes = plt.subplots(2, 1, figsize=(8, 6), sharex=True, layout="constrained")
-    for (m, dbs), (T, P) in sorted(horizon_data.items()):
-        bands = horizon_quantile_bands(T, P)
-        if bands is None:
-            continue
-        c = model_cols[m]
-        ls = dbs_style[dbs]
-        x = bands["x_ms"]
-        axes[0].plot(
-            x, bands["med_r"], color=c, ls=ls, lw=1.4, label=f"{m} {dbs.upper()}"
-        )
-        axes[0].fill_between(
-            x, bands["q10_r"], bands["q90_r"], color=c, alpha=0.12, lw=0
-        )
-        axes[1].plot(x, bands["med_rmse"], color=c, ls=ls, lw=1.4)
-        axes[1].fill_between(
-            x, bands["q10_rmse"], bands["q90_rmse"], color=c, alpha=0.12, lw=0
-        )
-    axes[0].axhline(0, color="#bbb", lw=0.8, ls=":")
-    axes[1].axhline(1, color="#bbb", lw=0.8, ls=":")
-    panel_label(axes[0], "A", panel_r)
-    panel_label(axes[1], "B", panel_n)
-    axes[0].set_ylabel("Pearson r")
-    axes[1].set_ylabel("NRMSE")
-    axes[1].set_xlabel("Horizon (ms)")
-    axes[0].legend(loc="upper right", frameon=False, fontsize=7)
+    n_models = len(models)
+    if figsize is None:
+        figsize = (3.2 * n_models, 7)
+    fig, axes = plt.subplots(2, n_models, figsize=figsize, sharex=True, layout="constrained")
+    axes = np.atleast_2d(axes)
+    for col, model in enumerate(models):
+        c = model_cols[model]
+        panel_label(axes[0, col], "ABC"[col], model)
+        ax_r, ax_n = axes[0, col], axes[1, col]
+        for (m, dbs), (T, P) in sorted(horizon_data.items()):
+            if m != model:
+                continue
+            bands = horizon_quantile_bands(T, P)
+            if bands is None:
+                continue
+            ls = dbs_style[dbs]
+            x = bands["x_ms"]
+            label = f"{dbs.upper()}"
+            ax_r.plot(x, bands["med_r"], color=c, ls=ls, lw=1.4, label=label)
+            ax_r.fill_between(x, bands["q10_r"], bands["q90_r"], color=c, alpha=0.12, lw=0)
+            ax_n.plot(x, bands["med_rmse"], color=c, ls=ls, lw=1.4)
+            ax_n.fill_between(x, bands["q10_rmse"], bands["q90_rmse"], color=c, alpha=0.12, lw=0)
+        ax_r.axhline(0, color="#bbb", lw=0.8, ls=":")
+        ax_r.set_ylabel(panel_r)
+        ax_n.axhline(1, color="#bbb", lw=0.8, ls=":")
+        ax_n.set_ylabel(panel_n)
+        ax_n.set_xlabel("Horizon (ms)")
+    axes[0, 0].legend(loc="upper right", frameon=False, fontsize=7)
     return fig
 
 
@@ -1119,41 +1119,43 @@ def pool_yz_dbs_cells(per_cell_y, per_cell_z, cells, *, models=None,
     return out
 
 
-def yz_raincloud_fig(pool_r, pool_n, *, models=None, model_cols=None):
-    """Vertical raincloud, 2 panels: top=Pearson r, bottom=NRMSE log.
-    Sides inferred from pool_r keys (model, label). Labels starting with Y get
-    light style; Z get hatched dark style. Pass y_label/z_label to pool_yz_dbs_cells
-    to produce 4-slot figures (e.g. 'Y-neural', 'Z-neural', 'Y-behavioral', 'Z-behavioral')."""
+def yz_raincloud_fig(pool_r, pool_n, *, models=None, model_cols=None, figsize=None):
+    """Per-model subplots: 2 rows (r, RMSE) x N cols (models). Within each subplot,
+    Y/Z sides distinguished by style (light=Y, hatched=Z)."""
     if models is None:
         models = MODELS
     if model_cols is None:
         model_cols = MODEL_COLS
     targets = list(dict.fromkeys(t for _, t in pool_r))
-    n = len(targets)
+    n_targets = len(targets)
     span = 0.80
-    offsets = [(i - (n - 1) / 2) * span / n for i in range(n)]
+    offsets = [(i - (n_targets - 1) / 2) * span / n_targets for i in range(n_targets)]
     rng = np.random.default_rng(42)
 
     def _style(label):
         is_z = label.upper().startswith("Z")
         return {"alpha": 0.80 if is_z else 0.32, "hatch": "////" if is_z else None}
 
-    kde_w = min(0.16, span / n * 0.55)
-    box_w = min(0.07, span / n * 0.25)
+    kde_w = min(0.14, span / n_targets * 0.50)
+    box_w = min(0.06, span / n_targets * 0.22)
+    n_models = len(models)
+    if figsize is None:
+        figsize = (2.8 * n_models, 7)
 
-    fig, axes = plt.subplots(2, 1, figsize=(max(7.0, 5.0 + n * 0.8), 9.0))
-    for ax, data, ylabel, logy, plabel, ptitle in [
-        (axes[0], pool_r, "Pearson r",   False, "A", "Pearson r"),
-        (axes[1], pool_n, "NRMSE (log)", True,  "B", "NRMSE"),
-    ]:
-        panel_label(ax, plabel, ptitle)
-        if logy:
-            ax.set_yscale("log")
-        ax.axhline(1.0 if logy else 0.0, color="black", ls=":", lw=0.6, alpha=0.30, zorder=0)
-        for mi, m in enumerate(models):
-            color = model_cols[m]
+    fig, axes = plt.subplots(2, n_models, figsize=figsize, layout="constrained")
+    axes = np.atleast_2d(axes)
+    for col, model in enumerate(models):
+        color = model_cols[model]
+        for row, (pool, ylabel, logy, plabel) in enumerate([
+            (pool_r, "Pearson r",   False, "A"),
+            (pool_n, "NRMSE (log)", True,  "B"),
+        ]):
+            ax = axes[row, col]
+            if logy:
+                ax.set_yscale("log")
+            ax.axhline(1.0 if logy else 0.0, color="black", ls=":", lw=0.6, alpha=0.30, zorder=0)
             for ti, t in enumerate(targets):
-                vals = data.get((m, t))
+                vals = pool.get((model, t))
                 if vals is None or len(vals) < 2:
                     continue
                 if logy:
@@ -1163,7 +1165,7 @@ def yz_raincloud_fig(pool_r, pool_n, *, models=None, model_cols=None):
                 st = _style(t)
                 off = offsets[ti]
                 side = "left" if off <= 0 else "right"
-                pos = mi + off
+                pos = off  # centre at 0
                 anchor = pos + (-kde_w if side == "left" else kde_w)
                 box_x  = pos + (-box_w * 1.5 if side == "left" else box_w * 1.5)
                 strip_x = pos + (-box_w * 0.4 if side == "left" else box_w * 0.4)
@@ -1181,16 +1183,16 @@ def yz_raincloud_fig(pool_r, pool_n, *, models=None, model_cols=None):
                 sv = vals[rng.choice(len(vals), 60, replace=False)] if len(vals) > 60 else vals
                 ax.scatter(strip_x + rng.uniform(-0.02, 0.02, len(sv)), sv,
                            c=color, alpha=min(st["alpha"], 0.28), s=5, linewidths=0)
-        ax.set_xticks(range(len(models)))
-        ax.set_xticklabels(models)
-        ax.set_xlim(-0.55, len(models) - 0.45)
-        ax.set_ylabel(ylabel)
+            ax.set_xticks([])
+            if col == 0:
+                ax.set_ylabel(ylabel)
+            panel_label(ax, f"{plabel}{'ABCDEFGH'[col]}", model)
     from matplotlib.patches import Patch
     handles = [Patch(facecolor="#888888", alpha=_style(t)["alpha"],
                      edgecolor="#555555" if _style(t)["hatch"] else "none",
                      linewidth=0.6, hatch=_style(t)["hatch"] or "", label=t)
                for t in targets]
-    fig.legend(handles=handles, loc="lower center", ncol=n,
+    fig.legend(handles=handles, loc="lower center", ncol=len(targets),
                frameon=False, fontsize=9, bbox_to_anchor=(0.5, -0.04))
     fig.subplots_adjust(bottom=0.12)
     return fig
