@@ -314,7 +314,7 @@ def collect_rawenv_metrics_per_session(
     return {k: np.array(v) for k, v in out.items()}
 
 
-def collecthilbert_metrics_per_session(
+def collect_hilbert_metrics_per_session(
     session_objs, exp_type, target, split, load_fn, ch_names_fn
 ):
     """Per-session Hilbert amplitude r + PLV (raw channels only).
