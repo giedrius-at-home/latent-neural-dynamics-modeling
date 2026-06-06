@@ -26,8 +26,12 @@ _oof_trial_warned: set[str] = set()
 # ---------------------------------------------------------------------------
 
 SESSIONS = ("PDI1_S2", "PDI1_S4", "PDI4_S2", "PDI4_S3")
-EXP_BEHAVIORAL = "z-as-behavior"
-EXP_NEURAL = "z-as-neural"
+EXP_Z_AS_BEHAVIOR = "z-as-behavior"
+EXP_Z_AS_NEURAL = "z-as-neural"
+
+# Legacy aliases — prefer EXP_Z_AS_NEURAL / EXP_Z_AS_BEHAVIOR
+EXP_BEHAVIORAL = EXP_Z_AS_BEHAVIOR
+EXP_NEURAL = EXP_Z_AS_NEURAL
 
 
 def _latest_pkl_ts(variant_dir: Path) -> Optional[str]:
@@ -154,12 +158,12 @@ def inspect_available_results(results_root: Path) -> pd.DataFrame:
         return n if n > 0 else None
 
     cols_spec = [
-        ("psid", EXP_BEHAVIORAL, "psid/beh"),
-        ("dpad", EXP_BEHAVIORAL, "dpad/beh"),
-        ("varma", EXP_BEHAVIORAL, "varma/beh"),
-        ("psid", EXP_NEURAL, "psid/neu"),
-        ("dpad", EXP_NEURAL, "dpad/neu"),
-        ("varma", EXP_NEURAL, "varma/neu"),
+        ("psid", EXP_Z_AS_BEHAVIOR, "psid/beh"),
+        ("dpad", EXP_Z_AS_BEHAVIOR, "dpad/beh"),
+        ("varma", EXP_Z_AS_BEHAVIOR, "varma/beh"),
+        ("psid", EXP_Z_AS_NEURAL, "psid/neu"),
+        ("dpad", EXP_Z_AS_NEURAL, "dpad/neu"),
+        ("varma", EXP_Z_AS_NEURAL, "varma/neu"),
     ]
 
     rows = []
@@ -176,9 +180,11 @@ def inspect_available_results(results_root: Path) -> pd.DataFrame:
                     f"{ts[-6:]} ({n}T)" if n is not None else f"{ts[-6:]} (train)"
                 )
         cls_beh = load_latest_classification(
-            results_root, "psid", EXP_BEHAVIORAL, session
+            results_root, "psid", EXP_Z_AS_BEHAVIOR, session
         )
-        cls_neu = load_latest_classification(results_root, "psid", EXP_NEURAL, session)
+        cls_neu = load_latest_classification(
+            results_root, "psid", EXP_Z_AS_NEURAL, session
+        )
         row["cls/beh"] = "✓" if cls_beh is not None else "-"
         row["cls/neu"] = "✓" if cls_neu is not None else "-"
         rows.append(row)

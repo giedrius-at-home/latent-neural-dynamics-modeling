@@ -15,33 +15,29 @@ Use 3 separate subplots (one per model), each with 4-session rows.
 
 ---
 
-## 3.0  Data Characterisation & Diagnostics
+## Sec 1 — Data Characterisation & Diagnostics
 
-### 3.0.1  Raw data — sec1
+### Sec 1 (sec1) — Raw data
 
 **fig_005_dbs_significance_heatmap.png — Channel x session DBS significance heatmap**
 - Heatmap: sessions x channels, colour = -log10(p) of DBS-on vs DBS-off PSD difference per band
 - Justifies mRMR channel picks; baseline for spectral separability
 - Source: sec1
 
-*Appendix: fig_002/003 PSD curves, fig_beh behavioral traces, fig_trials/split counts*
+*Appendix: PSD curves, behavioral traces, trial/split counts*
 
 ---
 
-### 3.0.2  Model diagnostics — sec2a
+### Model diagnostics — discarded
 
-**fig_044_mrmr_selection.png — mRMR channel selection heatmap**
-- Top-6 ECoG + top-6 LFP = 12 channels per session; session-stable vs session-specific picks
-- Cross-check against fig_005
-- Source: sec2a
-
-*Appendix: fig_045 corrmat, fig_046 relevance bars, fig_039 DPAD training curves*
+sec2a/2b diagnostics discarded. mRMR selection and training curves not in results chapter.
+Replaced by per-feature bar plots (sec2c figs 078-079c) and DPAD training curves (sec6 fig_064).
 
 ---
 
-## Q1 — How well do PSID/DPAD latents predict subcortical LFP and cortical ECoG?
+## Q1 (z-as-neural) — How well do PSID/DPAD latents predict subcortical LFP and cortical ECoG?
 
-Y target = 12 ECoG features (cortical). Z target = top-8 LFP (subcortical).
+Y target = 12 ECoG features (cortical). Z target = 12 LFP features (subcortical, 6 raw + 6 env, mRMR-selected per session).
 Both Y and Z equally important. VARMA included as AR baseline.
 
 ### Q1.1  1-step-ahead (reconstruction)
@@ -90,7 +86,7 @@ Both Y and Z equally important. VARMA included as AR baseline.
 
 ---
 
-## Q2 — How well do PSID/DPAD latents predict tracing kinematics and cortical ECoG?
+## Q2 (z-as-behavior) — How well do PSID/DPAD latents predict tracing kinematics and cortical ECoG?
 
 Y target = 12 ECoG features. Z target = tracing velocity_x and acceleration_magnitude.
 Both Y and Z equally important. VARMA included as AR baseline.
@@ -167,9 +163,9 @@ Source: sec5, sec6. PSID + VARMA (DPAD parquets pending).
 
 **sec1:** fig_002/003 PSD curves, fig_beh, fig_trials/split counts
 
-**sec2a:** fig_045 corrmat, fig_046 relevance bars, fig_039 DPAD training curves
+**sec2a:** discarded — mRMR selection and training curves not in results chapter
 
-**sec2b/2c:** per-session strip plots; per-channel/per-feature boxplots
+**sec2c:** per-session strip plots; per-channel/per-feature boxplots
 
 **sec2e:** Figs 18-21, 29-36, 50-55 — exemplar single-trial overlays (qualitative)
 

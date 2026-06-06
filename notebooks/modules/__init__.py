@@ -19,8 +19,8 @@ from modules.style import (
     COLOR_VARMA,
 )
 from modules.loaders import (
-    EXP_BEHAVIORAL,
-    EXP_NEURAL,
+    EXP_Z_AS_BEHAVIOR,
+    EXP_Z_AS_NEURAL,
     SESSIONS,
     discover_session_run,
     load_split_results_required,

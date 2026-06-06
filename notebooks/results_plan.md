@@ -1,6 +1,8 @@
-# Results Chapter — Production Plan (Deadline: Friday 10am)
+# Results Chapter — Production Plan (ARCHIVED)
 
-## Time windows
+> This was a time-bound production sprint. Kept for reference. See `RESULTS_CHAPTER_PLAN.md` for current figure plan and `notebooks/results_session_log.md` for what was actually completed.
+
+## Time windows (historical — dates not recorded)
 - Thursday morning: before ~9am (~2-3h) — covers sec1 + sec2c start
 - Thursday work breaks: 4 × 15 min slots
 - Thursday evening: 18:00–23:00 (~5h)

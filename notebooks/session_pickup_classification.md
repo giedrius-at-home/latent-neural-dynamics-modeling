@@ -1,17 +1,36 @@
 # Session Pickup — Classification Results + New Forecasts
 
-Last updated: 2026-06-03
+Last updated: 2026-06-06 — ALL RUNS COMPLETE
 
 ---
 
-## Current run status (as of 06:50 UTC 2026-06-03)
+## Status: DONE (2026-06-06)
 
-### Code fix applied (2026-06-03)
+All 8 DPAD + 8 PSID classification configs have parquets in `results/{dpad,psid}/*/classification/sweep_*.parquet`.
+Latest timestamps: DPAD 2026-06-03, PSID 2026-06-02/04.
 
-`training/sweep.py` patched: DPAD forecast sweep now restricted to `dbs=both` only (non-flipped),
-and flipped forecast sweep disabled entirely for DPAD. Reason: DPAD forecasts by imputation from
-full Y_past — dbs=on/off models cannot handle opposing condition's Y observations (produces NaN).
-See `METHODOLOGY.md` for full rationale.
+### Completed configs
+
+| Framework | Session | z-type | Has parquet |
+|-----------|---------|--------|-------------|
+| DPAD | PDI1_S2 | z-as-behavior | yes (rerun 2026-06-03) |
+| DPAD | PDI1_S2 | z-as-neural | yes |
+| DPAD | PDI1_S4 | z-as-behavior | yes |
+| DPAD | PDI1_S4 | z-as-neural | yes (rerun after crash) |
+| DPAD | PDI4_S2 | z-as-behavior | yes |
+| DPAD | PDI4_S2 | z-as-neural | yes |
+| DPAD | PDI4_S3 | z-as-behavior | yes |
+| DPAD | PDI4_S3 | z-as-neural | yes |
+| PSID | all 8 | both z-types | yes (jacque rsync done) |
+
+### Remaining TODOs
+- [ ] Flip `SHOW_DPAD = True` in `thesis_sec5_classification.ipynb` cell 5
+- [ ] Verify new parquets have `perm_mean_ba`, `y_true`, `y_pred` columns
+- [ ] Build confusion matrices from y_true/y_pred
+
+---
+
+## Historical: run status (2026-06-03)
 
 ### Local — DPAD classification chain (`scripts/wait_then_classify.sh`)
 

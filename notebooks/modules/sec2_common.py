@@ -589,10 +589,12 @@ def dbs_raincloud_fig(pool_r, pool_n, *, models=None, model_cols=None, figsize=N
     axes = np.atleast_2d(axes)
     for col, model in enumerate(models):
         panel_label(axes[0, col], "ABC"[col], model)
-        for row, (pool, ylabel, logy) in enumerate([
-            (pool_r, "Pearson r", False),
-            (pool_n, "NRMSE (log)", True),
-        ]):
+        for row, (pool, ylabel, logy) in enumerate(
+            [
+                (pool_r, "Pearson r", False),
+                (pool_n, "NRMSE (log)", True),
+            ]
+        ):
             ax = axes[row, col]
             if logy:
                 ax.set_yscale("log")
@@ -614,6 +616,7 @@ def dbs_raincloud_fig(pool_r, pool_n, *, models=None, model_cols=None, figsize=N
             if col == 0:
                 ax.set_ylabel(ylabel)
     from matplotlib.patches import Patch
+
     fig.legend(
         [
             Patch(facecolor=COLOR_DBS_OFF, alpha=0.7, edgecolor="black", linewidth=0.6),
@@ -743,8 +746,14 @@ def hilbert_raincloud_sessions_fig(
             vals = np.concatenate(pooled) if pooled else np.array([])
             if len(vals) > 1:
                 raincloud_slot(
-                    ax, 0, vals, color=model_cols[model], alpha=0.65,
-                    side="right", rng=rng, strip_cap=60,
+                    ax,
+                    0,
+                    vals,
+                    color=model_cols[model],
+                    alpha=0.65,
+                    side="right",
+                    rng=rng,
+                    strip_cap=60,
                 )
             if ref is not None:
                 ax.axhline(ref, color="#bbb", lw=0.8, ls=":")
@@ -771,10 +780,12 @@ def rawenv_raincloud_sessions_fig(
     axes = np.atleast_2d(axes)
     for col, model in enumerate(models):
         panel_label(axes[0, col], "ABC"[col], model)
-        for row, (pool, ylabel) in enumerate([
-            (data_r, "r"),
-            (data_n, "NRMSE"),
-        ]):
+        for row, (pool, ylabel) in enumerate(
+            [
+                (data_r, "r"),
+                (data_n, "NRMSE"),
+            ]
+        ):
             ax = axes[row, col]
             for pos, (ttype, tlabel) in enumerate(CH_TYPES):
                 pooled = []
@@ -785,8 +796,14 @@ def rawenv_raincloud_sessions_fig(
                 vals = np.concatenate(pooled) if pooled else np.array([])
                 if len(vals) > 1:
                     raincloud_slot(
-                        ax, pos, vals, color=model_cols[model], alpha=0.65,
-                        side="right", rng=rng, strip_cap=60,
+                        ax,
+                        pos,
+                        vals,
+                        color=model_cols[model],
+                        alpha=0.65,
+                        side="right",
+                        rng=rng,
+                        strip_cap=60,
                     )
             ax.set_xticks(range(len(CH_TYPES)))
             ax.set_xticklabels([t[1] for t in CH_TYPES])
@@ -849,7 +866,13 @@ def horizon_quantile_bands(T, P, window_size=20, sampling_hz=200.0):
 
 
 def horizon_decay_fig(
-    horizon_data, panel_r="Pearson r", panel_n="NRMSE", *, models=None, model_cols=None, figsize=None
+    horizon_data,
+    panel_r="Pearson r",
+    panel_n="NRMSE",
+    *,
+    models=None,
+    model_cols=None,
+    figsize=None,
 ):
     """Per-model subplots: 2 rows (r, NRMSE) x N cols (models). Solid=OFF, dashed=ON."""
     if models is None:
@@ -860,7 +883,9 @@ def horizon_decay_fig(
     n_models = len(models)
     if figsize is None:
         figsize = (3.2 * n_models, 7)
-    fig, axes = plt.subplots(2, n_models, figsize=figsize, sharex=True, layout="constrained")
+    fig, axes = plt.subplots(
+        2, n_models, figsize=figsize, sharex=True, layout="constrained"
+    )
     axes = np.atleast_2d(axes)
     for col, model in enumerate(models):
         c = model_cols[model]
@@ -876,9 +901,13 @@ def horizon_decay_fig(
             x = bands["x_ms"]
             label = f"{dbs.upper()}"
             ax_r.plot(x, bands["med_r"], color=c, ls=ls, lw=1.4, label=label)
-            ax_r.fill_between(x, bands["q10_r"], bands["q90_r"], color=c, alpha=0.12, lw=0)
+            ax_r.fill_between(
+                x, bands["q10_r"], bands["q90_r"], color=c, alpha=0.12, lw=0
+            )
             ax_n.plot(x, bands["med_rmse"], color=c, ls=ls, lw=1.4)
-            ax_n.fill_between(x, bands["q10_rmse"], bands["q90_rmse"], color=c, alpha=0.12, lw=0)
+            ax_n.fill_between(
+                x, bands["q10_rmse"], bands["q90_rmse"], color=c, alpha=0.12, lw=0
+            )
         ax_r.axhline(0, color="#bbb", lw=0.8, ls=":")
         ax_r.set_ylabel(panel_r)
         ax_n.axhline(1, color="#bbb", lw=0.8, ls=":")
@@ -1101,8 +1130,9 @@ def load_forecast(results_root, variant, split, horizon="h5"):
     return load_precomputed_results(fdir, ts, split)
 
 
-def pool_yz_dbs_cells(per_cell_y, per_cell_z, cells, *, models=None,
-                       y_label="Y", z_label="Z"):
+def pool_yz_dbs_cells(
+    per_cell_y, per_cell_z, cells, *, models=None, y_label="Y", z_label="Z"
+):
     """Pool Y and Z metric dicts across cells and DBS into dict[(model, label)]."""
     if models is None:
         models = MODELS
@@ -1146,14 +1176,23 @@ def yz_raincloud_fig(pool_r, pool_n, *, models=None, model_cols=None, figsize=No
     axes = np.atleast_2d(axes)
     for col, model in enumerate(models):
         color = model_cols[model]
-        for row, (pool, ylabel, logy, plabel) in enumerate([
-            (pool_r, "Pearson r",   False, "A"),
-            (pool_n, "NRMSE (log)", True,  "B"),
-        ]):
+        for row, (pool, ylabel, logy, plabel) in enumerate(
+            [
+                (pool_r, "Pearson r", False, "A"),
+                (pool_n, "NRMSE (log)", True, "B"),
+            ]
+        ):
             ax = axes[row, col]
             if logy:
                 ax.set_yscale("log")
-            ax.axhline(1.0 if logy else 0.0, color="black", ls=":", lw=0.6, alpha=0.30, zorder=0)
+            ax.axhline(
+                1.0 if logy else 0.0,
+                color="black",
+                ls=":",
+                lw=0.6,
+                alpha=0.30,
+                zorder=0,
+            )
             for ti, t in enumerate(targets):
                 vals = pool.get((model, t))
                 if vals is None or len(vals) < 2:
@@ -1167,33 +1206,75 @@ def yz_raincloud_fig(pool_r, pool_n, *, models=None, model_cols=None, figsize=No
                 side = "left" if off <= 0 else "right"
                 pos = off  # centre at 0
                 anchor = pos + (-kde_w if side == "left" else kde_w)
-                box_x  = pos + (-box_w * 1.5 if side == "left" else box_w * 1.5)
+                box_x = pos + (-box_w * 1.5 if side == "left" else box_w * 1.5)
                 strip_x = pos + (-box_w * 0.4 if side == "left" else box_w * 0.4)
-                kde_half_violin_vert(ax, vals, x_anchor=anchor, color=color,
-                                     alpha=st["alpha"], hatch=st["hatch"],
-                                     logy=logy, bw=0.55, width=kde_w, side=side)
-                bp = dict(facecolor=color, alpha=st["alpha"], edgecolor=color, linewidth=1.0)
+                kde_half_violin_vert(
+                    ax,
+                    vals,
+                    x_anchor=anchor,
+                    color=color,
+                    alpha=st["alpha"],
+                    hatch=st["hatch"],
+                    logy=logy,
+                    bw=0.55,
+                    width=kde_w,
+                    side=side,
+                )
+                bp = dict(
+                    facecolor=color, alpha=st["alpha"], edgecolor=color, linewidth=1.0
+                )
                 if st["hatch"]:
                     bp["hatch"] = st["hatch"]
-                ax.boxplot([vals], positions=[box_x], widths=box_w, vert=True,
-                           patch_artist=True, showfliers=False, boxprops=bp,
-                           medianprops=dict(color=color, linewidth=1.4),
-                           whiskerprops=dict(color=color, linewidth=1.0),
-                           capprops=dict(color=color, linewidth=1.0))
-                sv = vals[rng.choice(len(vals), 60, replace=False)] if len(vals) > 60 else vals
-                ax.scatter(strip_x + rng.uniform(-0.02, 0.02, len(sv)), sv,
-                           c=color, alpha=min(st["alpha"], 0.28), s=5, linewidths=0)
+                ax.boxplot(
+                    [vals],
+                    positions=[box_x],
+                    widths=box_w,
+                    vert=True,
+                    patch_artist=True,
+                    showfliers=False,
+                    boxprops=bp,
+                    medianprops=dict(color=color, linewidth=1.4),
+                    whiskerprops=dict(color=color, linewidth=1.0),
+                    capprops=dict(color=color, linewidth=1.0),
+                )
+                sv = (
+                    vals[rng.choice(len(vals), 60, replace=False)]
+                    if len(vals) > 60
+                    else vals
+                )
+                ax.scatter(
+                    strip_x + rng.uniform(-0.02, 0.02, len(sv)),
+                    sv,
+                    c=color,
+                    alpha=min(st["alpha"], 0.28),
+                    s=5,
+                    linewidths=0,
+                )
             ax.set_xticks([])
             if col == 0:
                 ax.set_ylabel(ylabel)
             panel_label(ax, f"{plabel}{'ABCDEFGH'[col]}", model)
     from matplotlib.patches import Patch
-    handles = [Patch(facecolor="#888888", alpha=_style(t)["alpha"],
-                     edgecolor="#555555" if _style(t)["hatch"] else "none",
-                     linewidth=0.6, hatch=_style(t)["hatch"] or "", label=t)
-               for t in targets]
-    fig.legend(handles=handles, loc="lower center", ncol=len(targets),
-               frameon=False, fontsize=9, bbox_to_anchor=(0.5, -0.04))
+
+    handles = [
+        Patch(
+            facecolor="#888888",
+            alpha=_style(t)["alpha"],
+            edgecolor="#555555" if _style(t)["hatch"] else "none",
+            linewidth=0.6,
+            hatch=_style(t)["hatch"] or "",
+            label=t,
+        )
+        for t in targets
+    ]
+    fig.legend(
+        handles=handles,
+        loc="lower center",
+        ncol=len(targets),
+        frameon=False,
+        fontsize=9,
+        bbox_to_anchor=(0.5, -0.04),
+    )
     fig.subplots_adjust(bottom=0.12)
     return fig
 
