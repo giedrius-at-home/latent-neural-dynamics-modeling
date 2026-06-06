@@ -134,7 +134,9 @@ def train_one(config_path: str, model_dbs: str) -> str:
 
 
 @app.function(image=_image, gpu="A10G", timeout=86400, volumes=_VOLUMES)
-def run_post_train(config_path: str, phases: str = "predictions,forecasts,classification") -> str:
+def run_post_train(
+    config_path: str, phases: str = "predictions,forecasts,classification"
+) -> str:
     """Stage 2: post-train phases for one config (default: all non-train phases)."""
     _run_dpad(config_path, phases=phases)
     return f"post_train:{config_path}:{phases}"
@@ -166,13 +168,19 @@ def _run_sweep(label: str, entries: list, phases: str = "") -> None:
         # Forward exactly the requested post-train phases (drop 'train'); the
         # container fn no longer hardcodes predictions,forecasts,classification.
         post_phase_list = [
-            p for p in (phases.split(",") if phases else
-                        ["predictions", "forecasts", "classification"])
+            p
+            for p in (
+                phases.split(",")
+                if phases
+                else ["predictions", "forecasts", "classification"]
+            )
             if p.strip() and p.strip() != "train"
         ]
         post_phases = ",".join(post_phase_list)
         post_args = [(cfg, post_phases) for (cfg, _) in entries]
-        print(f"[{label}] 2/2 post-train ({post_phases}): {len(post_args)} containers ...")
+        print(
+            f"[{label}] 2/2 post-train ({post_phases}): {len(post_args)} containers ..."
+        )
         for r in run_post_train.starmap(post_args):
             print("  ", r)
 
@@ -194,7 +202,9 @@ def sweep(configs_dir: str, mode: str = "", phases: str = ""):
 
 
 @app.local_entrypoint()
-def sweep_spawn(configs_dir: str, mode: str = "", phases: str = "forecasts,classification"):
+def sweep_spawn(
+    configs_dir: str, mode: str = "", phases: str = "forecasts,classification"
+):
     """Fire-and-forget post-train sweep via ``.spawn()``.
 
     Unlike ``sweep`` (blocking ``.starmap`` that ties container lifetime to the

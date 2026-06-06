@@ -10,30 +10,39 @@ from pathlib import Path
 
 HERE = Path(__file__).parent
 
-SESSIONS = ['PDI1_S2', 'PDI1_S4', 'PDI4_S2', 'PDI4_S3']
-MODES    = ['z-as-behavior', 'z-as-neural']
+SESSIONS = ["PDI1_S2", "PDI1_S4", "PDI4_S2", "PDI4_S3"]
+MODES = ["z-as-behavior", "z-as-neural"]
 H_VALUES = [5.0]
 
+
 def slug(session, mode):
-    s = session.lower().replace('_', '-')
-    return f'{s}-{mode}'
+    s = session.lower().replace("_", "-")
+    return f"{s}-{mode}"
+
 
 def kernel_id(session, mode):
-    return f'giedriusmirklys/dpad-forecast-{slug(session, mode)}'
+    return f"giedriusmirklys/dpad-forecast-{slug(session, mode)}"
+
 
 def nb_filename(session, mode):
-    return f'dpad_forecast_{session}_{mode}.ipynb'
+    return f"dpad_forecast_{session}_{mode}.ipynb"
+
 
 def meta_filename(session, mode):
-    return f'kernel-metadata-forecast-{session}-{mode}.json'
+    return f"kernel-metadata-forecast-{session}-{mode}.json"
+
 
 # ── Cell templates ────────────────────────────────────────────────────────────
 
+
 def cell_md(session, mode):
-    return (f'# DPAD Forecast — {session} / {mode}\n\n'
-            f'H_VALUES={H_VALUES}\n\n'
-            f'Runs inline in Kaggle native Python 3.12 for direct GPU access.\n'
-            f'Dataset: `giedriusmirklys/dpad-splits`')
+    return (
+        f"# DPAD Forecast — {session} / {mode}\n\n"
+        f"H_VALUES={H_VALUES}\n\n"
+        f"Runs inline in Kaggle native Python 3.12 for direct GPU access.\n"
+        f"Dataset: `giedriusmirklys/dpad-splits`"
+    )
+
 
 # Install only packages not already present in Kaggle's image.
 # TF + CUDA are pre-installed with GPU support — don't reinstall.
@@ -95,6 +104,7 @@ for y in (DATA/'training/setups/dpad_modal').glob('*.yaml'):
 (WORK/'logs'/'dpad').mkdir(parents=True, exist_ok=True)
 (WORK/'tmp_cfgs').mkdir(exist_ok=True)
 print(f'staged {len(list((WORK/"results"/"dpad").iterdir()))} variant dirs')"""
+
 
 def cell_run(session, mode):
     return f"""\
@@ -184,6 +194,7 @@ for h in H_VALUES:
 
 print(f'\\nFinished. {{len(errors)}} errors: {{errors}}')"""
 
+
 def cell_verify(session, mode):
     return f"""\
 from pathlib import Path
@@ -195,14 +206,23 @@ for h in {repr(H_VALUES)}:
 tars = sorted(WORK.glob('forecast_*.tar.gz'))
 print(f'checkpoints: {{[t.name for t in tars]}}')"""
 
+
 # ── Notebook builder ──────────────────────────────────────────────────────────
 
+
 def make_code_cell(src):
-    return {"cell_type": "code", "execution_count": None,
-            "metadata": {}, "outputs": [], "source": src}
+    return {
+        "cell_type": "code",
+        "execution_count": None,
+        "metadata": {},
+        "outputs": [],
+        "source": src,
+    }
+
 
 def make_md_cell(src):
     return {"cell_type": "markdown", "metadata": {}, "source": src}
+
 
 def make_notebook(session, mode):
     return {
@@ -214,16 +234,21 @@ def make_notebook(session, mode):
             make_code_cell(cell_verify(session, mode)),
         ],
         "metadata": {
-            "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
+            "kernelspec": {
+                "display_name": "Python 3",
+                "language": "python",
+                "name": "python3",
+            },
             "language_info": {"name": "python", "version": "3.12.0"},
         },
         "nbformat": 4,
         "nbformat_minor": 5,
     }
 
+
 def make_metadata(session, mode):
-    s = session.replace('_', ' ')
-    m = mode.replace('-', ' ')
+    s = session.replace("_", " ")
+    m = mode.replace("-", " ")
     title = f"DPAD Forecast {s} {m}"
     return {
         "id": kernel_id(session, mode),
@@ -240,14 +265,15 @@ def make_metadata(session, mode):
         "kernel_sources": [],
     }
 
+
 # ── Generate ──────────────────────────────────────────────────────────────────
 
 for session in SESSIONS:
     for mode in MODES:
-        nb_path   = HERE / nb_filename(session, mode)
+        nb_path = HERE / nb_filename(session, mode)
         meta_path = HERE / meta_filename(session, mode)
         nb_path.write_text(json.dumps(make_notebook(session, mode), indent=1))
         meta_path.write_text(json.dumps(make_metadata(session, mode), indent=2))
-        print(f'wrote {nb_path.name}')
+        print(f"wrote {nb_path.name}")
 
-print(f'\nDone. {len(SESSIONS) * len(MODES)} notebooks generated.')
+print(f"\nDone. {len(SESSIONS) * len(MODES)} notebooks generated.")

@@ -37,6 +37,7 @@ def _reorder_dims_for_mne(X: np.ndarray) -> np.ndarray:
 def create_pipeline(fs: float = 80, feature_source: str = "Xp") -> Pipeline:
     """LDA decoding pipeline: transpose -> CSP(4) -> scale -> LDA."""
     from mne.decoding import CSP
+
     steps = [
         ("transpose", FunctionTransformer(_reorder_dims_for_mne)),
         ("csp", CSP(n_components=4, reg="ledoit_wolf", log=True)),
@@ -142,8 +143,16 @@ def run_cv(
     fpr, tpr, _ = roc_curve(y, y_proba)
     roc_auc_val = auc(fpr, tpr)
 
-    cv_y_true = np.concatenate(cv_y_true_parts) if cv_y_true_parts else np.array([], dtype=np.int64)
-    cv_y_pred = np.concatenate(cv_y_pred_parts) if cv_y_pred_parts else np.array([], dtype=np.int64)
+    cv_y_true = (
+        np.concatenate(cv_y_true_parts)
+        if cv_y_true_parts
+        else np.array([], dtype=np.int64)
+    )
+    cv_y_pred = (
+        np.concatenate(cv_y_pred_parts)
+        if cv_y_pred_parts
+        else np.array([], dtype=np.int64)
+    )
 
     results = {
         "best_params": fixed_params,

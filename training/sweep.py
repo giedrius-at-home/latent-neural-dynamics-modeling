@@ -475,7 +475,9 @@ def run_forecast_sweep(
                 if clf_dir is not None:
                     clf_dir.mkdir(parents=True, exist_ok=True)
                     tag = "flipped" if flipped else "forecast"
-                    joblib.dump(clf, clf_dir / f"clf_{tag}_{dbs_train}_{sub}_h{h:.1f}.joblib")
+                    joblib.dump(
+                        clf, clf_dir / f"clf_{tag}_{dbs_train}_{sub}_h{h:.1f}.joblib"
+                    )
                 for r in rows:
                     m_val = float(r["score_label"].split("=")[1])
                     out.append(
@@ -555,10 +557,16 @@ def run_sweep(
         )
     )
     log.info("forecast sweep ...")
-    rows.extend(run_forecast_sweep(**common, **forecast_kwargs, flipped=False, clf_dir=clf_dir))
+    rows.extend(
+        run_forecast_sweep(**common, **forecast_kwargs, flipped=False, clf_dir=clf_dir)
+    )
     if not pipeline.startswith("dpad"):
         log.info("forecast sweep (flipped) ...")
-        rows.extend(run_forecast_sweep(**common, **forecast_kwargs, flipped=True, clf_dir=clf_dir))
+        rows.extend(
+            run_forecast_sweep(
+                **common, **forecast_kwargs, flipped=True, clf_dir=clf_dir
+            )
+        )
 
     out_dir.mkdir(parents=True, exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")

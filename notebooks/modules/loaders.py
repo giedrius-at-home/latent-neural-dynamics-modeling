@@ -88,7 +88,13 @@ def load_latest(
     """
     found = _discover_variant(results_root, framework, exp_type, session, condition)
     if found is None:
-        logger.info("load_latest: no variant for (%s, %s, %s, %s)", framework, exp_type, session, condition)
+        logger.info(
+            "load_latest: no variant for (%s, %s, %s, %s)",
+            framework,
+            exp_type,
+            session,
+            condition,
+        )
         return None
     variant_dir, run_ts = found
     resolved_split = _SPLIT_PATH.get(split, split)
@@ -166,8 +172,12 @@ def inspect_available_results(results_root: Path) -> pd.DataFrame:
             else:
                 vdir, ts = found
                 n = _trial_count(vdir, ts)
-                row[label] = f"{ts[-6:]} ({n}T)" if n is not None else f"{ts[-6:]} (train)"
-        cls_beh = load_latest_classification(results_root, "psid", EXP_BEHAVIORAL, session)
+                row[label] = (
+                    f"{ts[-6:]} ({n}T)" if n is not None else f"{ts[-6:]} (train)"
+                )
+        cls_beh = load_latest_classification(
+            results_root, "psid", EXP_BEHAVIORAL, session
+        )
         cls_neu = load_latest_classification(results_root, "psid", EXP_NEURAL, session)
         row["cls/beh"] = "✓" if cls_beh is not None else "-"
         row["cls/neu"] = "✓" if cls_neu is not None else "-"
@@ -313,7 +323,9 @@ def load_split_results(
     split: str,
 ) -> Optional[Dict[str, Any]]:
     resolved_split = _SPLIT_PATH.get(split, split)
-    return load_precomputed_results(_variant_dir(results_root, variant), run_timestamp, resolved_split)
+    return load_precomputed_results(
+        _variant_dir(results_root, variant), run_timestamp, resolved_split
+    )
 
 
 def has_dpad_data(
@@ -326,7 +338,11 @@ def has_dpad_data(
     if not variant or not run_ts:
         return False
     resolved_split = _SPLIT_PATH.get(split, split)
-    pq_dir = _variant_dir(results_root, variant) / resolved_split / f"test_results_{run_ts}.parquet"
+    pq_dir = (
+        _variant_dir(results_root, variant)
+        / resolved_split
+        / f"test_results_{run_ts}.parquet"
+    )
     if not pq_dir.is_dir():
         return False
     return next(pq_dir.rglob("0.parquet"), None) is not None

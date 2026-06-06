@@ -23,7 +23,9 @@ _DPADFWK_FORECAST_CACHE: dict[int, int] = {}
 _DPADFWK_GPU_FN_CACHE: dict[int, object] = {}
 
 
-def _build_dpad_gpu_forecast_fn(cell1_A, cell1_C, model1_Cy, cell2_A, cell2_C, model2_Cz):
+def _build_dpad_gpu_forecast_fn(
+    cell1_A, cell1_C, model1_Cy, cell2_A, cell2_C, model2_Cz
+):
     """Return a @tf.function that runs the DPAD autoregressive forecast on GPU.
 
     Replaces DPAD's Python-level 400-step loop with a single compiled
@@ -43,21 +45,21 @@ def _build_dpad_gpu_forecast_fn(cell1_A, cell1_C, model1_Cy, cell2_A, cell2_C, m
     def _forecast(x1, x2, y, m):
         x1_ta = tf.TensorArray(tf.float32, size=m, dynamic_size=False)
         x2_ta = tf.TensorArray(tf.float32, size=m, dynamic_size=False)
-        y_ta  = tf.TensorArray(tf.float32, size=m, dynamic_size=False)
-        z_ta  = tf.TensorArray(tf.float32, size=m, dynamic_size=False)
+        y_ta = tf.TensorArray(tf.float32, size=m, dynamic_size=False)
+        z_ta = tf.TensorArray(tf.float32, size=m, dynamic_size=False)
         for i in tf.range(m):
             x1_new = cell1_A.apply_func(tf.concat([x1, y], axis=-1))
             z1_new = cell1_C.apply_func(x1_new)
             y1_new = model1_Cy.apply_func(x1_new)
             x2_new = cell2_A.apply_func(tf.concat([x2, x1, y], axis=-1))
-            y      = cell2_C.apply_func((x2_new, y1_new))
-            z      = model2_Cz.apply_func((x2_new, z1_new))
+            y = cell2_C.apply_func((x2_new, y1_new))
+            z = model2_Cz.apply_func((x2_new, z1_new))
             x1 = x1_new
             x2 = x2_new
             x1_ta = x1_ta.write(i, x1)
             x2_ta = x2_ta.write(i, x2)
-            y_ta  = y_ta.write(i, y)
-            z_ta  = z_ta.write(i, z)
+            y_ta = y_ta.write(i, y)
+            z_ta = z_ta.write(i, z)
         return x1_ta.stack(), x2_ta.stack(), y_ta.stack(), z_ta.stack()
 
     return _forecast
@@ -121,7 +123,7 @@ def dpad_gpu_forecast(
     T = y_past.shape[0]
     x1_T = tf.constant(Xp_h[T - 1 : T, :n1], dtype=tf.float32)
     x2_T = tf.constant(Xp_h[T - 1 : T, n1:], dtype=tf.float32)
-    y_T  = tf.constant(Yp_h[T - 1 : T, :],   dtype=tf.float32)
+    y_T = tf.constant(Yp_h[T - 1 : T, :], dtype=tf.float32)
 
     x1_f, x2_f, y_f, z_f = gpu_fn(x1_T, x2_T, y_T, m)
     Zf = z_f[:, 0, :].numpy()
@@ -283,6 +285,7 @@ class DPADWrapper(BaseWrapper):
                 pad_len = block_samples - remainder
                 return np.concatenate([arr, np.zeros((pad_len, arr.shape[1]))], axis=0)
             return arr
+
         def _stack_last(steps_list):
             return np.vstack([arr[-1:, :] for arr in steps_list])
 

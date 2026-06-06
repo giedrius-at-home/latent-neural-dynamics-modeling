@@ -420,7 +420,9 @@ def collect_pooled_rmse(
 
     session_runs = _discover_all(results_root, sessions, exp_type)
     if not session_runs:
-        raise ThesisDataError("collect_pooled_rmse: no sessions have valid PSID+VARMA results.")
+        raise ThesisDataError(
+            "collect_pooled_rmse: no sessions have valid PSID+VARMA results."
+        )
 
     if include_dpad is None:
         show_dpad = any(
@@ -521,7 +523,9 @@ def collect_pooled_rmse(
         )
 
     means = tuple(float(np.mean(b)) if len(b) else float("nan") for b in score_buckets)
-    sems = tuple(_sem(np.array(b)) if len(b) > 1 else float("nan") for b in score_buckets)
+    sems = tuple(
+        _sem(np.array(b)) if len(b) > 1 else float("nan") for b in score_buckets
+    )
 
     w = WilcoxonResults()
     if run_wilcoxon:
@@ -848,7 +852,9 @@ def collect_neural_band_metric(
             if runs.get(m, ("", ""))[0]
         }
         channels = {m: resolve_fn(res[m], runs[m][0]) for m in model_keys if m in res}
-        band_idx = {m: _band_indices(channels[m], order) for m in model_keys if m in channels}
+        band_idx = {
+            m: _band_indices(channels[m], order) for m in model_keys if m in channels
+        }
 
         if "psid" not in model_keys or res.get("psid") is None:
             ref = next((m for m in model_keys if res.get(m) is not None), None)
@@ -1002,7 +1008,9 @@ def collect_session_grouped(
     """
     session_runs = _discover_all(results_root, sessions, exp_type)
     if not session_runs:
-        raise ThesisDataError("collect_session_grouped: no sessions have valid PSID+VARMA results.")
+        raise ThesisDataError(
+            "collect_session_grouped: no sessions have valid PSID+VARMA results."
+        )
 
     if include_dpad is None:
         show_dpad = any(

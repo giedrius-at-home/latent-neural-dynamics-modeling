@@ -14,8 +14,19 @@ from pathlib import Path
 from scipy.signal import hilbert
 from scipy.stats import pearsonr, gaussian_kde
 
-from modules.style import COLOR_DBS_OFF, COLOR_DBS_ON, COLOR_PSID, COLOR_DPAD, COLOR_VARMA, panel_label
-from modules.loaders import discover_session_run, load_split_results_required, load_precomputed_results
+from modules.style import (
+    COLOR_DBS_OFF,
+    COLOR_DBS_ON,
+    COLOR_PSID,
+    COLOR_DPAD,
+    COLOR_VARMA,
+    panel_label,
+)
+from modules.loaders import (
+    discover_session_run,
+    load_split_results_required,
+    load_precomputed_results,
+)
 from modules.utils import normalize_stim
 from modules.lib.transforms import reshape_future_z_time_first
 
@@ -24,61 +35,73 @@ from modules.lib.transforms import reshape_future_z_time_first
 class SessionObj:
     label: str
     psid_variant: str = ""
-    psid_run_ts:  str = ""
+    psid_run_ts: str = ""
     dpad_variant: str = ""
-    dpad_run_ts:  str = ""
+    dpad_run_ts: str = ""
     varma_variant: str = ""
-    varma_run_ts:  str = ""
+    varma_run_ts: str = ""
 
 
 def make_session_obj(results_root, session, exp_type):
-    pv, pt = discover_session_run(results_root, "psid",  exp_type, session)
-    dv, dt = discover_session_run(results_root, "dpad",  exp_type, session)
+    pv, pt = discover_session_run(results_root, "psid", exp_type, session)
+    dv, dt = discover_session_run(results_root, "dpad", exp_type, session)
     vv, vt = discover_session_run(results_root, "varma", exp_type, session)
-    return SessionObj(label=session,
-                      psid_variant=pv or "",  psid_run_ts=pt or "",
-                      dpad_variant=dv or "",  dpad_run_ts=dt or "",
-                      varma_variant=vv or "", varma_run_ts=vt or "")
+    return SessionObj(
+        label=session,
+        psid_variant=pv or "",
+        psid_run_ts=pt or "",
+        dpad_variant=dv or "",
+        dpad_run_ts=dt or "",
+        varma_variant=vv or "",
+        varma_run_ts=vt or "",
+    )
+
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
-MODELS      = ["PSID", "DPAD", "VARMA"]
-MODEL_COLS  = {"PSID": COLOR_PSID, "DPAD": COLOR_DPAD, "VARMA": COLOR_VARMA}
-BAND_ORDER  = ["theta", "alpha", "beta", "gamma"]
-CH_TYPES    = [("raw", "oscillatory\n(raw)"), ("env", "amplitude\n(env)")]
+MODELS = ["PSID", "DPAD", "VARMA"]
+MODEL_COLS = {"PSID": COLOR_PSID, "DPAD": COLOR_DPAD, "VARMA": COLOR_VARMA}
+BAND_ORDER = ["theta", "alpha", "beta", "gamma"]
+CH_TYPES = [("raw", "oscillatory\n(raw)"), ("env", "amplitude\n(env)")]
 SAMPLING_HZ = 200.0
 
 # ---------------------------------------------------------------------------
 # Hilbert metric functions
 # ---------------------------------------------------------------------------
 
+
 def amp_r(t_sig, p_sig):
-    ht = hilbert(t_sig); hp = hilbert(p_sig)
+    ht = hilbert(t_sig)
+    hp = hilbert(p_sig)
     return float(pearsonr(np.abs(ht), np.abs(hp))[0])
 
 
 def phase_plv(t_sig, p_sig):
-    ht = hilbert(t_sig); hp = hilbert(p_sig)
+    ht = hilbert(t_sig)
+    hp = hilbert(p_sig)
     return float(np.abs(np.mean(np.exp(1j * (np.angle(ht) - np.angle(hp))))))
 
 
 def inst_freq_r(t_sig, p_sig):
-    ht = hilbert(t_sig); hp = hilbert(p_sig)
-    return float(pearsonr(np.diff(np.unwrap(np.angle(ht))),
-                          np.diff(np.unwrap(np.angle(hp))))[0])
+    ht = hilbert(t_sig)
+    hp = hilbert(p_sig)
+    return float(
+        pearsonr(np.diff(np.unwrap(np.angle(ht))), np.diff(np.unwrap(np.angle(hp))))[0]
+    )
 
 
 DECOMP_METRICS = [
-    ("amplitude_r", "r (amplitude)",  0.0,  amp_r),
-    ("inst_freq_r", "r (inst. freq)", 0.0,  inst_freq_r),
-    ("phase_plv",   "PLV",            None, phase_plv),
+    ("amplitude_r", "r (amplitude)", 0.0, amp_r),
+    ("inst_freq_r", "r (inst. freq)", 0.0, inst_freq_r),
+    ("phase_plv", "PLV", None, phase_plv),
 ]
 
 # ---------------------------------------------------------------------------
 # Channel name helpers
 # ---------------------------------------------------------------------------
+
 
 def load_channel_names(results_root, session_label, exp_type, feat_col):
     """Read Z_features / Y_features list from PSID train parquet."""
@@ -106,9 +129,18 @@ def parse_band(ch_name):
 # Trial iterator — core loop shared by all collectors
 # ---------------------------------------------------------------------------
 
-def _iter_trial_channels(session_objs, exp_type, target, split,
-                          load_fn, ch_names_fn,
-                          *, raw_only=False, all_ch=False):
+
+def _iter_trial_channels(
+    session_objs,
+    exp_type,
+    target,
+    split,
+    load_fn,
+    ch_names_fn,
+    *,
+    raw_only=False,
+    all_ch=False,
+):
     """Yield (session_label, model_name, stim, ch_idx, ch_name, true_vec, pred_vec).
 
     load_fn(variant, run_ts, split) -> results dict with keys:
@@ -132,8 +164,8 @@ def _iter_trial_channels(session_objs, exp_type, target, split,
         if not use_idx:
             continue
         for model_name, variant, run_ts in [
-            ("PSID",  tri.psid_variant,  tri.psid_run_ts),
-            ("DPAD",  tri.dpad_variant,  tri.dpad_run_ts),
+            ("PSID", tri.psid_variant, tri.psid_run_ts),
+            ("DPAD", tri.dpad_variant, tri.dpad_run_ts),
             ("VARMA", tri.varma_variant, tri.varma_run_ts),
         ]:
             if not variant or not run_ts:
@@ -150,7 +182,7 @@ def _iter_trial_channels(session_objs, exp_type, target, split,
                 stim = normalize_stim(res["stim"][i])
                 if stim is None:
                     continue
-                z  = np.array(true_list[i], dtype=float)
+                z = np.array(true_list[i], dtype=float)
                 zp = np.array(pred_list[i] if pred_list else [], dtype=float)
                 if z.ndim == 1:
                     z = z[:, None]
@@ -163,15 +195,19 @@ def _iter_trial_channels(session_objs, exp_type, target, split,
                     mask = np.isfinite(t) & np.isfinite(p)
                     if mask.sum() < 20:
                         continue
-                    yield tri.label, model_name, stim, ch, ch_names[ch], t[mask], p[mask]
+                    yield tri.label, model_name, stim, ch, ch_names[ch], t[mask], p[
+                        mask
+                    ]
 
 
 # ---------------------------------------------------------------------------
 # Metric collectors (use _iter_trial_channels)
 # ---------------------------------------------------------------------------
 
-def collect_scalar_metric(session_objs, exp_type, target, metric, split,
-                           load_fn, score_fn, ch_names_fn):
+
+def collect_scalar_metric(
+    session_objs, exp_type, target, metric, split, load_fn, score_fn, ch_names_fn
+):
     """dict[(session, model, stim)] -> 1-D array of per-trial-channel values."""
     out = {}
     for tri in session_objs:
@@ -179,8 +215,8 @@ def collect_scalar_metric(session_objs, exp_type, target, metric, split,
         if not ch_names:
             continue
         for model_name, variant, run_ts in [
-            ("PSID",  tri.psid_variant,  tri.psid_run_ts),
-            ("DPAD",  tri.dpad_variant,  tri.dpad_run_ts),
+            ("PSID", tri.psid_variant, tri.psid_run_ts),
+            ("DPAD", tri.dpad_variant, tri.dpad_run_ts),
             ("VARMA", tri.varma_variant, tri.varma_run_ts),
         ]:
             if not variant or not run_ts:
@@ -208,8 +244,9 @@ def collect_scalar_metric(session_objs, exp_type, target, metric, split,
     return {k: np.array(v) for k, v in out.items()}
 
 
-def collect_rawenv_metrics(session_objs, exp_type, target, metric, split,
-                            load_fn, score_fn, ch_names_fn):
+def collect_rawenv_metrics(
+    session_objs, exp_type, target, metric, split, load_fn, score_fn, ch_names_fn
+):
     """Pooled across sessions: dict[(model, 'raw'|'env')] -> array."""
     out = {}
     for tri in session_objs:
@@ -218,8 +255,8 @@ def collect_rawenv_metrics(session_objs, exp_type, target, metric, split,
             continue
         ch_types = ["env" if n.endswith("_env") else "raw" for n in ch_names]
         for model_name, variant, run_ts in [
-            ("PSID",  tri.psid_variant,  tri.psid_run_ts),
-            ("DPAD",  tri.dpad_variant,  tri.dpad_run_ts),
+            ("PSID", tri.psid_variant, tri.psid_run_ts),
+            ("DPAD", tri.dpad_variant, tri.dpad_run_ts),
             ("VARMA", tri.varma_variant, tri.varma_run_ts),
         ]:
             if not variant or not run_ts:
@@ -241,8 +278,9 @@ def collect_rawenv_metrics(session_objs, exp_type, target, metric, split,
     return {k: np.array(v) for k, v in out.items()}
 
 
-def collect_rawenv_metrics_per_session(session_objs, exp_type, target, metric, split,
-                                        load_fn, score_fn, ch_names_fn):
+def collect_rawenv_metrics_per_session(
+    session_objs, exp_type, target, metric, split, load_fn, score_fn, ch_names_fn
+):
     """Per-session: dict[(session, model, 'raw'|'env')] -> array."""
     out = {}
     for tri in session_objs:
@@ -251,8 +289,8 @@ def collect_rawenv_metrics_per_session(session_objs, exp_type, target, metric, s
             continue
         ch_types = ["env" if n.endswith("_env") else "raw" for n in ch_names]
         for model_name, variant, run_ts in [
-            ("PSID",  tri.psid_variant,  tri.psid_run_ts),
-            ("DPAD",  tri.dpad_variant,  tri.dpad_run_ts),
+            ("PSID", tri.psid_variant, tri.psid_run_ts),
+            ("DPAD", tri.dpad_variant, tri.dpad_run_ts),
             ("VARMA", tri.varma_variant, tri.varma_run_ts),
         ]:
             if not variant or not run_ts:
@@ -270,20 +308,25 @@ def collect_rawenv_metrics_per_session(session_objs, exp_type, target, metric, s
                     except Exception:
                         continue
                     if np.isfinite(v):
-                        out.setdefault((tri.label, model_name, ctype), []).append(float(v))
+                        out.setdefault((tri.label, model_name, ctype), []).append(
+                            float(v)
+                        )
     return {k: np.array(v) for k, v in out.items()}
 
 
-def collecthilbert_metrics_per_session(session_objs, exp_type, target, split,
-                                         load_fn, ch_names_fn):
+def collecthilbert_metrics_per_session(
+    session_objs, exp_type, target, split, load_fn, ch_names_fn
+):
     """Per-session Hilbert amplitude r + PLV (raw channels only).
     dict[(session, model, 'amplitude_r'|'phase_plv')] -> array."""
     out = {}
     for sess, model, stim, ch, ch_name, t, p in _iter_trial_channels(
-            session_objs, exp_type, target, split, load_fn, ch_names_fn, raw_only=True):
+        session_objs, exp_type, target, split, load_fn, ch_names_fn, raw_only=True
+    ):
         if len(t) < 50:
             continue
-        ht = hilbert(t); hp = hilbert(p)
+        ht = hilbert(t)
+        hp = hilbert(p)
         try:
             ar = float(pearsonr(np.abs(ht), np.abs(hp))[0])
         except Exception:
@@ -296,14 +339,22 @@ def collecthilbert_metrics_per_session(session_objs, exp_type, target, split,
     return {k: np.array(v) for k, v in out.items()}
 
 
-def collect_decomp_metrics(session_objs, exp_type, target, split,
-                            load_fn, ch_names_fn, raw_only=True):
+def collect_decomp_metrics(
+    session_objs, exp_type, target, split, load_fn, ch_names_fn, raw_only=True
+):
     """Pooled amplitude_r, inst_freq_r, phase_plv.
     dict[(model, metric_name)] -> array."""
     out = {}
     for sess, model, stim, ch, ch_name, t, p in _iter_trial_channels(
-            session_objs, exp_type, target, split, load_fn, ch_names_fn,
-            raw_only=raw_only, all_ch=(not raw_only)):
+        session_objs,
+        exp_type,
+        target,
+        split,
+        load_fn,
+        ch_names_fn,
+        raw_only=raw_only,
+        all_ch=(not raw_only),
+    ):
         if len(t) < 50:
             continue
         for metric_name, _, _, fn in DECOMP_METRICS:
@@ -316,22 +367,27 @@ def collect_decomp_metrics(session_objs, exp_type, target, split,
     return {k: np.array(v) for k, v in out.items()}
 
 
-def collect_band_grouped_metrics(session_objs, exp_type, target, split,
-                                  load_fn, ch_names_fn):
+def collect_band_grouped_metrics(
+    session_objs, exp_type, target, split, load_fn, ch_names_fn
+):
     """Single pass: returns (corr_raw, corr_env, plv) keyed by (model, band)."""
     corr_raw, corr_env, plv_dict = {}, {}, {}
     for sess, model, stim, ch, ch_name, t, p in _iter_trial_channels(
-            session_objs, exp_type, target, split, load_fn, ch_names_fn):
-        band  = parse_band(ch_name)
+        session_objs, exp_type, target, split, load_fn, ch_names_fn
+    ):
+        band = parse_band(ch_name)
         ctype = "env" if ch_name.endswith("_env") else "raw"
         try:
             r = float(pearsonr(t, p)[0])
         except Exception:
             r = np.nan
         if np.isfinite(r):
-            (corr_raw if ctype == "raw" else corr_env).setdefault((model, band), []).append(r)
+            (corr_raw if ctype == "raw" else corr_env).setdefault(
+                (model, band), []
+            ).append(r)
         if ctype == "raw" and len(t) >= 50:
-            ht = hilbert(t); hp = hilbert(p)
+            ht = hilbert(t)
+            hp = hilbert(p)
             plv = float(np.abs(np.mean(np.exp(1j * (np.angle(ht) - np.angle(hp))))))
             if np.isfinite(plv):
                 plv_dict.setdefault((model, band), []).append(plv)
@@ -342,8 +398,9 @@ def collect_band_grouped_metrics(session_objs, exp_type, target, split,
     )
 
 
-def collect_per_feature_means(session_objs, exp_type, target, metric, split,
-                               load_fn, score_fn, ch_names_fn):
+def collect_per_feature_means(
+    session_objs, exp_type, target, metric, split, load_fn, score_fn, ch_names_fn
+):
     """Mean metric per feature per session per model.
     Returns ({(session, model): array[n_feat]}, {session: [feat_names]})."""
     raw_vals = {}
@@ -354,8 +411,8 @@ def collect_per_feature_means(session_objs, exp_type, target, metric, split,
             continue
         feat_map[tri.label] = feat_names
         for model_name, variant, run_ts in [
-            ("PSID",  tri.psid_variant,  tri.psid_run_ts),
-            ("DPAD",  tri.dpad_variant,  tri.dpad_run_ts),
+            ("PSID", tri.psid_variant, tri.psid_run_ts),
+            ("DPAD", tri.dpad_variant, tri.dpad_run_ts),
             ("VARMA", tri.varma_variant, tri.varma_run_ts),
         ]:
             if not variant or not run_ts:
@@ -373,12 +430,16 @@ def collect_per_feature_means(session_objs, exp_type, target, metric, split,
                     except Exception:
                         continue
                     if np.isfinite(v):
-                        raw_vals.setdefault((tri.label, model_name, fi), []).append(float(v))
+                        raw_vals.setdefault((tri.label, model_name, fi), []).append(
+                            float(v)
+                        )
     result = {
-        (sess, model): np.array([
-            np.mean(raw_vals.get((sess, model, fi), [np.nan]))
-            for fi in range(len(feat_names))
-        ])
+        (sess, model): np.array(
+            [
+                np.mean(raw_vals.get((sess, model, fi), [np.nan]))
+                for fi in range(len(feat_names))
+            ]
+        )
         for sess, feat_names in feat_map.items()
         for model in MODELS
     }
@@ -389,6 +450,7 @@ def collect_per_feature_means(session_objs, exp_type, target, metric, split,
 # DBS pooling
 # ---------------------------------------------------------------------------
 
+
 def pool_dbs_cells(per_cell_data, cells, *, models=None):
     """dict[(cell, model, dbs)] -> dict[(model, dbs)] pooled across cells."""
     if models is None:
@@ -396,9 +458,12 @@ def pool_dbs_cells(per_cell_data, cells, *, models=None):
     out = {}
     for m in models:
         for d in ("off", "on"):
-            buf = [float(v) for cell in cells
-                   for v in (per_cell_data.get((cell, m, d)) or [])
-                   if np.isfinite(v)]
+            buf = [
+                float(v)
+                for cell in cells
+                for v in (per_cell_data.get((cell, m, d)) or [])
+                if np.isfinite(v)
+            ]
             out[(m, d)] = np.array(buf, dtype=float)
     return out
 
@@ -407,8 +472,22 @@ def pool_dbs_cells(per_cell_data, cells, *, models=None):
 # Raincloud primitives
 # ---------------------------------------------------------------------------
 
-def kde_half_violin_vert(ax, vals, *, x_anchor, color, alpha, hatch=None,
-                          logy=False, bw=0.55, width=0.18, pad=1.0, npts=400, side="right"):
+
+def kde_half_violin_vert(
+    ax,
+    vals,
+    *,
+    x_anchor,
+    color,
+    alpha,
+    hatch=None,
+    logy=False,
+    bw=0.55,
+    width=0.18,
+    pad=1.0,
+    npts=400,
+    side="right",
+):
     """Vertical half-violin grown from x_anchor outward."""
     y_in = np.log10(vals) if logy else np.asarray(vals, dtype=float)
     if y_in.size < 2 or np.allclose(y_in.std(), 0.0):
@@ -422,35 +501,79 @@ def kde_half_violin_vert(ax, vals, *, x_anchor, color, alpha, hatch=None,
     dens = dens / dens.max() * width
     ys_plot = np.power(10.0, ys) if logy else ys
     xs_l = np.full_like(dens, x_anchor) if side == "right" else x_anchor - dens
-    xs_r = x_anchor + dens             if side == "right" else np.full_like(dens, x_anchor)
-    ax.fill_betweenx(ys_plot, xs_l, xs_r,
-                     facecolor=color, alpha=alpha,
-                     edgecolor=(color if hatch else "none"),
-                     linewidth=(0.6 if hatch else 0.0), hatch=hatch, zorder=2)
+    xs_r = x_anchor + dens if side == "right" else np.full_like(dens, x_anchor)
+    ax.fill_betweenx(
+        ys_plot,
+        xs_l,
+        xs_r,
+        facecolor=color,
+        alpha=alpha,
+        edgecolor=(color if hatch else "none"),
+        linewidth=(0.6 if hatch else 0.0),
+        hatch=hatch,
+        zorder=2,
+    )
 
 
-def raincloud_slot(ax, pos, vals, *, color, alpha=0.65, side="right",
-                   logy=False, rng, strip_cap=80, kde_width=0.18):
+def raincloud_slot(
+    ax,
+    pos,
+    vals,
+    *,
+    color,
+    alpha=0.65,
+    side="right",
+    logy=False,
+    rng,
+    strip_cap=80,
+    kde_width=0.18,
+):
     """Half-violin + box + strip at position pos."""
     strip_x = pos - 0.08 if side == "left" else pos + 0.08
-    box_x   = pos - 0.20 if side == "left" else pos + 0.20
-    anchor  = pos - 0.30 if side == "left" else pos + 0.30
-    kde_half_violin_vert(ax, vals, x_anchor=anchor, color=color, alpha=alpha,
-                          logy=logy, bw=0.55, width=kde_width, side=side)
-    ax.boxplot([vals], positions=[box_x], widths=0.08, vert=True, patch_artist=True,
-               showfliers=False,
-               boxprops=dict(facecolor=color, alpha=alpha, edgecolor=color, linewidth=1.0),
-               medianprops=dict(color=color, linewidth=1.4),
-               whiskerprops=dict(color=color, linewidth=1.0),
-               capprops=dict(color=color, linewidth=1.0))
-    sv = vals[rng.choice(len(vals), strip_cap, replace=False)] if len(vals) > strip_cap else vals
-    ax.scatter(strip_x + rng.uniform(-0.04, 0.04, len(sv)), sv,
-               c=color, alpha=min(alpha, 0.35), s=7, linewidths=0)
+    box_x = pos - 0.20 if side == "left" else pos + 0.20
+    anchor = pos - 0.30 if side == "left" else pos + 0.30
+    kde_half_violin_vert(
+        ax,
+        vals,
+        x_anchor=anchor,
+        color=color,
+        alpha=alpha,
+        logy=logy,
+        bw=0.55,
+        width=kde_width,
+        side=side,
+    )
+    ax.boxplot(
+        [vals],
+        positions=[box_x],
+        widths=0.08,
+        vert=True,
+        patch_artist=True,
+        showfliers=False,
+        boxprops=dict(facecolor=color, alpha=alpha, edgecolor=color, linewidth=1.0),
+        medianprops=dict(color=color, linewidth=1.4),
+        whiskerprops=dict(color=color, linewidth=1.0),
+        capprops=dict(color=color, linewidth=1.0),
+    )
+    sv = (
+        vals[rng.choice(len(vals), strip_cap, replace=False)]
+        if len(vals) > strip_cap
+        else vals
+    )
+    ax.scatter(
+        strip_x + rng.uniform(-0.04, 0.04, len(sv)),
+        sv,
+        c=color,
+        alpha=min(alpha, 0.35),
+        s=7,
+        linewidths=0,
+    )
 
 
 # ---------------------------------------------------------------------------
 # Standard figure builders
 # ---------------------------------------------------------------------------
+
 
 def dbs_raincloud_fig(pool_r, pool_n, *, models=None, figsize=(9, 4)):
     """2-row raincloud: r (top) + NRMSE log (bottom). DBS-OFF left / DBS-ON right."""
@@ -459,14 +582,17 @@ def dbs_raincloud_fig(pool_r, pool_n, *, models=None, figsize=(9, 4)):
     rng = np.random.default_rng(42)
     fig, axes = plt.subplots(2, 1, figsize=figsize)
     for ax, data, ylabel, logy, plabel, ptitle in [
-        (axes[0], pool_r, "Pearson r",   False, "A", "Pearson r"),
-        (axes[1], pool_n, "NRMSE (log)", True,  "B", "NRMSE"),
+        (axes[0], pool_r, "Pearson r", False, "A", "Pearson r"),
+        (axes[1], pool_n, "NRMSE (log)", True, "B", "NRMSE"),
     ]:
         panel_label(ax, plabel, ptitle)
         if logy:
             ax.set_yscale("log")
         for mi, m in enumerate(models):
-            for d, color, side in [("off", COLOR_DBS_OFF, "left"), ("on", COLOR_DBS_ON, "right")]:
+            for d, color, side in [
+                ("off", COLOR_DBS_OFF, "left"),
+                ("on", COLOR_DBS_ON, "right"),
+            ]:
                 vals = data.get((m, d), np.array([]))
                 if len(vals) < 2:
                     continue
@@ -474,18 +600,26 @@ def dbs_raincloud_fig(pool_r, pool_n, *, models=None, figsize=(9, 4)):
                     vals = vals[vals > 0]
                 if len(vals) < 2:
                     continue
-                raincloud_slot(ax, mi, vals, color=color, alpha=0.45, side=side,
-                               logy=logy, rng=rng)
+                raincloud_slot(
+                    ax, mi, vals, color=color, alpha=0.45, side=side, logy=logy, rng=rng
+                )
         ax.set_xticks(range(len(models)))
         ax.set_xticklabels(models)
         ax.set_xlim(-0.55, len(models) - 0.45)
         ax.set_ylabel(ylabel)
     from matplotlib.patches import Patch
+
     fig.legend(
-        [Patch(facecolor=COLOR_DBS_OFF, alpha=0.7, edgecolor="black", linewidth=0.6),
-         Patch(facecolor=COLOR_DBS_ON,  alpha=0.7, edgecolor="black", linewidth=0.6)],
+        [
+            Patch(facecolor=COLOR_DBS_OFF, alpha=0.7, edgecolor="black", linewidth=0.6),
+            Patch(facecolor=COLOR_DBS_ON, alpha=0.7, edgecolor="black", linewidth=0.6),
+        ],
         ["DBS-OFF", "DBS-ON"],
-        loc="lower center", ncol=2, frameon=False, fontsize=9, bbox_to_anchor=(0.5, -0.06),
+        loc="lower center",
+        ncol=2,
+        frameon=False,
+        fontsize=9,
+        bbox_to_anchor=(0.5, -0.06),
     )
     fig.subplots_adjust(bottom=0.10)
     return fig
@@ -504,8 +638,16 @@ def decomp_fig(data, *, models=None, model_cols=None):
             ax = axes[row, col]
             vals = data.get((model, metric), np.array([]))
             if len(vals) > 1:
-                raincloud_slot(ax, 0, vals, color=model_cols[model],
-                               alpha=0.65, side="right", rng=rng, strip_cap=80)
+                raincloud_slot(
+                    ax,
+                    0,
+                    vals,
+                    color=model_cols[model],
+                    alpha=0.65,
+                    side="right",
+                    rng=rng,
+                    strip_cap=80,
+                )
             if ref is not None:
                 ax.axhline(ref, color="#bbb", lw=0.8, ls=":")
             ax.set_xticks([])
@@ -517,8 +659,17 @@ def decomp_fig(data, *, models=None, model_cols=None):
     return fig
 
 
-def band_raincloud_fig(ax, data, ylabel, *, ref_line=0.0, legend=False, models=None,
-                        model_cols=None, rng_seed=42):
+def band_raincloud_fig(
+    ax,
+    data,
+    ylabel,
+    *,
+    ref_line=0.0,
+    legend=False,
+    models=None,
+    model_cols=None,
+    rng_seed=42,
+):
     """Band-grouped raincloud on a single axes."""
     if models is None:
         models = MODELS
@@ -531,23 +682,35 @@ def band_raincloud_fig(ax, data, ylabel, *, ref_line=0.0, legend=False, models=N
         for model in models:
             vals = data.get((model, band), np.array([]))
             if len(vals) > 1:
-                raincloud_slot(ax, pos, vals, color=model_cols[model],
-                               alpha=0.65, side="right", rng=rng, strip_cap=60)
+                raincloud_slot(
+                    ax,
+                    pos,
+                    vals,
+                    color=model_cols[model],
+                    alpha=0.65,
+                    side="right",
+                    rng=rng,
+                    strip_cap=60,
+                )
             pos += 1
-        tick_pos.append((g0 + pos - 1) / 2); tick_lab.append(band)
+        tick_pos.append((g0 + pos - 1) / 2)
+        tick_lab.append(band)
         pos += 1
     if ref_line is not None:
         ax.axhline(ref_line, color="#bbb", lw=0.8, ls=":")
     ax.set_ylabel(ylabel)
-    ax.set_xticks(tick_pos); ax.set_xticklabels(tick_lab)
+    ax.set_xticks(tick_pos)
+    ax.set_xticklabels(tick_lab)
     ax.set_xlim(-0.8, pos - 1.2)
     if legend:
         from matplotlib.patches import Patch
+
         ax.legend([Patch(fc=model_cols[m], alpha=0.72) for m in models], models)
 
 
-def hilbert_raincloud_sessions_fig(axes, data, session_labels, *,
-                                    models=None, model_cols=None):
+def hilbert_raincloud_sessions_fig(
+    axes, data, session_labels, *, models=None, model_cols=None
+):
     """4x2 raincloud: rows=sessions, cols=[amplitude r, PLV]."""
     if models is None:
         models = MODELS
@@ -555,6 +718,7 @@ def hilbert_raincloud_sessions_fig(axes, data, session_labels, *,
         model_cols = MODEL_COLS
     rng = np.random.default_rng(42)
     from matplotlib.patches import Patch
+
     metrics = [("amplitude_r", "r (amplitude)", 0.0), ("phase_plv", "PLV", None)]
     letters = "ABCDEFGH"
     for row, sess in enumerate(session_labels):
@@ -563,8 +727,16 @@ def hilbert_raincloud_sessions_fig(axes, data, session_labels, *,
             for pos, model in enumerate(models):
                 vals = data.get((sess, model, metric), np.array([]))
                 if len(vals) > 1:
-                    raincloud_slot(ax, pos, vals, color=model_cols[model],
-                                   alpha=0.65, side="right", rng=rng, strip_cap=60)
+                    raincloud_slot(
+                        ax,
+                        pos,
+                        vals,
+                        color=model_cols[model],
+                        alpha=0.65,
+                        side="right",
+                        rng=rng,
+                        strip_cap=60,
+                    )
             if ref is not None:
                 ax.axhline(ref, color="#bbb", lw=0.8, ls=":")
             ax.set_xticks(range(len(models)))
@@ -575,8 +747,9 @@ def hilbert_raincloud_sessions_fig(axes, data, session_labels, *,
     axes[0, 0].legend([Patch(fc=model_cols[m], alpha=0.72) for m in models], models)
 
 
-def rawenv_raincloud_sessions_fig(axes, data_r, data_n, session_labels, *,
-                                   models=None, model_cols=None):
+def rawenv_raincloud_sessions_fig(
+    axes, data_r, data_n, session_labels, *, models=None, model_cols=None
+):
     """4x2 raincloud: rows=sessions, cols=[r, NRMSE]."""
     if models is None:
         models = MODELS
@@ -584,11 +757,15 @@ def rawenv_raincloud_sessions_fig(axes, data_r, data_n, session_labels, *,
         model_cols = MODEL_COLS
     rng = np.random.default_rng(42)
     from matplotlib.patches import Patch
+
     letters = "ABCDEFGH"
     for row, sess in enumerate(session_labels):
-        for col, (data, ylabel, ref) in enumerate([
-            (data_r, "r", 0.0), (data_n, "NRMSE", None),
-        ]):
+        for col, (data, ylabel, ref) in enumerate(
+            [
+                (data_r, "r", 0.0),
+                (data_n, "NRMSE", None),
+            ]
+        ):
             ax = axes[row, col]
             tick_pos, tick_lab, pos = [], [], 0
             for ttype, tlabel in CH_TYPES:
@@ -596,15 +773,25 @@ def rawenv_raincloud_sessions_fig(axes, data_r, data_n, session_labels, *,
                 for model in models:
                     vals = data.get((sess, model, ttype), np.array([]))
                     if len(vals) > 1:
-                        raincloud_slot(ax, pos, vals, color=model_cols[model],
-                                       alpha=0.65, side="right", rng=rng, strip_cap=60)
+                        raincloud_slot(
+                            ax,
+                            pos,
+                            vals,
+                            color=model_cols[model],
+                            alpha=0.65,
+                            side="right",
+                            rng=rng,
+                            strip_cap=60,
+                        )
                     pos += 1
-                tick_pos.append((g0 + pos - 1) / 2); tick_lab.append(tlabel)
+                tick_pos.append((g0 + pos - 1) / 2)
+                tick_lab.append(tlabel)
                 pos += 1
             if ref is not None:
                 ax.axhline(ref, color="#bbb", lw=0.8, ls=":")
             ax.set_ylabel(ylabel)
-            ax.set_xticks(tick_pos); ax.set_xticklabels(tick_lab)
+            ax.set_xticks(tick_pos)
+            ax.set_xticklabels(tick_lab)
             ax.set_xlim(-0.8, pos - 1.2)
             panel_label(ax, letters[row * 2 + col], f"{sess} - {ylabel}")
     axes[0, 0].legend([Patch(fc=model_cols[m], alpha=0.72) for m in models], models)
@@ -614,12 +801,13 @@ def rawenv_raincloud_sessions_fig(axes, data_r, data_n, session_labels, *,
 # Horizon / step-level metric functions
 # ---------------------------------------------------------------------------
 
+
 def per_step_rmse_and_pearson(T, P):
     """(rmse, sem, pearson_r) per horizon step. T, P: (n_trials, n_steps)."""
     n_trials, n_steps = T.shape
     err = T - P
-    rmse = np.sqrt(np.mean(err ** 2, axis=0))
-    sem  = np.std(err ** 2, axis=0, ddof=1) / np.sqrt(n_trials) / (2 * rmse + 1e-12)
+    rmse = np.sqrt(np.mean(err**2, axis=0))
+    sem = np.std(err**2, axis=0, ddof=1) / np.sqrt(n_trials) / (2 * rmse + 1e-12)
     rs = np.full(n_steps, np.nan)
     for s in range(n_steps):
         t, p = T[:, s], P[:, s]
@@ -635,9 +823,10 @@ def horizon_quantile_bands(T, P, window_size=20, sampling_hz=200.0):
     n_windows = n_steps // window_size
     if n_windows == 0:
         return None
-    x_ms      = np.array([(w + 0.5) * window_size / sampling_hz * 1000
-                           for w in range(n_windows)])
-    rows_r    = np.full((n_rows, n_windows), np.nan)
+    x_ms = np.array(
+        [(w + 0.5) * window_size / sampling_hz * 1000 for w in range(n_windows)]
+    )
+    rows_r = np.full((n_rows, n_windows), np.nan)
     rows_rmse = np.full((n_rows, n_windows), np.nan)
     for w in range(n_windows):
         sl = slice(w * window_size, (w + 1) * window_size)
@@ -651,18 +840,19 @@ def horizon_quantile_bands(T, P, window_size=20, sampling_hz=200.0):
             except Exception:
                 pass
     return dict(
-        x_ms    = x_ms,
-        med_r   = np.nanmedian(rows_r,    axis=0),
-        q10_r   = np.nanpercentile(rows_r,  10, axis=0),
-        q90_r   = np.nanpercentile(rows_r,  90, axis=0),
-        med_rmse= np.nanmedian(rows_rmse,  axis=0),
-        q10_rmse= np.nanpercentile(rows_rmse, 10, axis=0),
-        q90_rmse= np.nanpercentile(rows_rmse, 90, axis=0),
+        x_ms=x_ms,
+        med_r=np.nanmedian(rows_r, axis=0),
+        q10_r=np.nanpercentile(rows_r, 10, axis=0),
+        q90_r=np.nanpercentile(rows_r, 90, axis=0),
+        med_rmse=np.nanmedian(rows_rmse, axis=0),
+        q10_rmse=np.nanpercentile(rows_rmse, 10, axis=0),
+        q90_rmse=np.nanpercentile(rows_rmse, 90, axis=0),
     )
 
 
-def horizon_decay_fig(horizon_data, panel_r="Pearson r", panel_n="NRMSE", *,
-                       models=None, model_cols=None):
+def horizon_decay_fig(
+    horizon_data, panel_r="Pearson r", panel_n="NRMSE", *, models=None, model_cols=None
+):
     """2-row figure: Pearson r (A) + NRMSE (B) vs horizon. Median + Q10-Q90 band."""
     if models is None:
         models = MODELS
@@ -674,13 +864,19 @@ def horizon_decay_fig(horizon_data, panel_r="Pearson r", panel_n="NRMSE", *,
         bands = horizon_quantile_bands(T, P)
         if bands is None:
             continue
-        c  = model_cols[m]
+        c = model_cols[m]
         ls = dbs_style[dbs]
-        x  = bands["x_ms"]
-        axes[0].plot(x, bands["med_r"],    color=c, ls=ls, lw=1.4, label=f"{m} {dbs.upper()}")
-        axes[0].fill_between(x, bands["q10_r"],    bands["q90_r"],    color=c, alpha=0.12, lw=0)
+        x = bands["x_ms"]
+        axes[0].plot(
+            x, bands["med_r"], color=c, ls=ls, lw=1.4, label=f"{m} {dbs.upper()}"
+        )
+        axes[0].fill_between(
+            x, bands["q10_r"], bands["q90_r"], color=c, alpha=0.12, lw=0
+        )
         axes[1].plot(x, bands["med_rmse"], color=c, ls=ls, lw=1.4)
-        axes[1].fill_between(x, bands["q10_rmse"], bands["q90_rmse"], color=c, alpha=0.12, lw=0)
+        axes[1].fill_between(
+            x, bands["q10_rmse"], bands["q90_rmse"], color=c, alpha=0.12, lw=0
+        )
     axes[0].axhline(0, color="#bbb", lw=0.8, ls=":")
     axes[1].axhline(1, color="#bbb", lw=0.8, ls=":")
     panel_label(axes[0], "A", panel_r)
@@ -718,13 +914,16 @@ def collect_decomp_at_horizon(horizon_data, horizon_ms=500.0, sampling_hz=200.0)
 # Figure helpers — per-feature bars
 # ---------------------------------------------------------------------------
 
-def collect_per_cell_metric(session_objs, load_fn, score_fn, target="Z", metric="pearson", split="test"):
+
+def collect_per_cell_metric(
+    session_objs, load_fn, score_fn, target="Z", metric="pearson", split="test"
+):
     """dict[(session, model, dbs)] -> array of per-trial means across channels."""
     out = {}
     for tri in session_objs:
         for model_name, variant, run_ts in [
-            ("PSID",  tri.psid_variant,  tri.psid_run_ts),
-            ("DPAD",  tri.dpad_variant,  tri.dpad_run_ts),
+            ("PSID", tri.psid_variant, tri.psid_run_ts),
+            ("DPAD", tri.dpad_variant, tri.dpad_run_ts),
             ("VARMA", tri.varma_variant, tri.varma_run_ts),
         ]:
             if not variant or not run_ts:
@@ -742,15 +941,18 @@ def collect_per_cell_metric(session_objs, load_fn, score_fn, target="Z", metric=
                 ch_vals = [float(score_fn(res, i, ch, metric)) for ch in range(n_chans)]
                 ch_vals = [v for v in ch_vals if np.isfinite(v)]
                 if ch_vals:
-                    (off_vals if stim == "off" else on_vals).append(float(np.mean(ch_vals)))
+                    (off_vals if stim == "off" else on_vals).append(
+                        float(np.mean(ch_vals))
+                    )
             out[(tri.label, model_name, "off")] = np.array(off_vals)
-            out[(tri.label, model_name, "on")]  = np.array(on_vals)
+            out[(tri.label, model_name, "on")] = np.array(on_vals)
     return out
 
 
 # ---------------------------------------------------------------------------
 # PSID subspace helpers
 # ---------------------------------------------------------------------------
+
 
 def load_psid_cz(results_root, variant, run_ts):
     path = Path(results_root) / "psid" / variant / f"test_stats_{run_ts}.hdf5"
@@ -762,14 +964,18 @@ def subspace_r_trial(xp, z_true, cz, n1):
     """Pearson r per subspace (full/X1/X2), averaged over channels."""
     zps = {
         "full": xp @ cz.T,
-        "X1":   xp[:, :n1] @ cz[:, :n1].T,
-        "X2":   xp[:, n1:] @ cz[:, n1:].T,
+        "X1": xp[:, :n1] @ cz[:, :n1].T,
+        "X2": xp[:, n1:] @ cz[:, n1:].T,
     }
     out = {}
     for name, zp in zps.items():
-        rs = [pearsonr(z_true[:, ch], zp[:, ch])[0]
-              for ch in range(z_true.shape[1])
-              if np.isfinite(z_true[:, ch]).all() and np.isfinite(zp[:, ch]).all() and z_true.shape[0] > 1]
+        rs = [
+            pearsonr(z_true[:, ch], zp[:, ch])[0]
+            for ch in range(z_true.shape[1])
+            if np.isfinite(z_true[:, ch]).all()
+            and np.isfinite(zp[:, ch]).all()
+            and z_true.shape[0] > 1
+        ]
         out[name] = float(np.mean(rs)) if rs else np.nan
     return out
 
@@ -779,12 +985,14 @@ def collect_x1x2(session_objs, results_root, exp_type, split="test"):
     out = {}
     for tri in session_objs:
         cz, n1 = load_psid_cz(results_root, tri.psid_variant, tri.psid_run_ts)
-        res = load_split_results_required(results_root, tri.psid_variant, tri.psid_run_ts, split)
+        res = load_split_results_required(
+            results_root, tri.psid_variant, tri.psid_run_ts, split
+        )
         vals = {"full": [], "X1": [], "X2": []}
         for i in range(len(res.get("Z", []))):
             if normalize_stim(res["stim"][i]) is None:
                 continue
-            z  = np.array(res["Z"][i],  dtype=float)
+            z = np.array(res["Z"][i], dtype=float)
             xp = np.array(res["Xp"][i], dtype=float)
             if z.ndim == 1:
                 z = z[:, None]
@@ -808,10 +1016,22 @@ def x1x2_fig(data, sessions):
                 continue
             med = np.median(vals)
             q25, q75 = np.percentile(vals, [25, 75])
-            ax.bar(xi, med, color=COLORS[label], alpha=0.85,
-                   label=LABELS[label] if sess == sessions[0] else None)
-            ax.errorbar(xi, med, yerr=[[med - q25], [q75 - med]],
-                        fmt="none", color="black", capsize=3, linewidth=1.0)
+            ax.bar(
+                xi,
+                med,
+                color=COLORS[label],
+                alpha=0.85,
+                label=LABELS[label] if sess == sessions[0] else None,
+            )
+            ax.errorbar(
+                xi,
+                med,
+                yerr=[[med - q25], [q75 - med]],
+                fmt="none",
+                color="black",
+                capsize=3,
+                linewidth=1.0,
+            )
         ax.axhline(0, color="#bbb", lw=0.8, ls=":")
         ax.set_xticks(range(3))
         ax.set_xticklabels(list(LABELS.values()), fontsize=8)
@@ -821,8 +1041,15 @@ def x1x2_fig(data, sessions):
     return fig
 
 
-def per_feature_bar_fig(means_data, feat_names_map, session_labels, *,
-                         ylabel="r (mean)", models=None, model_cols=None):
+def per_feature_bar_fig(
+    means_data,
+    feat_names_map,
+    session_labels,
+    *,
+    ylabel="r (mean)",
+    models=None,
+    model_cols=None,
+):
     """2x2 bar chart: per-feature mean r, one panel per session."""
     if models is None:
         models = MODELS
@@ -834,14 +1061,21 @@ def per_feature_bar_fig(means_data, feat_names_map, session_labels, *,
         feat_names = feat_names_map.get(sess, [])
         if not feat_names:
             panel_label(ax, "ABCD"[idx], sess)
-            ax.text(0.5, 0.5, "no data", transform=ax.transAxes, ha="center", va="center")
+            ax.text(
+                0.5, 0.5, "no data", transform=ax.transAxes, ha="center", va="center"
+            )
             continue
         x = np.arange(len(feat_names))
         for mi, model in enumerate(models):
             means = means_data.get((sess, model), np.full(len(feat_names), np.nan))
-            ax.bar(x + (mi - 1) * bar_w, means, width=bar_w,
-                   color=model_cols[model], alpha=0.75,
-                   label=model if idx == 0 else None)
+            ax.bar(
+                x + (mi - 1) * bar_w,
+                means,
+                width=bar_w,
+                color=model_cols[model],
+                alpha=0.75,
+                label=model if idx == 0 else None,
+            )
         ax.axhline(0, color="#bbb", lw=0.8, ls=":")
         ax.set_xticks(x)
         ax.set_xticklabels(feat_names, rotation=45, ha="right", fontsize=6)
@@ -855,6 +1089,7 @@ def per_feature_bar_fig(means_data, feat_names_map, session_labels, *,
 # Forecast-specific loaders and collectors
 # ---------------------------------------------------------------------------
 
+
 def load_forecast(results_root, variant, split, horizon="h5"):
     """Load forecast-split results from parquet. Returns {} if not found."""
     framework = variant.split("_", 1)[0]
@@ -862,7 +1097,7 @@ def load_forecast(results_root, variant, split, horizon="h5"):
     files = sorted((fdir / split).glob("test_results_*.parquet"))
     if not files:
         return {}
-    ts = files[0].name[len("test_results_"):-len(".parquet")]
+    ts = files[0].name[len("test_results_") : -len(".parquet")]
     return load_precomputed_results(fdir, ts, split)
 
 
@@ -893,16 +1128,18 @@ def yz_raincloud_fig(pool_r, pool_n, *, models=None, model_cols=None):
     rng = np.random.default_rng(42)
     target_alpha = {"Y": 0.30, "Z": 0.85}
     target_hatch = {"Y": None, "Z": "////"}
-    target_side  = {"Y": "left", "Z": "right"}
+    target_side = {"Y": "left", "Z": "right"}
     fig, axes = plt.subplots(2, 1, figsize=(7.0, 9.0))
     for ax, data, ylabel, logy, plabel, ptitle in [
-        (axes[0], pool_r, "Pearson r",   False, "A", "Pearson r"),
-        (axes[1], pool_n, "NRMSE (log)", True,  "B", "NRMSE"),
+        (axes[0], pool_r, "Pearson r", False, "A", "Pearson r"),
+        (axes[1], pool_n, "NRMSE (log)", True, "B", "NRMSE"),
     ]:
         panel_label(ax, plabel, ptitle)
         if logy:
             ax.set_yscale("log")
-        ax.axhline(1.0 if logy else 0.0, color="black", ls=":", lw=0.6, alpha=0.30, zorder=0)
+        ax.axhline(
+            1.0 if logy else 0.0, color="black", ls=":", lw=0.6, alpha=0.30, zorder=0
+        )
         for mi, m in enumerate(models):
             color = model_cols[m]
             for t in ("Y", "Z"):
@@ -915,32 +1152,76 @@ def yz_raincloud_fig(pool_r, pool_n, *, models=None, model_cols=None):
                     continue
                 # raincloud_slot doesn't support hatch; use kde_half_violin_vert directly for Z
                 strip_x = mi - 0.08 if target_side[t] == "left" else mi + 0.08
-                box_x   = mi - 0.20 if target_side[t] == "left" else mi + 0.20
-                anchor  = mi - 0.30 if target_side[t] == "left" else mi + 0.30
-                kde_half_violin_vert(ax, vals, x_anchor=anchor, color=color,
-                                     alpha=target_alpha[t], hatch=target_hatch[t],
-                                     logy=logy, bw=0.55, width=0.18, side=target_side[t])
-                bp = dict(facecolor=color, alpha=target_alpha[t], edgecolor=color, linewidth=1.0)
+                box_x = mi - 0.20 if target_side[t] == "left" else mi + 0.20
+                anchor = mi - 0.30 if target_side[t] == "left" else mi + 0.30
+                kde_half_violin_vert(
+                    ax,
+                    vals,
+                    x_anchor=anchor,
+                    color=color,
+                    alpha=target_alpha[t],
+                    hatch=target_hatch[t],
+                    logy=logy,
+                    bw=0.55,
+                    width=0.18,
+                    side=target_side[t],
+                )
+                bp = dict(
+                    facecolor=color,
+                    alpha=target_alpha[t],
+                    edgecolor=color,
+                    linewidth=1.0,
+                )
                 if target_hatch[t]:
                     bp["hatch"] = target_hatch[t]
-                ax.boxplot([vals], positions=[box_x], widths=0.08, vert=True,
-                           patch_artist=True, showfliers=False, boxprops=bp,
-                           medianprops=dict(color=color, linewidth=1.4),
-                           whiskerprops=dict(color=color, linewidth=1.0),
-                           capprops=dict(color=color, linewidth=1.0))
-                sv = vals[rng.choice(len(vals), 80, replace=False)] if len(vals) > 80 else vals
-                ax.scatter(strip_x + rng.uniform(-0.04, 0.04, len(sv)), sv,
-                           c=color, alpha=min(target_alpha[t], 0.35), s=7, linewidths=0)
+                ax.boxplot(
+                    [vals],
+                    positions=[box_x],
+                    widths=0.08,
+                    vert=True,
+                    patch_artist=True,
+                    showfliers=False,
+                    boxprops=bp,
+                    medianprops=dict(color=color, linewidth=1.4),
+                    whiskerprops=dict(color=color, linewidth=1.0),
+                    capprops=dict(color=color, linewidth=1.0),
+                )
+                sv = (
+                    vals[rng.choice(len(vals), 80, replace=False)]
+                    if len(vals) > 80
+                    else vals
+                )
+                ax.scatter(
+                    strip_x + rng.uniform(-0.04, 0.04, len(sv)),
+                    sv,
+                    c=color,
+                    alpha=min(target_alpha[t], 0.35),
+                    s=7,
+                    linewidths=0,
+                )
         ax.set_xticks(range(len(models)))
         ax.set_xticklabels(models)
         ax.set_xlim(-0.55, len(models) - 0.45)
         ax.set_ylabel(ylabel)
     from matplotlib.patches import Patch
+
     fig.legend(
-        [Patch(facecolor="#888888", alpha=0.30, edgecolor="none"),
-         Patch(facecolor="#888888", alpha=0.85, edgecolor="#555555", linewidth=0.6, hatch="////")],
+        [
+            Patch(facecolor="#888888", alpha=0.30, edgecolor="none"),
+            Patch(
+                facecolor="#888888",
+                alpha=0.85,
+                edgecolor="#555555",
+                linewidth=0.6,
+                hatch="////",
+            ),
+        ],
         ["Y (neural self-recon)", "Z (target decoding)"],
-        loc="lower center", ncol=2, frameon=False, fontsize=9, bbox_to_anchor=(0.5, -0.06),
+        loc="lower center",
+        ncol=2,
+        frameon=False,
+        fontsize=9,
+        bbox_to_anchor=(0.5, -0.06),
     )
     fig.subplots_adjust(bottom=0.10)
     return fig
@@ -951,12 +1232,11 @@ def collect_horizon_all_channels(session_objs, load_fn, target="Z", split="test"
     Returns dict[(model, dbs)] -> (T_mat, P_mat) each (n_rows, n_steps)."""
     k_true = "Z_future_true" if target == "Z" else "Y_future_true"
     k_pred = "Z_future_pred" if target == "Z" else "Y_future_pred"
-    out = {(m, d): {"true": [], "pred": []}
-           for m in MODELS for d in ("off", "on")}
+    out = {(m, d): {"true": [], "pred": []} for m in MODELS for d in ("off", "on")}
     for tri in session_objs:
         for model_name, variant, run_ts in [
-            ("PSID",  tri.psid_variant,  tri.psid_run_ts),
-            ("DPAD",  tri.dpad_variant,  tri.dpad_run_ts),
+            ("PSID", tri.psid_variant, tri.psid_run_ts),
+            ("DPAD", tri.dpad_variant, tri.dpad_run_ts),
             ("VARMA", tri.varma_variant, tri.varma_run_ts),
         ]:
             if not variant or not run_ts:
@@ -983,7 +1263,8 @@ def collect_horizon_all_channels(session_objs, load_fn, target="Z", split="test"
                     t_ch, p_ch = T[:, ch], P[:, ch]
                     if not (np.isfinite(t_ch).all() and np.isfinite(p_ch).all()):
                         continue
-                    mu = float(np.mean(t_ch)); sigma = float(np.std(t_ch)) or 1.0
+                    mu = float(np.mean(t_ch))
+                    sigma = float(np.std(t_ch)) or 1.0
                     out[(model_name, stim)]["true"].append((t_ch - mu) / sigma)
                     out[(model_name, stim)]["pred"].append((p_ch - mu) / sigma)
     result = {}
@@ -1004,12 +1285,15 @@ def hilbert_horizon_collect(session_objs, load_fn, target="Z", split="test"):
     Returns dict[(model, dbs)] -> (AT, AP, PT, PP) each (n_rows, n_steps)."""
     k_true = "Z_future_true" if target == "Z" else "Y_future_true"
     k_pred = "Z_future_pred" if target == "Z" else "Y_future_pred"
-    out = {(m, d): {"amp_t": [], "amp_p": [], "phase_t": [], "phase_p": []}
-           for m in MODELS for d in ("off", "on")}
+    out = {
+        (m, d): {"amp_t": [], "amp_p": [], "phase_t": [], "phase_p": []}
+        for m in MODELS
+        for d in ("off", "on")
+    }
     for tri in session_objs:
         for model_name, variant, run_ts in [
-            ("PSID",  tri.psid_variant,  tri.psid_run_ts),
-            ("DPAD",  tri.dpad_variant,  tri.dpad_run_ts),
+            ("PSID", tri.psid_variant, tri.psid_run_ts),
+            ("DPAD", tri.dpad_variant, tri.dpad_run_ts),
             ("VARMA", tri.varma_variant, tri.varma_run_ts),
         ]:
             if not variant or not run_ts:
@@ -1038,7 +1322,8 @@ def hilbert_horizon_collect(session_objs, load_fn, target="Z", split="test"):
                         continue
                     if len(t_ch) < 10:
                         continue
-                    ht = hilbert(t_ch); hp = hilbert(p_ch)
+                    ht = hilbert(t_ch)
+                    hp = hilbert(p_ch)
                     out[(model_name, stim)]["amp_t"].append(np.abs(ht))
                     out[(model_name, stim)]["amp_p"].append(np.abs(hp))
                     out[(model_name, stim)]["phase_t"].append(np.angle(ht))
@@ -1077,12 +1362,14 @@ def window_decay(T, P, window_size=20):
     """Windowed Pearson r and RMSE vs forecast horizon."""
     n_steps = T.shape[1]
     n_windows = n_steps // window_size
-    centers_ms = np.array([(w + 0.5) * window_size / SAMPLING_HZ * 1000
-                            for w in range(n_windows)])
+    centers_ms = np.array(
+        [(w + 0.5) * window_size / SAMPLING_HZ * 1000 for w in range(n_windows)]
+    )
     rs, rmses = [], []
     for w in range(n_windows):
         sl = slice(w * window_size, (w + 1) * window_size)
-        t_flat = T[:, sl].flatten(); p_flat = P[:, sl].flatten()
+        t_flat = T[:, sl].flatten()
+        p_flat = P[:, sl].flatten()
         if np.std(t_flat) > 1e-12 and np.std(p_flat) > 1e-12:
             rs.append(float(np.corrcoef(t_flat, p_flat)[0, 1]))
         else:
