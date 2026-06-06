@@ -31,6 +31,7 @@ import polars as pl
 
 from utils.config import get_config
 from utils.polars import convert_series_to_list, get_scalar_value
+from utils.frameworks.dpad import dpad_gpu_forecast
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -86,7 +87,17 @@ def _ensure_dpad_forecast_setup(id_sys: Any, m: int) -> None:
 
 
 def _dpad_idsys_forecast_latents(id_sys: Any, m: int, y_past: np.ndarray) -> np.ndarray:
-    """Multi-step latent forecast for DPAD checkpoints (DPADModel has no .forecast)."""
+    """Multi-step latent forecast for DPAD checkpoints (DPADModel has no .forecast).
+
+    GPU fast path via dpad_gpu_forecast() when model has NLRegRNNCell+unifiedAK
+    structure. Falls back to original Python-loop multi-step path otherwise.
+    """
+    result = dpad_gpu_forecast(id_sys, m, y_past)
+    if result is not None:
+        _zf, _yf, xf = result
+        return xf
+
+    # Fallback: original Python-loop multi-step path.
     block_samples = id_sys.block_samples
     ny = y_past.shape[1]
 
@@ -146,6 +157,9 @@ def _generate_flipped_latents(
     results = []
     epoch_len, overlap = params["epoch_len"], params["overlap"]
     forecast_samples = params["forecast_samples"]
+    # max_forecast_samples: when set, compute at max_m once and truncate —
+    # avoids TF head rebuild when forecast_samples < max_forecast_samples.
+    compute_samples = params.get("max_forecast_samples", forecast_samples)
     group_id, trial_idx = params["group_id"], params["trial_idx"]
     history_samples = params["history_samples"]
 
@@ -154,8 +168,11 @@ def _generate_flipped_latents(
 
     for start in range(0, T_obs - history_samples + 1, step):
         y_past = trial_observations[start : start + history_samples]
-        x_on = _forecast_latent_trajectory(model_on, forecast_samples, y_past)
-        x_off = _forecast_latent_trajectory(model_off, forecast_samples, y_past)
+        x_on = _forecast_latent_trajectory(model_on, compute_samples, y_past)
+        x_off = _forecast_latent_trajectory(model_off, compute_samples, y_past)
+        if compute_samples > forecast_samples:
+            x_on = x_on[:forecast_samples]
+            x_off = x_off[:forecast_samples]
 
         for label, x_traj, dtype in [
             (1, x_on, "flipped_on"),
@@ -203,6 +220,7 @@ def prepare_epoched_data(
     n1: Optional[int] = None,
     nx: Optional[int] = None,
     framework: Optional[Any] = None,
+    max_forecast_horizon: Optional[float] = None,
 ) -> Tuple[
     Optional[np.ndarray],
     Optional[np.ndarray],
@@ -233,6 +251,14 @@ def prepare_epoched_data(
                     f"history_horizon={history_horizon}. "
                     f"Cannot generate forecasts on-the-fly without a loaded framework."
                 )
+            # max_forecast_horizon: compute at max_m once, truncate to forecast_samples.
+            # Avoids TF head rebuild when m_test < max_m (DPAD-specific speedup).
+            max_m_samples = (
+                int(max_forecast_horizon * fs)
+                if max_forecast_horizon is not None
+                else forecast_samples
+            )
+            compute_samples = max(forecast_samples, max_m_samples)
             latent_states = []
             for trial_idx, Y_trial in enumerate(observations):
                 Y_trial = np.array(Y_trial)
@@ -247,7 +273,9 @@ def prepare_epoched_data(
 
                 Y_past = Y_trial[:history_samples]
                 try:
-                    _Zf, _Yf, Xf = framework.model.forecast(forecast_samples, Y_past)
+                    _Zf, _Yf, Xf = framework.model.forecast(compute_samples, Y_past)
+                    if Xf is not None and compute_samples > forecast_samples:
+                        Xf = Xf[:forecast_samples]
                     latent_states.append(Xf if Xf is not None else None)
                 except Exception as e:
                     warnings.warn(
@@ -294,10 +322,16 @@ def prepare_epoched_data(
                 if trial_obs.shape[0] < trial_obs.shape[1]:
                     trial_obs = trial_obs.T
 
+                max_m_samples_flip = (
+                    int(max_forecast_horizon * fs)
+                    if max_forecast_horizon is not None
+                    else forecast_samples
+                )
                 params = {
                     "epoch_len": epoch_len,
                     "overlap": overlap,
                     "forecast_samples": forecast_samples,
+                    "max_forecast_samples": max(forecast_samples, max_m_samples_flip),
                     "history_samples": history_samples,
                     "group_id": group_id,
                     "trial_idx": trial_idx,

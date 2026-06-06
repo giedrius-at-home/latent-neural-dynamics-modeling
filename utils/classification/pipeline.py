@@ -11,7 +11,6 @@ from typing import Any, Dict, Optional, Tuple
 import warnings
 
 import numpy as np
-from mne.decoding import CSP
 from sklearn.base import clone
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from sklearn.metrics import (
@@ -37,6 +36,7 @@ def _reorder_dims_for_mne(X: np.ndarray) -> np.ndarray:
 
 def create_pipeline(fs: float = 80, feature_source: str = "Xp") -> Pipeline:
     """LDA decoding pipeline: transpose -> CSP(4) -> scale -> LDA."""
+    from mne.decoding import CSP
     steps = [
         ("transpose", FunctionTransformer(_reorder_dims_for_mne)),
         ("csp", CSP(n_components=4, reg="ledoit_wolf", log=True)),
@@ -96,6 +96,8 @@ def run_cv(
 
     fold_scores = []
     fold_results = []
+    cv_y_true_parts: list = []
+    cv_y_pred_parts: list = []
     with warnings.catch_warnings():
         warnings.filterwarnings(
             "ignore", message="y_pred contains classes not in y_true"
@@ -108,6 +110,8 @@ def run_cv(
             y_pred_fold = fold_pipeline.predict(X_val)
             fold_score = balanced_accuracy_score(y_val, y_pred_fold)
             fold_scores.append(fold_score)
+            cv_y_true_parts.append(y_val)
+            cv_y_pred_parts.append(y_pred_fold)
             fold_results.append(
                 {
                     "fold": fold_idx,
@@ -138,12 +142,17 @@ def run_cv(
     fpr, tpr, _ = roc_curve(y, y_proba)
     roc_auc_val = auc(fpr, tpr)
 
+    cv_y_true = np.concatenate(cv_y_true_parts) if cv_y_true_parts else np.array([], dtype=np.int64)
+    cv_y_pred = np.concatenate(cv_y_pred_parts) if cv_y_pred_parts else np.array([], dtype=np.int64)
+
     results = {
         "best_params": fixed_params,
         "best_cv_score": best_cv_score,
         "n_splits": effective_n_splits,
         "cv_method": "ChronoGroupsSplit",
         "fold_results": fold_results,
+        "cv_y_true": cv_y_true,
+        "cv_y_pred": cv_y_pred,
         "y_true": y,
         "y_pred": y_pred,
         "y_proba": y_proba,

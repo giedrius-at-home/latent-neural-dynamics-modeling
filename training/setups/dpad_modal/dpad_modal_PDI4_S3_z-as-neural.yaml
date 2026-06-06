@@ -60,17 +60,8 @@ experiment:
     default_h: 5.0
     default_m: 2.0
     h_grid:
-    - 0.5
-    - 1.0
-    - 1.5
-    - 2.0
-    - 3.0
-    - 4.0
     - 5.0
     m_test_grid:
-    - 0.5
-    - 1.0
-    - 1.5
     - 2.0
   classification:
     epoch_length: 0.5

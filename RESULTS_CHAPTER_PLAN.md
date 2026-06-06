@@ -1,9 +1,17 @@
 # Results Chapter — Figure Plan
 
-Structure: four research questions. Each question answered by both experiment types
-(z-as-behavior, z-as-neural) with all relevant metrics together.
-Band-limited analysis (fig_A/B/C) is part of prediction/forecast evidence, not standalone.
-Design principle: one plot per figure, compose multi-panel layouts in LaTeX.
+Three research questions. Reconstruction (1-step) and forecast (m-step) unified per Q —
+identical figure structure, different horizon.
+Design principle: subplots where layout calls for it, compose in LaTeX otherwise.
+
+**Per-session layout rule:** never combine three models side-by-side (scales differ).
+Use 3 separate subplots (one per model), each with 4-session rows.
+
+**Statistical testing (applies to all metric figures):**
+- Between-model: paired t-test on per-session metric vectors.
+- Against zero: 1-sample t-test, Bonferroni-corrected across sessions.
+- Independence assumption: trial-level samples assumed approximately independent
+  (autocorrelation decays within-trial for neural data); add caveat if using step-level metrics.
 
 ---
 
@@ -13,13 +21,8 @@ Design principle: one plot per figure, compose multi-panel layouts in LaTeX.
 
 **fig_005_dbs_significance_heatmap.png — Channel x session DBS significance heatmap**
 - Heatmap: sessions x channels, colour = -log10(p) of DBS-on vs DBS-off PSD difference per band
-- Which channels carry DBS-state information; justifies mRMR picks (fig_044)
+- Justifies mRMR channel picks; baseline for spectral separability
 - Source: sec1
-
-**[NEW] fig_spectral_separability — Frequency-band information content per session**
-- Per-channel, per-band: how much signal is DBS-modulated; which bands can be discarded
-- Frames which bands models should reconstruct well (links to Q1 band-limited metrics)
-- Source: sec1 / sec2a
 
 *Appendix: fig_002/003 PSD curves, fig_beh behavioral traces, fig_trials/split counts*
 
@@ -27,179 +30,149 @@ Design principle: one plot per figure, compose multi-panel layouts in LaTeX.
 
 ### 3.0.2  Model diagnostics — sec2a
 
-**fig_044*_mrmr_selection_*.png — mRMR channel selection heatmap**
+**fig_044_mrmr_selection.png — mRMR channel selection heatmap**
 - Top-6 ECoG + top-6 LFP = 12 channels per session; session-stable vs session-specific picks
-- Cross-check against fig_005: mRMR should agree with significance map
+- Cross-check against fig_005
 - Source: sec2a
 
 *Appendix: fig_045 corrmat, fig_046 relevance bars, fig_039 DPAD training curves*
 
 ---
 
-## Q1 — Can models reconstruct neural/behavioral dynamics from ECoG?
+## Q1 — How well do PSID/DPAD latents predict subcortical LFP and cortical ECoG?
 
-Both experiment types answer the same question with different Z targets.
-Band-limited metrics (fig_A/B) are part of the reconstruction evidence here.
+Z target = top-8 LFP (subcortical) + ECoG reconstruction (cortical).
+VARMA included as AR baseline.
 
-### Q1.1  z-as-behavior — sec2b
+### Q1.1  1-step-ahead (reconstruction)
 
-**Figs 7-8 — Pooled behavioral reconstruction, 24-box layout**
-- RMSE / Pearson r: 3 models x 2 DBS conditions x 2 output channels, all sessions pooled
-- Source: sec2b
+**fig_q1_recon_raincloud.png — Pooled reconstruction quality overview**
+- Raincloud: Zp vs Z across sessions, PSID/DPAD/VARMA
+- Brief overview; not focal result
 
-**Fig 17 — Session-mean RMSE strip/box**
-- Session on x-axis, mean RMSE per model; highlights outlier sessions
-- Counts for Q1.1 and Q1.2
+**fig_q1_recon_decomp.png — Signal decomposition on Zp (amplitude / inst. freq / phase)**
+- 3 panels per model:
+  - Amplitude: Hilbert envelope correlation, Zp vs Z
+  - Instantaneous frequency: correlation of d(phase)/dt, Zp vs Z
+  - Phase: circular correlation or PLV, Zp vs Z
+- What aspect of the neural signal is captured at 1-step
 
-**Figs 46-49 — Per-session LFP reconstruction time series**
-- True vs reconstructed laplacian LFP, one trial per session; qualitative envelope check
-- Counts for Q1.1 and Q1.2
+**fig_latent_X1X2.png — X1 vs X2 subspace information content (PSID)**
+- Reconstruct Z using X1-only vs X2-only readout; compare RMSE/r
+- Which subspace drives neural reconstruction
 
-**[NEW] fig_A — Band-limited Pearson r heatmap (Zp vs Z, prediction)**
-- Bandpass Zp + Z into delta/theta/alpha/beta/low-gamma/high-gamma
-- r per band; heatmap rows=sessions, cols=bands, one panel per model
-- Which frequency components reconstructed well; align with fig_005 significance bands
-- Counts for Q1.1 and Q1.2
+**fig_061_cy_importance.png — PSID Cy readout heatmap**
+- |Cy|: which latent dims drive each Y channel
 
-**[NEW] fig_B — Amplitude envelope correlation (Zp vs Z)**
-- Hilbert envelope on Zp and Z; correlate per session per model
-- High envelope r + low waveform r = model captures power modulation, not phase
-- Counts for Q1.1 and Q1.2
+**fig_062_cz_readout.png — PSID Cz readout matrix**
+- |Cz|: which latent dims drive Z; compare Cy vs Cz loading
 
-*Appendix: Figs 9-16 per-session strip plots*
+*Appendix: per-channel boxplots (Zp vs Z per LFP channel), per-session strip plots*
 
 ---
 
-### Q1.2  z-as-neural — sec2c
+### Q1.2  m-step-ahead (forecast)
 
-**fig_070_lap_per_cell_yz_box.png — Laplacian per cell, Z reconstruction**
-- Box plots: Zp vs Z (top-8 LFP target), PSID/DPAD/VARMA; Y self-recon as sanity check
-- Source: sec2c
+**fig_q1_forecast_decay.png — Forecast accuracy vs horizon [PRIMARY]**
+- RMSE + Pearson r vs h [0 ... 2 s], one line per model
+- Shaded band = quantile 0.10-0.95 across sessions
+- Annotate: rate-of-change flattens after ~0.5 s; verify 0.95 stable from 500 ms
 
-**fig_072_lap_pool_raincloud_yz.png — Laplacian Y vs Z per model (pooled)**
-- Raincloud: Y recon vs Z recon quality; separation shows whether Z systematically worse
-- Source: sec2c
+**fig_q1_forecast_decomp.png — Signal decomposition on Zf at 0.5 s (amplitude / inst. freq / phase)**
+- Same 3-panel structure as fig_q1_recon_decomp, applied to Zf
+- Which signal aspects survive m-step forecast horizon
 
-**fig_073_beh_per_cell_yz_box.png — Behavioral per cell Y + Z (in sec2c)**
-- z-as-behavior variant inside sec2c for direct z-type comparison
-- Counts for Q1.1 and Q1.2
+**fig_A_dynamics.png — A-matrix: A_both vs A_on vs A_off (PSID)**
+- Eigenvalue spectra overlay or per-eigenvalue Cohen's d across DBS conditions
+- Does DBS reshape latent dynamics, not just latent state value?
 
-**fig_A, fig_B** — shared with Q1.1 (separate panels per experiment type)
-
----
-
-## Q2 — Can models forecast future dynamics?
-
-Forecast = model propagates forward h seconds without observing Y.
-Band-limited forecast (fig_C) + windowed decay are part of forecast evidence here.
-
-### Q2.1  z-as-behavior — sec2d
-
-**fig_083_beh_per_cell_yz_box_forecast.png — Behavioral forecast per cell**
-- 24-box layout for Zf; gap vs Figs 7-8 = reliance on live Y
-- Source: sec2d
-
-**fig_084_beh_pool_raincloud_y_forecast.png — Pooled forecast raincloud, Yf**
-- RMSE of Yf by model; VARMA = AR baseline; PSID/DPAD gap = latent-state benefit
-- Source: sec2d
-
-**fig_086_pool_horizon_rmse_pearson.png — Forecast quality vs horizon h**
-- RMSE + Pearson r vs h [0.5 ... 5 s], one line per model
-- Counts for Q2.1 and Q2.2
-
-**[NEW] fig_forecast_decay — Windowed performance decay (~0.1 s windows)**
-- RMSE/r in sliding windows across horizon; shape: fast drop vs plateau vs gradual
-- Counts for Q2.1 and Q2.2; alongside fig_086
-
-**[NEW] fig_C — Band-limited forecast quality (Zf vs Z)**
-- Repeat fig_A + fig_B logic on forecast outputs
-- High-frequency bands degrade faster; links to t_cut plateau in Q3
-- Counts for Q2.1 and Q2.2
+*Appendix: per-session 4-panel — (ECoG->LFP) and (ECoG->ECoG recon), one model per subplot*
 
 ---
 
-### Q2.2  z-as-neural — sec2d
+## Q2 — How well do PSID/DPAD latents predict tracing speed and acceleration from cortical ECoG?
 
-**fig_080_lap_per_cell_yz_box_forecast.png — Laplacian forecast per cell**
-- 24-box Zf vs Z, laplacian; counterpart to fig_083
+Z target = tracing velocity_x and acceleration_magnitude.
+VARMA included as AR baseline.
 
-**fig_081_lap_pool_raincloud_y_forecast.png — Laplacian pooled forecast raincloud**
-- RMSE of Yf in laplacian experiment; does z-as-neural forecast own modality better?
+### Q2.1  1-step-ahead (reconstruction)
 
-**fig_086, fig_forecast_decay, fig_C** — shared with Q2.1 (separate panels per experiment type)
+**fig_q2_recon_raincloud.png — Pooled reconstruction quality overview**
+- Raincloud: Zp vs Z across sessions, PSID/DPAD/VARMA
+- Brief overview; not focal result
+
+**fig_q2_recon_decomp.png — Signal decomposition on Zp (amplitude / inst. freq / phase)**
+- Same 3-panel structure as Q1, applied to behavioral Z target
+- What aspect of kinematics is captured at 1-step
+
+*Appendix: Figs 9-16 per-session strip plots; per-feature boxplots*
 
 ---
 
-## Q3 — Does the latent state encode DBS state?
+### Q2.2  m-step-ahead (forecast)
 
-Both experiment types share these figures (separate panels per experiment type).
-Source: sec5
+**fig_q2_forecast_decay.png — Forecast accuracy vs horizon [PRIMARY]**
+- RMSE + Pearson r vs h [0 ... 2 s], one line per model
+- Shaded band = quantile 0.10-0.95; annotate plateau after ~0.5 s
+
+**fig_q2_forecast_decomp.png — Signal decomposition on Zf at 0.5 s (amplitude / inst. freq / phase)**
+- Same 3-panel structure as Q1 forecast decomp, behavioral target
+
+*Appendix: per-session 4-panel — (ECoG->LFP forecast) and (ECoG->kinematics forecast)*
+
+---
+
+## Q3 — Do learned latents separate stimulation-on from stimulation-off without the DBS label?
+
+Source: sec5, sec6. PSID + VARMA (DPAD parquets pending).
+
+**Feature source inventory (columns in classification heatmaps):**
+- Prediction-based: Xp, Xp1, Xp2, Xp+dbs
+- Forecast-based: Xf, Xf1, Xf2, Xf+dbs
+- Model-conditioned: Xf from model trained DBS-on vs DBS-off (cross-condition)
+- Cross-label (flipped): LDA trained on one condition, scored on other — adversarial null
 
 **fig_050_classification_heatmap.png — cv_ba heatmap, sessions x feature sources**
-- 0.5 anchored midpoint; permutation stars; Xp_1 vs Xp_2 = key diagnostic
-- Preferred for paper; fig_049 bar version -> supplementary
+- All feature sources above as columns; 0.5 anchored midpoint; permutation stars
 
 **fig_051_flipped_heatmap.png — Flipped-label BA (adversarial null)**
-- LDA trained on one DBS condition's Xf, scored on other
 - Near chance = model forecasts DBS-agnostic
 
 **fig_052b_gap_heatmap.png — Generalisation gap (within - flipped BA)**
-- Positive = DBS-state-specific structure; near-zero = no cross-condition generalisation
+- Positive = DBS-state-specific structure in latent
 
-**fig_053_tcut_analysis.png — BA vs time window (t_cut)**
-- x = t_cut [0.5 ... 9 s], y = ba_at_score; one line per session; dotted cv_ba reference
-- Temporal dynamics: how quickly does latent state encode DBS state?
-- Separate panels per experiment type; link to fig_C (band degradation at same timescale)
+**fig_053_tcut_Xp.png — Xp BA vs time window (PSID only)**
+- 0.5 s windows; mark onset of significance (first window > chance, Bonferroni-corrected)
+- How quickly does latent state become DBS-informative?
 
-*Note: DPAD classification parquets not yet available — fig_050/051/052b/053 currently PSID + VARMA only. Add DPAD row when parquets arrive.*
-
----
-
-## Q4 — Does supervised target choice (behavior vs neural) change encoding quality?
-
-Source: sec6
+**fig_054_tcut_Xf.png — Xf BA vs time window (PSID only)**
+- 0.1 s windows; mark onset of insignificance
+- Links to forecast decay plateau in Q1.2/Q2.2
 
 **fig_059_latent_phase.png — Latent phase space KDE**
-- 2D KDE of Xp dims by DBS condition; visible separation with low BA = classifier bottleneck
+- 2D KDE of Xp dims by DBS condition; visible separation vs low BA = classifier bottleneck
 
 **fig_060_classification_dimensionality.png — Classification vs dimensionality grid**
 - cv_ba heatmap over nx x n1; is model dimension-saturated?
-
-**fig_061_cy_importance.png — PSID Cy readout heatmap**
-- |Cy|: which latent dims drive each Y channel; high n1-subspace weight = DBS in beh subspace
-
-**fig_062_cz_readout.png — PSID Cz readout matrix**
-- Same as fig_061 for Z; similar Cy/Cz loading = shared latent representation
 
 **fig_063_data_efficiency.png — Data efficiency curve**
 - BA vs training data fraction (k-fold CV inside training pool only)
 - Saturated at 30% = signal quality is limit, not data quantity
 
+*Note: DPAD classification parquets not yet available. Add DPAD row when parquets arrive.*
+
 ---
 
 ## Appendix
 
-**sec1:** fig_002/003 PSD curves, fig_beh, fig_trials/split counts — data processing overview
+**sec1:** fig_002/003 PSD curves, fig_beh, fig_trials/split counts
 
 **sec2a:** fig_045 corrmat, fig_046 relevance bars, fig_039 DPAD training curves
 
-**sec2b:** Figs 9-16 per-session behavioral strip plots
+**sec2b/2c:** per-session strip plots; per-channel/per-feature boxplots
 
 **sec2e:** Figs 18-21, 29-36, 50-55 — exemplar single-trial overlays (qualitative)
 
 **sec7:** A-matrix eigenvalue spectrum + Cohen's d per latent dim between DBS conditions
 
 **sec8:** Per-trial RMSE/r heatmaps over session timeline — non-stationarity audit
-
----
-
-## Decisions log
-
-1. sec5 split into separate panels for z-as-behavior vs z-as-neural.
-2. DPAD classification parquets not yet available — plan for DPAD row when ready.
-3. Raw Zp/Zf timeseries confirmed in parquets — band-limited analysis unblocked.
-4. fig_053 t_cut: separate panels per experiment type.
-5. fig_amp_phase_freq merged into fig_A/B (not standalone).
-6. Windowed forecast decay alongside fig_086.
-7. 3.3 band-limited dissolved into Q1 (fig_A/B) and Q2 (fig_C).
-8. Structure reorganised around 4 research questions, not experiment types.
