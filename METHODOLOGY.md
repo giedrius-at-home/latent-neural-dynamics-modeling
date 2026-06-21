@@ -117,9 +117,13 @@ The diagnostic runs four sequential stages.
 **Cross-validation stabilization (`ChronoGroupsSplit`, see Section 4):**
 - mRMR runs separately on each fold's training data.
 - Final channel ranking: vote-aggregate across folds (channel ranked #k in fold i earns score `n_channels - k`; sum across folds; sort descending).
-- Top 12 channels by aggregate score are selected.
+- Top `K_Y = 12` ECoG features by aggregate score are selected for Y.
 
-**For z-as-neural configs**, an equivalent mRMR step selects the top-8 LFP/Laplacian channels using `mrmr_top_k_lfp_from_diagnostic()`.
+The Y pool is the full ECoG raw+env feature space (diagnostic `Y_label` regex `^ECOG_.*_raw$`, `^ECOG_.*_env$`).
+
+**Z selection:**
+- `z-as-behavior`: Z = 2 fixed kinematics features (`tracing_velocity_x`, `tracing_acceleration_magnitude`); no mRMR.
+- `z-as-neural`: the same fold-voted mRMR selects the top `K_Z = 12` LFP features from the full Laplacian raw+env pool (`Z_label` regex `^LAPLACIAN_.*_LFP_.*_raw$`, `^LAPLACIAN_.*_LFP_.*_env$`). With `stratify_raw_env: true` the 12 split evenly into 6 raw + 6 envelope.
 
 ### Stage 2: Cross-validate nx (latent state dimension)
 
@@ -134,7 +138,7 @@ The diagnostic runs four sequential stages.
 
 ### Stage 3: Cross-validate n1 (behavior-prioritized dimensions)
 
-- Fixed nx from Stage 2. Candidate grid: `n1_grid = [1, 2, 4, 8, nx//2]` (capped at nx).
+- Fixed nx from Stage 2. Candidate grid: `n1_grid = [1, 2, 4, 8, 16, 32]` (from the diagnostic config; capped at nx).
 - For each candidate n1, same ChronoGroupsSplit CV on training data.
 - Evaluate Z-reconstruction CC on hold-out.
 - 1-SE rule to select smallest n1 that performs within 1 SE of best.
@@ -179,47 +183,49 @@ High-gamma raw dominant (88-93 Hz), mixed with beta raw and gamma/alpha envelope
 ### PDI1 Session 4
 
 ```
-ECOG_2_theta_4_8_raw       ECOG_3_gamma_68_73_raw
-ECOG_1_gamma_73_78_raw     ECOG_3_gamma_63_68_raw
-ECOG_4_gamma_53_58_raw     ECOG_1_alpha_8_12_raw
+ECOG_2_theta_4_8_raw       ECOG_4_gamma_68_73_raw
+ECOG_3_gamma_73_78_raw     ECOG_3_gamma_63_68_raw
+ECOG_4_gamma_53_58_raw     ECOG_4_alpha_8_12_raw
 ECOG_1_gamma_37_42_env     ECOG_3_theta_4_8_env
-ECOG_1_beta_13_18_env      ECOG_3_gamma_68_73_env
-ECOG_4_gamma_42_47_env     ECOG_1_gamma_78_83_env
+ECOG_3_beta_13_18_env      ECOG_3_gamma_68_73_env
+ECOG_2_gamma_42_47_env     ECOG_3_gamma_78_83_env
 ```
-Theta raw appears (4-8 Hz), plus high-gamma raw; envelope channels span broader range.
+Gamma raw across 53-78 Hz (4 features) plus theta (1) and alpha (1). Env equally diverse: gamma (4) + theta (1) + beta (1). ECOG_3 dominant (6 features including 3 raw + 3 env).
 
 ### PDI4 Session 2
 
 ```
-ECOG_4_gamma_83_88_raw     ECOG_1_beta_28_32_raw
-ECOG_3_theta_4_8_raw       ECOG_1_gamma_83_88_raw
-ECOG_3_beta_28_32_raw      ECOG_3_gamma_88_93_raw
-ECOG_4_gamma_83_88_env     ECOG_3_gamma_88_93_env
-ECOG_4_theta_4_8_env       ECOG_1_alpha_8_12_env
-ECOG_4_beta_23_28_env      ECOG_3_gamma_42_47_env
+ECOG_2_gamma_83_88_raw     ECOG_1_beta_28_32_raw
+ECOG_1_theta_4_8_raw       ECOG_1_gamma_83_88_raw
+ECOG_2_beta_28_32_raw      ECOG_2_gamma_88_93_raw
+ECOG_2_gamma_83_88_env     ECOG_1_gamma_88_93_env
+ECOG_1_theta_4_8_env       ECOG_3_alpha_8_12_env
+ECOG_2_beta_23_28_env      ECOG_1_gamma_42_47_env
 ```
-High-gamma (83-93 Hz) + theta raw mix; similar envelope diversity.
+High-gamma raw (83-93 Hz, 3 features) plus beta (2) and theta (1). Env: gamma (3 + 1 alpha + 1 beta + 1 theta). ECOG_1 (6 features) and ECOG_2 (5 features) dominate.
 
 ### PDI4 Session 3
 
 ```
-ECOG_4_beta_23_28_raw      ECOG_4_beta_28_32_raw
-ECOG_3_beta_23_28_raw      ECOG_3_beta_28_32_raw
-ECOG_2_beta_23_28_raw      ECOG_2_beta_28_32_raw
-ECOG_4_beta_23_28_env      ECOG_4_beta_28_32_env
-ECOG_3_beta_23_28_env      ECOG_3_beta_28_32_env
-ECOG_2_beta_23_28_env      ECOG_2_beta_28_32_env
+ECOG_1_beta_23_28_raw      ECOG_2_beta_28_32_raw
+ECOG_3_beta_23_28_raw      ECOG_2_beta_23_28_raw
+ECOG_4_beta_23_28_raw      ECOG_3_beta_28_32_raw
+ECOG_2_beta_23_28_env      ECOG_1_beta_18_23_env
+ECOG_1_gamma_32_37_env     ECOG_1_beta_23_28_env
+ECOG_4_beta_28_32_env      ECOG_2_gamma_32_37_env
 ```
-Strongly beta-dominated (23-32 Hz); all raw+envelope of same bands across 3 electrodes.
+Strongly beta-dominated (18-32 Hz). Raw: all 6 features are beta. Env: 4 beta + 2 gamma (32-37 Hz). ECOG_1 (5 features) and ECOG_2 (4 features) dominate.
 
 ### Z channels (z-as-neural, PSID/DPAD)
 
-For z-as-neural, Z consists of top-8 LFP Laplacian channels selected by mRMR on the LFP space, e.g. for PDI1_S2:
+For z-as-neural, Z consists of the top-12 LFP Laplacian features selected by mRMR (6 raw + 6 env), e.g. for PDI1_S2:
 ```
 LAPLACIAN_13-15_LFP_gamma_88_93_raw    LAPLACIAN_14-16_LFP_gamma_83_88_raw
 LAPLACIAN_14-16_LFP_gamma_63_68_raw    LAPLACIAN_13-15_LFP_gamma_58_63_raw
 LAPLACIAN_12-14_LFP_gamma_88_93_raw    LAPLACIAN_11-13_LFP_gamma_88_93_raw
 LAPLACIAN_9-11_LFP_beta_18_23_env      LAPLACIAN_14-16_LFP_gamma_63_68_env
+LAPLACIAN_14-16_LFP_gamma_58_63_env    LAPLACIAN_14-16_LFP_beta_23_28_env
+LAPLACIAN_13-15_LFP_gamma_58_63_env    LAPLACIAN_13-15_LFP_gamma_78_83_env
 ```
 For z-as-behavior, Z = `[tracing_velocity_x, tracing_acceleration_magnitude]` (2 channels, same across all sessions).
 
@@ -309,7 +315,7 @@ This enables O(1) per-step lookup during forecast. Done in `_cache_A_powers()`.
 2. For each step `t` in 1..m: `Xf[t] = A_powers[t] @ x0` (zero-input propagation, noise = 0).
 3. `Zf = Cz @ Xf`.
 
-Horizon `m` is specified in seconds; converted to samples as `m_samples = round(m * sampling_freq)`. The h-grid `[0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 5.0]` seconds is evaluated during the forecasts phase.
+Forecast horizon `m` is specified in seconds (default 2.0); converted to samples as `m_samples = round(m * sampling_freq)`. `Y_past` is the history window of length `h` seconds. The forecasts phase sweeps the history h-grid `[0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 5.0]` s while holding the horizon fixed at `m = 2.0` s.
 
 ### Model storage
 
@@ -429,8 +435,7 @@ z(t)   = Cz x(t) + e(t)        (linear Z readout)
 
 `DPADWrapper.train()`:
 - Transposes data to channels-first format: `[y.T for y in Y_trials]` -> list of `(ny, T)` arrays.
-- Calls `DPADModel.fit(Y, Z, epochs=1000, checkpoint_every=100, fast=True, reuse_splits=False, steps_ahead=[1], steps_ahead_loss_weights=[1.0])`.
-- `fast=True`: enables faster approximate fitting mode.
+- Calls `DPADModel.fit(Y, Z, epochs=1000, **args)` where `args = DPADModel.prepare_args(method_code)`. The YAML parameter `fast` is consumed by the pipeline trainer (it skips post-training Pearson r evaluation) but is NOT forwarded as `skip_predictions` to `DPADModel.fit()` — a bug where `skip_predictions=True` causes `UnboundLocalError` at `DPADModel.py:1919` when the Cz regression path still runs.
 - `reuse_splits=False`: always recompute internal train/val split.
 - `steps_ahead=[1]`: optimize 1-step-ahead prediction loss only.
 
@@ -457,11 +462,16 @@ DPAD models contain TensorFlow computation graphs that cannot be directly stored
 
 ### Forecasting
 
-`DPADWrapper.forecast(m, Y_past)`:
-- DPAD supports multi-step-ahead prediction via `set_steps_ahead([1, 2, ..., m_samples])`.
-- This call is expensive (reconfigures Keras model). It is memoized: `_DPADFWK_FORECAST_CACHE` maps `(idSys_id, m_samples)` -> configured model.
-- After `set_steps_ahead`, runs `idSys.predict(Y_past_padded)` which produces predictions at steps 1..m.
+`DPADWrapper.forecast(m, Y_past)` uses a two-tier strategy:
+
+**GPU fast-path (preferred):** `dpad_gpu_forecast()` compiles the DPAD autoregressive loop into a single `@tf.function` with `tf.while_loop`, eliminating the Python-level per-step overhead. Builds the fn once and caches it in `_DPADFWK_GPU_FN_CACHE` keyed by `id(idSys)`. Available when the model has the unified `NLRegRNNCell+unifiedAK` structure (both model1 and model2 cells). Feeds the last `x1`, `x2`, `y` from Kalman inference into the compiled loop to produce `[Xf, Yf, Zf]` for m steps.
+
+**CPU fallback (memoized multi-step data-gen):**
+- `set_steps_ahead([1, 2, ..., m_samples])` reconfigures the Keras model (expensive, ~40-90s per trial). Cached in `_DPADFWK_FORECAST_CACHE` keyed by `(idSys_id, m)`.
+- After `set_steps_ahead`, runs `idSys.predict(Y_past_padded)` with `set_multi_step_with_data_gen(True, noise_samples=0)`.
 - Extracts the m-step-ahead predictions: `Xf = vstack([preds[2*m+i][-1:] for i in range(m)])`.
+
+**Forecast cache preservation:** the `predict()` method saves and restores the multi-step forecast configuration around its `[1]`-step pass so that subsequent `forecast(m)` calls bypass the graph rebuild.
 
 ### DPAD-specific install
 
@@ -511,16 +521,17 @@ Contains: A, Cy, Cz, Q, R, S, eigenvalues of A (relevant and irrelevant subspace
 ## 10. Forecasts Phase
 
 **Phase:** `forecasts`  
-**h-grid:** `[0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 5.0]` seconds  
-**m (context window):** 2.0 seconds (default)
+**h-grid (history window fed to the filter):** `[0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 5.0]` seconds  
+**m (forecast horizon):** 2.0 seconds (default, fixed)
 
-For each horizon `h` in the h-grid, for each model variant (both/on/off), call `model.forecast(h, Y_past)` on each test trial:
+`h` = how much past Y the model observes; `m` = how far ahead it predicts. The phase sweeps `h` while holding the 2.0 s horizon fixed (CLI: `--forecast-h` = history, `--forecast-m` = horizon). For each `h` in the h-grid, for each model variant (both/on/off), call `model.forecast(m, Y_past)` on each test trial:
 
 ```
-Y_past = trial[:m_samples]      # first m seconds of Y
-Y_future = trial[m_samples:]    # remainder
-Zf = model.forecast(h, Y_past)  # predicted Z at h seconds ahead
-Z_true = Z_trial[m_samples + h_samples]  # ground truth at h
+h_samples = round(h * sampling_freq)
+m_samples = round(m * sampling_freq)
+Y_past = trial[:h_samples]                            # first h seconds of Y (history)
+Zf     = model.forecast(m, Y_past)                    # predict m seconds beyond the history
+Z_true = Z_trial[h_samples : h_samples + m_samples]   # ground-truth horizon
 ```
 
 Performance metric: **Pearson r** between `Zf` and `Z_true` across trials (per-channel, reported as mean CC).
@@ -533,8 +544,8 @@ Same Hive-partitioned Parquet structure as predictions.
 
 ### m_test_grid
 
-During the classification sweep (not the forecasts phase), additional context window lengths are tested:
-`m_test_grid = [0.5, 1.0, 1.5, 2.0]` seconds. This sweeps over how much past Y is provided at test time.
+During the classification sweep (not the forecasts phase), the forecast latent `Xf` is evaluated at multiple sub-horizons of the 2.0 s forecast window:
+`m_test_grid = [0.5, 1.0, 1.5, 2.0]` seconds. This sweeps how far into the forecast horizon the classifier reads.
 
 ---
 
@@ -559,14 +570,13 @@ Four forecast-based feature sources:
 `create_pipeline()` in `utils/classification/pipeline.py`:
 
 ```
-FunctionTransformer(reorder_dims_for_mne)   # (n_trials, nx, T) -> MNE format
--> CSP(n_components=4, reg='ledoit_wolf', log=True)   # MNE CSP spatial filter
+FunctionTransformer(_mean_pool)   # (n_epochs, T, nx) -> (n_epochs, nx): mean over time
 -> StandardScaler()
 -> LDA(solver='lsqr', shrinkage='auto')
 ```
 
-- **CSP (Common Spatial Patterns):** learns 4 spatial filters that maximize variance ratio between DBS-on and DBS-off classes. Ledoit-Wolf regularization is used for robust covariance estimation. Log-variance of filtered signals are the features.
-- **LDA:** linear discriminant analysis with automatic shrinkage (Ledoit-Wolf); `lsqr` solver for numerical stability.
+- **Mean-pool over time:** each epoch's latent trajectory is averaged across its time axis, giving one value per latent channel. PSID/DPAD encode the DBS condition as a *mean shift* in the latent state (the A matrix is shared across conditions), not as a covariance difference, so the discriminative signal lives in the per-channel mean. CSP -- which exploits between-class covariance structure -- was tried and removed: it is uninformative here.
+- **LDA:** linear discriminant analysis with automatic shrinkage (Ledoit-Wolf); `lsqr` solver for numerical stability. Params come from the config `param_grid` (a single fixed combination -- no hyperparameter search).
 
 ### ChronoGroupsSplit CV
 
@@ -579,7 +589,7 @@ Classification is evaluated at multiple time cutoffs within each trial:
 
 For each `t_cut`:
 1. Truncate each trial's Xp to the first `t_cut * sampling_freq` samples.
-2. Re-epoch (see below), re-fit CSP+LDA, score balanced accuracy (BA).
+2. Re-epoch (see below), re-fit mean-pool+LDA, score balanced accuracy (BA).
 
 This produces a "temporal learning curve" showing how quickly the latent state becomes discriminable.
 
@@ -589,7 +599,7 @@ This produces a "temporal learning curve" showing how quickly the latent state b
 - `epoch_length = 0.5` seconds (100 samples at 200 Hz).
 - `epoch_overlap = 0.25` seconds (50 samples) -> 50% overlap.
 - Each trial is cut into overlapping 0.5s windows.
-- CSP+LDA trains on these windows (n_epochs x nx x 100 tensor).
+- mean-pool+LDA trains on these windows: each epoch is a `100 x nx` time-by-channel slice, averaged over the 100 time samples to one `nx`-vector before LDA.
 
 ### Flipped (counterfactual) classifier
 
@@ -597,7 +607,7 @@ This produces a "temporal learning curve" showing how quickly the latent state b
 - Takes the DBS-on model and DBS-off model.
 - Runs both on the same Y window (regardless of true DBS condition).
 - Labels the on-model's output as "on" and the off-model's output as "off".
-- Trains CSP+LDA on these flipped labels.
+- Trains mean-pool+LDA on these flipped labels.
 
 This tests whether the dynamical structure of the two models is itself discriminable, independent of the actual DBS condition of the recording. A high BA here means the models learned different dynamics.
 
@@ -606,11 +616,11 @@ This tests whether the dynamical structure of the two models is itself discrimin
 ### Permutation test
 
 After CV, if `cv_ba > perm_ba_gate (0.5)`:
-- Draw 100 permuted label vectors (group-shuffle: shuffle entire block labels to preserve within-block structure).
-- Refit CSP+LDA on each permutation, score BA.
+- Draw 500 permuted label vectors (group-shuffle: shuffle entire block labels to preserve within-block structure).
+- Refit mean-pool+LDA on each permutation, score BA.
 - One-sided p-value: fraction of permutations with BA >= observed BA.
 
-`n_splits = 5` (CV folds for final score aggregation); `n_permutations = 100`.
+`n_splits = 5` (CV folds for final score aggregation); `n_permutations = 500`.
 
 ### Sub-source decomposition
 
@@ -766,18 +776,19 @@ experiment:
     splits: [train, val, test]
 
   forecasts:
-    default_h: 5.0      # seconds (not used by sweep; sweep uses h_grid)
-    default_m: 2.0      # context window in seconds
-    h_grid: [0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 5.0]
+    default_h: 5.0      # history window in seconds (how much past Y the model sees)
+    default_m: 2.0      # forecast horizon in seconds (how far ahead to predict)
+    h_grid: [0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 5.0]   # swept history windows
     m_test_grid: [0.5, 1.0, 1.5, 2.0]
 
   classification:
+    m_seconds: 0.5           # forecast context (s) used for forecast-based classification
     epoch_length: 0.5        # seconds per epoch
     epoch_overlap: 0.25      # overlap between epochs in seconds
     n_splits: 5              # CV folds for final score
     t_cut_grid: [0.5, 1, 2, 3, 4, 5, 6, 7, 8, 9]   # seconds
     perm_ba_gate: 0.5        # min BA to trigger permutation test
-    n_permutations: 100
+    n_permutations: 500
     prediction_significance_window: 0.5    # seconds
     forecast_insignificance_window: 0.1    # seconds
     param_grid:
@@ -854,7 +865,7 @@ predictions phase
      |
      v
 forecasts phase
-  - h in [0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 5.0] s
+  - h (history) in [0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 5.0] s; horizon m fixed at 2.0 s
   - PSID: x0=Kalman[-1], Xf[t]=A^t @ x0
   - VARMA: recursive prediction with zero future innovations
   - DPAD: set_steps_ahead (memoized), extract m-step heads
@@ -864,11 +875,11 @@ forecasts phase
 classification phase
   - Epoch trials (0.5s, 50% overlap)
   - Feature sources: Xp, Xp_1, Xp_2, Xp_with_dbs
-  - Pipeline: CSP(4, ledoit_wolf) -> StandardScaler -> LDA(lsqr, auto)
+  - Pipeline: mean-pool(time) -> StandardScaler -> LDA(lsqr, auto)
   - ChronoGroupsSplit CV (leave-one-block-pair-out)
   - t_cut sweep [0.5..9.0 s]
   - Flipped (counterfactual) classifier
-  - Permutation test (100 group-shuffles, if BA > 0.5)
+  - Permutation test (500 group-shuffles, if BA > 0.5)
   - Write sweep_results.parquet
 ```
 
@@ -885,8 +896,8 @@ classification phase
 | Frequency bands        | 17 raw + 17 env   | Preprocessing config |
 | Band range             | 4-93 Hz (gap 47-53)| Preprocessing config |
 | Split ratio            | 50/10/40          | precompute_splits.py |
-| mRMR top-k ECoG        | 12 channels       | psid_diagnostic.py |
-| mRMR top-k LFP         | 8 channels        | psid_diagnostic.py |
+| mRMR top-k ECoG (K_Y)  | 12 channels       | diagnostic config  |
+| mRMR top-k LFP (K_Z)   | 12 channels       | diagnostic config  |
 | Hankel lag i (train)   | 100               | pipeline YAML (set by diagnostic i_train) |
 | Hankel lag i (diag CV) | 50                | psid_diagnostic.py (i_horizon, used during nx grid search) |
 | nx (all sessions)      | 64                | YAML (post-diag)   |
@@ -898,8 +909,10 @@ classification phase
 | Long-VAR order         | 30                | varma.py           |
 | Hamming edge taper     | 20 samples (0.1s) | varma.py           |
 | Ridge alpha            | 0.1               | varma.py           |
+| VARMA max_root         | 0.999             | YAML               |
 | DPAD epochs            | 1000              | YAML               |
-| DPAD n1                | 4 (hardcoded in YAML)     | YAML               |
+| DPAD nx                | 64 (hardcoded)    | YAML               |
+| DPAD n1                | 4 (hardcoded)     | YAML               |
 | DPAD steps_ahead       | [1]               | YAML               |
 | Modal GPU              | A10G              | dpad_modal.py      |
 | Train timeout          | 86400s            | dpad_modal.py      |
@@ -910,10 +923,9 @@ classification phase
 | epoch_length (classify)| 0.5 s             | YAML               |
 | epoch_overlap          | 0.25 s (50%)      | YAML               |
 | t_cut_grid             | [0.5..9.0] s      | YAML               |
-| CSP n_components       | 4                 | classification/pipeline.py |
-| CSP reg                | ledoit_wolf       | classification/pipeline.py |
+| Classifier pipeline    | mean-pool -> scaler -> LDA | classification/pipeline.py |
 | LDA solver             | lsqr              | classification/pipeline.py |
 | LDA shrinkage          | auto              | classification/pipeline.py |
-| n_permutations         | 100               | YAML               |
+| n_permutations         | 500               | YAML               |
 | perm_ba_gate           | 0.5               | YAML               |
 | n_splits (CV)          | 5                 | YAML               |

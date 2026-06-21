@@ -23,7 +23,7 @@ When picking up this plan:
 1. **sec2c** — laplacian reconstruction (Q1.2)
 2. **sec2d** — forecast (Q2)
 3. **sec5** — DBS classification (Q3) + fig_053 t_cut
-4. **sec6** — target choice (Q4)
+4. **sec1** — model analysis (nx/n1 selection)
 5. **sec2e** — exemplars (nice to have)
 6. **sec1** — data overview (tonight)
 7. sec2a / sec2b — **discard / low priority**
@@ -117,11 +117,9 @@ Focus: sec2c + start sec2d display pass.
 - [ ] fig_055–058 cross-block / forecast checkpoints: y = "Balanced accuracy"; informative subplot titles
 - [ ] Check all sec5 for any remaining title/label issues
 
-**Break 4 — sec6 target choice**
-- [ ] Open `notebooks/thesis_sec6_summary_appendix.ipynb`
-- [ ] fig_059 phase KDE: axes = "Latent dim 1/2"; legend = DBS ON / DBS OFF
-- [ ] fig_060: colorbar = "Balanced accuracy"; fig_063: x = "Training data fraction"
-- [ ] fig_061–062 Cy/Cz: colorbar label present
+**Break 4 — sec1 model analysis**
+- [ ] Open `notebooks/thesis_sec1_data_verification.ipynb`
+- [ ] fig_007 nx/n1 selection: colorbar = "Balanced accuracy"
 - [ ] Rerun → save
 
 ---
@@ -143,9 +141,9 @@ Main production block. Safe to stop between tasks.
   - New cell in sec5; x = t_cut [0.5–9 s], y = balanced accuracy
 - [ ] 3–4 bullet points: PDI4 above chance, PDI1 at floor, Xp_1 vs Xp_2, honest weak-effect framing
 
-### Task 3 — sec6 deeper + bullet points (30 min)
-- [ ] Confirm sec6 figures clean from break 4
-- [ ] 2–3 bullet points for Q4: target choice effects, Cy/Cz loading, data efficiency plateau
+### Task 3 — sec1 model analysis bullet points (30 min)
+- [ ] Confirm sec1 model-analysis figure clean from break 4
+- [ ] 2–3 bullet points for model analysis: nx/n1 selection rationale
 
 ### Task 4 — sec2e exemplars (30 min)
 - [ ] Open `notebooks/thesis_sec2e_exemplars.ipynb`
@@ -165,7 +163,7 @@ Main production block. Safe to stop between tasks.
 - [ ] Q1 reconstruction: r/RMSE interpretation; PDI1 spectral floor; VARMA AR ceiling
 - [ ] Q2 forecast: degradation rate; VARMA baseline; PSID/DPAD latent-state benefit
 - [ ] Q3 classification: PDI4 above chance, PDI1 at floor; Xp_1 vs Xp_2; honest weak-effect framing
-- [ ] Q4 target choice: behavioral vs neural supervision effects; Cy/Cz; data efficiency
+- [ ] Model analysis: nx/n1 selection rationale (now sec1)
 - [ ] Cross-cutting: spectral separability (sec1 fig_005) explains PDI1 ceiling throughout all RQs
 
 ---
@@ -185,6 +183,6 @@ Main production block. Safe to stop between tasks.
 | Q1.2 neural | `thesis_figures/sec2/fig_070–075_*` | thesis_sec2c_neural_recon_group.ipynb |
 | Q2 forecast | `thesis_figures/sec2/fig_080–086_*` | thesis_sec2d_neural_forecast_group.ipynb |
 | Q3 classify | `thesis_figures/sec5/` | thesis_sec5_classification.ipynb |
-| Q4 target | `thesis_figures/sec6/` | thesis_sec6_summary_appendix.ipynb |
+| Model analysis | `thesis_figures/sec1/` | thesis_sec1_data_verification.ipynb |
 | Exemplars | `thesis_figures/sec2/fig_018–021_*` + `report/thesis/figures/*_exemplar_*` | thesis_sec2e_exemplars.ipynb |
 | Appendix | `thesis_figures/sec7/`, `thesis_figures/sec8/` | thesis_sec7_*, thesis_sec8_* |

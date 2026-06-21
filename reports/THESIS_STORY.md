@@ -94,7 +94,7 @@ Notes:
 
 **Consumed in**:
 - `thesis_sec2a_diagnostics` — fig 38 (PSID grid-search BA heatmap used originally to justify (nx, n1); the elbow story is now the primary justification)
-- `thesis_sec6_summary_appendix` — fig 60 (classification vs dimensionality heatmap as supplementary)
+- `thesis_sec1_data_verification` — fig 007 (nx/n1 selection via classification-vs-dimensionality sweep; part of model analysis, not a standalone result)
 
 ---
 
@@ -208,7 +208,7 @@ Every thesis notebook imports triplets from this module.
 
 ### Consumed in
 
-All of sec2 (b, c, d, e, model_validation), sec5, sec6, sec7 — basically any
+All of sec2 (b, c, d, e, model_validation), sec5, sec7 — basically any
 notebook that reads model output parquets pulls (variant, run_ts) from this
 registry.
 
@@ -293,7 +293,7 @@ class → classification is undefined. Only `dbs_both` variants are classified.
 ### Consumed in
 
 - sec5 (fig 49 grouped BA bar chart, fig 50 standard heatmap, fig 51 flipped heatmap, fig 52 ROC, fig 53-54 within vs cross-condition)
-- sec6 fig 60 (classification vs dimensionality supplementary)
+- sec1 fig 007 (nx/n1 selection — classification-vs-dimensionality sweep, part of model analysis)
 
 ---
 
@@ -463,19 +463,6 @@ Exists as an audit trail more than a figure producer.
 | 53-54 | `build_within_cross_boxplot_figure()` — within vs cross-condition RMSE |
 
 **Reads**: `results/classification/<variant>/<ts>/LDA_*_prediction.*` and forecast variants.
-
-### `thesis_sec6_summary_appendix.py` — 6 figs (sec6/)
-
-Summary + appendix.
-
-| Fig | Description |
-|---|---|
-| 59 | Latent phase space trajectories — `build_latent_phase_space_figure()` |
-| 60 | Classification vs dimensionality heatmap (grid-search ablation) — `build_classification_heatmap_figure()` |
-| 61 | PSID Cy importance heatmap — `build_psid_cy_importance_figure()` |
-| 62 | PSID Cz readout matrix — `build_psid_cz_figure()` |
-| 63 | DPAD training curves — `build_dpad_training_curves_figure()` |
-| 64 | Data efficiency — `build_data_efficiency_figure()` |
 
 ### `thesis_sec7_subspace_dynamics.py` — subspace analysis (sec7/)
 

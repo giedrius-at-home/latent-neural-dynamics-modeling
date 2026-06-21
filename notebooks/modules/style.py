@@ -28,6 +28,8 @@ COLOR_PSID = "#185FA5"
 COLOR_DPAD = "#993C1D"
 COLOR_VARMA = "#5B8C5A"
 COLOR_TRUE = "#1A1A1A"
+COLOR_RAW = "#8E6BBE"  # muted purple — raw oscillatory signal
+COLOR_ENV = "#E8A038"  # amber gold — amplitude envelope
 
 # Participant palette (F1 dot plots, per-subject colors across figures)
 PARTICIPANT_COLORS: dict[str, str] = {
@@ -72,6 +74,9 @@ def apply_thesis_style() -> None:
             "legend.fontsize": 9,
             "legend.borderpad": 0.8,
             "legend.labelspacing": 0.5,
+            # More breathing room between subplots in constrained layout.
+            "figure.constrained_layout.h_pad": 0.10,
+            "figure.constrained_layout.w_pad": 0.10,
         }
     )
 

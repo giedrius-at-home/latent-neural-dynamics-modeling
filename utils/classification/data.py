@@ -675,6 +675,49 @@ def load_all_splits(
     }
 
 
+def load_forecast_splits_precomputed(
+    variant_dir: Path,
+    h: float,
+) -> Dict[str, Optional[Dict[str, Any]]]:
+    """Load pre-computed X_future_pred from forecast/h{h:g}/{split}/ parquets.
+
+    Returns trial dicts with X_future_pred populated — no model execution needed.
+    prepare_epoched_data reads X_future_pred when called with history_horizon=None.
+    Missing h directories are returned as None (caller should skip that h).
+    """
+    h_dir = variant_dir / "forecast" / f"h{h:g}"
+    out: Dict[str, Optional[Dict[str, Any]]] = {}
+    for split in ("train", "val", "test"):
+        split_dir = h_dir / split
+        parquet_files = sorted(split_dir.glob("*.parquet")) if split_dir.exists() else []
+        if not parquet_files:
+            out[split] = None
+            continue
+        df = pl.read_parquet(parquet_files[-1])
+        cols = df.columns
+        if "X_future_pred" not in cols:
+            out[split] = None
+            continue
+        n = len(df)
+        sort_cols = ["participant_id", "session", "block", "trial"]
+        if all(c in cols for c in sort_cols):
+            df = df.with_columns(
+                pl.col("session").cast(pl.Int64, strict=False),
+                pl.col("block").cast(pl.Int64, strict=False),
+                pl.col("trial").cast(pl.Int64, strict=False),
+            ).sort(sort_cols)
+        out[split] = {
+            "Y": convert_series_to_list(df["Y"].to_list()) if "Y" in cols else [None] * n,
+            "X_future_pred": convert_series_to_list(df["X_future_pred"].to_list()),
+            "stim": df["stim"].to_list() if "stim" in cols else [None] * n,
+            "participant_id": df["participant_id"].to_list(),
+            "session": df["session"].to_list(),
+            "block": df["block"].to_list(),
+            "trial": df["trial"].to_list(),
+        }
+    return out
+
+
 def _load_framework_for_forecast(
     variant_dir: Path, run_ts: str, project_root: Path, config: Optional[Any] = None
 ) -> Any:

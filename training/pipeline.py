@@ -50,7 +50,8 @@ PIPELINES = {
 
 
 def run(
-    config_path: str | Path, phases: str | None = None, dbs: str | None = None
+    config_path: str | Path, phases: str | None = None, dbs: str | None = None,
+    cls_mode: str = "all",
 ) -> None:
     """Run the pipeline declared in ``config_path``.
 
@@ -58,6 +59,7 @@ def run(
         config_path: Path to the run YAML (must contain ``framework.name``).
         phases: Comma-separated phase override, e.g. ``"train"`` or ``"predictions,forecasts"``.
         dbs: Single DBS condition to train (both | on | off). Overrides model_dbs_state in YAML.
+        cls_mode: "all" or "forecast_only" — skip Xp predictions sweep when "forecast_only".
     """
     config_path = Path(config_path)
     config = get_config(str(config_path))
@@ -92,7 +94,7 @@ def run(
         (PROJECT_ROOT / d).mkdir(parents=True, exist_ok=True)
 
     phases_tuple = tuple(p.strip() for p in phases.split(",")) if phases else None
-    Pipeline(config, log, phases=phases_tuple, dbs=dbs).run()
+    Pipeline(config, log, phases=phases_tuple, dbs=dbs, cls_mode=cls_mode).run()
 
 
 def main():
@@ -116,10 +118,17 @@ def main():
         choices=["both", "on", "off"],
         help="Train a single DBS condition only. Overrides model_dbs_state in YAML.",
     )
+    parser.add_argument(
+        "--cls-mode",
+        default="all",
+        choices=["all", "forecast_only"],
+        dest="cls_mode",
+        help="Classification sweep mode: 'forecast_only' skips Xp predictions sweep.",
+    )
     args = parser.parse_args()
 
     try:
-        run(args.config, phases=args.phases, dbs=args.dbs)
+        run(args.config, phases=args.phases, dbs=args.dbs, cls_mode=args.cls_mode)
     except ValueError as e:
         print(f"[error] {e}")
         sys.exit(2)

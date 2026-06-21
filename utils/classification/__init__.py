@@ -17,6 +17,7 @@ from sklearn.preprocessing import StandardScaler
 from .data import (
     _load_framework_for_forecast,
     load_all_splits,
+    load_forecast_splits_precomputed,
     load_precomputed_results,
     prepare_epoched_data,
     prepare_ground_truth_eval_data,

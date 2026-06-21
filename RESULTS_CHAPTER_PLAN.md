@@ -120,7 +120,7 @@ Both Y and Z equally important. VARMA included as AR baseline.
 
 ## Q3 — Do learned latents separate stimulation-on from stimulation-off without the DBS label?
 
-Source: sec5, sec6. PSID + VARMA (DPAD parquets pending).
+Source: sec5. PSID + DPAD (VARMA has no classification — empty Xp). DPAD classification wired into sec5.
 
 **Feature source inventory (columns in classification heatmaps):**
 - Prediction-based: Xp, Xp1, Xp2, Xp+dbs
@@ -155,7 +155,7 @@ Source: sec5, sec6. PSID + VARMA (DPAD parquets pending).
 - BA vs training data fraction (k-fold CV inside training pool only)
 - Saturated at 30% = signal quality is limit, not data quantity
 
-*Note: DPAD classification parquets not yet available. Add DPAD row when parquets arrive.*
+*DPAD classification now wired into sec5: fig_049b (pooled box+strip), fig_050/051 (PSID + DPAD stacked heatmaps), fig_052a (PSID-vs-DPAD paired). DPAD parquets predate `perm_mean_ba`, so DPAD points show no empirical-chance marker.*
 
 ---
 

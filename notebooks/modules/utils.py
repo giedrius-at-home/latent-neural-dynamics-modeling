@@ -40,7 +40,7 @@ from modules.loaders import (
     trial_rmse_z_for_model,
     zscore_using_true_stats,
 )
-from modules.specs import ThesisTheme
+from modules.lib.constants import ThesisTheme
 from modules.style import (
     COLOR_DPAD,
     COLOR_PSID,
