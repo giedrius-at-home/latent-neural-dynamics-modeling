@@ -82,13 +82,13 @@ def apply_thesis_style() -> None:
 
 
 def panel_label(ax, letter: str, text: str = "") -> None:
-    """Set the axes subtitle to a bold 'A — text' label.
+    """Set the axes subtitle to a bold 'A. text' label.
 
     Uses ``ax.set_title(loc='left')`` so constrained_layout allocates the
-    space above the axes automatically — the label never overlaps data
+    space above the axes automatically, so the label never overlaps data
     and font sizing stays consistent across subplots.
     """
-    full = rf"$\bf{{{letter}}}$" + (f" — {text}" if text else "")
+    full = rf"$\bf{{{letter}}}$" + (f". {text}" if text else "")
     ax.set_title(full, loc="left")
 
 

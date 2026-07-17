@@ -649,63 +649,61 @@ def decomp_fig(
     """3x3 grid: rows=metrics (amplitude/coherence/PLV), cols=models.
 
     data_y / data_z: dict[(model, metric, ch_type), array], ch_type in {'raw', 'env', 'kin'}.
-    Two x-slots (-0.30 = Y, +0.30 = Z). At each slot raw and env form a butterfly:
-    raw faces left (COLOR_DBS_OFF), env faces right (COLOR_DBS_ON), same alpha.
+    Y target sits left, Z target right. Each shows the raw signal vs its amplitude
+    envelope as a half-violin + slim box (no per-trial strip, kept uncrowded).
+    Column = model (header on top row), row = signal component (ylabel on left).
     """
     if models is None:
         models = MODELS
     rng = np.random.default_rng(42)
-    alpha = 0.55
+    alpha = 0.75
 
-    # Y butterfly at -0.55, Z butterfly at +0.55.
-    # Each butterfly: raw faces left (COLOR_DBS_OFF), env faces right (COLOR_DBS_ON).
-    # Inner violin anchors land at ±0.25, leaving a clear gap at center.
+    # Y group at x=-0.5, Z group at x=+0.5. Within each group raw faces left,
+    # env faces right, so the two targets never overlap and stay comparable.
     has_kin = any(k[2] == "kin" for k in data_z)
-    if has_kin:
-        groups = [
-            (data_y, "raw", -0.55, "left",  COLOR_RAW),
-            (data_y, "env", -0.55, "right", COLOR_ENV),
-            (data_z, "kin",  0.55, "right", COLOR_ENV),
-        ]
-    else:
-        groups = [
-            (data_y, "raw", -0.55, "left",  COLOR_RAW),
-            (data_y, "env", -0.55, "right", COLOR_ENV),
-            (data_z, "raw",  0.55, "left",  COLOR_RAW),
-            (data_z, "env",  0.55, "right", COLOR_ENV),
-        ]
+    z_env_type = "kin" if has_kin else "env"
+    groups = [
+        (data_y, "raw", -0.5, "left",  COLOR_RAW),
+        (data_y, "env", -0.5, "right", COLOR_ENV),
+        (data_z, "raw",  0.5, "left",  COLOR_RAW),
+        (data_z, z_env_type, 0.5, "right", COLOR_ENV),
+    ]
 
-    fig, axes = plt.subplots(3, 3, figsize=(11, 9), layout="constrained")
-    fig.get_layout_engine().set(h_pad=0.25, w_pad=0.15)
+    fig, axes = plt.subplots(3, 3, figsize=(10, 8.5), layout="constrained")
+    fig.get_layout_engine().set(h_pad=0.20, w_pad=0.12)
     for col, model in enumerate(models):
         for row, (metric, ylabel, ref, _) in enumerate(DECOMP_METRICS):
             ax = axes[row, col]
             letter = "ABCDEFGHI"[row * len(models) + col]
-            panel_label(ax, letter, f"{y_target_name} & {z_target_name}\nof {model} framework")
+            # Model name only heads the top row; other rows carry just the letter.
+            panel_label(ax, letter, model if row == 0 else "")
             for data, ch_type, pos, side, color in groups:
                 vals = data.get((model, metric, ch_type), np.array([]))
                 vals = vals[np.isfinite(vals)]
                 if len(vals) > 1:
                     raincloud_slot(
                         ax, pos, vals, color=color, alpha=alpha,
-                        side=side, rng=rng, strip_cap=80,
+                        side=side, rng=rng, scatter=False, kde_width=0.24,
                     )
-            ax.set_xticks([-0.55, 0.55])
-            ax.set_xticklabels([y_target_name, z_target_name], fontsize=9)
-            ax.set_xlim(-1.10, 1.10)
+            ax.set_xticks([-0.5, 0.5])
+            ax.set_xlim(-1.05, 1.05)
+            if row == len(DECOMP_METRICS) - 1:
+                ax.set_xticklabels([y_target_name, z_target_name], fontsize=9)
+            else:
+                ax.set_xticklabels([])
             if col == 0:
                 ax.set_ylabel(ylabel)
 
-    axes[-1, -1].legend(
+    axes[0, -1].legend(
         [
             Patch(facecolor=COLOR_RAW, alpha=alpha, edgecolor="black", linewidth=0.6),
             Patch(facecolor=COLOR_ENV, alpha=alpha, edgecolor="black", linewidth=0.6),
         ],
-        ["raw", "env"],
-        loc="lower right",
+        ["raw signal", "envelope"],
+        loc="upper right",
         frameon=False,
         fontsize=8,
-        ncol=2,
+        ncol=1,
     )
     return fig
 
@@ -886,8 +884,8 @@ def horizon_quantile_bands(T, P, window_size=20, sampling_hz=200.0):
 
 def horizon_decay_fig(
     horizon_data,
-    panel_r="Pearson r",
-    panel_n="NRMSE",
+    panel_r="Pearson's r",
+    panel_n="Normalized RMSE",
     *,
     models=None,
     model_cols=None,
@@ -1002,7 +1000,7 @@ def per_feature_bar_fig(
     feat_names_map,
     session_labels,
     *,
-    ylabel="Pearson's correlation coefficient (mean)",
+    ylabel="Pearson's r (mean)",
     models=None,
     model_cols=None,
 ):
@@ -1078,7 +1076,7 @@ def per_feature_heatmap_fig(
     cmap = plt.get_cmap("RdBu_r").copy()
     cmap.set_bad("#cccccc")
 
-    fig, axes = plt.subplots(len(models), 1, figsize=(14, 9), layout="constrained")
+    fig, axes = plt.subplots(len(models), 1, figsize=(16, 12), layout="constrained")
     if len(models) == 1:
         axes = [axes]
 
@@ -1102,10 +1100,10 @@ def per_feature_heatmap_fig(
             interpolation="nearest",
         )
         ax.set_xticks(range(n_feats))
-        ax.set_xticklabels(x_labels, rotation=90, fontsize=6)
+        ax.set_xticklabels(x_labels, rotation=90, fontsize=7.5)
         ax.set_yticks(range(n_sess))
-        ax.set_yticklabels(session_labels, fontsize=8)
-        fig.colorbar(im, ax=ax, shrink=0.8, label="Pearson's correlation coefficient")
+        ax.set_yticklabels(session_labels, fontsize=10)
+        fig.colorbar(im, ax=ax, shrink=0.85, label="Pearson's r")
         panel_label(ax, "ABC"[i], model)
 
     return fig

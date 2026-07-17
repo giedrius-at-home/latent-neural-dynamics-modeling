@@ -87,11 +87,11 @@ METRIC_KINDS: tuple[MetricKind, ...] = ("rmse", "pearson", "vaf")
 
 
 def metric_display_name(metric: MetricKind) -> str:
-    return {"rmse": "RMSE", "pearson": "Pearson r", "vaf": "VAF"}[metric]
+    return {"rmse": "Normalized RMSE", "pearson": "Pearson's r", "vaf": "VAF"}[metric]
 
 
 def metric_axis_label(metric: MetricKind, target_label: str = "") -> str:
-    core = {"rmse": "RMSE [z]", "pearson": "Pearson r", "vaf": "VAF"}[metric]
+    core = {"rmse": "Normalized RMSE", "pearson": "Pearson's r", "vaf": "VAF"}[metric]
     return f"{core} - {target_label}" if target_label else core
 
 

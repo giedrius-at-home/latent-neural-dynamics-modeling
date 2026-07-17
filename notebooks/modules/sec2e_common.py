@@ -28,9 +28,11 @@ from modules.lib.loaders import (
     load_precomputed_results,
     resolve_neural_y_channel_idx,
     extract_trial_y_series,
+    extract_trial_z_series,
     thesis_exemplar_tagline,
     ThesisDataError,
 )
+from modules.lib.c2_forecast_timeseries import _build_one_panel as _forecast_rowdata
 from modules.lib.compose import _session_mean_rmse_y_triplet
 from modules.lib.transforms import z_true_and_preds
 from modules.lib.forecast_horizon_rmse import _per_step_abs_err_z_future
@@ -170,9 +172,9 @@ def _mpl_side_by_side_exemplar(
                 ax,
                 letter,
                 (
-                    f"{session_label} — {title} — {channel_label}"
+                    f"{session_label}, {title}, {channel_label}"
                     if channel_label
-                    else f"{session_label} — {title}"
+                    else f"{session_label}, {title}"
                 ),
             )
             continue
@@ -187,7 +189,7 @@ def _mpl_side_by_side_exemplar(
             if len(t) != len(yh) or np.all(np.isnan(yh)):
                 continue
             ax.fill_between(t, yh - half, yh + half, color=col, alpha=0.15, linewidth=0)
-        ax.plot(t, zt, color=COLOR_TRUE, linewidth=1.4, label="y_true")
+        ax.plot(t, zt, color=COLOR_TRUE, linewidth=1.4, label="true")
         if not np.all(np.isnan(zp)):
             ax.plot(t, zp, color=COLOR_PSID, linewidth=1.2, label="PSID")
         if not np.all(np.isnan(zd)):
@@ -204,9 +206,9 @@ def _mpl_side_by_side_exemplar(
             ax,
             letter,
             (
-                f"{session_label} — {title} — {channel_label}"
+                f"{session_label}, {title}, {channel_label}"
                 if channel_label
-                else f"{session_label} — {title}"
+                else f"{session_label}, {title}"
             ),
         )
     axes[0].legend()
@@ -436,7 +438,7 @@ def _mpl_forecast_panel(
             alpha=0.6,
         )
 
-    ax.plot(t_plot, _gap(z_true), color=COLOR_TRUE, linewidth=1.4, label="y_true")
+    ax.plot(t_plot, _gap(z_true), color=COLOR_TRUE, linewidth=1.4, label="true")
     if not np.all(np.isnan(z_psid)):
         ax.plot(t_plot, _gap(z_psid), color=COLOR_PSID, linewidth=1.2, label="PSID")
     if not np.all(np.isnan(z_dpad)):
@@ -464,9 +466,9 @@ def _mpl_forecast_panel(
         ax,
         "A",
         (
-            f"{session_label} — DBS-{condition_label} — {channel_label}"
+            f"{session_label}, DBS-{condition_label}, {channel_label}"
             if channel_label
-            else f"{session_label} — DBS-{condition_label}"
+            else f"{session_label}, DBS-{condition_label}"
         ),
     )
     ax.legend()
@@ -516,10 +518,10 @@ def _load_cond_forecast(results_root, model, exp_type, session, condition, horiz
         return None
 
 
-def _pick_median_rmse_trial(fc_res, target_stim, ch_idx=0):
+def _pick_median_rmse_trial(fc_res, target_stim, ch_idx=0, *, none_if_empty=False):
     """Trial index closest to median NRMSE for target_stim."""
     if fc_res is None:
-        return 0
+        return None if none_if_empty else 0
     stims = fc_res.get("stim", [])
     Z_true = fc_res.get("Z_future_true", [])
     Z_pred = fc_res.get("Z_future_pred", [])
@@ -535,7 +537,7 @@ def _pick_median_rmse_trial(fc_res, target_stim, ch_idx=0):
         if np.isfinite(nrmse):
             pairs.append((nrmse, i))
     if not pairs:
-        return 0
+        return None if none_if_empty else 0
     pairs.sort()
     return pairs[len(pairs) // 2][1]
 
@@ -661,12 +663,12 @@ def _draw_cond_model_panel(
     t_all = np.arange(n_total) / fs
     t_fut = t_all[n_hist:]
 
-    ax.axvspan(t_all[0], t_all[n_hist - 1], color=COLOR_DBS_OFF, alpha=0.06, linewidth=0)
-    ax.axvspan(t_all[n_hist], t_all[-1], color=COLOR_DBS_ON, alpha=0.06, linewidth=0)
-    ax.axvline(t_all[n_hist], color="#555", lw=0.7, ls="--", alpha=0.5)
+    ax.axvspan(t_all[0], t_all[n_hist - 1], color=COLOR_DBS_OFF, alpha=_CTX_ALPHA, linewidth=0)
+    ax.axvspan(t_all[n_hist], t_all[-1], color=COLOR_DBS_ON, alpha=_FUT_ALPHA, linewidth=0)
+    ax.axvline(t_all[n_hist], color="#444441", lw=1.0, ls="--", alpha=0.6)
 
-    ax.plot(t_all[:n_hist], z_hist, color="#aaa", lw=0.8, alpha=0.7, label="history")
-    ax.plot(t_fut, z_true_fut, color=COLOR_TRUE, lw=1.6, label="true")
+    ax.plot(t_all[:n_hist], z_hist, label="history", **_HIST_KW)
+    ax.plot(t_fut, z_true_fut, label="observed", **_TRUE_KW)
 
     for cname, fc in fc_conds.items():
         tidx = cond_tidx[cname]
@@ -675,8 +677,216 @@ def _draw_cond_model_panel(
             continue
         fp = np.asarray(fc["Z_future_pred"][tidx], dtype=float)
         z_pred = fp[:, ch_idx] if fp.ndim == 2 else fp.ravel()
-        ax.plot(t_fut, z_pred, color=model_color, lw=1.2, ls=ls, label=lbl)
+        ax.plot(t_fut, z_pred, color=model_color, lw=1.3, ls=ls, label=lbl)
 
+    _clip_ylim_to_true(ax, np.concatenate([np.asarray(z_hist).ravel(), np.asarray(z_true_fut).ravel()]))
     ax.set_xlabel("trial time (s)")
     ax.xaxis.set_major_locator(mticker.MultipleLocator(0.5))
     panel_label(ax, letter, panel_title)
+
+
+# =============================================================================
+# Unified single-trial exemplar design (2x2: rows Y/Z, cols 1-step / m-step).
+# One shared style table drives every recon and forecast panel so the whole
+# appendix looks identical across figures.
+# =============================================================================
+_MODEL_STYLE = {
+    "PSID": ("-", COLOR_PSID),
+    "DPAD": ((0, (5, 2)), COLOR_DPAD),
+    "VARMA": ((0, (1, 1.2)), COLOR_VARMA),
+}
+_TRUE_KW = dict(color=COLOR_TRUE, linewidth=1.6)
+_HIST_KW = dict(color="#9a9a9a", linewidth=0.9, alpha=0.8)
+_CTX_ALPHA = 0.07
+_FUT_ALPHA = 0.06
+
+
+def _clip_ylim_to_true(ax, true_trace, pad=1.5):
+    """Frame the y-axis on the observed trace so an unstable model readout
+    (PSID's linear kinematics readout can overshoot by >10x) leaves the frame
+    instead of flattening everything else. No-op if the true trace is empty."""
+    t = np.asarray(true_trace, dtype=float).ravel()
+    t = t[np.isfinite(t)]
+    if t.size == 0:
+        return
+    lo, hi = float(np.min(t)), float(np.max(t))
+    c = 0.5 * (lo + hi)
+    half = max(0.5 * (hi - lo), 1e-6) * pad
+    ax.set_ylim(c - half, c + half)
+
+
+def _draw_recon_ax(ax, series, *, letter, title, segment_s=None, legend=False):
+    """One-step reconstruction on a given axis: observed + PSID/DPAD/VARMA.
+
+    ``series`` is a TrialZSeries (t_abs, z_true_raw, z_psid, z_dpad, z_varma).
+    Traces are z-scored on the true trial statistics for a common scale.
+    """
+    t = np.asarray(series.t_abs, dtype=float).ravel()
+    zt, zp, zd, zv = z_true_and_preds(
+        series.z_true_raw, series.z_psid, series.z_dpad, series.z_varma
+    )
+    if segment_s is not None and t.size:
+        t, zt, zp, zd, zv = _slice_trial_tail(t, segment_s, zt, zp, zd, zv)
+    if t.size == 0:
+        panel_label(ax, letter, title)
+        return
+    ax.plot(t, zt, label="observed", **_TRUE_KW)
+    for arr, name in ((zp, "PSID"), (zd, "DPAD"), (zv, "VARMA")):
+        a = np.asarray(arr, dtype=float).ravel()
+        if a.size == t.size and not np.all(np.isnan(a)):
+            ls, col = _MODEL_STYLE[name]
+            ax.plot(t, a, color=col, linewidth=1.3, linestyle=ls, label=name)
+    _clip_ylim_to_true(ax, zt)
+    ax.set_xlabel("trial time (s)")
+    ax.xaxis.set_major_locator(mticker.MultipleLocator(0.5))
+    if legend:
+        ax.legend(loc="upper left", fontsize=8, ncol=2)
+    panel_label(ax, letter, title)
+
+
+def _draw_forecast_ax(ax, rowdata, *, letter, title, legend=False):
+    """Multi-step forecast on a given axis, matching the recon design.
+
+    Grey history region + vertical forecast-onset divider, observed trace with a
+    gap at the split, PSID/DPAD/VARMA forecasts in the shared styles.
+    """
+    (t_full, z_true, z_psid, z_dpad, z_varma, _u, _l, _rp, _rd, _rv, n_hist) = rowdata
+    t_full = np.asarray(t_full, dtype=float).ravel()
+    n_hist = int(n_hist)
+
+    def _gap(a):
+        a = np.asarray(a, dtype=float).ravel()
+        if 0 < n_hist < len(a):
+            return np.concatenate([a[:n_hist], [np.nan], a[n_hist:]])
+        return a
+
+    t_plot = _gap(t_full)
+    if t_full.size and n_hist > 0:
+        ax.axvspan(
+            float(t_full[0]), float(t_full[n_hist - 1]),
+            color=COLOR_DBS_OFF, alpha=_CTX_ALPHA, linewidth=0,
+        )
+    if t_full.size and n_hist < len(t_full):
+        ax.axvspan(
+            float(t_full[n_hist]), float(t_full[-1]),
+            color=COLOR_DBS_ON, alpha=_FUT_ALPHA, linewidth=0,
+        )
+        ax.axvline(
+            float(t_full[n_hist]), color="#444441",
+            linewidth=1.0, linestyle="--", alpha=0.6,
+        )
+    ax.plot(t_plot, _gap(z_true), label="observed", **_TRUE_KW)
+    for arr, name in ((z_psid, "PSID"), (z_dpad, "DPAD"), (z_varma, "VARMA")):
+        a = np.asarray(arr, dtype=float).ravel()
+        if not np.all(np.isnan(a)):
+            ls, col = _MODEL_STYLE[name]
+            ax.plot(t_plot, _gap(a), color=col, linewidth=1.3, linestyle=ls, label=name)
+    _clip_ylim_to_true(ax, z_true)
+    ax.set_xlabel("trial time (s)")
+    ax.xaxis.set_major_locator(mticker.MultipleLocator(0.5))
+    if legend:
+        ax.legend(loc="upper left", fontsize=8, ncol=2)
+    panel_label(ax, letter, title)
+
+
+def _fc_trial_idx(fc, ref_fc, ref_idx):
+    """Map a reference trial index (in ref_fc) into fc's own index space."""
+    if fc is None:
+        return None
+    return _key_index_map(fc).get(_trial_key(ref_fc, ref_idx))
+
+
+def compose_exemplar_2x2(
+    runs,
+    results_root,
+    exp_type,
+    *,
+    session_label,
+    y_channel_idx,
+    z_channel_idx,
+    neural_y_feature,
+    z_feat_label,
+    condition,
+    horizon="h5",
+    segment_s=1.0,
+):
+    """Build one 2x2 single-trial exemplar for a (session, exp_type, condition).
+
+    Rows: Y (cortical ECoG) then Z (prioritised signal).
+    Cols: one-step reconstruction then multi-step forecast.
+    A single trial (the requested DBS condition) is shown in all four panels.
+    Returns (fig, info) or (None, reason).
+    """
+    stim = "off" if condition.lower() == "off" else "on"
+
+    # One-step results (test split)
+    res_p = load_split_results_required(
+        results_root, runs.psid_variant, runs.psid_run_ts, "test"
+    )
+    res_d = load_split_results(results_root, runs.dpad_variant, runs.dpad_run_ts, "test")
+    res_v = load_split_results_required(
+        results_root, runs.varma_variant, runs.varma_run_ts, "test"
+    )
+    ch_y = resolve_neural_y_channel_idx(res_p, neural_y_feature, y_channel_idx)
+
+    # Forecast results (h5)
+    fc_p = _load_h5_forecast(results_root, runs.psid_variant, horizon=horizon)
+    fc_d = _load_h5_forecast(results_root, runs.dpad_variant, horizon=horizon)
+    fc_v_both = _load_h5_forecast(results_root, runs.varma_variant, horizon=horizon)
+    _voff = runs.varma_variant.replace("dbs_both", "dbs_off") if "dbs_both" in runs.varma_variant else None
+    _von = runs.varma_variant.replace("dbs_both", "dbs_on") if "dbs_both" in runs.varma_variant else None
+    fc_v_off = _load_h5_forecast(results_root, _voff, horizon=horizon)
+    fc_v_on = _load_h5_forecast(results_root, _von, horizon=horizon)
+    if fc_p is None:
+        return None, "no PSID forecast parquet"
+
+    # Pick a trial of the requested condition from the PSID forecast parquet
+    tidx_fc = _pick_median_rmse_trial(fc_p, stim, z_channel_idx, none_if_empty=True)
+    if tidx_fc is None:
+        return None, f"no {stim} forecast trial"
+
+    # Map into the one-step PSID index space via trial key
+    tidx_1s = _key_index_map(res_p).get(_trial_key(fc_p, tidx_fc))
+    if tidx_1s is None:
+        return None, "forecast trial not in one-step parquet"
+
+    # VARMA condition-matched forecast source + index
+    fc_v = (fc_v_off if stim == "off" else fc_v_on) or fc_v_both
+    jv_fc = _fc_trial_idx(fc_v, fc_p, tidx_fc)
+    v_1s = _key_index_map(res_v).get(_trial_key(res_p, tidx_1s))
+
+    y_1s = extract_trial_y_series(res_p, res_d, res_v, tidx_1s, ch_y, varma_trial_idx=v_1s)
+    z_1s = extract_trial_z_series(res_p, res_d, res_v, tidx_1s, z_channel_idx, varma_trial_idx=v_1s)
+
+    y_fc = _forecast_rowdata(
+        fc_p, fc_d, fc_v, tidx_fc, ch_y, forecast_target="Y", varma_trial_idx=jv_fc
+    )
+    z_fc = _forecast_rowdata(
+        fc_p, fc_d, fc_v, tidx_fc, z_channel_idx, forecast_target="Z", varma_trial_idx=jv_fc
+    )
+
+    fig, axes = plt.subplots(2, 2, figsize=(11.0, 6.4), layout="constrained")
+    y_lbl = neural_y_feature
+    _draw_recon_ax(
+        axes[0, 0], y_1s, letter="A",
+        title=f"Y (ECoG {y_lbl}), one-step", segment_s=segment_s, legend=True,
+    )
+    if y_fc is not None:
+        _draw_forecast_ax(axes[0, 1], y_fc, letter="B", title="Y (ECoG), forecast")
+    else:
+        panel_label(axes[0, 1], "B", "Y (ECoG), forecast")
+    _draw_recon_ax(
+        axes[1, 0], z_1s, letter="C",
+        title=f"Z ({z_feat_label}), one-step", segment_s=segment_s,
+    )
+    if z_fc is not None:
+        _draw_forecast_ax(axes[1, 1], z_fc, letter="D", title=f"Z ({z_feat_label}), forecast")
+    else:
+        panel_label(axes[1, 1], "D", f"Z ({z_feat_label}), forecast")
+
+    fig.suptitle(
+        f"{session_label}, {exp_type}, DBS-{condition.upper()}",
+        fontsize=11, fontweight="bold",
+    )
+    info = dict(tidx_fc=tidx_fc, tidx_1s=tidx_1s, ch_y=ch_y, stim=stim)
+    return fig, info

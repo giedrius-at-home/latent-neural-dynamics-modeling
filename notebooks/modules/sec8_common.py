@@ -278,7 +278,7 @@ def behavioral_pair_heatmap(
     ax.set_yticks(np.arange(n_trials))
     ax.set_yticklabels(t_labels, fontsize=6)
     ax.set_ylabel("trial (block.trial stim)")
-    fig.colorbar(im_r, ax=ax, shrink=0.7, label="Pearson's correlation coefficient")
+    fig.colorbar(im_r, ax=ax, shrink=0.7, label="Pearson's r")
     panel_label(ax, "A", r_title)
 
     # Panel B: RMSE
