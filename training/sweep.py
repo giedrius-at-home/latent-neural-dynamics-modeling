@@ -31,6 +31,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+import joblib
+from joblib import Parallel, delayed
 import numpy as np
 import polars as pl
 from sklearn.base import clone
@@ -40,6 +42,7 @@ from utils.classification import (
     ChronoGroupsSplit,
     create_pipeline,
     load_all_splits,
+    load_forecast_splits_precomputed,
     prepare_epoched_data,
     run_cv,
     _load_framework_for_forecast,
@@ -96,6 +99,32 @@ def _truncate_split_Xp(
 # --- permutation ---
 
 
+def _one_permutation(
+    perm_idx: int,
+    X: np.ndarray,
+    unique_groups: np.ndarray,
+    grp_label: Dict[int, int],
+    groups: np.ndarray,
+    fs: int,
+    base_seed: int,
+) -> float:
+    """Single permutation iteration — module-level for joblib pickling."""
+    rng = np.random.default_rng(base_seed + perm_idx)
+    permuted = rng.permutation(unique_groups)
+    new_label = dict(zip(unique_groups.tolist(), [grp_label[int(g)] for g in permuted]))
+    y_perm = np.array([new_label[int(g)] for g in groups], dtype=np.int64)
+    chrono = ChronoGroupsSplit(allow_mixed_label_groups=False, warn_if_blocks_ignored=False)
+    pipe = create_pipeline(fs=fs)
+    pipe.set_params(classifier__solver="lsqr", classifier__shrinkage="auto")
+    fold_bas: List[float] = []
+    for tr, va in chrono.split(X, y_perm, groups):
+        fold_pipe = clone(pipe)
+        fold_pipe.fit(X[tr], y_perm[tr])
+        pred = fold_pipe.predict(X[va])
+        fold_bas.append(balanced_accuracy_score(y_perm[va], pred))
+    return float(np.mean(fold_bas)) if fold_bas else 0.5
+
+
 def _permutation_pvalue(
     X: np.ndarray,
     y: np.ndarray,
@@ -104,31 +133,72 @@ def _permutation_pvalue(
     n_permutations: int,
     fs: int,
     rng: np.random.Generator,
-    allow_mixed_label_groups: bool = False,
-) -> float:
-    """Group-shuffled labels (chrono CV) -> null distribution; one-sided p."""
-    chrono = ChronoGroupsSplit(
-        allow_mixed_label_groups=allow_mixed_label_groups, warn_if_blocks_ignored=False
-    )
-    pipe = create_pipeline(fs=fs)
-    pipe.set_params(classifier__solver="lsqr", classifier__shrinkage="auto")
+    n_jobs: int = 4,
+) -> Tuple[float, float, List[float]]:
+    """Group-shuffled labels (chrono CV) -> null distribution; returns (p_value, null_mean_ba, null_scores)."""
     unique_groups = np.unique(groups)
     grp_label = {int(g): int(y[groups == g][0]) for g in unique_groups}
-    null_scores: List[float] = []
-    for _ in range(n_permutations):
-        permuted = rng.permutation(unique_groups)
-        new_label = dict(zip(unique_groups, [grp_label[int(g)] for g in permuted]))
-        y_perm = np.array([new_label[int(g)] for g in groups], dtype=np.int64)
-        chrono_splits = chrono.split(X, y_perm, groups)
-        fold_bas: List[float] = []
-        for tr, va in chrono_splits:
-            fold_pipe = clone(pipe)
-            fold_pipe.fit(X[tr], y_perm[tr])
-            pred = fold_pipe.predict(X[va])
-            fold_bas.append(balanced_accuracy_score(y_perm[va], pred))
-        null_scores.append(float(np.mean(fold_bas)) if fold_bas else 0.5)
+    base_seed = int(rng.integers(0, 2**31))
+    null_scores: List[float] = Parallel(n_jobs=n_jobs, backend="loky")(
+        delayed(_one_permutation)(
+            i, X, unique_groups, grp_label, groups, fs, base_seed
+        )
+        for i in range(n_permutations)
+    )
     null = np.asarray(null_scores)
-    return float((np.sum(null >= cv_ba) + 1) / (n_permutations + 1))
+    p = float((np.sum(null >= cv_ba) + 1) / (n_permutations + 1))
+    return p, float(np.mean(null)), null_scores
+
+
+def _one_permutation_flipped(
+    perm_idx: int,
+    X: np.ndarray,
+    unique_groups: np.ndarray,
+    groups: np.ndarray,
+    y: np.ndarray,
+    fs: int,
+    base_seed: int,
+) -> float:
+    """Single flipped permutation — shuffle model-identity labels within each group."""
+    rng = np.random.default_rng(base_seed + perm_idx)
+    y_perm = y.copy()
+    for g in unique_groups:
+        mask = groups == g
+        y_perm[mask] = rng.permutation(y[mask])
+    chrono = ChronoGroupsSplit(allow_mixed_label_groups=True, warn_if_blocks_ignored=False)
+    pipe = create_pipeline(fs=fs)
+    pipe.set_params(classifier__solver="lsqr", classifier__shrinkage="auto")
+    fold_bas: List[float] = []
+    for tr, va in chrono.split(X, y_perm, groups):
+        fold_pipe = clone(pipe)
+        fold_pipe.fit(X[tr], y_perm[tr])
+        pred = fold_pipe.predict(X[va])
+        fold_bas.append(balanced_accuracy_score(y_perm[va], pred))
+    return float(np.mean(fold_bas)) if fold_bas else 0.5
+
+
+def _permutation_pvalue_flipped(
+    X: np.ndarray,
+    y: np.ndarray,
+    groups: np.ndarray,
+    cv_ba: float,
+    n_permutations: int,
+    fs: int,
+    rng: np.random.Generator,
+    n_jobs: int = 4,
+) -> Tuple[float, float, List[float]]:
+    """Within-group label shuffle -> null distribution for flipped classification."""
+    unique_groups = np.unique(groups)
+    base_seed = int(rng.integers(0, 2**31))
+    null_scores: List[float] = Parallel(n_jobs=n_jobs, backend="loky")(
+        delayed(_one_permutation_flipped)(
+            i, X, unique_groups, groups, y, fs, base_seed
+        )
+        for i in range(n_permutations)
+    )
+    null = np.asarray(null_scores)
+    p = float((np.sum(null >= cv_ba) + 1) / (n_permutations + 1))
+    return p, float(np.mean(null)), null_scores
 
 
 # --- core: train-once / score-many ---
@@ -149,7 +219,7 @@ def _train_then_score(
     allow_mixed_label_groups: bool = False,
     precomputed_train: Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]] = None,
     precomputed_scores: Optional[Dict[str, Tuple[np.ndarray, np.ndarray]]] = None,
-) -> List[Dict[str, Any]]:
+) -> Tuple[List[Dict[str, Any]], Any]:
     """Fit one LDA on the full window, score at each entry of ``score_grid``.
 
     precomputed_train: (X_base, y, groups) before sub-source slicing — skips
@@ -191,6 +261,14 @@ def _train_then_score(
         allow_mixed_label_groups=allow_mixed_label_groups,
     )
     clf = res["best_pipeline"]
+    cv_y_true: List[int] = res.get("cv_y_true", np.array([], dtype=np.int64)).tolist()
+    cv_y_pred: List[int] = res.get("cv_y_pred", np.array([], dtype=np.int64)).tolist()
+    cv_y_proba: List[float] = res.get("cv_y_proba", np.array([], dtype=np.float64)).tolist()
+    y_proba: List[float] = res.get("y_proba", np.array([], dtype=np.float64)).tolist()
+    cv_roc_auc: float = float(res.get("roc_auc", float("nan")))
+    cv_fold_ba: List[float] = [
+        float(f["balanced_accuracy"]) for f in res.get("fold_results", [])
+    ]
 
     rows: List[Dict[str, Any]] = []
     for label, _ in score_grid:
@@ -203,31 +281,57 @@ def _train_then_score(
         pred = clf.predict(X_score)
         ba = balanced_accuracy_score(y_score, pred)
         rows.append(
-            {"score_label": label, "n_score": int(len(y_score)), "ba": float(ba)}
+            {
+                "score_label": label,
+                "n_score": int(len(y_score)),
+                "ba": float(ba),
+                "y_true": y_score.tolist(),
+                "y_pred": pred.tolist(),
+            }
         )
 
     p_value: float = float("nan")
-    if cv_ba > classifier_cfg.perm_ba_gate and not allow_mixed_label_groups:
+    perm_mean_ba: float = float("nan")
+    perm_scores: List[float] = []
+    if cv_ba > classifier_cfg.perm_ba_gate:
         log.info(
             f"    cv_ba={cv_ba:.3f} > gate; running {classifier_cfg.n_permutations} perms"
         )
-        p_value = _permutation_pvalue(
-            X_full,
-            y_full,
-            g_full,
-            cv_ba,
-            classifier_cfg.n_permutations,
-            sfreq,
-            rng,
-            allow_mixed_label_groups=allow_mixed_label_groups,
-        )
+        if allow_mixed_label_groups:
+            p_value, perm_mean_ba, perm_scores = _permutation_pvalue_flipped(
+                X_full,
+                y_full,
+                g_full,
+                cv_ba,
+                classifier_cfg.n_permutations,
+                sfreq,
+                rng,
+            )
+        else:
+            p_value, perm_mean_ba, perm_scores = _permutation_pvalue(
+                X_full,
+                y_full,
+                g_full,
+                cv_ba,
+                classifier_cfg.n_permutations,
+                sfreq,
+                rng,
+            )
     for r in rows:
         r["cv_ba"] = float(cv_ba)
+        r["cv_y_true"] = cv_y_true
+        r["cv_y_pred"] = cv_y_pred
+        r["cv_y_proba"] = cv_y_proba
+        r["y_proba"] = y_proba
+        r["cv_roc_auc"] = cv_roc_auc
+        r["cv_fold_ba"] = cv_fold_ba
         r["p_value"] = p_value
+        r["perm_mean_ba"] = perm_mean_ba
+        r["perm_scores"] = perm_scores
         r["n_permutations"] = (
             0 if np.isnan(p_value) else int(classifier_cfg.n_permutations)
         )
-    return rows
+    return rows, clf
 
 
 # --- sweeps ---
@@ -245,6 +349,7 @@ def run_predictions_sweep(
     project_root: Path,
     config: Any,
     log,
+    clf_dir: Optional[Path] = None,
 ) -> List[Dict[str, Any]]:
     """1 LDA per (sub-source, dbs-train); score at every t_cut."""
     sfreq = sampling_freq
@@ -290,7 +395,7 @@ def run_predictions_sweep(
 
         for sub in feature_sources:
             log.info(f"predictions  dbs={dbs_train} sub={sub}")
-            rows = _train_then_score(
+            rows, clf = _train_then_score(
                 train_kwargs={"mode": "prediction"},
                 score_grid=score_grid_pred,
                 pool_trials=pool_full,
@@ -308,6 +413,9 @@ def run_predictions_sweep(
                 ),
                 precomputed_scores=pre_scores_pred,
             )
+            if clf_dir is not None:
+                clf_dir.mkdir(parents=True, exist_ok=True)
+                joblib.dump(clf, clf_dir / f"clf_pred_{dbs_train}_{sub}.joblib")
             for r in rows:
                 t_val = float(r["score_label"].split("=")[1])
                 out.append(
@@ -324,10 +432,20 @@ def run_predictions_sweep(
                         "h_seconds": None,
                         "m_test_seconds": None,
                         "cv_ba": r["cv_ba"],
+                        "cv_y_true": r["cv_y_true"],
+                        "cv_y_pred": r["cv_y_pred"],
+                        "cv_y_proba": r["cv_y_proba"],
+                        "y_proba": r["y_proba"],
+                        "cv_roc_auc": r["cv_roc_auc"],
+                        "cv_fold_ba": r["cv_fold_ba"],
                         "ba_at_score": r["ba"],
                         "n_score": r["n_score"],
                         "n_permutations": r["n_permutations"],
                         "p_value": r["p_value"],
+                        "perm_mean_ba": r["perm_mean_ba"],
+                        "perm_scores": r["perm_scores"],
+                        "y_true": r["y_true"],
+                        "y_pred": r["y_pred"],
                     }
                 )
     return out
@@ -348,6 +466,7 @@ def run_forecast_sweep(
     config: Any,
     log,
     flipped: bool = False,
+    clf_dir: Optional[Path] = None,
 ) -> List[Dict[str, Any]]:
     """One LDA per (h, sub-source, dbs-train); score at every m_test."""
     sfreq = sampling_freq
@@ -356,46 +475,35 @@ def run_forecast_sweep(
     nx = config.framework.params.nx
     out: List[Dict[str, Any]] = []
 
-    for dbs_train in ("both", "on", "off"):
+    # Flipped models are the same for every dbs_train iteration — load once.
+    flip_models: Dict[str, Any] = {}
+    if flipped:
+        for side in ("on", "off", "both"):
+            v_dir = project_root / "results" / pipeline / variants[side]
+            fw = _load_framework_for_forecast(
+                v_dir, timestamps[side], project_root, config
+            )
+            flip_models[side] = fw.model.idSys
+
+    # DPAD imputes Xf from full Y_past, so only the dbs=both model is valid for
+    # forecast classification — on/off models were trained on a single condition
+    # and cannot meaningfully forecast from the opposing condition's observations.
+    _dbs_states = ("both",) if pipeline.startswith("dpad") else ("both", "on", "off")
+    for dbs_train in _dbs_states:
         variant = variants[dbs_train]
         run_ts = timestamps[dbs_train]
         variant_dir = project_root / "results" / pipeline / variant
-        inf_dir = variant_dir / "inference"
-        splits = load_all_splits(inf_dir, run_ts)
-        if not splits:
-            raise FileNotFoundError(f"no inference parquets under {inf_dir}")
-        pool_full = [splits[k] for k in ("train", "val") if k in splits]
 
-        framework = _load_framework_for_forecast(
-            variant_dir, run_ts, project_root, config
-        )
-        flip_models: Dict[str, Any] = {}
+        # Flipped needs inference splits (raw Y observations for re-forecasting).
+        # Non-flipped uses pre-computed forecast parquets — no model loading needed.
         if flipped:
-            for side in ("on", "off", "both"):
-                v_dir = project_root / "results" / pipeline / variants[side]
-                fw = _load_framework_for_forecast(
-                    v_dir, timestamps[side], project_root, config
-                )
-                flip_models[side] = fw.model.idSys
+            inf_dir = variant_dir / "inference"
+            splits = load_all_splits(inf_dir, run_ts)
+            if not splits:
+                raise FileNotFoundError(f"no inference parquets under {inf_dir}")
+            pool_for_flipped = [splits[k] for k in ("train", "val") if k in splits]
 
         for h in h_grid:
-            base_kwargs: Dict[str, Any] = {
-                "mode": "forecast",
-                "history_horizon": float(h),
-                "forecast_horizon": float(m_seconds),
-                "framework": framework,
-            }
-            if flipped:
-                base_kwargs.update(
-                    {
-                        "model_on": flip_models["on"],
-                        "model_off": flip_models["off"],
-                        "model_both": flip_models["both"],
-                        "target_future": True,
-                        "framework": None,
-                    }
-                )
-
             _common = dict(
                 feature_source="Xf",
                 epoch_length_sec=classifier_cfg.epoch_length,
@@ -404,13 +512,41 @@ def run_forecast_sweep(
                 n1=n1,
                 nx=nx,
             )
+
+            if flipped:
+                base_kwargs: Dict[str, Any] = {
+                    "mode": "forecast",
+                    "history_horizon": float(h),
+                    "forecast_horizon": float(m_seconds),
+                    "framework": None,
+                    "model_on": flip_models["on"],
+                    "model_off": flip_models["off"],
+                    "model_both": flip_models["both"],
+                    "target_future": True,
+                }
+                pool_h = pool_for_flipped
+            else:
+                # Load pre-computed X_future_pred — avoids re-running the model.
+                # Missing h dirs (e.g. DPAD h3/h4) return None; skip gracefully.
+                precomp = load_forecast_splits_precomputed(variant_dir, h)
+                pool_h = [v for k, v in precomp.items() if k in ("train", "val") and v is not None]
+                if not pool_h:
+                    log.info(f"forecast  dbs={dbs_train} h={h:g}: no pre-computed parquets, skipping")
+                    continue
+                base_kwargs = {
+                    "mode": "forecast",
+                    "history_horizon": None,  # signals pre-computed path in prepare_epoched_data
+                    "forecast_horizon": float(m_seconds),
+                    "framework": None,
+                }
+
             X_train_base, y_train, g_train, _ = prepare_epoched_data(
-                pool_full, **_common, **base_kwargs
+                pool_h, **_common, **base_kwargs
             )
             pre_scores: Dict[str, Tuple[np.ndarray, np.ndarray]] = {}
             for m_test in m_test_grid:
                 kw_s = {**base_kwargs, "forecast_horizon": float(m_test)}
-                X_s, y_s, _, _ = prepare_epoched_data(pool_full, **_common, **kw_s)
+                X_s, y_s, _, _ = prepare_epoched_data(pool_h, **_common, **kw_s)
                 if X_s is not None and len(X_s) > 0:
                     pre_scores[f"m_test={m_test:g}"] = (X_s, y_s)
 
@@ -426,10 +562,10 @@ def run_forecast_sweep(
                 log.info(
                     f"forecast{' (flipped)' if flipped else ''}  dbs={dbs_train} sub={sub} h={h:.1f}"
                 )
-                rows = _train_then_score(
+                rows, clf = _train_then_score(
                     train_kwargs=base_kwargs,
                     score_grid=score_grid,
-                    pool_trials=pool_full,
+                    pool_trials=pool_h,
                     feature_source=sub,
                     n1=n1,
                     nx=nx,
@@ -445,6 +581,12 @@ def run_forecast_sweep(
                     ),
                     precomputed_scores=pre_scores,
                 )
+                if clf_dir is not None:
+                    clf_dir.mkdir(parents=True, exist_ok=True)
+                    tag = "flipped" if flipped else "forecast"
+                    joblib.dump(
+                        clf, clf_dir / f"clf_{tag}_{dbs_train}_{sub}_h{h:.1f}.joblib"
+                    )
                 for r in rows:
                     m_val = float(r["score_label"].split("=")[1])
                     out.append(
@@ -461,10 +603,20 @@ def run_forecast_sweep(
                             "h_seconds": float(h),
                             "m_test_seconds": m_val,
                             "cv_ba": r["cv_ba"],
+                            "cv_y_true": r["cv_y_true"],
+                            "cv_y_pred": r["cv_y_pred"],
+                            "cv_y_proba": r["cv_y_proba"],
+                            "y_proba": r["y_proba"],
+                            "cv_roc_auc": r["cv_roc_auc"],
+                            "cv_fold_ba": r["cv_fold_ba"],
                             "ba_at_score": r["ba"],
                             "n_score": r["n_score"],
                             "n_permutations": r["n_permutations"],
                             "p_value": r["p_value"],
+                            "perm_mean_ba": r["perm_mean_ba"],
+                            "perm_scores": r["perm_scores"],
+                            "y_true": r["y_true"],
+                            "y_pred": r["y_pred"],
                         }
                     )
     return out
@@ -490,8 +642,14 @@ def run_sweep(
     out_dir: Path,
     config: Any,
     log,
+    cls_mode: str = "all",
 ) -> Path:
-    """Run all sweeps and write parquet to out_dir. Returns the written path."""
+    """Run all sweeps and write parquet to out_dir. Returns the written path.
+
+    cls_mode:
+        "all"           — predictions + forecast + flipped (default)
+        "forecast_only" — skip predictions sweep, run forecast + flipped only
+    """
     common = dict(
         pipeline=pipeline,
         variants=variants,
@@ -508,19 +666,30 @@ def run_sweep(
         m_seconds=m_seconds,
         m_test_grid=m_test_grid,
     )
+    clf_dir = out_dir / "classifiers"
+
     rows: List[Dict[str, Any]] = []
-    log.info("predictions sweep ...")
-    rows.extend(
-        run_predictions_sweep(
-            **common,
-            feature_sources=feature_sources_pred,
-            t_cut_grid=t_cut_grid,
+    if cls_mode != "forecast_only":
+        log.info("predictions sweep ...")
+        rows.extend(
+            run_predictions_sweep(
+                **common,
+                feature_sources=feature_sources_pred,
+                t_cut_grid=t_cut_grid,
+                clf_dir=clf_dir,
+            )
         )
-    )
+    else:
+        log.info("predictions sweep skipped (cls_mode=forecast_only)")
     log.info("forecast sweep ...")
-    rows.extend(run_forecast_sweep(**common, **forecast_kwargs, flipped=False))
-    log.info("forecast sweep (flipped) ...")
-    rows.extend(run_forecast_sweep(**common, **forecast_kwargs, flipped=True))
+    rows.extend(
+        run_forecast_sweep(**common, **forecast_kwargs, flipped=False, clf_dir=clf_dir)
+    )
+    if not pipeline.startswith("dpad"):
+        log.info("forecast sweep (flipped) ...")
+        rows.extend(
+            run_forecast_sweep(**common, **forecast_kwargs, flipped=True, clf_dir=clf_dir)
+        )
 
     out_dir.mkdir(parents=True, exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")

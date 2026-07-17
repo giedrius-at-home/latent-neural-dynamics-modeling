@@ -1,0 +1,16 @@
+{
+  "id": "giedriusmirklys/dpad-forecast-pdi4-s3-z-as-behavior",
+  "title": "DPAD Forecast PDI4 S3 z as behavior",
+  "code_file": "dpad_forecast_PDI4_S3_z-as-behavior.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_tpu": false,
+  "enable_internet": true,
+  "dataset_sources": [
+    "giedriusmirklys/dpad-splits"
+  ],
+  "competition_sources": [],
+  "kernel_sources": []
+}

@@ -4,7 +4,7 @@ framework:
     p: 30
     q: 1
     long_ar_lags: 30
-    ridge_alpha: 1.0
+    ridge_alpha: 0.1
     trial_edge_taper_sec: 0.1
     time_first: true
     fast: true

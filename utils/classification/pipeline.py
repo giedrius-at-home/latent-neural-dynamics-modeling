@@ -11,7 +11,6 @@ from typing import Any, Dict, Optional, Tuple
 import warnings
 
 import numpy as np
-from mne.decoding import CSP
 from sklearn.base import clone
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from sklearn.metrics import (
@@ -30,16 +29,21 @@ from sklearn.preprocessing import FunctionTransformer, StandardScaler
 from .splits import ChronoGroupsSplit
 
 
-def _reorder_dims_for_mne(X: np.ndarray) -> np.ndarray:
-    """(n_epochs, n_samples, n_channels) -> (n_epochs, n_channels, n_samples) for MNE CSP."""
-    return np.transpose(X, (0, 2, 1))
+def _mean_pool(X: np.ndarray) -> np.ndarray:
+    """(n_epochs, n_time, n_channels) -> (n_epochs, n_channels): mean over time."""
+    return X.mean(axis=1)
 
 
-def create_pipeline(fs: float = 80, feature_source: str = "Xp") -> Pipeline:
-    """LDA decoding pipeline: transpose -> CSP(4) -> scale -> LDA."""
+def create_pipeline(fs: float = 200, feature_source: str = "Xp") -> Pipeline:
+    """LDA decoding pipeline: mean-pool over time -> scale -> LDA.
+
+    Replaces CSP: PSID/DPAD latent states encode DBS condition as mean shifts
+    (shared A matrix across conditions), not covariance differences. Mean-pooling
+    extracts exactly that signal; CSP exploits covariance structure which is
+    uninformative here.
+    """
     steps = [
-        ("transpose", FunctionTransformer(_reorder_dims_for_mne)),
-        ("csp", CSP(n_components=4, reg="ledoit_wolf", log=True)),
+        ("mean_pool", FunctionTransformer(_mean_pool)),
         ("scaler", StandardScaler()),
         ("classifier", LinearDiscriminantAnalysis()),
     ]
@@ -96,6 +100,9 @@ def run_cv(
 
     fold_scores = []
     fold_results = []
+    cv_y_true_parts: list = []
+    cv_y_pred_parts: list = []
+    cv_y_proba_parts: list = []
     with warnings.catch_warnings():
         warnings.filterwarnings(
             "ignore", message="y_pred contains classes not in y_true"
@@ -106,8 +113,16 @@ def run_cv(
             X_val, y_val = X[val_idx], y[val_idx]
             fold_pipeline.fit(X_train, y_train)
             y_pred_fold = fold_pipeline.predict(X_val)
+            y_proba_fold = (
+                fold_pipeline.predict_proba(X_val)[:, 1]
+                if hasattr(fold_pipeline, "predict_proba")
+                else y_pred_fold.astype(float)
+            )
             fold_score = balanced_accuracy_score(y_val, y_pred_fold)
             fold_scores.append(fold_score)
+            cv_y_true_parts.append(y_val)
+            cv_y_pred_parts.append(y_pred_fold)
+            cv_y_proba_parts.append(y_proba_fold)
             fold_results.append(
                 {
                     "fold": fold_idx,
@@ -138,12 +153,31 @@ def run_cv(
     fpr, tpr, _ = roc_curve(y, y_proba)
     roc_auc_val = auc(fpr, tpr)
 
+    cv_y_true = (
+        np.concatenate(cv_y_true_parts)
+        if cv_y_true_parts
+        else np.array([], dtype=np.int64)
+    )
+    cv_y_pred = (
+        np.concatenate(cv_y_pred_parts)
+        if cv_y_pred_parts
+        else np.array([], dtype=np.int64)
+    )
+    cv_y_proba = (
+        np.concatenate(cv_y_proba_parts)
+        if cv_y_proba_parts
+        else np.array([], dtype=np.float64)
+    )
+
     results = {
         "best_params": fixed_params,
         "best_cv_score": best_cv_score,
         "n_splits": effective_n_splits,
         "cv_method": "ChronoGroupsSplit",
         "fold_results": fold_results,
+        "cv_y_true": cv_y_true,
+        "cv_y_pred": cv_y_pred,
+        "cv_y_proba": cv_y_proba,
         "y_true": y,
         "y_pred": y_pred,
         "y_proba": y_proba,

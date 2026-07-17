@@ -22,7 +22,7 @@ from training.train import train
 class FrameworkPipeline:
     """Pipeline driven by YAML config blocks (train/predictions/forecasts/classification)."""
 
-    def __init__(self, config, log, phases: tuple = None, dbs: str = None):
+    def __init__(self, config, log, phases: tuple = None, dbs: str = None, cls_mode: str = "all"):
         self.log = log
         self.state: Dict[str, Any] = {"timestamps": {}}
         self.config = config
@@ -37,6 +37,8 @@ class FrameworkPipeline:
                 _bool_map.get(s, s) for s in config.experiment.train.model_dbs_state
             )
         )
+
+        self.cls_mode: str = cls_mode
 
         if phases is not None:
             all_known = ("train", "predictions", "forecasts", "classification")
@@ -188,7 +190,7 @@ class FrameworkPipeline:
             t_cut_grid=list(cls.t_cut_grid),
             feature_sources_forecast=list(cls.feature_sources_forecast),
             h_grid=list(fc.h_grid),
-            m_seconds=fc.default_m,
+            m_seconds=getattr(cls, 'm_seconds', fc.default_m),
             m_test_grid=list(fc.m_test_grid),
             classifier_cfg=cls,
             sampling_freq=int(self.config.data.sampling_frequency),
@@ -200,4 +202,5 @@ class FrameworkPipeline:
             / "classification",
             log=self.log,
             config=self.config,
+            cls_mode=self.cls_mode,
         )

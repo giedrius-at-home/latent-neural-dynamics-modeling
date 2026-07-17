@@ -18,6 +18,119 @@ _pkl = importlib.import_module("pic" + "kle")
 # subprocess).
 _DPADFWK_FORECAST_CACHE: dict[int, int] = {}
 
+# Cache for compiled GPU forecast functions keyed by id(idSys).
+# Compiled once on first call, reused for all subsequent trials.
+_DPADFWK_GPU_FN_CACHE: dict[int, object] = {}
+
+
+def _build_dpad_gpu_forecast_fn(
+    cell1_A, cell1_C, model1_Cy, cell2_A, cell2_C, model2_Cz
+):
+    """Return a @tf.function that runs the DPAD autoregressive forecast on GPU.
+
+    Replaces DPAD's Python-level 400-step loop with a single compiled
+    tf.while_loop, eliminating Python overhead between steps.
+
+    Step (both x1/x2 updated from OLD values, matching propagate_prediction_forward_with_data_gen):
+        x1_new  = A1([x1; y])
+        z1_new  = C1(x1_new)             -- model1's z (prior for Cz2)
+        y1_new  = Cy1(x1_new)            -- model1's y (prior for C2)
+        x2_new  = A2([x2; x1; y])        -- uses OLD x1 and y
+        y_new   = C2((x2_new, y1_new))   -- total y_hat = C2(x2) + y1
+        z       = Cz2((x2_new, z1_new))  -- total z    = Cz2(x2) + z1
+    """
+    import tensorflow as tf
+
+    @tf.function
+    def _forecast(x1, x2, y, m):
+        x1_ta = tf.TensorArray(tf.float32, size=m, dynamic_size=False)
+        x2_ta = tf.TensorArray(tf.float32, size=m, dynamic_size=False)
+        y_ta = tf.TensorArray(tf.float32, size=m, dynamic_size=False)
+        z_ta = tf.TensorArray(tf.float32, size=m, dynamic_size=False)
+        for i in tf.range(m):
+            x1_new = cell1_A.apply_func(tf.concat([x1, y], axis=-1))
+            z1_new = cell1_C.apply_func(x1_new)
+            y1_new = model1_Cy.apply_func(x1_new)
+            x2_new = cell2_A.apply_func(tf.concat([x2, x1, y], axis=-1))
+            y = cell2_C.apply_func((x2_new, y1_new))
+            z = model2_Cz.apply_func((x2_new, z1_new))
+            x1 = x1_new
+            x2 = x2_new
+            x1_ta = x1_ta.write(i, x1)
+            x2_ta = x2_ta.write(i, x2)
+            y_ta = y_ta.write(i, y)
+            z_ta = z_ta.write(i, z)
+        return x1_ta.stack(), x2_ta.stack(), y_ta.stack(), z_ta.stack()
+
+    return _forecast
+
+
+def dpad_gpu_forecast(
+    id_sys: object,
+    m: int,
+    y_past: "np.ndarray",
+) -> "Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]]":
+    """Run the GPU fast-path forecast on a raw DPADModel instance.
+
+    Returns (Zf, Yf, Xf) each shaped [m, n*] if the model has the
+    NLRegRNNCell+unifiedAK structure, otherwise returns None (caller falls back).
+    Shares _DPADFWK_GPU_FN_CACHE so the compiled @tf.function is built once
+    regardless of whether the call comes from DPADWrapper.forecast() or
+    _dpad_idsys_forecast_latents().
+    """
+    has_gpu_path = (
+        getattr(id_sys, "model1", None) is not None
+        and getattr(id_sys, "model1_Cy", None) is not None
+        and getattr(id_sys, "model2", None) is not None
+        and getattr(id_sys, "model2_Cz", None) is not None
+        and getattr(id_sys.model1.rnn.cell, "unifiedAK", False)
+        and getattr(id_sys.model1.rnn.cell, "C", None) is not None
+        and getattr(id_sys.model2.rnn.cell, "unifiedAK", False)
+        and getattr(id_sys.model2.rnn.cell, "C", None) is not None
+    )
+    if not has_gpu_path:
+        return None
+
+    import tensorflow as tf
+
+    block_samples = id_sys.block_samples
+    n1 = id_sys.n1
+    ny = y_past.shape[1]
+
+    def _pad(arr):
+        r = arr.shape[0] % block_samples
+        if r:
+            arr = np.concatenate([arr, np.zeros((block_samples - r, ny))], axis=0)
+        return arr
+
+    _key = id(id_sys)
+    if _key not in _DPADFWK_GPU_FN_CACHE:
+        _DPADFWK_GPU_FN_CACHE[_key] = _build_dpad_gpu_forecast_fn(
+            id_sys.model1.rnn.cell.A,
+            id_sys.model1.rnn.cell.C,
+            id_sys.model1_Cy,
+            id_sys.model2.rnn.cell.A,
+            id_sys.model2.rnn.cell.C,
+            id_sys.model2_Cz,
+        )
+    gpu_fn = _DPADFWK_GPU_FN_CACHE[_key]
+
+    id_sys.set_steps_ahead([1])
+    id_sys.set_multi_step_with_data_gen(False)
+    preds1 = id_sys.predict(_pad(y_past))
+    Xp_h = np.asarray(preds1[2])  # [T, nx]
+    Yp_h = np.asarray(preds1[1])  # [T, ny]
+    T = y_past.shape[0]
+    x1_T = tf.constant(Xp_h[T - 1 : T, :n1], dtype=tf.float32)
+    x2_T = tf.constant(Xp_h[T - 1 : T, n1:], dtype=tf.float32)
+    y_T = tf.constant(Yp_h[T - 1 : T, :], dtype=tf.float32)
+
+    x1_f, x2_f, y_f, z_f = gpu_fn(x1_T, x2_T, y_T, m)
+    Zf = z_f[:, 0, :].numpy()
+    Yf = y_f[:, 0, :].numpy()
+    Xf = np.concatenate([x1_f[:, 0, :].numpy(), x2_f[:, 0, :].numpy()], axis=-1)
+    return Zf, Yf, Xf
+
 
 class DPADWrapper(BaseWrapper):
     def load_from_file(self, model_path: str):
@@ -107,11 +220,14 @@ class DPADWrapper(BaseWrapper):
         """
         all_Zp, all_Yp, all_Xp = [], [], []
 
+        # Save forecast cache state so we can restore it after the [1]-step
+        # predict pass.  Without this, every predict() call in a forecast loop
+        # causes forecast() to rebuild the m-step TF graph from scratch
+        # (~40–90 s per trial for m=400).
+        _prev_forecast_m = _DPADFWK_FORECAST_CACHE.get(id(self.idSys))
+
         self.idSys.set_steps_ahead([1])
         self.idSys.set_multi_step_with_data_gen(False)
-        # predict() just reset steps_ahead / multi_step; invalidate the forecast
-        # cache so the next forecast(m) call reconfigures the model.
-        _DPADFWK_FORECAST_CACHE.pop(id(self.idSys), None)
         block_samples = self.idSys.block_samples
 
         for y_trial in Y:
@@ -136,6 +252,14 @@ class DPADWrapper(BaseWrapper):
             all_Yp.append(np.asarray(Yp) if Yp is not None else None)
             all_Xp.append(np.asarray(Xp) if Xp is not None else None)
 
+        # Restore multi-step forecast configuration if it was active before
+        # this predict() call, so the next forecast(m) call skips the
+        # expensive TF graph rebuild.
+        if _prev_forecast_m is not None:
+            self.idSys.set_steps_ahead(list(range(1, _prev_forecast_m + 1)))
+            self.idSys.set_multi_step_with_data_gen(True, noise_samples=0)
+            _DPADFWK_FORECAST_CACHE[id(self.idSys)] = _prev_forecast_m
+
         return all_Zp, all_Yp, all_Xp
 
     def forecast(
@@ -145,29 +269,31 @@ class DPADWrapper(BaseWrapper):
         Z_past: Optional[Array2D] = None,
     ) -> Tuple[Array2D, Array2D, Array2D]:
         """``Z_past`` accepted for signature parity but ignored (DPAD consumes Y only)."""
-        block_samples = self.idSys.block_samples
-        ny = Y_past.shape[1]
+        idSys = self.idSys
+
+        result = dpad_gpu_forecast(idSys, m, Y_past)
+        if result is not None:
+            return result
+
+        # Fallback: original DPAD multi-step data-gen path.
+        _key = id(idSys)
+        block_samples = idSys.block_samples
 
         def _pad_to_block(arr):
             remainder = arr.shape[0] % block_samples
             if remainder != 0:
                 pad_len = block_samples - remainder
-                return np.concatenate([arr, np.zeros((pad_len, ny))], axis=0)
+                return np.concatenate([arr, np.zeros((pad_len, arr.shape[1]))], axis=0)
             return arr
 
         def _stack_last(steps_list):
             return np.vstack([arr[-1:, :] for arr in steps_list])
 
-        # Memoized setup — same pattern as validate_forecast above and as
-        # utils/classification._ensure_dpad_forecast_setup. Each
-        # set_steps_ahead call rebuilds m output heads on the TF model
-        # (O(seconds) per call); we skip the rebuild when m hasn't changed.
-        _key = id(self.idSys)
         if _DPADFWK_FORECAST_CACHE.get(_key) != m:
-            self.idSys.set_steps_ahead(list(range(1, m + 1)))
-            self.idSys.set_multi_step_with_data_gen(True, noise_samples=0)
+            idSys.set_steps_ahead(list(range(1, m + 1)))
+            idSys.set_multi_step_with_data_gen(True, noise_samples=0)
             _DPADFWK_FORECAST_CACHE[_key] = m
-        preds = self.idSys.predict(_pad_to_block(Y_past))
+        preds = idSys.predict(_pad_to_block(Y_past))
 
         Zf = _stack_last(preds[:m])
         Yf = _stack_last(preds[m : 2 * m])

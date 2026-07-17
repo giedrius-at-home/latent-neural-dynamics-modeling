@@ -1,0 +1,14 @@
+{
+  "id": "giedriusmirklys/psid-classification-sweep",
+  "title": "PSID Classification Sweep",
+  "code_file": "psid_classification.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": false,
+  "enable_tpu": false,
+  "enable_internet": true,
+  "dataset_sources": ["giedriusmirklys/psid-data"],
+  "competition_sources": [],
+  "kernel_sources": []
+}

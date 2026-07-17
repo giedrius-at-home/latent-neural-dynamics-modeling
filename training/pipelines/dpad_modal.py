@@ -134,10 +134,12 @@ def train_one(config_path: str, model_dbs: str) -> str:
 
 
 @app.function(image=_image, gpu="A10G", timeout=86400, volumes=_VOLUMES)
-def run_post_train(config_path: str) -> str:
-    """Stage 2: predictions + forecasts + classification for one config."""
-    _run_dpad(config_path, phases="predictions,forecasts,classification")
-    return f"post_train:{config_path}"
+def run_post_train(
+    config_path: str, phases: str = "predictions,forecasts,classification"
+) -> str:
+    """Stage 2: post-train phases for one config (default: all non-train phases)."""
+    _run_dpad(config_path, phases=phases)
+    return f"post_train:{config_path}:{phases}"
 
 
 @app.function(image=_image, gpu="A10G", timeout=600, volumes=_VOLUMES)
@@ -163,9 +165,23 @@ def _run_sweep(label: str, entries: list, phases: str = "") -> None:
             print("  ", r)
 
     if run_post:
-        post_args = [cfg for (cfg, _) in entries]
-        print(f"[{label}] 2/2 post-train: {len(post_args)} containers ...")
-        for r in run_post_train.map(post_args):
+        # Forward exactly the requested post-train phases (drop 'train'); the
+        # container fn no longer hardcodes predictions,forecasts,classification.
+        post_phase_list = [
+            p
+            for p in (
+                phases.split(",")
+                if phases
+                else ["predictions", "forecasts", "classification"]
+            )
+            if p.strip() and p.strip() != "train"
+        ]
+        post_phases = ",".join(post_phase_list)
+        post_args = [(cfg, post_phases) for (cfg, _) in entries]
+        print(
+            f"[{label}] 2/2 post-train ({post_phases}): {len(post_args)} containers ..."
+        )
+        for r in run_post_train.starmap(post_args):
             print("  ", r)
 
 
@@ -183,6 +199,30 @@ def sweep(configs_dir: str, mode: str = "", phases: str = ""):
     """
     entries = _load_sweep_entries(configs_dir, mode_filter=mode or None)
     _run_sweep("sweep", entries, phases)
+
+
+@app.local_entrypoint()
+def sweep_spawn(
+    configs_dir: str, mode: str = "", phases: str = "forecasts,classification"
+):
+    """Fire-and-forget post-train sweep via ``.spawn()``.
+
+    Unlike ``sweep`` (blocking ``.starmap`` that ties container lifetime to the
+    local process), this spawns each container server-side and returns at once,
+    so the run survives the local client exiting or disconnecting. Poll the
+    results volume / ``modal app list`` for completion. Post-train phases only
+    (drops any 'train'); use ``sweep`` if you need training.
+    """
+    entries = _load_sweep_entries(configs_dir, mode_filter=mode or None)
+    post_phase_list = [
+        p for p in phases.split(",") if p.strip() and p.strip() != "train"
+    ]
+    post_phases = ",".join(post_phase_list)
+    print(f"[sweep_spawn] spawning {len(entries)} containers ({post_phases}) ...")
+    calls = [run_post_train.spawn(cfg, post_phases) for (cfg, _) in entries]
+    for cfg, call in zip((c for c, _ in entries), calls):
+        print(f"  spawned {call.object_id}  {Path(cfg).name}")
+    print("[sweep_spawn] all spawned; containers run server-side. Safe to exit.")
 
 
 class DPADModalPipeline:

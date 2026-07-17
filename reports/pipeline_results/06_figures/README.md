@@ -17,7 +17,6 @@ from stages 1-5 and emit one PNG per panel under `thesis_figures/sec{N}/`.
 | `thesis_sec2e_exemplars` | 4 (per-trial exemplar) | `thesis_figures/sec2/` figs 51-55 |
 | `thesis_sec2_model_validation` | 4 (validation panels) | `thesis_figures/sec2/` |
 | `thesis_sec5_classification` | 5 (LDA BA, confusion) | `thesis_figures/sec5/` |
-| `thesis_sec6_summary_appendix` | all stages (summary tables) | `thesis_figures/sec6/` |
 | `thesis_sec7_subspace_dynamics` | 3-4 (latent subspace, state matrices) | `thesis_figures/sec7/` |
 | `thesis_sec8_per_trial_heatmaps` | 4 (per-trial heatmaps) | `thesis_figures/sec8/` |
 
@@ -46,7 +45,7 @@ wait
 Run this for the live count:
 
 ```bash
-for s in sec1 sec2 sec5 sec6 sec7 sec8; do
+for s in sec1 sec2 sec5 sec7 sec8; do
     printf "  %-8s %s PNGs\n" "$s" "$(ls thesis_figures/$s/*.png 2>/dev/null | wc -l)"
 done
 ```
