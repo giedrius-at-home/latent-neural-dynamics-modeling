@@ -170,9 +170,9 @@ def _mpl_side_by_side_exemplar(
                 ax,
                 letter,
                 (
-                    f"{session_label} — {title} — {channel_label}"
+                    f"{session_label}, {title}, {channel_label}"
                     if channel_label
-                    else f"{session_label} — {title}"
+                    else f"{session_label}, {title}"
                 ),
             )
             continue
@@ -187,7 +187,7 @@ def _mpl_side_by_side_exemplar(
             if len(t) != len(yh) or np.all(np.isnan(yh)):
                 continue
             ax.fill_between(t, yh - half, yh + half, color=col, alpha=0.15, linewidth=0)
-        ax.plot(t, zt, color=COLOR_TRUE, linewidth=1.4, label="y_true")
+        ax.plot(t, zt, color=COLOR_TRUE, linewidth=1.4, label="true")
         if not np.all(np.isnan(zp)):
             ax.plot(t, zp, color=COLOR_PSID, linewidth=1.2, label="PSID")
         if not np.all(np.isnan(zd)):
@@ -204,9 +204,9 @@ def _mpl_side_by_side_exemplar(
             ax,
             letter,
             (
-                f"{session_label} — {title} — {channel_label}"
+                f"{session_label}, {title}, {channel_label}"
                 if channel_label
-                else f"{session_label} — {title}"
+                else f"{session_label}, {title}"
             ),
         )
     axes[0].legend()
@@ -436,7 +436,7 @@ def _mpl_forecast_panel(
             alpha=0.6,
         )
 
-    ax.plot(t_plot, _gap(z_true), color=COLOR_TRUE, linewidth=1.4, label="y_true")
+    ax.plot(t_plot, _gap(z_true), color=COLOR_TRUE, linewidth=1.4, label="true")
     if not np.all(np.isnan(z_psid)):
         ax.plot(t_plot, _gap(z_psid), color=COLOR_PSID, linewidth=1.2, label="PSID")
     if not np.all(np.isnan(z_dpad)):
@@ -464,9 +464,9 @@ def _mpl_forecast_panel(
         ax,
         "A",
         (
-            f"{session_label} — DBS-{condition_label} — {channel_label}"
+            f"{session_label}, DBS-{condition_label}, {channel_label}"
             if channel_label
-            else f"{session_label} — DBS-{condition_label}"
+            else f"{session_label}, DBS-{condition_label}"
         ),
     )
     ax.legend()

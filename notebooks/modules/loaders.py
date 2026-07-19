@@ -29,6 +29,14 @@ SESSIONS = ("PDI1_S2", "PDI1_S4", "PDI4_S2", "PDI4_S3")
 EXP_Z_AS_BEHAVIOR = "z-as-behavior"
 EXP_Z_AS_NEURAL = "z-as-neural"
 
+# Human-readable names for figure titles/labels (keys stay as the code strings above)
+EXP_DISPLAY = {EXP_Z_AS_BEHAVIOR: "kinematics-target", EXP_Z_AS_NEURAL: "LFP-target"}
+
+
+def pretty_exp(name: str) -> str:
+    """Map an experiment code name to its human-readable form for labels."""
+    return EXP_DISPLAY.get(name, name)
+
 # Legacy aliases — prefer EXP_Z_AS_NEURAL / EXP_Z_AS_BEHAVIOR
 EXP_BEHAVIORAL = EXP_Z_AS_BEHAVIOR
 EXP_NEURAL = EXP_Z_AS_NEURAL
