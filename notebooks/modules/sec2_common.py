@@ -584,6 +584,7 @@ def yz_model_raincloud_fig(
     models=None,
     model_cols=None,
     figsize=None,
+    ylim=None,
 ):
     """2-row (Y top, Z bottom) x N-col (models) raincloud. DBS-off left, DBS-on right.
 
@@ -621,6 +622,10 @@ def yz_model_raincloud_fig(
                     ax, 0, vals, color=color, alpha=0.45, side=side, logy=False, rng=rng
                 )
             ax.set_xticks([])
+            # Clamp the axis for bounded metrics (Pearson r in [-1,1]) so the KDE
+            # tail does not render past the data range. Left None for NRMSE (>1 valid).
+            if ylim is not None:
+                ax.set_ylim(*ylim)
             if col == 0:
                 ax.set_ylabel(metric_name if ylabel is None else ylabel)
 
