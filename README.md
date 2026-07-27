@@ -13,12 +13,14 @@ cd latent-neural-dynamics-modeling
 
 bash environment/create_env.sh        # conda env create -f environment/environment.yaml -> env "neuro"
 conda activate neuro
-pip install PSID==1.2.6 DPAD==0.0.9 mne statsmodels pyyaml torch
+pip install torch                     # CPU build, used by the data loader
 ```
 
-`environment/environment.yaml` covers python 3.11, tensorflow 2.15, polars,
-scikit-learn and jupyterlab; the modelling libraries above are pip-only. Add
-`pip install modal` only if you intend to train DPAD on cloud GPUs.
+`environment/environment.yaml` now carries everything the pipeline imports:
+python 3.11, tensorflow 2.15, `polars=1.34.*`, scikit-learn, PSID, DPAD, mne,
+statsmodels, plus `modal`, `feature-engine` and `mrmr-selection` — the last two
+because the standard workflow starts with the `psid_diagnostic` stage, and
+`training/pipeline.py` imports it (and `dpad_modal`) at module scope.
 
 Run everything **from the repo root** — configs use repo-relative paths.
 
@@ -106,11 +108,8 @@ contacts, so the models have structure to find rather than noise. Blocks,
 trials per block, trial length, inter-trial gap and seed are all flags;
 `--status` shows what exists and `--clean` removes it.
 
-Two things a local run needs beyond the conda env: `modal`, `feature-engine` and
-`mrmr-selection`, because `training/pipeline.py` imports `dpad_modal` and
-`psid_diagnostic` at module scope even for a plain PSID run — and the pinned
-`polars=1.34.*`, since newer polars writes partition files as
-`00000000.parquet` while the trainer globs `block=*/0.parquet`.
+Nothing extra to install — the conda env already carries everything a run
+imports.
 
 ## Where things are
 
