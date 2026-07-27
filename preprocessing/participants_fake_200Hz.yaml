@@ -1,0 +1,36 @@
+# Preprocessing config for the fake session written by generate_data.py.
+# Paths are repo-relative, so run it from the repo root:
+#   python generate_data.py
+#   python -m preprocessing.package_recordings --config preprocessing/participants_fake_200Hz.yaml
+#
+# Same shape as the real configs; only the paths and the band list differ —
+# 4 bands instead of 17, which keeps a local run to seconds rather than minutes.
+name: "package_recordings_fake"
+root_directory: "."
+data_directory: "{root_directory}/fake_data/raw"
+save_directory: "{root_directory}/fake_data"
+logger_directory: "{root_directory}/logs"
+participants_table_name: "participants.tsv"
+participants_intermediate_table_name: "participants_2"
+output_participants_table_name: "participants_fake_200Hz"
+ieeg_process:
+  resampled_dir: "{save_directory}/resampled_mat_recordings"
+  chunk_margin: 2
+  resampled_freq: 200
+  notch_freqs: [50, 100]
+  scale_factor: 1.0
+  apply_car: true
+  drop_lfp: false
+  max_pause_seconds: 2.0
+
+  raw_bands:
+    theta_4_8_raw: [4, 8]
+    beta_18_23_raw: [18, 23]
+    gamma_58_63_raw: [58, 63]
+    gamma_88_93_raw: [88, 93]
+
+  envelope_bands:
+    theta_4_8_env: [4, 8]
+    beta_18_23_env: [18, 23]
+    gamma_58_63_env: [58, 63]
+    gamma_88_93_env: [88, 93]

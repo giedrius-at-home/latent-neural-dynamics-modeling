@@ -75,31 +75,34 @@ input `package_recordings` consumes. Preprocess it as usual, and the resulting
 trying the pipeline on a laptop, or checking a change end to end before running
 it on the real recordings.
 
+Sample configs for the fake session ship with the repo, so the whole chain is
+copy-paste:
+
 ```bash
 python generate_data.py
-python -m preprocessing.package_recordings --config <your local preprocessing YAML>
+python -m preprocessing.package_recordings --config preprocessing/participants_fake_200Hz.yaml
 python training/precompute_splits.py --data-root fake_data/participants_fake_200Hz \
     --participant FAKE1 --session 1
-python -m training.pipeline --config <run YAML pointed at that data root>
+python -m training.pipeline --config training/setups/psid_diagnostic_FAKE1_S1_z-as-behavior.yaml
+python -m training.pipeline --config training/setups/psid_FAKE1_S1_z-as-behavior.yaml
+python -m training.pipeline --config training/setups/varma_FAKE1_S1_z-as-behavior.yaml
 
 python generate_data.py --clean
 ```
 
-The preprocessing YAML is yours to write — copy
-`preprocessing/participants_at_200Hz_scaled_1e6_raw_envelope.yaml` and change
-four keys:
+| Config | Note |
+|---|---|
+| `preprocessing/participants_fake_200Hz.yaml` | repo-relative paths, 4 bands instead of 17 |
+| `training/setups/psid_diagnostic_FAKE1_S1_z-as-behavior.yaml` | tiny nx/n1 grids; writes its selections into the PSID config below |
+| `training/setups/psid_FAKE1_S1_z-as-behavior.yaml` | small `nx`, few PSID iterations, 2 forecast horizons, 20 permutations |
+| `training/setups/varma_FAKE1_S1_z-as-behavior.yaml` | no `classification` block — see below |
 
-```yaml
-root_directory: <repo root>
-data_directory: "{root_directory}/fake_data/raw"       # holds participants_2/
-save_directory: "{root_directory}/fake_data"           # output lands here
-output_participants_table_name: "participants_fake_200Hz"
-```
+The VARMA config deliberately has no `classification` block: `training/sweep.py`
+reads `framework.params.n1`, which VARMA does not have, so the phase skips itself
+instead of crashing.
 
-Trimming `raw_bands` / `envelope_bands` from 17 bands to 3 or 4 keeps the run
-quick; everything else — `resampled_freq`, `chunk_margin`, `notch_freqs`,
-`apply_car` — can stay as shipped. See `preprocessing/README.md` for what each
-key does.
+Timings on a laptop at the defaults: generate 1 s, preprocessing 22 s,
+diagnostic 16 s, the PSID pipeline 1 min 47 s (all four phases), VARMA 35 s.
 
 The fake participant is `FAKE1`, session `1`, so it cannot collide with real
 data. Nothing about the results is meaningful — the point is that every stage
