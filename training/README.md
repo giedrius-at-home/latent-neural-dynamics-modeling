@@ -107,10 +107,14 @@ how far ahead, and in whether the model keeps seeing input:
 
 - **one-step-ahead forecast** — run through the whole trial, at each sample
   forecasting the next one while still seeing the neural input. Latents from this
-  pass are `Xp`. The phase is called `predictions` and the output directory
-  `inference/`, for historical reasons.
+  pass are `Xp`.
 - **m-step-ahead forecast** — see `h` seconds of history, then run free for `m`
   seconds with no further input. Latents from this pass are `Xf`.
+
+The code calls the first one a **prediction**: the phase is `predictions`, the
+method is `BaseWrapper.predict`, the latents are `Xp` (p for prediction), and the
+output lands in `inference/`. Nothing was renamed — read "prediction" in the code
+as "one-step-ahead forecast".
 
 Single steps are callable on their own if you want just one piece:
 `python training/train.py --config <cfg> --dbs both`, or

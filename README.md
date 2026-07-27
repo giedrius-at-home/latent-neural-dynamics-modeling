@@ -96,9 +96,14 @@ both the neural signals and a target `Z`. Each model is then asked to forecast:
 
 - **one-step-ahead forecast** — run through the whole trial, at each sample
   forecasting the next one while still seeing the neural input. Latents from this
-  pass are `Xp`. (The pipeline phase is called `predictions`.)
+  pass are `Xp`.
 - **m-step-ahead forecast** — see `h` seconds of history, then run free for `m`
-  seconds with no further input. Latents are `Xf`. (Phase: `forecasts`.)
+  seconds with no further input. Latents from this pass are `Xf`.
+
+In the code the first one is called **prediction**, not forecast: the pipeline
+phase is `predictions`, the wrapper method is `predict`, and the output goes to
+`inference/`. The docs say one-step-ahead forecast; the code says prediction.
+They are the same thing.
 
 An LDA classifier then tries to decode DBS on vs off from those latents, and a
 block-shuffled permutation test says whether it beat chance.
