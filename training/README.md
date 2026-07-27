@@ -61,13 +61,15 @@ What it does:
    `z-as-behavior` mode pins Z to `tracing_velocity_x` and
    `tracing_acceleration_magnitude` instead.
 2. **nx sweep** — fit PSID with `n1=0` over `nx_grid` in an inner CV on the train
-   trials, score multi-step Y forecast correlation on the fold's validation
-   trials, and take the smallest `nx` within one standard error of the best
-   (1-SE rule).
+   trials, score **one-step-ahead** Y reconstruction correlation on the fold's
+   validation trials, and take the smallest `nx` within one standard error of
+   the best (1-SE rule).
 3. **n1 sweep** — same procedure over `n1_grid` at the chosen `nx`, scored on
-   multi-step Z forecast correlation.
+   one-step-ahead Z reconstruction correlation.
 4. **Final fit** at the chosen `(nx, n1)` on the full train set, evaluated once on
-   test — held-out from the sweeps.
+   test — held-out from the sweeps. This is the only place the diagnostic scores
+   a multi-step forecast: `history_s` seconds of history, `forecast_s` seconds
+   ahead, for both Y and Z.
 5. **Amend the run YAML**: `training/setups/psid_<PID>_S<SESS>_<type>.yaml` gets
    its `nx`, `n1`, `i`, `Y` and `Z` fields patched in. The file must already
    exist; the diagnostic only fills it in. Copy the resulting `Y`/`Z` into the
