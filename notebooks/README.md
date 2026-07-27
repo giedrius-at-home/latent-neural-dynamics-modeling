@@ -24,8 +24,8 @@ so a notebook always plots the latest results.
 | Notebook | Thesis section |
 |---|---|
 | `thesis_sec1_data_verification.ipynb` | data checks, PSDs, channel/order selection, DPAD training curves |
-| `thesis_sec2c_neural_recon_group.ipynb` | neural reconstruction, group level |
-| `thesis_sec2d_neural_forecast_group.ipynb` | neural forecast, group level |
+| `thesis_sec2c_neural_recon_group.ipynb` | one-step-ahead neural forecast, group level |
+| `thesis_sec2d_neural_forecast_group.ipynb` | m-step-ahead neural forecast, group level |
 | `thesis_sec2e_exemplars.ipynb` | exemplar trials |
 | `thesis_sec5_classification.ipynb` | DBS decoding |
 | `thesis_sec5b_group_permutation.ipynb` | group-level permutation test |

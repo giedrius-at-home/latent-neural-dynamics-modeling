@@ -1,55 +1,16 @@
 # latent-neural-dynamics-modeling
 
-Code for a master's thesis. Intracranial recordings (ECoG + STN LFP) from
-Parkinson's patients doing a copy-draw tracing task, with DBS switched on and off
-between blocks, are fitted with three latent state-space model families — **PSID**,
-**DPAD**, **VARMA**. Each model does two things with a trial: a **one-step-ahead
-prediction** pass over the whole trial, and an **m-step-ahead forecast** from a
-window of past history. The models' latent states are then handed to an LDA
-classifier that tries to decode whether DBS was on or off. The thesis figures are
-built from those outputs.
-
-Sessions: `PDI1_S2`, `PDI1_S4`, `PDI4_S2`, `PDI4_S3`. Each session is fitted in
-two flavours, set by `experiment.type` in the run config:
-
-| `experiment.type` | Z (the target the model tracks) |
-|---|---|
-| `z-as-behavior` | tracing kinematics (velocity, acceleration) |
-| `z-as-neural`   | LFP Laplacian channels |
-
----
-
-## Where things are
-
-```
-preprocessing/     raw recordings -> 200 Hz band-limited trial table      -> preprocessing/README.md
-training/          feature/order selection, model fitting, inference,     -> training/README.md
-                   DBS classification sweep
-notebooks/         thesis figures from the results tree                   -> notebooks/README.md
-utils/             shared library: config loading, band processing, splits,
-                   model wrappers (frameworks/), classification helpers
-environment/       conda env definition
-```
-
-Each stage has its own README explaining what it does, what it drops, and what it
-writes. Read them in the order above.
-
-Not in git, because they are large and machine-local: `data/`,
-`resampled_recordings/`, `results/`, `logs/`, `thesis_figures/`, `report/`.
-
-**The data and the results live on the compute host, not in this repo:**
-
-```bash
-ssh bobby@neuro
-cd ~/repos/latent-neural-dynamics-modeling
-~/miniconda3/envs/neuro/bin/python -m training.pipeline --config ...
-```
+Code for a master's thesis on latent state-space modelling of intracranial
+recordings under deep brain stimulation.
 
 ---
 
 ## Install
 
 ```bash
+git clone https://github.com/giedrius-at-home/latent-neural-dynamics-modeling.git
+cd latent-neural-dynamics-modeling
+
 bash environment/create_env.sh        # conda env create -f environment/environment.yaml -> env "neuro"
 conda activate neuro
 pip install PSID==1.2.6 DPAD==0.0.9 mne statsmodels pyyaml torch
@@ -61,35 +22,95 @@ scikit-learn and jupyterlab; the modelling libraries above are pip-only. Add
 
 Run everything **from the repo root** — configs use repo-relative paths.
 
----
+## Get the data
 
-## Running the whole thing
-
-Four steps, in order. Details and options are in each stage's README.
+The recordings and the results are not in the repo: they are large, and they live
+on the compute host. Work there.
 
 ```bash
-# 1. raw recordings -> 200 Hz band-limited trial table         [preprocessing/README.md]
+ssh bobby@neuro
+cd ~/repos/latent-neural-dynamics-modeling
+~/miniconda3/envs/neuro/bin/python -m training.pipeline --config ...
+```
+
+`data/`, `resampled_recordings/`, `results/`, `logs/`, `thesis_figures/` and
+`report/` are all gitignored for that reason.
+
+## Run it
+
+Four steps, in order. One session (`PDI1_S2`, kinematics as the target) end to end:
+
+```bash
+# 1. raw recordings -> 200 Hz band-limited trial table
 python -m preprocessing.package_recordings \
   --config preprocessing/participants_at_200Hz_scaled_1e6_raw_envelope.yaml \
   --participant PDI1 --session 2
 
-# 2. shared block-chronological train/val/test splits          [training/README.md]
+# 2. block-chronological train/val/test splits, shared by every model
 python training/precompute_splits.py --participant PDI1 --session 2
 
-# 3. pick the 12 input channels and the latent dimensions,
-#    which writes a ready-to-train run YAML                    [training/README.md]
+# 3. pick the 12 input channels and the latent dimensions;
+#    this writes them into the run YAML used by step 4
 python -m training.pipeline --config training/setups/psid_diagnostic_PDI1_S2_z-as-behavior.yaml
 
-# 4. fit + predict + forecast + classify, per framework        [training/README.md]
+# 4. fit each model family, run its forecasts, classify DBS state from the latents
 python -m training.pipeline --config training/setups/psid_PDI1_S2_z-as-behavior.yaml
 python -m training.pipeline --config training/setups/varma_PDI1_S2_z-as-behavior.yaml
 python -m training.pipeline --config training/setups/dpad_modal/dpad_modal_PDI1_S2_z-as-behavior.yaml
 ```
 
-Step 4 writes models, per-trial prediction/forecast parquets and a classification
-sweep parquet under `results/<framework>/<variant>/`. The notebooks read that tree
-and produce the figures — see `notebooks/README.md`.
+Step 4 writes models, per-trial forecast parquets and a classification sweep
+parquet under `results/<framework>/<variant>/`. The notebooks turn that tree into
+the thesis figures.
 
-Every model in the thesis is fitted on **12 neural input channels**: 6
+Repeat steps 2–4 for the other sessions (`PDI1_S4`, `PDI4_S2`, `PDI4_S3`) and for
+the other target type (`z-as-neural`).
+
+## Where things are
+
+```
+preprocessing/     raw recordings -> 200 Hz band-limited trial table      -> preprocessing/README.md
+training/          feature/order selection, model fitting, forecasting,   -> training/README.md
+                   DBS classification sweep
+notebooks/         thesis figures from the results tree                   -> notebooks/README.md
+utils/             shared library: config loading, band processing, splits,
+                   model wrappers (frameworks/), classification helpers
+environment/       conda env definition
+```
+
+Each stage's README explains what it does, what it drops, and what it writes.
+Read them in that order.
+
+---
+
+## What the project actually does
+
+Parkinson's patients with implanted electrodes (ECoG over cortex, LFP from the
+STN) trace shapes on a tablet while DBS is switched on and off between blocks.
+The question is whether stimulation leaves a signature in the *dynamics* of the
+neural activity — not just its average power.
+
+Three latent state-space model families are fitted per session — **PSID**,
+**DPAD**, **VARMA** — each learning a low-dimensional latent state that drives
+both the neural signals and a target `Z`. Each model is then asked to forecast:
+
+- **one-step-ahead forecast** — run through the whole trial, at each sample
+  forecasting the next one while still seeing the neural input. Latents from this
+  pass are `Xp`. (The pipeline phase is called `predictions`.)
+- **m-step-ahead forecast** — see `h` seconds of history, then run free for `m`
+  seconds with no further input. Latents are `Xf`. (Phase: `forecasts`.)
+
+An LDA classifier then tries to decode DBS on vs off from those latents, and a
+block-shuffled permutation test says whether it beat chance.
+
+Sessions: `PDI1_S2`, `PDI1_S4`, `PDI4_S2`, `PDI4_S3`. Each is fitted in two
+flavours, set by `experiment.type` in the run config:
+
+| `experiment.type` | Z (the target the model tracks) |
+|---|---|
+| `z-as-behavior` | tracing kinematics (velocity, acceleration) |
+| `z-as-neural`   | LFP Laplacian channels |
+
+Every model in the thesis is fitted on the same **12 neural input channels** — 6
 band-limited raw signals and 6 Hilbert envelopes, chosen per session by
 cross-validated mRMR in step 3. That holds for PSID, DPAD and VARMA alike.

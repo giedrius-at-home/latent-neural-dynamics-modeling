@@ -2,7 +2,7 @@
 
 Everything between the preprocessed trial table and the results tree the figures
 are drawn from: splitting the data, choosing input channels and latent
-dimensions, fitting the models, running prediction and forecast, and classifying
+dimensions, fitting the models, running the two forecasts, and classifying
 DBS state from the latents.
 
 One entry point does all of it. The framework is declared inside the config, not
@@ -82,7 +82,7 @@ No framework runs on a different channel count.
 
 ---
 
-## Step 3 — fit, predict, forecast, classify
+## Step 3 — fit, forecast, classify
 
 ```bash
 python -m training.pipeline --config <cfg>                                 # all phases
@@ -94,7 +94,7 @@ python -m training.pipeline --config <cfg> --phases classification --cls-mode fo
 | Phase | What happens | Written to |
 |---|---|---|
 | `train` | one model per DBS condition in `experiment.train.model_dbs_state` (`both`, `on`, `off`) | `model_<TS>.pkl`, `model_<TS>_metadata.json`, `split/` |
-| `predictions` | one-step-ahead pass over every trial of each split in `experiment.predictions.splits` | `inference/<split>/test_results_<TS>.parquet` |
+| `predictions` | one-step-ahead forecast over every trial of each split in `experiment.predictions.splits` | `inference/<split>/test_results_<TS>.parquet` |
 | `forecasts` | for each `h` in `forecasts.h_grid`: take `h` seconds of history, forecast `default_m` seconds ahead | `forecast/h<H>/<split>/test_results_<TS>.parquet` |
 | `classification` | LDA sweep over the latent states + permutation test | `sweep_<TS>.parquet`, `classifiers/*.joblib` |
 
@@ -102,12 +102,15 @@ A phase runs only if its block exists in the YAML; `--phases` overrides that.
 `train` is skipped when a `model_*.pkl` already sits in the variant directory —
 delete it, or change `experiment.name`, to refit.
 
-Predictions and forecasts are the two things a model is asked to do:
+Two forecasts are what a model is asked for. Both are forecasts — they differ in
+how far ahead, and in whether the model keeps seeing input:
 
-- **prediction** — filter the whole trial, one step ahead at a time, with the
-  model seeing the neural input as it goes. Latents from this pass are `Xp`.
-- **forecast** — see `h` seconds of history, then run free for `m` seconds with
-  no further input. Latents from this pass are `Xf`.
+- **one-step-ahead forecast** — run through the whole trial, at each sample
+  forecasting the next one while still seeing the neural input. Latents from this
+  pass are `Xp`. The phase is called `predictions` and the output directory
+  `inference/`, for historical reasons.
+- **m-step-ahead forecast** — see `h` seconds of history, then run free for `m`
+  seconds with no further input. Latents from this pass are `Xf`.
 
 Single steps are callable on their own if you want just one piece:
 `python training/train.py --config <cfg> --dbs both`, or
@@ -121,8 +124,8 @@ DPAD trains on GPU. Locally, with `framework.name: dpad`:
 python -m training.pipeline --config training/setups/examples/dpad_run.yaml
 ```
 
-Training is the slow part (3000 epochs in the thesis configs); predictions and
-forecasts use a compiled TensorFlow fast path. To use cloud GPUs instead, set
+Training is the slow part (3000 epochs in the thesis configs); both forecasts use
+a compiled TensorFlow fast path. To use cloud GPUs instead, set
 `framework.name: dpad_modal` and run the same command, or drive Modal directly for
 multi-session sweeps:
 
@@ -144,13 +147,14 @@ once stage 1 has fully drained. Volumes must be populated first —
 Three sweeps run per session, all with the same LDA and the same chronological,
 block-grouped cross-validation:
 
-- **predictions** — one classifier per (feature source, training condition),
-  trained on the full `Xp`, then scored at each `t_cut` in `t_cut_grid` by
-  truncating the latents to the first `t_cut` seconds. Answers: how much of a
-  trial do you need to see to tell DBS on from off?
-- **forecast** — one classifier per forecast horizon `h`, trained on `Xf`, scored
-  at each `m_test`. Answers: does the DBS signature survive into the part the
-  model imagined rather than observed?
+- **predictions** (`Xp`, the one-step-ahead latents) — one classifier per
+  (feature source, training condition), trained on the full `Xp`, then scored at
+  each `t_cut` in `t_cut_grid` by truncating the latents to the first `t_cut`
+  seconds. Answers: how much of a trial do you need to see to tell DBS on from
+  off?
+- **forecast** (`Xf`, the m-step-ahead latents) — one classifier per history
+  window `h`, trained on `Xf`, scored at each `m_test`. Answers: does the DBS
+  signature survive into the part the model imagined rather than observed?
 - **flipped** — the on-model and the off-model both forecast the same window, and
   the label is which model produced it. Not run for DPAD.
 
@@ -234,13 +238,13 @@ results/<framework>/<experiment.name>_dbs_<both|on|off>/
 `<TS>` is the training timestamp (`YYYYmmdd_HHMMSS`) and ties a model to the
 outputs produced from it.
 
-Prediction / forecast parquet, one row per trial:
+Forecast parquet (both kinds share the schema), one row per trial:
 
 | Column | Meaning |
 |---|---|
 | `Y`, `Z` | true neural input and target |
-| `Yp`, `Zp` | predicted (or forecast) neural and target |
-| `Xp` | latent states — named `Xf` in the forecast directories |
+| `Yp`, `Zp` | forecast neural and target |
+| `Xp` | latent states — named `Xf` in the m-step-ahead `forecast/` directories |
 | `pearson_per_channel`, `pearson_mean`, `pearson_overall_mean` | Y-side correlations |
 | `pearson_per_channel_Z`, `pearson_mean_Z`, `pearson_overall_mean_Z` | Z-side correlations |
 | `time`, `offset`, `chunk_margin`, `margined_duration` | timing |
@@ -270,7 +274,7 @@ Sweep parquet, one row per (mode, feature source, flipped, training condition,
 | `train.py`, `test.py` | single-phase entry points |
 | `sweep.py` | classification sweeps and permutation test |
 | `components/trainer.py` | data loading, split application, fitting, model saving |
-| `components/tester.py` | prediction / forecast loops and parquet writing |
+| `components/tester.py` | the forecast loops and parquet writing |
 | `components/data.py` | `TrialDataset` — one trial to `(Y, Z, metadata)` |
 | `../utils/frameworks/` | the PSID, DPAD and VARMA wrappers behind a shared interface |
 | `../utils/classification/` | epoching, chronological grouped CV, permutation machinery |
