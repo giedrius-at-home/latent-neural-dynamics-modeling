@@ -19,7 +19,8 @@ Two configs ship with the repo:
 | `participants_at_200Hz_scaled_1e6_narrow_band.yaml` | 15 raw bands only, no envelopes (earlier iteration) |
 
 **`root_directory:` in both configs is an absolute path on the compute host.**
-Change it before running anywhere else.
+Change it before running anywhere else — or use `generate_data.py` at the repo
+root, which writes a fake session plus a matching config with local paths.
 
 ---
 

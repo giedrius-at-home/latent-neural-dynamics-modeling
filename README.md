@@ -66,6 +66,28 @@ the thesis figures.
 Repeat steps 2–4 for the other sessions (`PDI1_S4`, `PDI4_S2`, `PDI4_S3`) and for
 the other target type (`z-as-neural`).
 
+## Run it without the real data
+
+`generate_data.py` writes a fake participant in the same shape as the real
+recordings, at the very start of the chain — the intermediate table, the 1000 Hz
+iEEG parquets and the motion sidecars that preprocessing consumes. Useful for
+trying the pipeline on a laptop, or checking a change end to end before it goes
+near the compute host.
+
+```bash
+python generate_data.py --blocks 10 --trials-per-block 3
+python -m preprocessing.package_recordings --config fake_data/preprocessing_fake.yaml
+python training/precompute_splits.py --data-root fake_data/participants_fake_200Hz \
+    --participant FAKE1 --session 1
+python -m training.pipeline --config <run YAML pointed at that data root>
+
+python generate_data.py --clean
+```
+
+The fake participant is `FAKE1`, session `1`, so it cannot collide with real
+data. Nothing about the results is meaningful — the point is that every stage
+runs.
+
 ## Where things are
 
 ```
