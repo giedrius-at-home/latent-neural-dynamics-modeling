@@ -83,8 +83,7 @@ python generate_data.py
 python -m preprocessing.package_recordings --config preprocessing/participants_fake_200Hz.yaml
 python training/precompute_splits.py --data-root fake_data/participants_fake_200Hz \
     --participant FAKE1 --session 1
-python training/pipelines/psid_diagnostic.py \
-    --config training/setups/psid_diagnostic_FAKE1_S1_z-as-behavior.yaml
+python -m training.pipeline --config training/setups/psid_diagnostic_FAKE1_S1_z-as-behavior.yaml
 python -m training.pipeline --config training/setups/psid_FAKE1_S1_z-as-behavior.yaml
 python -m training.pipeline --config training/setups/varma_FAKE1_S1_z-as-behavior.yaml
 
@@ -98,11 +97,8 @@ python generate_data.py --clean
 | `training/setups/psid_FAKE1_S1_z-as-behavior.yaml` | small `nx`, few PSID iterations, 2 forecast horizons, 20 permutations |
 | `training/setups/varma_FAKE1_S1_z-as-behavior.yaml` | no `classification` block — see below |
 
-Two things to know. The diagnostic is run through its own entry point above, not
-`python -m training.pipeline`: the unified runner passes `cls_mode` to every
-pipeline and `PsidDiagnosticPipeline.__init__` does not accept it. And the VARMA
-config deliberately has no `classification` block, because `training/sweep.py`
-reads `framework.params.n1`, which VARMA does not have — the phase skips itself
+The VARMA config deliberately has no `classification` block: `training/sweep.py`
+reads `framework.params.n1`, which VARMA does not have, so the phase skips itself
 instead of crashing.
 
 Timings on a laptop at the defaults: generate 1 s, preprocessing 22 s,

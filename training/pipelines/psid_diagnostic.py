@@ -804,7 +804,9 @@ class PsidDiagnosticPipeline:
     """Wraps the PSID diagnostic sweep; invoked by ``training.pipeline`` when
     ``framework.name == "psid_diagnostic"``."""
 
-    def __init__(self, config, log, phases=None, dbs=None):
+    # cls_mode is accepted and ignored: training.pipeline passes it to every
+    # pipeline, but the diagnostic runs no classification sweep.
+    def __init__(self, config, log, phases=None, dbs=None, cls_mode="all"):
         self.config = config
         self.log = log
         self.project_root = Path(config.results.project_root)
