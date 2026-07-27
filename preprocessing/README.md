@@ -121,8 +121,9 @@ One row per **trial**:
 | `time`, `time_original`, `motion_time` | list[float] | time vectors |
 | `original_length_ts`, `start_ts`, `chunk_margin` | int/float | chunking metadata |
 | `stim` | str | `on` / `off` |
-| `x`, `y`, `x_smooth`, `y_smooth` | list | pen coordinates, raw and smoothed |
-| `tracing_velocity_x/y`, `tracing_velocity_magnitude`, `tracing_acceleration_magnitude`, `tracing_jerk_*` | list[float] | Savitzky-Golay derivatives |
+| `x`, `y` | list | pen coordinates on the neural time grid |
+| `tracing_velocity_x/y`, `tracing_acceleration_x/y`, `tracing_jerk_x/y` | list[float] | Savitzky-Golay derivatives, per axis |
+| `tracing_velocity_magnitude`, `tracing_acceleration_magnitude`, `tracing_jerk_magnitude` | list[float] | the same, as magnitudes |
 | `<channel>_<band>_raw` | list[float] | band-limited signal at 200 Hz |
 | `<channel>_<band>_env` | list[float] | Hilbert envelope of that band |
 
@@ -132,6 +133,15 @@ read e.g. `ECOG_3_gamma_88_93_raw`, `ECOG_1_alpha_8_12_env`,
 
 Each signal column is a list of `margined_duration × 200` samples. The model layer
 stacks the columns named in a run config into `Y ∈ (T, n_Y)` and `Z ∈ (T, n_Z)`.
+
+A real block parquet from the `raw_envelope` run has **365 columns**: 25 metadata
+and kinematics columns, 136 ECoG signals (4 channels × 17 bands × raw/envelope)
+and 204 Laplacian signals (6 Laplacians × 17 bands × raw/envelope). The LFP
+channels themselves are gone by then — only their Laplacians survive.
+
+`resampled_recordings/` on the compute host also holds earlier variants
+(`participants_at_80Hz_*`, `..._welch`, `..._morlet_log`). The thesis uses
+`participants_at_200Hz_scaled_1e6_raw_envelope`; the rest are superseded.
 
 ---
 

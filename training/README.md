@@ -73,9 +73,10 @@ What it does:
    exist; the diagnostic only fills it in. Copy the resulting `Y`/`Z` into the
    matching VARMA and DPAD configs so all three frameworks see identical inputs.
 
-Also writes `diagnostic.parquet` (the full sweep curves, for the selection figures
-in section 1) and `mrmr_stats.json` (which channels were picked, and how often
-each survived across folds).
+Also writes, under `results/psid_diagnostic/<PID>_S<SESS>_<type>/<TS>/`:
+`diagnostic.parquet` (the full sweep curves, feeding the selection figures in
+section 1), `mrmr_stats.json` (which channels were picked, and how often each
+survived across folds) and `model.pkl` (the final diagnostic fit).
 
 **Every model in the thesis uses these 12 input channels — 6 raw + 6 envelope.**
 No framework runs on a different channel count.
@@ -232,15 +233,24 @@ maps `True`/`False` back defensively, but the configs should not rely on it.
 results/<framework>/<experiment.name>_dbs_<both|on|off>/
 ├── model_<TS>.pkl
 ├── model_<TS>_metadata.json          framework_type, nx, n1, i, max_eigenvalue, ...
+├── test_stats_<TS>.hdf5              aggregate stats written after testing
 ├── split/{train,val,test}.parquet    the trials this variant actually used
-├── inference/<split>/test_results_<TS>.parquet/      hive: participant_id/session/block/trial
-├── forecast/h<H>/<split>/test_results_<TS>.parquet/
-├── sweep_<TS>.parquet
-└── classifiers/clf_{pred,forecast,flipped}_<dbs>_<sub_source>[_h<H>].joblib
+├── inference/{train,val,test}/test_results_<TS>.parquet/   hive: participant_id/session/block/trial
+├── forecast/h<H>/{train,val,test}/test_results_<TS>.parquet/
+└── classification/
+    ├── sweep_<TS>.parquet
+    └── classifiers/clf_{pred,forecast,flipped}_<dbs>_<sub_source>[_h<H>].joblib
 ```
 
-`<TS>` is the training timestamp (`YYYYmmdd_HHMMSS`) and ties a model to the
-outputs produced from it.
+A real one: `results/psid/psid_z-as-neural_PDI4_S3_nx_64_n1_1_dbs_both/`. Forecast
+horizons appear as `h0.5`, `h1`, `h1.5`, `h2`, `h3`, `h4`, `h5` — trailing zeros
+are trimmed. `<TS>` is the training timestamp (`YYYYmmdd_HHMMSS`) and ties a model
+to everything produced from it.
+
+Older variant directories carry a different naming scheme
+(`psid_behavioral_PDI1_2_nx_64_n1_i60_dbs_both`) and a `train/`, `val/`, `test/`
+set of parquets at the top level, from the pre-`inference/` layout. Ignore those;
+the notebooks pick the newest run per variant.
 
 Forecast parquet (both kinds share the schema), one row per trial:
 
@@ -248,21 +258,38 @@ Forecast parquet (both kinds share the schema), one row per trial:
 |---|---|
 | `Y`, `Z` | true neural input and target |
 | `Yp`, `Zp` | forecast neural and target |
-| `Xp` | latent states — named `Xf` in the m-step-ahead `forecast/` directories |
+| `Xp` | latent states of the one-step-ahead pass |
 | `pearson_per_channel`, `pearson_mean`, `pearson_overall_mean` | Y-side correlations |
 | `pearson_per_channel_Z`, `pearson_mean_Z`, `pearson_overall_mean_Z` | Z-side correlations |
 | `time`, `offset`, `chunk_margin`, `margined_duration` | timing |
 | `stim` | the trial's DBS state |
+| `Y_features`, `Z_features` | the channel names behind `Y` and `Z`, in column order |
 | `participant_id`, `session`, `block`, `trial` | partition keys |
 
-There is **no `input_channels` column** — read the channel names from the run
-config or the model metadata instead.
+`Y_features` / `Z_features` are how you recover which channels a run used — there
+is no `input_channels` column. A `z-as-neural` run shows 12 entries in each.
+
+The `forecast/h<H>/` parquets add the free-running part on top of those columns:
+`m` (horizon in samples), `Y_future_true`, `Y_future_pred`, `Z_future_true`,
+`Z_future_pred`, `X_future_pred` (the m-step-ahead latents — `Xf` is the sweep's
+name for them, not a column name), and `Y_concat_for_plot` / `Z_concat_for_plot`,
+which glue history and forecast together for figures.
 
 Sweep parquet, one row per (mode, feature source, flipped, training condition,
-`t_cut` or `h`, `m_test`): `mode`, `pipeline`, `variant`, `run_ts`, `dbs_train`,
-`data_dbs`, `sub_source`, `flipped`, `t_cut_seconds`, `h_seconds`,
-`m_test_seconds`, `cv_ba`, `cv_roc_auc`, `cv_fold_ba`, `cv_y_true`, `cv_y_pred`,
-`cv_y_proba`, `y_proba`, plus permutation columns when the gate fires.
+`t_cut` or `h`, `m_test`) — 26 columns, ~800 rows for a session:
+
+| Group | Columns |
+|---|---|
+| what was run | `mode`, `pipeline`, `variant`, `run_ts`, `dbs_train`, `data_dbs`, `sub_source`, `flipped` |
+| where it was scored | `t_cut_seconds`, `h_seconds`, `m_test_seconds` (only the relevant one is set; the others are null) |
+| cross-validated score | `cv_ba`, `cv_roc_auc`, `cv_fold_ba`, `cv_y_true`, `cv_y_pred`, `cv_y_proba` |
+| score at that grid point | `ba_at_score`, `n_score`, `y_true`, `y_pred`, `y_proba` |
+| permutation test | `n_permutations`, `p_value`, `perm_mean_ba`, `perm_scores` |
+
+`cv_ba` and `ba_at_score` are different numbers: `cv_ba` is the cross-validated
+balanced accuracy of the classifier, `ba_at_score` is the balanced accuracy at
+that particular truncation or forecast point. **The permutation `p_value` tests
+`cv_ba`** — quoting `ba_at_score` next to it is a mismatch.
 
 ---
 
