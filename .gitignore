@@ -229,3 +229,5 @@ archives/
 thesis_figures/
 
 CLAUDE.md
+# local fake data written by generate_data.py
+fake_data/

@@ -1,0 +1,67 @@
+# VARMA run on the fake session written by generate_data.py.
+# Y/Z come from the psid_diagnostic run for this session — copy them across so
+# every framework sees identical inputs, as the real configs do.
+# No classification block: training/sweep.py reads framework.params.n1, which
+# VARMA does not have, so that phase would crash. VARMA is fitted and
+# forecast only.
+framework:
+  name: varma
+  params:
+    p: 3
+    q: 1
+    long_ar_lags: 3
+    ridge_alpha: 0.1
+    max_root: 0.999
+    trial_edge_taper_sec: 0.1
+    time_first: true
+    fast: true
+    reuse_splits: false
+data:
+  root: fake_data/participants_fake_200Hz
+  participant: FAKE1
+  session: 1
+  Y:
+  - ECOG_1_beta_18_23_raw
+  - ECOG_1_gamma_88_93_raw
+  - ECOG_2_beta_18_23_raw
+  - ECOG_2_gamma_88_93_raw
+  - ECOG_3_beta_18_23_raw
+  - ECOG_3_gamma_88_93_raw
+  - ECOG_1_beta_18_23_env
+  - ECOG_1_gamma_88_93_env
+  - ECOG_2_beta_18_23_env
+  - ECOG_2_gamma_88_93_env
+  - ECOG_3_beta_18_23_env
+  - ECOG_3_gamma_88_93_env
+  Z:
+  - tracing_velocity_x
+  - tracing_acceleration_magnitude
+  sampling_frequency: 200
+experiment:
+  name: varma_FAKE1_S1_z-as-behavior
+  type: z-as-behavior
+  train:
+    model_dbs_state:
+    - both
+    - 'on'
+    - 'off'
+  predictions:
+    splits:
+    - train
+    - val
+    - test
+  forecasts:
+    default_h: 2.0
+    default_m: 0.5
+    h_grid:
+    - 1.0
+    - 2.0
+    m_test_grid:
+    - 0.5
+results:
+  project_root: .
+  save_dir: results/{framework.name}/{experiment.name}
+  model_dir: results/{framework.name}/{experiment.name}
+  log_dir: logs/{framework.name}
+  checkpoint_dir: checkpoints/{framework.name}
+  setups_dir: training/setups/{framework.name}
