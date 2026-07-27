@@ -9,7 +9,7 @@ dependencies:
   - scikit-learn
   - tensorflow=2.15
   - jupyterlab
-  - polars
+  - polars=1.34.*
   - scipy
   - python=3.11
   - matplotlib
