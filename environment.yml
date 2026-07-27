@@ -8,7 +8,7 @@ dependencies:
   - pip
   - numpy
   - pandas
-  - polars
+  - polars=1.34.*
   - scipy
   - scikit-learn
   - matplotlib

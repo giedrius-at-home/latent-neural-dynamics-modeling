@@ -34,16 +34,14 @@ Then, in the same order as on the compute host:
 The fake participant is FAKE1, session 1, so nothing can collide with real data.
 This script writes data only — it changes no code and no real config.
 
-Local environment notes (all verified by running the chain above end to end):
+Local environment (verified by running the chain above end to end):
 
-* Python 3.11. The code uses `X | None` annotations, so 3.9 will not import it.
-* `polars==1.34`, the version on the compute host. From roughly 1.4x polars
-  names partition files `00000000.parquet` instead of `0.parquet`, and the
-  trainer globs `block=*/0.parquet` — so a newer polars silently yields "no
-  valid data found" at training time even though preprocessing succeeded.
+* Python 3.11, and the pinned `polars=1.34.*` from `environment/environment.yaml`.
+  Newer polars writes partition files as `00000000.parquet` rather than
+  `0.parquet`, which the trainer's `block=*/0.parquet` glob then misses.
 * `training/pipeline.py` imports `dpad_modal` and `psid_diagnostic` at module
-  scope, so running any framework locally also needs `modal`, `feature-engine`
-  and `mrmr-selection` installed, even for a plain PSID run.
+  scope, so a local run also needs `modal`, `feature-engine` and
+  `mrmr-selection` installed, even for a plain PSID run.
 """
 
 from __future__ import annotations
