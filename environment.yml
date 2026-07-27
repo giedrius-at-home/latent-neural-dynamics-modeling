@@ -8,7 +8,7 @@ dependencies:
   - pip
   - numpy
   - pandas
-  - polars
+  - polars=1.34.*
   - scipy
   - scikit-learn
   - matplotlib
@@ -29,6 +29,11 @@ dependencies:
       - anywidget
       - PSID==1.2.6
       - dpad==0.0.9
+      # training/pipeline.py imports dpad_modal and psid_diagnostic at module
+      # scope, so every run needs these three regardless of framework.
+      - modal
+      - feature-engine==1.9.4
+      - mrmr-selection==0.2.8
       - sktime
       - umap-learn
       - pmdarima
