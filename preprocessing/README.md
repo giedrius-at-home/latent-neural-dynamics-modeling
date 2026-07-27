@@ -41,8 +41,7 @@ data/
 ├── participants.tsv                                  participant/session table
 ├── participants_2/participant_id=PDI1/session=2/block=1/*.parquet
 └── <session dir>/motion/
-    ├── ..._task-copydraw_run-<block>_chunk-<trial>_motion.tsv    pen coordinates (columns: x, y)
-    └── ..._task-copydraw_run-<block>_motion.json                 DBS state (key: dbs_stim)
+    └── ..._run-<block>_chunk-<trial>_tracksys-wacom_motion.tsv   pen coordinates (columns: x, y)
 ```
 
 Columns each `participants_2` partition must have:

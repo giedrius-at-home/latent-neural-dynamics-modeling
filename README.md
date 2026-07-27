@@ -70,15 +70,15 @@ the other target type (`z-as-neural`).
 
 ## Run it without the real data
 
-`generate_data.py` writes a fake participant in the same shape as the real
-recordings, at the very start of the chain — the intermediate table, the 1000 Hz
-iEEG parquets and the motion sidecars that preprocessing consumes. Useful for
+`generate_data.py` writes a fake participant at the very start of the chain: the
+input `package_recordings` consumes. Preprocess it as usual, and the resulting
+200 Hz table feeds the training pipeline like any other session. Useful for
 trying the pipeline on a laptop, or checking a change end to end before it goes
 near the compute host.
 
 ```bash
-python generate_data.py --blocks 10 --trials-per-block 3
-python -m preprocessing.package_recordings --config fake_data/preprocessing_fake.yaml
+python generate_data.py
+python -m preprocessing.package_recordings --config <your local preprocessing YAML>
 python training/precompute_splits.py --data-root fake_data/participants_fake_200Hz \
     --participant FAKE1 --session 1
 python -m training.pipeline --config <run YAML pointed at that data root>
@@ -86,27 +86,48 @@ python -m training.pipeline --config <run YAML pointed at that data root>
 python generate_data.py --clean
 ```
 
+The preprocessing YAML is yours to write — copy
+`preprocessing/participants_at_200Hz_scaled_1e6_raw_envelope.yaml` and change
+four keys:
+
+```yaml
+root_directory: <repo root>
+data_directory: "{root_directory}/fake_data/raw"       # holds participants_2/
+save_directory: "{root_directory}/fake_data"           # output lands here
+output_participants_table_name: "participants_fake_200Hz"
+```
+
+Trimming `raw_bands` / `envelope_bands` from 17 bands to 3 or 4 keeps the run
+quick; everything else — `resampled_freq`, `chunk_margin`, `notch_freqs`,
+`apply_car` — can stay as shipped. See `preprocessing/README.md` for what each
+key does.
+
 The fake participant is `FAKE1`, session `1`, so it cannot collide with real
 data. Nothing about the results is meaningful — the point is that every stage
 runs. What gets written:
 
 ```
 fake_data/
-├── preprocessing_fake.yaml                   config with local paths
 └── raw/
     ├── participants_2/participant_id=FAKE1/session=1/block=<b>/0.parquet
-    └── FAKE1/ses-1/
-        ├── ieeg/block-<b>_ieeg.parquet       LFP_1..16, ECOG_1..4, EOG_1..4, sfreq @ 1000 Hz
-        └── motion/
-            ├── sub-FAKE1_ses-1_task-copydraw_run-<b>_chunk-<t>_motion.tsv
-            └── sub-FAKE1_ses-1_task-copydraw_run-<b>_motion.json
+    ├── resampled/sub-FAKE1_ses-1_task-copydraw_run-<b>_ieeg.parquet
+    └── sub-FAKE1/ses-1/motion/
+        └── sub-FAKE1_ses-1_task-copydraw_run-<b>_chunk-<t>_tracksys-wacom_motion.tsv
 ```
 
-Signals come from a stable rotating AR(1) latent driving every channel, with
-DBS-ON blocks rotating faster and getting broadband gain on the cortical
-contacts, so the models have structure to find rather than noise. Blocks,
-trials per block, trial length, inter-trial gap and seed are all flags;
-`--status` shows what exists and `--clean` removes it.
+Dimensions default to a real session (PDI1_S2): 12 blocks x 12 trials, 9 s per
+trial, onsets 18 s apart, ~277 s of 1000 Hz recording per block, ~1069 pen
+samples per trial, and the same 25 channels (`LFP_1..16`, `ECOG_1..4`,
+`EOG_1..4`, `sfreq`). The intermediate table carries the real column names and
+dtypes. Preprocessing turns that into 13 s trials of 2600 samples at 200 Hz,
+exactly as it does for real recordings; the only deliberate difference is 4
+bands instead of 17, so the output is 105 columns rather than 365.
+
+The channel samples are plain Gaussian noise — the point is to exercise the
+stages, not to produce meaningful results. Blocks, trials per block, trial
+length, onset spacing and seed are flags; `--status` shows what exists and
+`--clean` removes it. At the defaults the raw tree is ~290 MB and preprocessing
+takes well under a minute with four bands.
 
 Nothing extra to install — the conda env already carries everything a run
 imports.
@@ -117,7 +138,7 @@ imports.
 preprocessing/     raw recordings -> 200 Hz band-limited trial table      -> preprocessing/README.md
 training/          feature/order selection, model fitting, forecasting,   -> training/README.md
                    DBS classification sweep
-notebooks/         thesis figures from the results tree                   -> notebooks/README.md
+notebooks/         thesis figures built from the results tree
 utils/             shared library: config loading, band processing, splits,
                    model wrappers (frameworks/), classification helpers
 environment/       conda env definition

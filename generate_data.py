@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
-# Writes fake recordings in the shape preprocessing consumes, so the pipeline
-# can be run locally without the real data. See README.md.
+# Writes fake recordings in the shape package_recordings consumes, at the real
+# dimensions, so the pipeline can be run without the real data. See README.md.
 
 from __future__ import annotations
 
 import argparse
-import json
 import shutil
 import sys
 from pathlib import Path
@@ -13,55 +12,37 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent
 FAKE_ROOT = PROJECT_ROOT / "fake_data"
 RAW_ROOT = FAKE_ROOT / "raw"
-CONFIG_PATH = FAKE_ROOT / "preprocessing_fake.yaml"
 PREPROCESSED_ROOT = FAKE_ROOT / "participants_fake_200Hz"
 
 PARTICIPANT = "FAKE1"
 SESSION = 1
-RAW_FS = 1000  # the real recordings are 1000 Hz before preprocessing
+RAW_FS = 1000  # recordings are 1000 Hz before preprocessing
 OUT_FS = 200  # and 200 Hz after
 
-ECOG_CHANNELS = [f"ECOG_{i}" for i in range(1, 5)]
-LFP_CHANNELS = [f"LFP_{i}" for i in range(1, 17)]
-EOG_CHANNELS = [f"EOG_{i}" for i in range(1, 5)]
+CHANNELS = (
+    [f"LFP_{i}" for i in range(1, 17)]
+    + [f"ECOG_{i}" for i in range(1, 5)]
+    + [f"EOG_{i}" for i in range(1, 5)]
+)
 
-# Four bands instead of the real seventeen, so the generated files stay small.
-BANDS = {
-    "theta_4_8": (4, 8),
-    "beta_18_23": (18, 23),
-    "gamma_58_63": (58, 63),
-    "gamma_88_93": (88, 93),
-}
-
+# Real session (PDI1_S2): 12 blocks x 12 trials, 9 s per trial, onsets ~18 s
+# apart, ~277 s of recording per block, ~1069 pen samples per trial.
+DEF_BLOCKS = 12
+DEF_TRIALS = 12
+DEF_TRIAL_SECONDS = 9.0
+DEF_ONSET_SPACING = 18.0
+DEF_TAIL_SECONDS = 55.0
+MOTION_FS = 119
 
 def log(msg: str) -> None:
     print(f"[fake-data] {msg}", flush=True)
-
-
-def _latent(rng, n: int, fs: int, dbs_on: bool, n_latent: int = 4):
-    # Stable rotating AR(1) state, faster under DBS-ON. Driving every channel
-    # from one latent gives the models real structure, not white noise.
-    import numpy as np
-
-    theta = (0.6 if dbs_on else 0.45) * 2 * np.pi / fs
-    radius = 0.999
-    A = np.zeros((n_latent, n_latent))
-    for i in range(n_latent // 2):
-        c, s = np.cos(theta), np.sin(theta)
-        A[2 * i : 2 * i + 2, 2 * i : 2 * i + 2] = radius * np.array([[c, -s], [s, c]])
-    X = np.zeros((n, n_latent))
-    x = rng.normal(size=n_latent)
-    for t in range(n):
-        x = A @ x + rng.normal(scale=0.05, size=n_latent)
-        X[t] = x
-    return X
 
 
 def generate(
     blocks: int,
     trials_per_block: int,
     trial_seconds: float,
-    gap_seconds: float,
+    onset_spacing: float,
     seed: int,
 ) -> None:
     import numpy as np
@@ -71,131 +52,74 @@ def generate(
     if RAW_ROOT.exists():
         shutil.rmtree(RAW_ROOT)
 
-    session_dir = RAW_ROOT / PARTICIPANT / f"ses-{SESSION}"
-    ieeg_dir = session_dir / "ieeg"
+    session_dir = RAW_ROOT / f"sub-{PARTICIPANT}" / f"ses-{SESSION}"
     motion_dir = session_dir / "motion"
-    ieeg_dir.mkdir(parents=True, exist_ok=True)
+    ieeg_dir = RAW_ROOT / "resampled"
     motion_dir.mkdir(parents=True, exist_ok=True)
+    ieeg_dir.mkdir(parents=True, exist_ok=True)
 
-    names = ECOG_CHANNELS + LFP_CHANNELS + EOG_CHANNELS
-    mixing = rng.normal(size=(len(names), 4))
+    onsets = [
+        float(onset_spacing * (t + 1)) for t in range(trials_per_block)
+    ]
+    block_seconds = onsets[-1] + trial_seconds + DEF_TAIL_SECONDS
+    n_raw = int(block_seconds * RAW_FS)
+    n_motion = int(trial_seconds * MOTION_FS)
 
-    n_trials = 0
-    with np.errstate(all="ignore"):  # macOS BLAS raises spurious matmul warnings
-        for block in range(1, blocks + 1):
-            # One DBS state per block, alternating — stimulation never switches
-            # mid-block in the real recordings either.
-            dbs_on = block % 2 == 0
+    for block in range(1, blocks + 1):
+        # One DBS state per block, alternating — stimulation never switches
+        # mid-block in the real recordings either.
+        dbs_on = block % 2 == 0
 
-            block_seconds = trials_per_block * (trial_seconds + gap_seconds) + gap_seconds
-            n_raw = int(block_seconds * RAW_FS)
-            X = _latent(rng, n_raw, RAW_FS, dbs_on)
-            sig = X @ mixing.T + rng.normal(scale=0.4, size=(n_raw, len(names)))
-            if dbs_on:
-                # Broadband gain on the cortical contacts; after band-passing it
-                # becomes the beta / high-gamma envelope difference the
-                # classification sweep looks for.
-                for i, name in enumerate(names):
-                    if name.startswith("ECOG"):
-                        sig[:, i] *= 1.4
-            if not np.isfinite(sig).all():
-                raise RuntimeError(f"non-finite samples generated in block {block}")
+        sig = rng.normal(scale=50.0, size=(n_raw, len(CHANNELS))).astype("float32")
+        ieeg = {name: sig[:, i] for i, name in enumerate(CHANNELS)}
+        ieeg["sfreq"] = np.full(n_raw, RAW_FS, dtype="float32")
+        ieeg_path = (
+            ieeg_dir
+            / f"sub-{PARTICIPANT}_ses-{SESSION}_task-copydraw_run-{block}_ieeg.parquet"
+        )
+        pl.DataFrame(ieeg).write_parquet(ieeg_path)
 
-            ieeg = {name: sig[:, i].astype("float32") for i, name in enumerate(names)}
-            ieeg["sfreq"] = np.full(n_raw, RAW_FS, dtype="float32")
-            ieeg_path = ieeg_dir / f"block-{block}_ieeg.parquet"
-            pl.DataFrame(ieeg).write_parquet(ieeg_path)
-
-            onsets = [
-                float(gap_seconds + t * (trial_seconds + gap_seconds))
-                for t in range(trials_per_block)
-            ]
-            for trial in range(1, trials_per_block + 1):
-                # Pen trace: smooth random walk, integer coordinates as in the
-                # real tsv files.
-                n_motion = int(trial_seconds * 100)
-                walk = np.cumsum(rng.normal(scale=3.0, size=(n_motion, 2)), axis=0)
-                xy = (walk + 500).round().astype(int)
-                tsv = motion_dir / (
-                    f"sub-{PARTICIPANT}_ses-{SESSION}_task-copydraw"
-                    f"_run-{block}_chunk-{trial}_motion.tsv"
-                )
-                tsv.write_text("\n".join(["x\ty"] + [f"{x}\t{y}" for x, y in xy]) + "\n")
-                n_trials += 1
-
-            (
-                motion_dir
-                / f"sub-{PARTICIPANT}_ses-{SESSION}_task-copydraw_run-{block}_motion.json"
-            ).write_text(json.dumps({"dbs_stim": "on" if dbs_on else "off"}))
-
-            part_dir = (
-                RAW_ROOT
-                / "participants_2"
-                / f"participant_id={PARTICIPANT}"
-                / f"session={SESSION}"
-                / f"block={block}"
+        for trial in range(1, trials_per_block + 1):
+            # Pen trace: random walk, integer coordinates as in the real files.
+            walk = np.cumsum(rng.normal(scale=3.0, size=(n_motion, 2)), axis=0)
+            xy = walk.round().astype(int)
+            tsv = motion_dir / (
+                f"sub-{PARTICIPANT}_ses-{SESSION}_task-copydraw"
+                f"_run-{block:02d}_chunk-{trial:02d}_tracksys-wacom_motion.tsv"
             )
-            part_dir.mkdir(parents=True, exist_ok=True)
-            pl.DataFrame(
-                {
-                    "participant_id": [PARTICIPANT],
-                    "session": pl.Series([SESSION], dtype=pl.UInt64),
-                    "block": pl.Series([block], dtype=pl.UInt64),
-                    "trials": pl.Series(
-                        [list(range(1, trials_per_block + 1))],
-                        dtype=pl.List(pl.UInt64),
-                    ),
-                    "onsets": [onsets],
-                    # Per-trial duration in seconds. _chunk_recordings uses it to
-                    # size each trial window, so it has to be one value per row.
-                    "trial_time": [float(trial_seconds)],
-                    "ieeg_parquet": [str(ieeg_path)],
-                    "session_path": [str(session_dir)],
-                    "stim": ["on" if dbs_on else "off"],
-                    "is_fragmented": [False],
-                }
-            ).write_parquet(part_dir / "0.parquet")
+            tsv.write_text("\n".join(["x\ty"] + [f"{x}\t{y}" for x, y in xy]) + "\n")
 
-    write_config()
+        part_dir = (
+            RAW_ROOT
+            / "participants_2"
+            / f"participant_id={PARTICIPANT}"
+            / f"session={SESSION}"
+            / f"block={block}"
+        )
+        part_dir.mkdir(parents=True, exist_ok=True)
+        # Column names and dtypes as in data/participants_2 on the compute host.
+        pl.DataFrame(
+            {
+                "participant_id": [PARTICIPANT],
+                "session": pl.Series([SESSION], dtype=pl.UInt32),
+                "block": pl.Series([block], dtype=pl.UInt64),
+                "trials": pl.Series(
+                    [list(range(1, trials_per_block + 1))], dtype=pl.List(pl.UInt64)
+                ),
+                "onsets": pl.Series([onsets], dtype=pl.List(pl.Float64)),
+                "trial_time": pl.Series([float(trial_seconds)], dtype=pl.Float64),
+                "is_fragmented": [False],
+                "stim": ["on" if dbs_on else "off"],
+                "ieeg_parquet": [str(ieeg_path)],
+                "session_path": [str(session_dir)],
+            }
+        ).write_parquet(part_dir / "0.parquet")
+
     log(
-        f"{blocks} blocks x {trials_per_block} trials ({n_trials} total) at {RAW_FS} Hz "
+        f"{blocks} blocks x {trials_per_block} trials, {trial_seconds:g}s each, "
+        f"{block_seconds:.0f}s of {RAW_FS} Hz recording per block "
         f"-> {RAW_ROOT.relative_to(PROJECT_ROOT)}"
     )
-    log(f"preprocessing config -> {CONFIG_PATH.relative_to(PROJECT_ROOT)}")
-
-
-def write_config() -> Path:
-    # The shipped preprocessing configs carry absolute compute-host paths, so a
-    # local run needs its own. Four bands instead of seventeen; sampling rate,
-    # margins, CAR and notches match the real raw_envelope config.
-    import yaml
-
-    FAKE_ROOT.mkdir(parents=True, exist_ok=True)
-    cfg = {
-        "name": "package_recordings_fake",
-        "root_directory": str(PROJECT_ROOT),
-        "data_directory": str(RAW_ROOT),
-        "save_directory": str(FAKE_ROOT),
-        "logger_directory": "{root_directory}/logs",
-        "participants_table_name": "participants.tsv",
-        "participants_intermediate_table_name": "participants_2",
-        "output_participants_table_name": PREPROCESSED_ROOT.name,
-        "ieeg_process": {
-            "resampled_dir": "{save_directory}/resampled_mat_recordings",
-            "chunk_margin": 2,
-            "resampled_freq": OUT_FS,
-            "notch_freqs": [50, 100],
-            "scale_factor": 1.0,
-            "apply_car": True,
-            "drop_lfp": False,
-            "max_pause_seconds": 2.0,
-            "raw_bands": {f"{b}_raw": list(r) for b, r in BANDS.items()},
-            "envelope_bands": {f"{b}_env": list(r) for b, r in BANDS.items()},
-        },
-    }
-    with open(CONFIG_PATH, "w") as f:
-        yaml.dump(cfg, f, default_flow_style=False, sort_keys=False)
-    return CONFIG_PATH
 
 
 def status() -> None:
@@ -207,12 +131,8 @@ def status() -> None:
     print(
         f"  raw            {RAW_ROOT.relative_to(PROJECT_ROOT)}  "
         f"({count(RAW_ROOT, 'participants_2/**/block=*')} blocks, "
-        f"{count(RAW_ROOT, '**/ieeg/*.parquet')} iEEG parquets, "
+        f"{count(RAW_ROOT, 'resampled/*.parquet')} iEEG parquets, "
         f"{count(RAW_ROOT, '**/motion/*.tsv')} motion files)"
-    )
-    print(
-        f"  config         {CONFIG_PATH.relative_to(PROJECT_ROOT)}  "
-        f"{'present' if CONFIG_PATH.exists() else '-'}"
     )
     print(
         f"  preprocessed   {PREPROCESSED_ROOT.relative_to(PROJECT_ROOT)}  "
@@ -234,12 +154,12 @@ def clean() -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser(
-        description="Generate fake raw recordings for a local end-to-end pipeline run."
+        description="Generate fake raw recordings for package_recordings to preprocess."
     )
-    ap.add_argument("--blocks", type=int, default=10, help="blocks, alternating DBS on/off")
-    ap.add_argument("--trials-per-block", type=int, default=3)
-    ap.add_argument("--trial-seconds", type=float, default=6.0)
-    ap.add_argument("--gap-seconds", type=float, default=3.0, help="pause between trials")
+    ap.add_argument("--blocks", type=int, default=DEF_BLOCKS, help="alternating DBS on/off")
+    ap.add_argument("--trials-per-block", type=int, default=DEF_TRIALS)
+    ap.add_argument("--trial-seconds", type=float, default=DEF_TRIAL_SECONDS)
+    ap.add_argument("--onset-spacing", type=float, default=DEF_ONSET_SPACING)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--status", action="store_true", help="show what exists, then exit")
     ap.add_argument("--clean", action="store_true", help="delete fake_data/, then exit")
@@ -256,7 +176,7 @@ def main() -> int:
         args.blocks,
         args.trials_per_block,
         args.trial_seconds,
-        args.gap_seconds,
+        args.onset_spacing,
         args.seed,
     )
     status()
