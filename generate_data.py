@@ -1,48 +1,6 @@
 #!/usr/bin/env python3
-"""Generate fake recordings at the very start of the chain, so the whole
-pipeline can be run locally without the real data.
-
-What it writes is the input ``preprocessing.package_recordings`` consumes: the
-intermediate ``participants_2`` table, one 1000 Hz iEEG parquet per block, and
-the motion tsv/json sidecars. Preprocessing turns that into the 200 Hz trial
-table, and training reads that in turn — so a local run exercises every stage in
-order, on data shaped like the real recordings.
-
-    fake_data/
-    ├── preprocessing_fake.yaml                      config pointed at this tree
-    └── raw/
-        ├── participants_2/participant_id=FAKE1/session=1/block=<b>/0.parquet
-        └── FAKE1/ses-1/
-            ├── ieeg/block-<b>_ieeg.parquet          LFP_1..16, ECOG_1..4, EOG_1..4, sfreq
-            └── motion/
-                ├── sub-FAKE1_ses-1_task-copydraw_run-<b>_chunk-<t>_motion.tsv
-                └── sub-FAKE1_ses-1_task-copydraw_run-<b>_motion.json
-
-Usage:
-    python generate_data.py                     # write the fake raw tree
-    python generate_data.py --blocks 10 --trials-per-block 3
-    python generate_data.py --status
-    python generate_data.py --clean
-
-Then, in the same order as on the compute host:
-
-    python -m preprocessing.package_recordings --config fake_data/preprocessing_fake.yaml
-    python training/precompute_splits.py --data-root fake_data/participants_fake_200Hz \\
-        --participant FAKE1 --session 1
-    python -m training.pipeline --config <run YAML pointed at that data root>
-
-The fake participant is FAKE1, session 1, so nothing can collide with real data.
-This script writes data only — it changes no code and no real config.
-
-Local environment (verified by running the chain above end to end):
-
-* Python 3.11, and the pinned `polars=1.34.*` from `environment/environment.yaml`.
-  Newer polars writes partition files as `00000000.parquet` rather than
-  `0.parquet`, which the trainer's `block=*/0.parquet` glob then misses.
-* `training/pipeline.py` imports `dpad_modal` and `psid_diagnostic` at module
-  scope, so a local run also needs `modal`, `feature-engine` and
-  `mrmr-selection` installed, even for a plain PSID run.
-"""
+# Writes fake recordings in the shape preprocessing consumes, so the pipeline
+# can be run locally without the real data. See README.md.
 
 from __future__ import annotations
 
@@ -81,11 +39,8 @@ def log(msg: str) -> None:
 
 
 def _latent(rng, n: int, fs: int, dbs_on: bool, n_latent: int = 4):
-    """Stable rotating AR(1) latent state; DBS-ON rotates a little faster.
-
-    Driving every channel from a shared latent gives the state-space models real
-    structure to identify, rather than white noise.
-    """
+    # Stable rotating AR(1) state, faster under DBS-ON. Driving every channel
+    # from one latent gives the models real structure, not white noise.
     import numpy as np
 
     theta = (0.6 if dbs_on else 0.45) * 2 * np.pi / fs
@@ -210,12 +165,9 @@ def generate(
 
 
 def write_config() -> Path:
-    """Preprocessing YAML pointed at the fake tree.
-
-    The shipped configs carry absolute paths on the compute host, so a local run
-    needs its own. Four bands instead of seventeen; sampling rate, margins, CAR
-    and notches match the real `raw_envelope` config.
-    """
+    # The shipped preprocessing configs carry absolute compute-host paths, so a
+    # local run needs its own. Four bands instead of seventeen; sampling rate,
+    # margins, CAR and notches match the real raw_envelope config.
     import yaml
 
     FAKE_ROOT.mkdir(parents=True, exist_ok=True)

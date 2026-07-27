@@ -86,7 +86,31 @@ python generate_data.py --clean
 
 The fake participant is `FAKE1`, session `1`, so it cannot collide with real
 data. Nothing about the results is meaningful — the point is that every stage
-runs.
+runs. What gets written:
+
+```
+fake_data/
+├── preprocessing_fake.yaml                   config with local paths
+└── raw/
+    ├── participants_2/participant_id=FAKE1/session=1/block=<b>/0.parquet
+    └── FAKE1/ses-1/
+        ├── ieeg/block-<b>_ieeg.parquet       LFP_1..16, ECOG_1..4, EOG_1..4, sfreq @ 1000 Hz
+        └── motion/
+            ├── sub-FAKE1_ses-1_task-copydraw_run-<b>_chunk-<t>_motion.tsv
+            └── sub-FAKE1_ses-1_task-copydraw_run-<b>_motion.json
+```
+
+Signals come from a stable rotating AR(1) latent driving every channel, with
+DBS-ON blocks rotating faster and getting broadband gain on the cortical
+contacts, so the models have structure to find rather than noise. Blocks,
+trials per block, trial length, inter-trial gap and seed are all flags;
+`--status` shows what exists and `--clean` removes it.
+
+Two things a local run needs beyond the conda env: `modal`, `feature-engine` and
+`mrmr-selection`, because `training/pipeline.py` imports `dpad_modal` and
+`psid_diagnostic` at module scope even for a plain PSID run — and the pinned
+`polars=1.34.*`, since newer polars writes partition files as
+`00000000.parquet` while the trainer globs `block=*/0.parquet`.
 
 ## Where things are
 
