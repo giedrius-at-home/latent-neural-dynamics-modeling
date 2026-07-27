@@ -1,7 +1,7 @@
 # training
 
 Everything between the preprocessed trial table and the results tree the figures
-are drawn from: splitting the data, choosing input channels and latent
+are drawn from: splitting the data, choosing input features and latent
 dimensions, fitting the models, running the two forecasts, and classifying
 DBS state from the latents.
 
@@ -41,7 +41,7 @@ replaces just that session's rows.
 
 ---
 
-## Step 2 — pick channels and latent dimensions (`psid_diagnostic`)
+## Step 2 — pick input features and latent dimensions (`psid_diagnostic`)
 
 The preprocessed table has hundreds of candidate signal columns. This stage picks
 the 12 that go into the models, and the latent dimensions to fit, then writes them
@@ -53,9 +53,11 @@ python -m training.pipeline --config training/setups/psid_diagnostic_PDI1_S2_z-a
 
 What it does:
 
-1. **Channel selection** — cross-validated mRMR (minimum redundancy, maximum
+1. **Feature selection** — cross-validated mRMR (minimum redundancy, maximum
    relevance) against the DBS label, on log-power epochs of each candidate
-   channel. With `stratify_raw_env: true` the budget is split evenly, so
+   feature. A feature is one channel × one band × raw or envelope, so the four
+   ECoG channels alone offer 136 of them. With `stratify_raw_env: true` the
+   budget is split evenly, so
    `K_Y: 12` yields **6 raw band signals + 6 Hilbert envelopes**. The same is done
    for the Laplacian candidates in `z-as-neural` mode (`K_Z: 12`);
    `z-as-behavior` mode pins Z to `tracing_velocity_x` and
@@ -77,11 +79,11 @@ What it does:
 
 Also writes, under `results/psid_diagnostic/<PID>_S<SESS>_<type>/<TS>/`:
 `diagnostic.parquet` (the full sweep curves, feeding the selection figures in
-section 1), `mrmr_stats.json` (which channels were picked, and how often each
+section 1), `mrmr_stats.json` (which features were picked, and how often each
 survived across folds) and `model.pkl` (the final diagnostic fit).
 
-**Every model in the thesis uses these 12 input channels — 6 raw + 6 envelope.**
-No framework runs on a different channel count.
+**Every model in the thesis uses these 12 input features — 6 raw + 6 envelope.**
+No framework runs on a different feature count.
 
 ---
 
@@ -167,7 +169,7 @@ block-grouped cross-validation:
 
 Feature-source suffixes: no suffix = all latents, `_1` = the first `n1`
 (behaviourally relevant) latents, `_2` = latents `n1:nx`, `_with_dbs` = latents
-plus a DBS indicator channel, which is a ceiling/sanity control and not a real
+plus a DBS indicator, which is a ceiling/sanity control and not a real
 result.
 
 Any classifier scoring above `perm_ba_gate` gets `n_permutations` block-shuffled
@@ -195,8 +197,8 @@ data:
   root: resampled_recordings/participants_at_200Hz_scaled_1e6_raw_envelope
   participant: PDI1
   session: 2
-  Y: [ECOG_3_gamma_88_93_raw, ..., ECOG_1_alpha_8_12_env]     # the 12 selected channels
-  Z: [tracing_velocity_x, tracing_acceleration_magnitude]     # or 12 Laplacian channels
+  Y: [ECOG_3_gamma_88_93_raw, ..., ECOG_1_alpha_8_12_env]     # the 12 selected features
+  Z: [tracing_velocity_x, tracing_acceleration_magnitude]     # or 12 Laplacian features
   sampling_frequency: 200
 experiment:
   name: '{framework.name}_{experiment.type}_{data.participant}_S{data.session}_nx_{framework.params.nx}_n1_{framework.params.n1}'
@@ -265,11 +267,11 @@ Forecast parquet (both kinds share the schema), one row per trial:
 | `pearson_per_channel_Z`, `pearson_mean_Z`, `pearson_overall_mean_Z` | Z-side correlations |
 | `time`, `offset`, `chunk_margin`, `margined_duration` | timing |
 | `stim` | the trial's DBS state |
-| `Y_features`, `Z_features` | the channel names behind `Y` and `Z`, in column order |
+| `Y_features`, `Z_features` | the feature names behind `Y` and `Z`, in column order |
 | `participant_id`, `session`, `block`, `trial` | partition keys |
 
-`Y_features` / `Z_features` are how you recover which channels a run used — there
-is no `input_channels` column. A `z-as-neural` run shows 12 entries in each.
+`Y_features` / `Z_features` are how you recover which features a run used —
+there is no `input_channels` column. A `z-as-neural` run shows 12 entries in each.
 
 The `forecast/h<H>/` parquets add the free-running part on top of those columns:
 `m` (horizon in samples), `Y_future_true`, `Y_future_pred`, `Z_future_true`,
@@ -302,7 +304,7 @@ that particular truncation or forecast point. **The permutation `p_value` tests
 | `pipeline.py` | the entry point; picks a pipeline class from `framework.name` |
 | `pipelines/_base.py` | phase machine shared by PSID / DPAD / VARMA |
 | `pipelines/dpad_modal.py` | Modal image, volumes, two-stage GPU fan-out |
-| `pipelines/psid_diagnostic.py` | mRMR channel selection + nx/n1 sweeps + YAML emission |
+| `pipelines/psid_diagnostic.py` | mRMR feature selection + nx/n1 sweeps + YAML emission |
 | `precompute_splits.py` | shared block-chronological splits |
 | `train.py`, `test.py` | single-phase entry points |
 | `sweep.py` | classification sweeps and permutation test |

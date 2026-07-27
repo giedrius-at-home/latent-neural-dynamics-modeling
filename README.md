@@ -50,7 +50,7 @@ python -m preprocessing.package_recordings \
 # 2. block-chronological train/val/test splits, shared by every model
 python training/precompute_splits.py --participant PDI1 --session 2
 
-# 3. pick the 12 input channels and the latent dimensions;
+# 3. pick the 12 input features and the latent dimensions;
 #    this writes them into the run YAML used by step 4
 python -m training.pipeline --config training/setups/psid_diagnostic_PDI1_S2_z-as-behavior.yaml
 
@@ -122,7 +122,7 @@ dtypes. Preprocessing turns that into 13 s trials of 2600 samples at 200 Hz,
 exactly as it does for real recordings; the only deliberate difference is 4
 bands instead of 17, so the output is 105 columns rather than 365.
 
-The channel samples are plain Gaussian noise — the point is to exercise the
+The samples are plain Gaussian noise — the point is to exercise the
 stages, not to produce meaningful results. Blocks, trials per block, trial
 length, onset spacing and seed are flags; `--status` shows what exists and
 `--clean` removes it. At the defaults the raw tree is ~290 MB and preprocessing
@@ -179,8 +179,10 @@ flavours, set by `experiment.type` in the run config:
 | `experiment.type` | Z (the target the model tracks) |
 |---|---|
 | `z-as-behavior` | tracing kinematics (velocity, acceleration) |
-| `z-as-neural`   | LFP Laplacian channels |
+| `z-as-neural`   | LFP Laplacian features |
 
-Every model in the thesis is fitted on the same **12 neural input channels** — 6
+Every model in the thesis is fitted on the same **12 neural input features** — 6
 band-limited raw signals and 6 Hilbert envelopes, chosen per session by
-cross-validated mRMR in step 3. That holds for PSID, DPAD and VARMA alike.
+cross-validated mRMR in step 3. A feature is one channel × one band × raw or
+envelope, e.g. `ECOG_3_gamma_88_93_raw`; the recordings have 4 ECoG channels and
+6 Laplacian derivations behind them. That holds for PSID, DPAD and VARMA alike.
