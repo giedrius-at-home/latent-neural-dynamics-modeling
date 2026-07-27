@@ -694,16 +694,18 @@ def decomp_fig(
             if col == 0:
                 ax.set_ylabel(ylabel)
 
-    axes[0, -1].legend(
+    # One shared legend under all nine panels — it applies to every panel, so a
+    # per-axes legend both repeats itself and crowds the top-right cell.
+    fig.legend(
         [
             Patch(facecolor=COLOR_RAW, alpha=alpha, edgecolor="black", linewidth=0.6),
             Patch(facecolor=COLOR_ENV, alpha=alpha, edgecolor="black", linewidth=0.6),
         ],
-        ["raw signal", "envelope"],
-        loc="upper right",
+        ["raw signal", "envelope" if not has_kin else "envelope / kinematics"],
+        loc="outside lower center",
         frameon=False,
-        fontsize=8,
-        ncol=1,
+        fontsize=9,
+        ncol=2,
     )
     return fig
 
