@@ -18,9 +18,8 @@ Two configs ship with the repo:
 | `participants_at_200Hz_scaled_1e6_raw_envelope.yaml` | 17 band-limited raw signals **and** 17 Hilbert envelopes per channel — the one used for the thesis |
 | `participants_at_200Hz_scaled_1e6_narrow_band.yaml` | 15 raw bands only, no envelopes (earlier iteration) |
 
-**`root_directory:` in both configs is an absolute path on the compute host.**
-Change it before running anywhere else — or use `generate_data.py` at the repo
-root, which writes a fake session plus a matching config with local paths.
+**`root_directory:` in both configs is an absolute path from the machine they
+were last run on.** Set it to your own repo root before running.
 
 ---
 
@@ -139,7 +138,7 @@ and kinematics columns, 136 ECoG signals (4 channels × 17 bands × raw/envelope
 and 204 Laplacian signals (6 Laplacians × 17 bands × raw/envelope). The LFP
 channels themselves are gone by then — only their Laplacians survive.
 
-`resampled_recordings/` on the compute host also holds earlier variants
+A `resampled_recordings/` built up over time may also hold earlier variants
 (`participants_at_80Hz_*`, `..._welch`, `..._morlet_log`). The thesis uses
 `participants_at_200Hz_scaled_1e6_raw_envelope`; the rest are superseded.
 

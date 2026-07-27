@@ -26,17 +26,16 @@ Run everything **from the repo root** — configs use repo-relative paths.
 
 ## Get the data
 
-The recordings and the results are not in the repo: they are large, and they live
-on the compute host. Work there.
-
-```bash
-ssh bobby@neuro
-cd ~/repos/latent-neural-dynamics-modeling
-~/miniconda3/envs/neuro/bin/python -m training.pipeline --config ...
-```
-
+The recordings and the results are not in the repo — they are large, and
 `data/`, `resampled_recordings/`, `results/`, `logs/`, `thesis_figures/` and
-`report/` are all gitignored for that reason.
+`report/` are all gitignored for that reason. Expect to work on whichever
+machine holds them: clone the repo there, create the env there, and run from
+that checkout.
+
+The code assumes only that the data sits under the repo root, at the paths in
+the section below. If your copy lives elsewhere, point `data.root` in a run YAML
+and `data_directory` in a preprocessing YAML at it. Have no data at all? See
+[Run it without the real data](#run-it-without-the-real-data).
 
 ## Run it
 
@@ -73,8 +72,8 @@ the other target type (`z-as-neural`).
 `generate_data.py` writes a fake participant at the very start of the chain: the
 input `package_recordings` consumes. Preprocess it as usual, and the resulting
 200 Hz table feeds the training pipeline like any other session. Useful for
-trying the pipeline on a laptop, or checking a change end to end before it goes
-near the compute host.
+trying the pipeline on a laptop, or checking a change end to end before running
+it on the real recordings.
 
 ```bash
 python generate_data.py

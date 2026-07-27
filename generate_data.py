@@ -25,8 +25,8 @@ CHANNELS = (
     + [f"EOG_{i}" for i in range(1, 5)]
 )
 
-# Real session (PDI1_S2): 12 blocks x 12 trials, 9 s per trial, onsets ~18 s
-# apart, ~277 s of recording per block, ~1069 pen samples per trial.
+# Taken from a real session (PDI1_S2): 12 blocks x 12 trials, 9 s per trial,
+# onsets ~18 s apart, ~277 s of recording per block, ~1069 pen samples per trial.
 DEF_BLOCKS = 12
 DEF_TRIALS = 12
 DEF_TRIAL_SECONDS = 9.0
@@ -97,7 +97,7 @@ def generate(
             / f"block={block}"
         )
         part_dir.mkdir(parents=True, exist_ok=True)
-        # Column names and dtypes as in data/participants_2 on the compute host.
+        # Column names and dtypes as in the real data/participants_2 table.
         pl.DataFrame(
             {
                 "participant_id": [PARTICIPANT],
