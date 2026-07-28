@@ -1,0 +1,37 @@
+# Feature/order selection for the fake session written by generate_data.py.
+# Grids are tiny so it finishes in seconds; the real configs sweep much wider.
+# Writes its choices into training/setups/psid_FAKE1_S1_z-as-behavior.yaml.
+framework:
+  name: psid_diagnostic
+  params:
+    nx_grid: [4, 8]
+    n1_grid: [1, 2]
+    K_Y: 12
+    K_Z: 12
+    stratify_raw_env: true
+    mrmr_method: MIQ
+    mrmr_epoch_len_s: 2.0
+    i_horizon: 5
+    i_train: 10
+    max_eig: 0.999
+    history_s: 2.0
+    forecast_s: 0.5
+
+data:
+  root: fake_data/participants_fake_200Hz
+  participant: FAKE1
+  session: 1
+  sampling_frequency: 200
+
+experiment:
+  name: psid_diagnostic_FAKE1_S1_z-as-behavior
+  type: z-as-behavior
+  Y_label:
+    - "^ECOG_.*_raw$"
+    - "^ECOG_.*_env$"
+  Z_label: null
+
+results:
+  project_root: "."
+  save_dir: training/setups/psid_diagnostic
+  log_dir: "logs/psid_diagnostic/{experiment.type}"

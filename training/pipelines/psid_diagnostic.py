@@ -5,10 +5,10 @@
   2. CV mRMR vs DBS label (raw/env stratified) on Y and (laplacian) Z candidates.
      Behavioral mode pins Z = [tracing_velocity_x, tracing_acceleration_magnitude].
   3. nx sweep (PSID n1=0, SID): inner CV on TRAIN trials. Per fold + per nx,
-     fit, score multi-step Y forecast CC on fold-val. Pick smallest nx within
-     1 SEM of best val mean (Hastie/Tibshirani 1-SE rule).
+     fit, score one-step Y reconstruction CC on fold-val. Pick smallest nx
+     within 1 SEM of best val mean (Hastie/Tibshirani 1-SE rule).
   4. n1 sweep (PSID(NX, n1)): inner CV on TRAIN trials. Per fold + per n1,
-     fit, score multi-step Z forecast CC on fold-val. 1-SE rule on val Z CC.
+     fit, score one-step Z reconstruction CC on fold-val. 1-SE rule on val Z CC.
   5. Final fit at chosen (nx, n1) on full TRAIN, evaluated once on TEST
      (multi-step Y forecast CC, multi-step Z forecast CC).
   6. Emit training/setups/psid_<P>_S<s>_<mode>.yaml -- consumable by
@@ -804,7 +804,9 @@ class PsidDiagnosticPipeline:
     """Wraps the PSID diagnostic sweep; invoked by ``training.pipeline`` when
     ``framework.name == "psid_diagnostic"``."""
 
-    def __init__(self, config, log, phases=None, dbs=None):
+    # cls_mode is accepted and ignored: training.pipeline passes it to every
+    # pipeline, but the diagnostic runs no classification sweep.
+    def __init__(self, config, log, phases=None, dbs=None, cls_mode="all"):
         self.config = config
         self.log = log
         self.project_root = Path(config.results.project_root)
