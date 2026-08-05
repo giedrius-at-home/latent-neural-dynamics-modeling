@@ -231,3 +231,7 @@ thesis_figures/
 CLAUDE.md
 # local fake data written by generate_data.py
 fake_data/
+
+# macOS / Jupyter cruft
+.DS_Store
+.ipynb_checkpoints/
