@@ -5,6 +5,8 @@ Each notebook provides its own `load_fn(variant, run_ts, split) -> dict` and
 both reconstruction parquets and forecast parquets without code duplication.
 """
 
+import re
+
 import h5py
 import numpy as np
 import matplotlib.pyplot as plt
@@ -184,6 +186,54 @@ def parse_band(ch_name):
     return "unknown"
 
 
+def band_edges(ch_name):
+    """Numeric (lo, hi) Hz edges parsed off a feature name ending _<lo>_<hi>_raw/_env.
+
+    Returns None when the name carries no numeric band, e.g. the kinematic
+    features, which have no passband to read a coherence inside.
+    """
+    m = re.search(r"_(\d+)_(\d+)_(raw|env)$", ch_name)
+    return (float(m.group(1)), float(m.group(2))) if m else None
+
+
+# ---------------------------------------------------------------------------
+# Quantile reporting — group results are quoted as median [Q10, Q90], the same
+# interval the horizon figures shade, so prose and figures read on one scale.
+# ---------------------------------------------------------------------------
+
+
+def quantile_summary(vals, qs=(10, 90)):
+    """(median, q_lo, q_hi) over the finite entries; NaNs if fewer than two."""
+    a = np.asarray(vals, dtype=float)
+    a = a[np.isfinite(a)]
+    if a.size < 2:
+        return (np.nan, np.nan, np.nan)
+    return (
+        float(np.median(a)),
+        float(np.percentile(a, qs[0])),
+        float(np.percentile(a, qs[1])),
+    )
+
+
+def fmt_q(vals, qs=(10, 90), prec=3):
+    """'median [q_lo, q_hi]' for pasting straight into the thesis."""
+    med, lo, hi = quantile_summary(vals, qs)
+    if not np.isfinite(med):
+        return "n/a"
+    return f"{med:.{prec}f} [{lo:.{prec}f}, {hi:.{prec}f}]"
+
+
+def quantile_table(data, keys=None, *, label="key", qs=(10, 90), prec=3):
+    """Print 'key  n  median [Q10, Q90]' for a dict of arrays."""
+    keys = list(data) if keys is None else keys
+    width = max([len(str(k)) for k in keys] + [len(label)])
+    print(f"{label:<{width}}  {'n':>6}  median [Q{qs[0]}, Q{qs[1]}]")
+    for k in keys:
+        vals = np.asarray(data.get(k, []), dtype=float)
+        vals = vals[np.isfinite(vals)]
+        print(f"{str(k):<{width}}  {vals.size:>6}  {fmt_q(vals, qs, prec)}")
+
+
 # ---------------------------------------------------------------------------
 # Trial iterator — core loop shared by all collectors
 # ---------------------------------------------------------------------------
@@ -331,6 +381,94 @@ def collect_decomp_metrics(
             except Exception:
                 pass
     return {k: np.array(v) for k, v in out.items()}
+
+
+def collect_pooled_pearson(
+    session_objs, exp_type, target, split, load_fn, ch_names_fn
+):
+    """dict[(model, ch_type)] -> array of per-trial-feature Pearson r, sessions pooled.
+
+    The raincloud collectors average across features before pooling, which hides
+    the per-feature spread; this keeps every trial-feature so the prose can quote
+    the same interval the decomposition figures draw.
+    """
+    out = {}
+    for _, model, _, _, ch_name, t, p in _iter_trial_channels(
+        session_objs, exp_type, target, split, load_fn, ch_names_fn, all_ch=True
+    ):
+        ch_type = (
+            "raw" if ch_name.endswith("_raw")
+            else "env" if ch_name.endswith("_env") else "kin"
+        )
+        if np.std(t) < 1e-12 or np.std(p) < 1e-12:
+            continue
+        try:
+            r = float(pearsonr(t, p)[0])
+        except Exception:
+            continue
+        if np.isfinite(r):
+            out.setdefault((model, ch_type), []).append(r)
+    return {k: np.array(v) for k, v in out.items()}
+
+
+def collect_inband_coherence(
+    session_objs,
+    exp_type,
+    target,
+    split,
+    load_fn,
+    ch_names_fn,
+    *,
+    fs=200.0,
+    min_len=200,
+    rng_seed=42,
+):
+    """Per trial-feature coherence read inside the feature's own band, plus controls.
+
+    dict[(model, ch_type, key)] -> array, ch_type in {'raw', 'env'}, key in
+    {'inband', 'broad', 'ceiling_inband', 'ceiling_broad', 'floor_inband',
+    'floor_broad'}. 'ceiling' is the true signal against itself plus 1% noise,
+    'floor' against independent noise; each is reported both in-band and
+    broadband so the observed value is compared against a like-for-like
+    reference. Features whose names carry no numeric band are skipped.
+    """
+    rng = np.random.default_rng(rng_seed)
+    acc = {}
+    for _, model, _, _, ch_name, t, p in _iter_trial_channels(
+        session_objs, exp_type, target, split, load_fn, ch_names_fn, all_ch=True
+    ):
+        if len(t) < min_len:
+            continue
+        edges = band_edges(ch_name)
+        if edges is None:
+            continue
+        ch_type = "env" if ch_name.endswith("_env") else "raw"
+        nperseg = max(16, min(128, len(t) // 4))
+        f, Cxy = scipy_coherence(t, p, fs=fs, nperseg=nperseg)
+        sel = (f >= edges[0]) & (f <= edges[1])
+        if not sel.any():
+            continue
+        _, c_ceil = scipy_coherence(
+            t,
+            t + 0.01 * np.std(t) * rng.standard_normal(len(t)),
+            fs=fs,
+            nperseg=nperseg,
+        )
+        _, c_floor = scipy_coherence(
+            t, rng.standard_normal(len(t)), fs=fs, nperseg=nperseg
+        )
+        for key, vals in [
+            ("inband", Cxy[sel]),
+            ("broad", Cxy),
+            ("ceiling_inband", c_ceil[sel]),
+            ("ceiling_broad", c_ceil),
+            ("floor_inband", c_floor[sel]),
+            ("floor_broad", c_floor),
+        ]:
+            v = float(np.mean(vals))
+            if np.isfinite(v):
+                acc.setdefault((model, ch_type, key), []).append(v)
+    return {k: np.array(v) for k, v in acc.items()}
 
 
 def collect_band_grouped_metrics(
@@ -701,7 +839,7 @@ def decomp_fig(
             Patch(facecolor=COLOR_RAW, alpha=alpha, edgecolor="black", linewidth=0.6),
             Patch(facecolor=COLOR_ENV, alpha=alpha, edgecolor="black", linewidth=0.6),
         ],
-        ["raw signal", "envelope" if not has_kin else "envelope / kinematics"],
+        ["raw signal", "envelope" if not has_kin else "envelope | kinematics"],
         loc="outside lower center",
         frameon=False,
         fontsize=9,
