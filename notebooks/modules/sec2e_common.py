@@ -715,11 +715,35 @@ def _clip_ylim_to_true(ax, true_trace, pad=1.5):
     ax.set_ylim(c - half, c + half)
 
 
+def _autoscale_excluding(ax, *traces, margin=0.05):
+    """Autoscale y on the traces given, letting anything else run off-frame.
+
+    Called with the observed trace plus the stable model outputs, so PSID's
+    divergent kinematics readout is still drawn but does not set the limits.
+    No-op if nothing finite is passed.
+    """
+    vals = []
+    for a in traces:
+        a = np.asarray(a, dtype=float).ravel()
+        a = a[np.isfinite(a)]
+        if a.size:
+            vals.append(a)
+    if not vals:
+        return
+    v = np.concatenate(vals)
+    lo, hi = float(np.min(v)), float(np.max(v))
+    span = max(hi - lo, 1e-12)
+    ax.set_ylim(lo - margin * span, hi + margin * span)
+
+
 def _draw_recon_ax(ax, series, *, letter, title, segment_s=None, legend=False):
     """One-step reconstruction on a given axis: observed + PSID/DPAD/VARMA.
 
     ``series`` is a TrialZSeries (t_abs, z_true_raw, z_psid, z_dpad, z_varma).
-    Traces are z-scored on the true trial statistics for a common scale.
+    Traces are z-scored on the true trial statistics for a common scale; the
+    y-axis autoscales on the observed trace and the stable model outputs, so a
+    model that fluctuates beyond the observed range widens the frame instead of
+    being clipped by it.
     """
     t = np.asarray(series.t_abs, dtype=float).ravel()
     zt, zp, zd, zv = z_true_and_preds(
@@ -736,7 +760,7 @@ def _draw_recon_ax(ax, series, *, letter, title, segment_s=None, legend=False):
         if a.size == t.size and not np.all(np.isnan(a)):
             ls, col = _MODEL_STYLE[name]
             ax.plot(t, a, color=col, linewidth=1.3, linestyle=ls, label=name)
-    _clip_ylim_to_true(ax, zt)
+    _autoscale_excluding(ax, zt, zd, zv)
     ax.set_xlabel("trial time (s)")
     ax.xaxis.set_major_locator(mticker.MultipleLocator(0.5))
     if legend:
@@ -781,7 +805,7 @@ def _draw_forecast_ax(ax, rowdata, *, letter, title, legend=False):
         if not np.all(np.isnan(a)):
             ls, col = _MODEL_STYLE[name]
             ax.plot(t_plot, _gap(a), color=col, linewidth=1.3, linestyle=ls, label=name)
-    _clip_ylim_to_true(ax, z_true)
+    _autoscale_excluding(ax, z_true, z_dpad, z_varma)
     ax.set_xlabel("trial time (s)")
     ax.xaxis.set_major_locator(mticker.MultipleLocator(0.5))
     if legend:
@@ -794,6 +818,46 @@ def _fc_trial_idx(fc, ref_fc, ref_idx):
     if fc is None:
         return None
     return _key_index_map(fc).get(_trial_key(ref_fc, ref_idx))
+
+
+def _pretty_feature(name):
+    """Turn a pipeline feature code into something a reader can parse.
+
+    ECOG_3_beta_28_32_raw            -> ECoG 3, beta 28-32 Hz
+    LAPLACIAN_10-12_LFP_gamma_88_93_env -> LFP 10-12, gamma 88-93 Hz envelope
+
+    Anything that does not look like a feature code (e.g. "tracing velocity x")
+    is passed through untouched.
+    """
+    if not isinstance(name, str) or "_" not in name:
+        return name
+    parts = name.split("_")
+    kind = ""
+    if parts[-1] in ("raw", "env", "envelope"):
+        kind = "" if parts[-1] == "raw" else " envelope"
+        parts = parts[:-1]
+    # trailing "<band> <lo> <hi>"
+    band = ""
+    if len(parts) >= 3 and parts[-1].isdigit() and parts[-2].isdigit():
+        band = f", {parts[-3]} {parts[-2]}-{parts[-1]} Hz"
+        parts = parts[:-3]
+    parts = [p for p in parts if p.upper() != "LFP"]
+    if not parts:
+        return (band[2:] + kind) if band else name
+    head = parts[0].upper()
+    site = " ".join(parts[1:])
+    label = {"ECOG": "ECoG", "LAPLACIAN": "LFP"}.get(head, parts[0])
+    if site:
+        label = f"{label} {site}"
+    return f"{label}{band}{kind}"
+
+
+def _short_modality(name):
+    """Modality word for a panel title: 'LFP', 'ECoG', or the label as given."""
+    if not isinstance(name, str):
+        return name
+    head = name.split("_")[0].upper()
+    return {"LAPLACIAN": "LFP", "ECOG": "ECoG"}.get(head, name)
 
 
 def compose_exemplar_2x2(
@@ -866,10 +930,13 @@ def compose_exemplar_2x2(
     )
 
     fig, axes = plt.subplots(2, 2, figsize=(11.0, 6.4), layout="constrained")
-    y_lbl = neural_y_feature
+    # Panels stay minimal (modality only); the feature codes live in the top
+    # title and the detail lives in the caption.
+    y_lbl = "ECoG"
+    z_lbl = _short_modality(z_feat_label)
     _draw_recon_ax(
         axes[0, 0], y_1s, letter="A",
-        title=f"Y (ECoG {y_lbl}), one-step", segment_s=segment_s, legend=True,
+        title=f"Y ({y_lbl}), one-step", segment_s=segment_s, legend=True,
     )
     if y_fc is not None:
         _draw_forecast_ax(axes[0, 1], y_fc, letter="B", title="Y (ECoG), forecast")
@@ -877,15 +944,21 @@ def compose_exemplar_2x2(
         panel_label(axes[0, 1], "B", "Y (ECoG), forecast")
     _draw_recon_ax(
         axes[1, 0], z_1s, letter="C",
-        title=f"Z ({z_feat_label}), one-step", segment_s=segment_s,
+        title=f"Z ({z_lbl}), one-step", segment_s=segment_s,
     )
     if z_fc is not None:
-        _draw_forecast_ax(axes[1, 1], z_fc, letter="D", title=f"Z ({z_feat_label}), forecast")
+        _draw_forecast_ax(axes[1, 1], z_fc, letter="D", title=f"Z ({z_lbl}), forecast")
     else:
-        panel_label(axes[1, 1], "D", f"Z ({z_feat_label}), forecast")
+        panel_label(axes[1, 1], "D", f"Z ({z_lbl}), forecast")
 
+    # The thesis prose never uses the config codenames; keep the figures in step.
+    exp_label = {
+        "z-as-neural": "LFP target",
+        "z-as-behavior": "kinematics target",
+    }.get(exp_type, exp_type)
     fig.suptitle(
-        f"{session_label}, {exp_type}, DBS-{condition.upper()}",
+        f"{session_label}, {exp_label}, DBS-{condition.upper()}\n"
+        f"{neural_y_feature}   {z_feat_label}",
         fontsize=11, fontweight="bold",
     )
     info = dict(tidx_fc=tidx_fc, tidx_1s=tidx_1s, ch_y=ch_y, stim=stim)
